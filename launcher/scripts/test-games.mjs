@@ -1,6 +1,6 @@
 // Tests for the games registry (src/games.js), what each game shows in Settings (settings-schema.js sectionsIn) and whose mod set the
 // Mods page edits in each (mods-model.js scope helpers). Run: node scripts/test-games.mjs   (exit 1 on a failure)
-import { DEFAULT_GAME, GAMES, gameForPage, gameOf, hasPage, shownIn } from '../src/games.js';
+import { DEFAULT_GAME, GAMES, PRODUCTS, gameForPage, gameOf, gamesOf, hasPage, productOf, shownIn, stepGame } from '../src/games.js';
 import { FIELDS, SECTIONS, gameplayKeys, sectionsIn } from '../src/settings-schema.js';
 import { keepScope, scopeArgs, scopeOf, scopeOptions } from '../src/mods-model.js';
 
@@ -14,15 +14,25 @@ check(DEFAULT_GAME === 'recompia' && gameOf('recompia').id === 'recompia', 'Reco
 check(gameOf(undefined).id === 'recompia' && gameOf('').id === 'recompia' && gameOf('nope').id === 'recompia', 'an older launcher.json (no `game`) or an unknown one is Recompia');
 for (const g of GAMES) {
   check(hasPage(g, g.home), `${g.id}: its Home is one of its pages`);
-  check(['profiles', 'coop'].includes(g.mods), `${g.id}: mods scope ${g.mods}`);
-  check(hasPage(g, 'settings') && hasPage(g, 'news'), `${g.id}: Settings and News`);
+  check(['profiles', 'coop', null].includes(g.mods) && (g.mods === null) === !hasPage(g, 'mods'), `${g.id}: mods scope ${g.mods}`);
+  check(PRODUCTS.some((p) => p.id === g.product && p.games.includes(g.id)), `${g.id}: belongs to its product`);
 }
+// the two levels: Recompia is one install played two ways; Zonith is an install of its own
+check(PRODUCTS.flatMap((p) => p.games).sort().join() === ids.slice().sort().join(), 'every game is in exactly one product');
+check(gamesOf('recompia').map((g) => g.id).join() === 'recompia,coop' && gamesOf('zonith').map((g) => g.id).join() === 'zonith', 'Recompia holds Solo and Co-op, Zonith itself');
+check(productOf(gameOf('coop')).id === 'recompia' && productOf('zonith').name === 'Zonith', 'productOf');
+check(GAMES.filter((g) => g.product === 'recompia').every((g) => hasPage(g, 'settings') && hasPage(g, 'news')), 'Recompia games have Settings and News');
+check(stepGame('recompia', 1).id === 'coop' && stepGame('coop', 1).id === 'zonith' && stepGame('zonith', 1).id === 'recompia' && stepGame('recompia', -1).id === 'zonith', 'LT and RT walk the rail and wrap');
+const zonith = gameOf('zonith');
+check(zonith.pages.join() === 'zonith,zonith-news' && zonith.mods === null, "Zonith: its Home and its What's New, nothing of Recompia's");
+check(gameForPage(zonith, 'settings') === gameOf('recompia'), "Settings from Zonith opens Recompia's, which holds the launcher's options");
+check(gameOf('zonith').id === 'zonith', 'a saved Zonith choice loads');
 const coop = gameOf('coop');
 const recompia = gameOf('recompia');
 check(coop.name === 'Recompia: Co-op' && GAMES.every((g) => g.tab && g.icon), 'Co-op is named "Recompia: Co-op"; every game has a sidebar tab with an icon');
 check(['coop', 'mods', 'news', 'settings'].every((p) => hasPage(coop, p)) && coop.pages.length === 4, 'Co-op: Home, Mods, Settings, News only');
 for (const p of ['setup', 'linkplay', 'saveedit', 'achievements']) check(!hasPage(coop, p) && hasPage(recompia, p), `${p} is Recompia only`);
-check(GAMES.filter((g) => g.install).length === 1 && recompia.install && hasPage(recompia, 'setup'), 'Recompia alone looks after the install');
+check(PRODUCTS.every((p) => gamesOf(p).filter((g) => g.install).length === 1) && recompia.install && !coop.install && hasPage(recompia, 'setup'), 'one game per product looks after its install: Recompia (not Co-op), Zonith');
 check(!hasPage(recompia, 'coop'),'the co-op Home is not in Recompia');
 check(gameForPage(coop, 'setup') === recompia, 'Set up from Co-op is shown in Recompia');
 check(gameForPage(coop, 'mods') === coop && gameForPage(recompia, 'coop') === coop, 'a page stays in a game that has it, else moves to its game');

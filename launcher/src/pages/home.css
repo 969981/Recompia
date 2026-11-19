@@ -1,22 +1,42 @@
-/* Home: the art is the page. Title and actions sit low on the left, the newest releases along the bottom. */
+/* A game's Home (home.js, coop.js, zonith.js): the art is the page. The hero (logo, Play, what is going on) sits low on the left; under it a
+   row of cards. Shared by the three Homes through .hero-page and .hero. */
 
-.home {
+.hero-page {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   gap: var(--space-6);
   min-height: 100vh;
   max-width: none;
-  padding: calc(var(--titlebar-h) + var(--space-2)) var(--space-7) var(--space-7);
+  padding: calc(var(--titlebar-h) + var(--space-2)) var(--space-8) var(--space-7);
 }
-.home [hidden] { display: none; }
+.hero-page [hidden] { display: none !important; }
 
-.home-hero { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
-.home-logo { display: block; width: min(360px, 100%); height: auto; filter: drop-shadow(0 4px 18px rgb(0 0 0 / 0.35)); }
-.home-hero .display { margin-bottom: var(--space-1); text-shadow: var(--shadow-text); }
-.home-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
-.home-actions #link { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); }
-.home-actions #link:empty { display: none; }
+.hero { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-4); min-width: 0; max-width: 640px; }
+.hero-title { margin: 0 0 var(--space-1); line-height: 0; }
+.hero-logo { display: block; width: min(clamp(340px, 27vw, 540px), 100%); height: auto; filter: drop-shadow(0 6px 24px rgb(0 0 0 / 0.4)); }
+.hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+
+/* the Play button: the one thing on the page that is lit */
+.btn.play {
+  height: var(--hero-play-h);
+  min-width: 220px;
+  padding-inline: var(--space-8);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.btn.play .icon { width: 22px; height: 22px; }
+.btn.play:not(:disabled) { box-shadow: var(--shadow-accent), 0 0 0 1px rgb(255 255 255 / 0.18) inset, 0 0 42px -8px var(--color-accent); }
+.hero-actions .btn.big { height: var(--hero-play-h); border-radius: var(--radius-sm); }
+.hero-actions .btn.big.icon-only, .coop-hero-actions .btn.big.icon-only { width: var(--hero-play-h); padding: 0; }
+.hero-sub { color: var(--color-text-2); font-size: var(--text-sm); text-shadow: var(--shadow-text); }
+.hero-sub:empty { display: none; }
+
+.hero-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.hero-chips:empty { display: none; }
 
 .home-detail {
   display: -webkit-box;
@@ -44,7 +64,7 @@
 .home-task .btn { grid-column: 3; grid-row: 1 / span 2; }
 .home-task .note { grid-column: 1 / span 3; color: var(--color-text-2); font-size: var(--text-xs); }
 
-.home-notices { display: flex; flex-direction: column; gap: var(--space-3); }
+.home-notices { display: flex; flex-direction: column; gap: var(--space-3); width: 100%; }
 .home-notices:empty { display: none; }
 .home-card {
   display: flex;
@@ -69,7 +89,51 @@
 }
 .home-card .cluster { padding-block: var(--space-1) var(--space-1); }
 
-/* cards: as many as fit their width, one when a notice takes the height */
+/* the card row: a featured card (Co-op on Recompia's Home) and the newest releases */
+.home-feature { display: grid; grid-template-columns: minmax(300px, 1.25fr) minmax(0, 2fr); gap: var(--space-3); align-items: stretch; }
+.home-feature:not(:has(.feature-card)) { grid-template-columns: minmax(0, 1fr); }
+
+.feature-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto 1fr;
+  align-items: end;
+  gap: var(--space-1) var(--space-3);
+  min-height: 132px;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-solid);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: default;
+  isolation: isolate;
+  box-shadow: var(--shadow-lg);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.feature-card:hover { transform: translateY(-2px); border-color: var(--color-accent); box-shadow: var(--shadow-lg), 0 0 0 1px var(--color-accent); }
+.feature-card:active { transform: scale(var(--press)); }
+/* its own crop of the game's picture, warmed, under a dark fade so the words read */
+.feature-art {
+  position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(90deg, rgb(8 10 28 / 0.86) 0%, rgb(8 10 28 / 0.5) 55%, rgb(8 10 28 / 0.2) 100%), var(--feature-url, var(--art-url)) var(--feature-position, 30% 70%) / 240% no-repeat;
+  transition: background-size var(--dur-slow) var(--ease);
+}
+.feature-card:hover .feature-art { background-size: auto, 250%; }
+.feature-logo { grid-column: 1; grid-row: 1; width: 190px; max-width: 100%; height: auto; margin: -8px 0 -14px -10px; filter: drop-shadow(0 3px 12px rgb(0 0 0 / 0.45)); }
+.feature-text { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.feature-text strong { font-size: var(--text-lg); font-weight: var(--weight-bold); }
+.feature-text span { color: var(--color-text-2); font-size: var(--text-sm); }
+.feature-go {
+  grid-column: 2; grid-row: 2; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--radius-pill);
+  background: var(--color-accent); color: var(--color-on-accent); box-shadow: var(--shadow-accent);
+}
+.coop-card { --feature-position: 70% 62%; }
+
+/* release cards: as many as fit their width */
 .home-news { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--space-3); container-type: inline-size; }
 .home-news:empty { display: none; }
 .release {
@@ -91,26 +155,30 @@
 .release-title strong { font-weight: var(--weight-semi); }
 .release time { flex: none; font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .release-line { display: -webkit-box; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.release-kicker { color: var(--color-accent); font-size: var(--text-2xs); font-weight: var(--weight-bold); letter-spacing: 0.08em; text-transform: uppercase; }
 
-@container (max-width: 639.98px) {
-  .release:nth-child(n + 3) { display: none; }
-}
-@container (max-width: 419.98px) {
+@container (max-width: 459.98px) {
   .release:nth-child(n + 2) { display: none; }
 }
 
 @media (max-height: 759.98px) {
   .release-line:nth-of-type(n + 3) { display: none; }   /* the head is the first span */
-  .home.noticed .release:nth-child(n + 2) { display: none; }
-  .home.noticed .release-line { -webkit-line-clamp: 1; }
+  .hero-page.noticed .home-news { display: none; }
+  .hero-page.noticed .home-feature { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-height: 639.98px) {
-  .home { gap: var(--space-4); padding-bottom: var(--space-4); }
-  .home-hero { gap: var(--space-3); }
-  .home-hero .display { font-size: var(--text-3xl); }
-  .home-logo { width: min(260px, 100%); }
+  .hero-page { gap: var(--space-4); padding-bottom: var(--space-4); }
+  .hero { gap: var(--space-3); }
+  .hero-logo { width: min(280px, 100%); }
   .release-line { -webkit-line-clamp: 1; }
 }
 @media (max-width: 999.98px) {
-  .home { padding-inline: var(--space-6); }
+  .hero-page { padding-inline: var(--space-6); }
+  .home-feature { grid-template-columns: minmax(0, 1fr); }
+  .home-news { display: none; }
 }
+
+/* a download under the Play button (Zonith's Home) */
+.hero-progress { width: min(100%, 420px); height: 6px; overflow: hidden; border-radius: var(--radius-pill); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); }
+.hero-progress-fill { display: block; height: 100%; border-radius: inherit; background: var(--color-accent); box-shadow: 0 0 12px var(--color-accent); transition: width var(--dur) var(--ease); }
+.zonith-logo { width: min(clamp(300px, 24vw, 480px), 100%); margin-bottom: calc(var(--space-2) * -1); }

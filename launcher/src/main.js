@@ -5,13 +5,14 @@ import './components.css';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from './api.js';
 import { brandImg, setBrandGame } from './branding.js';
-import { GAMES, gameForPage, gameOf, hasPage } from './games.js';
+import { GAMES, PRODUCTS, gameForPage, gameOf, gamesOf, hasPage, stepGame } from './games.js';
 import { t } from './i18n.js';
 import { errText, esc, icon } from './ui.js';
 import { store } from './store.js';
 import { isFirstRun } from './action.js';
 import { welcomeOwed } from './cloud-signin.js';
-import { startGamepadNav } from './gamepad-nav.js';
+import { padGlyph, startGamepadNav } from './gamepad-nav.js';
+import { zonithBadge } from './zonith-model.js';
 import * as coop from './pages/coop.js';
 import * as home from './pages/home.js';
 import * as linkplay from './pages/linkplay.js';
@@ -22,17 +23,21 @@ import * as saveedit from './pages/saveedit.js';
 import * as settings from './pages/settings.js';
 import * as setup from './pages/setup.js';
 import * as welcome from './pages/welcome.js';
+import * as zonith from './pages/zonith.js';
+import * as zonithNews from './pages/zonith-news.js';
 
-// nav: shown in the sidebar. art: 'sharp' shows the island, otherwise the blurred copy. Which game offers a page is games.js.
+// nav: shown as a tab in the top bar. art: 'sharp' shows the game's picture, otherwise the blurred copy. Which game offers a page is games.js.
 const PAGES = {
-  home: { mod: home, nav: t('Home'), icon: 'house', art: 'sharp' },
-  coop: { mod: coop, nav: t('Home'), icon: 'house' },   // Recompia: Co-op's Home: cards to read, so the soft art
-  linkplay: { mod: linkplay, nav: t('Link Play'), icon: 'link' },   // 'users' is the Co-op tab's
-  mods: { mod: mods, nav: t('Mods'), icon: 'puzzle' },
-  achievements: { mod: achievements, nav: t('Achievements'), icon: 'trophy' },
-  saveedit: { mod: saveedit, nav: t('Save Editor'), icon: 'pencil' },
-  news: { mod: news, nav: t("What's New"), icon: 'newspaper' },
-  settings: { mod: settings, nav: t('Settings'), icon: 'settings' },
+  home: { mod: home, nav: t('Home'), art: 'sharp' },
+  coop: { mod: coop, nav: t('Home'), art: 'sharp' },   // Recompia: Co-op's Home opens on its own hero
+  zonith: { mod: zonith, nav: t('Home'), art: 'sharp' },
+  linkplay: { mod: linkplay, nav: t('Link Play') },
+  mods: { mod: mods, nav: t('Mods') },
+  achievements: { mod: achievements, nav: t('Achievements') },
+  saveedit: { mod: saveedit, nav: t('Save Editor') },
+  news: { mod: news, nav: t("What's New") },
+  'zonith-news': { mod: zonithNews, nav: t("What's New") },
+  settings: { mod: settings, nav: t('Settings') },
   setup: { mod: setup },
   welcome: { mod: welcome, art: 'clear' },   // the online account's sign-in screen (pages/welcome.js; at start, and Home's account chip): the picture without scrims
 };
@@ -49,22 +54,27 @@ if (import.meta.env.DEV && !window.__TAURI_INTERNALS__) {
   if (q.get('from')) startOpts = { from: q.get('from') };
 }
 
-// where the sidebar pill leads (a page of another game switches to that game, see go)
-const TASK_PAGE = { setup: 'setup', unpack: 'setup', update: 'home', dlss: 'settings', repack: 'home' };
+// where the task pill leads (a page of another game switches to that game, see go)
+const TASK_PAGE = { setup: 'setup', unpack: 'setup', update: 'home', dlss: 'settings', repack: 'home', zonith: 'zonith' };
+// the tasks whose page always shows their progress, so the pill would say it twice there (Settings shows DLSS only on one tab)
+const SHOWN_ON_PAGE = new Set(['setup', 'unpack', 'update', 'repack', 'zonith']);
 
 const SWAP_WAIT_MS = 120;   // a page that loads fast swaps in whole; a slow one shows what it has by then
+const ART_SWAP_MS = 280;    // the art fades between games for one slow beat (layout.css body[data-swapping])
 
+const rail = document.getElementById('rail');
 const nav = document.getElementById('nav');
+const tools = document.getElementById('tools');
 const view = document.getElementById('view');
 let current = null;
 let token = 0;           // the newest navigation; older ones drop what they rendered
 let leaving = [];        // run when the page goes
-let shown = gameOf();    // the game the sidebar shows (games.js; launcher.json `game`)
-let welcomeAsked = false;   // the welcome screen is a question for the first Home of a launcher start only
+let shown = gameOf();    // the game the launcher shows (games.js; launcher.json `game`)
+let welcomeAsked = false;   // the sign-in screen is a question for the first Home of a launcher start only
 
 // Launcher colours: 'meadow' (a bright daytime scene made for the project, the default), 'sunrise' (amber to red; reads well with red-green colour blindness) or 'dusk' (the old violet).
-// Per PC, kept in localStorage: nothing else needs it, and losing it just shows the default. A value no longer in THEMES (such as an
-// older launcher's 'koi') shows the default too.
+// They colour Recompia; Zonith keeps its own (theme.css). Per PC, kept in localStorage: nothing else needs it, and losing it just shows the
+// default. A value no longer in THEMES (such as an older launcher's 'koi') shows the default too.
 const THEMES = ['sunrise', 'dusk', 'meadow'];
 // theme names are proper names: they stay in English in every language
 const THEME_NAME = { sunrise: 'Sunrise', dusk: 'Dusk', meadow: 'Meadow' };
@@ -74,11 +84,15 @@ function readTheme() {
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
   const b = document.getElementById('theme-btn');
-  if (b) b.querySelector('.nav-label').textContent = b.querySelector('.nav-tip').textContent = t('Colours: {name}', { name: THEME_NAME[theme] });
+  if (b) {
+    const say = t('Colours: {name}', { name: THEME_NAME[theme] });
+    b.querySelector('.nav-tip').textContent = say;
+    b.setAttribute('aria-label', say);
+  }
 }
 applyTheme(readTheme());
 
-// Hide sidebar: a per-PC preference kept in localStorage like the theme. When hidden the nav collapses so the art is
+// Hide sidebar: a per-PC preference kept in localStorage like the theme. When hidden the rail and the tabs go so the art is
 // unobstructed; the floating #show-sidebar button (index.html) is the only way back. data-sidebar="hide" on <html> drives the CSS.
 function readSidebar() {
   try { return localStorage.getItem('sidebar') === 'hide'; } catch { return false; }
@@ -89,40 +103,55 @@ function applySidebar(hidden) {
 }
 applySidebar(readSidebar());
 
-const navButton = (attrs, ic, label) =>
-  `<button class="nav-item" ${attrs} aria-label="${esc(label)}">${ic}<span class="nav-label">${esc(label)}</span><span class="nav-tip" aria-hidden="true">${esc(label)}</span></button>`;
+const tip = (label) => `<span class="nav-tip" aria-hidden="true">${esc(label)}</span>`;
 
-/** The brand block, and under it one tab per game (games.js): Solo and Co-op are always in sight, so nobody has to find co-op in a menu. */
-function brandHtml() {
-  const tabs = GAMES.map((g) => `<button class="game-tab" data-game="${g.id}" aria-pressed="${g.id === shown.id}" aria-label="${esc(g.name)}">${icon(g.icon)}<span class="nav-label">${esc(g.tab)}</span><span class="nav-tip" aria-hidden="true">${esc(g.name)}</span></button>`).join('');
-  return `<div class="brand" data-tauri-drag-region>
-      ${brandImg('mark', 'class="brand-mark" alt=""')}${brandImg('mark-testing', `class="brand-mark-testing" alt="${esc(t('Testing'))}"`)}${brandImg('logo', 'class="brand-name brand-logo" alt="${esc(shown.name)}"')}<span class="brand-tag">${esc(t('Testing'))}</span>
-    </div>
-    <div class="game-tabs" role="group" aria-label="${esc(t('Choose a game'))}">${tabs}</div>`;
+/** One game's tile: its mark when it has one of its own (Recompia, Zonith), else its icon (Co-op, under Recompia). */
+function railGame(g, sub) {
+  const tile = sub ? `<span class="rail-tile">${icon(g.icon)}</span>` : `<span class="rail-tile mark ${g.id}">${brandImg('mark', 'alt=""', g.id)}</span>`;
+  return `<button class="rail-game${sub ? ' sub' : ''}" data-game="${g.id}" aria-current="${g.id === shown.id}" aria-label="${esc(g.name)}">${tile}<span class="rail-label">${esc(sub ? g.tab : g.name)}</span><span class="rail-badge" hidden></span>${tip(g.name)}</button>`;
 }
 
+/** The rail: the launcher's mark, then one group per product (its first game, then the rest hanging under it), then the launcher's own buttons. */
+function drawRail() {
+  const groups = PRODUCTS.map((p) => {
+    const [first, ...rest] = gamesOf(p);
+    return `<div class="rail-group" role="group" aria-label="${esc(p.name)}">${railGame(first, false)}${rest.map((g) => railGame(g, true)).join('')}</div>`;
+  }).join('<div class="rail-sep" aria-hidden="true"></div>');
+  rail.setAttribute('aria-label', t('Games'));
+  rail.innerHTML = `
+    <div class="rail-brand" data-tauri-drag-region><span class="brand-tag">${esc(t('Testing'))}</span></div>
+    ${groups}
+    <div class="rail-spacer"></div>
+    <button class="rail-tool" id="theme-btn">${icon('palette')}${tip('')}</button>
+    <button class="rail-tool" id="ui-hide-btn" aria-label="${esc(t('Hide sidebar'))}">${icon('eye-off')}${tip(t('Hide sidebar'))}</button>
+    <button class="rail-tool" id="settings-btn" data-page="settings" aria-label="${esc(t('Settings'))}">${icon('settings')}${tip(t('Settings'))}</button>`;
+  applyTheme(readTheme());
+}
+
+/** The shown game's pages in the top bar, with the pad's bumper glyphs at the two ends. */
 function drawNav() {
   const items = Object.entries(PAGES).filter(([id, p]) => p.nav && hasPage(shown, id)).map(([id, p]) =>
-    navButton(`data-page="${id}"${id === shown.home ? ' data-home' : ''}`, icon(p.icon), p.nav));
+    `<button class="nav-tab" data-page="${id}"${id === shown.home ? ' data-home' : ''}>${esc(p.nav)}</button>`);
   setBrandGame(shown.id);
-  nav.innerHTML = `
-    ${brandHtml()}
-    ${items.join('')}
-    <div class="nav-spacer"></div>
-    <button class="nav-item" id="theme-btn" aria-label="${esc(t('Change colours'))}">${icon('palette')}<span class="nav-label"></span><span class="nav-tip" aria-hidden="true"></span></button>
-    <button class="nav-item" id="ui-hide-btn" aria-label="${esc(t('Hide sidebar'))}">${icon('eye-off')}<span class="nav-label">${esc(t('Hide sidebar'))}</span><span class="nav-tip" aria-hidden="true">${esc(t('Hide sidebar'))}</span></button>
-    <button class="task-pill" id="task-pill" hidden>
-      ${icon('loader-circle', 'spin')}<span class="task-name clip"></span><span class="task-pct"></span>
-      <span class="task-track"><span class="task-fill"></span></span>
-    </button>`;
-  applyTheme(readTheme());
+  document.documentElement.dataset.game = shown.id;
+  document.title = shown.product === 'zonith' ? 'Zonith' : 'Recompia';
+  nav.setAttribute('aria-label', t('{game} pages', { game: shown.name }));
+  nav.innerHTML = `${padGlyph('LB', 'nav-bumper')}${items.join('')}${padGlyph('RB', 'nav-bumper')}`;
+  for (const b of rail.querySelectorAll('[data-game]')) b.setAttribute('aria-current', String(b.dataset.game === shown.id));
   if (current) drawChrome();
 }
 
-/** Bound once: drawNav replaces the markup inside #nav, not the element. */
-function listenNav() {
-  nav.addEventListener('click', (e) => {
-    const pick = e.target.closest('.game-tabs [data-game]')?.dataset.game;
+function drawTools() {
+  tools.innerHTML = `<button class="task-pill" id="task-pill" hidden>
+      ${icon('loader-circle', 'spin')}<span class="task-name clip"></span><span class="task-pct"></span>
+      <span class="task-track"><span class="task-fill"></span></span>
+    </button>`;
+}
+
+/** Bound once: the draw functions replace the markup inside the elements, not the elements. */
+function listen() {
+  rail.addEventListener('click', (e) => {
+    const pick = e.target.closest('[data-game]')?.dataset.game;
     if (pick) return switchGame(pick);
     if (e.target.closest('#theme-btn')) {
       const next = THEMES[(THEMES.indexOf(readTheme()) + 1) % THEMES.length];
@@ -134,31 +163,40 @@ function listenNav() {
       try { localStorage.setItem('sidebar', hide ? 'hide' : 'show'); } catch { /* the choice lasts until the launcher closes */ }
       applySidebar(hide);
     }
+    if (e.target.closest('#settings-btn') && current !== 'settings') go('settings');
+  });
+  nav.addEventListener('click', (e) => {
     const page = e.target.closest('[data-page]')?.dataset.page;
     if (page && page !== current) go(page);
-    const target = e.target.closest('#task-pill') && TASK_PAGE[store.state.task?.kind];
+  });
+  tools.addEventListener('click', (e) => {
+    const target = e.target.closest('#task-pill') && TASK_PAGE[pillTask()?.kind];
     if (target && target !== current) go(target);
   });
 }
 
-/** Shows game `id` (games.js): the choice is saved to launcher.json `game`, then the sidebar, the pictures and the page follow. `page`:
- *  where to land (the game's Home when absent). */
+/** Shows game `id` (games.js): the choice is saved to launcher.json `game`, then the rail, the tabs, the pictures and the page follow.
+ *  `page`: where to land (the game's Home when absent). */
 async function switchGame(id, page, opts) {
   const next = gameOf(id);
   if (next.id !== shown.id) {
+    const art = gameOf(shown.id).product !== next.product;
     shown = next;
+    if (art && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      document.body.dataset.swapping = '';
+      setTimeout(() => delete document.body.dataset.swapping, ART_SWAP_MS);
+    }
+    drawNav();
     try {
       await api.saveConfig({ config: { ...(await api.getConfig()), game: next.id } });
     } catch (e) {
       console.warn('save_config', e);   // the choice lasts until the launcher closes
     }
-    drawNav();
   }
   return go(page ?? next.home, opts);
 }
 
-/** The Testing channel is marked in the sidebar (the Testing icon and a tag), so a tester can tell this launcher from a Stable one at a
- *  glance. */
+/** The Testing channel is marked on the rail (a tag under the mark), so a tester can tell this launcher from a Stable one at a glance. */
 async function syncLook() {
   try {
     const c = await api.getConfig();
@@ -168,22 +206,45 @@ async function syncLook() {
   }
 }
 
+/** The task the pill shows: Recompia's (store.state.task), else Zonith's download. */
+function pillTask() {
+  const s = store.state;
+  if (s.task) return s.task;
+  const job = s.zonith?.job;
+  if (job && ['download', 'unpack'].includes(job.state)) {
+    return { kind: 'zonith', label: job.state === 'unpack' ? t('Unpacking Zonith') : t('Downloading Zonith'), pct: job.pct == null ? null : Math.round(job.pct) };
+  }
+  return null;
+}
+
 function drawChrome() {
-  for (const b of nav.querySelectorAll('[data-page]')) {
+  for (const b of document.querySelectorAll('#nav [data-page], #rail [data-page]')) {
     if (b.dataset.page === current) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   }
   // the update has its own dot beside What's New, where its notes are
   const item = nav.querySelector('[data-page="news"]');
-  const hasDot = !!item.querySelector('.nav-dot');
-  if (hasDot !== !!store.state.news.update) {
-    if (hasDot) item.querySelector('.nav-dot').remove();
-    else item.insertAdjacentHTML('beforeend', '<span class="nav-dot"></span>');
+  if (item) {
+    const hasDot = !!item.querySelector('.nav-dot');
+    if (hasDot !== !!store.state.news.update) {
+      if (hasDot) item.querySelector('.nav-dot').remove();
+      else item.insertAdjacentHTML('beforeend', '<span class="nav-dot"></span>');
+    }
+  }
+  // a badge on a rail tile says what waits there without opening it: Zonith's download or update, Recompia's update
+  for (const b of rail.querySelectorAll('[data-game]')) {
+    const badge = b.querySelector('.rail-badge');
+    const g = gameOf(b.dataset.game);
+    const say = g.product === 'zonith' ? zonithBadge(store.state.zonith)
+      : g.id === 'recompia' && store.state.news.update ? { text: t('Update') } : null;
+    badge.hidden = !say;
+    if (say) { badge.textContent = say.text; badge.classList.toggle('busy', !!say.busy); }
   }
 
   const pill = document.getElementById('task-pill');
-  const task = store.state.task;
-  pill.hidden = !task;
+  // the page the task belongs to shows it already (a Home's Play button and bar): the pill is for every other page
+  const task = pillTask();
+  pill.hidden = !task || (SHOWN_ON_PAGE.has(task.kind) && TASK_PAGE[task.kind] === current);
   if (!task) return;
   const pct = task.pct === null ? '' : `${task.pct}%`;
   const say = pct ? `${task.label}, ${pct}` : task.label;
@@ -195,20 +256,25 @@ function drawChrome() {
   pill.toggleAttribute('data-indeterminate', task.pct === null);
 }
 
-/** Shows a page. opts land on the page's ctx (ctx.firstRun, ctx.tag...); firstRun on setup and the welcome screen hide the sidebar. */
+/** Shows a page. opts land on the page's ctx (ctx.firstRun, ctx.tag...); firstRun on setup and the sign-in screen hide the tabs (the rail
+ *  stays). */
 async function go(page, opts = {}) {
   if (!PAGES[page]) return;
-  // the first Home of a launcher start: signed out of an account portal (and not skipped), the welcome screen comes first, the start
-  // questions (freeing shader space) wait behind it (cloud-signin.js welcomeOwed, pages/welcome.js)
-  if (!welcomeAsked && GAMES.some((g) => g.home === page)) {
+  // the first Home of a launcher start, when it is one of Recompia's (the online account is for its Cloud Islands; a start on Zonith is not
+  // asked): signed out of an account portal (and not skipped), the sign-in screen comes first and the start questions (freeing shader
+  // space) wait behind it (cloud-signin.js welcomeOwed, pages/welcome.js)
+  const firstHome = !welcomeAsked && GAMES.find((g) => g.home === page);
+  if (firstHome) {
     welcomeAsked = true;
-    let release;
-    store.holdQuestions(new Promise((r) => { release = r; }));
-    const before = token;
-    if (await welcomeOwed().catch(() => false) && token === before) return go('welcome', { next: page, nextOpts: opts, release });
-    release();
+    if (firstHome.product === 'recompia') {
+      let release;
+      store.holdQuestions(new Promise((r) => { release = r; }));
+      const before = token;
+      if (await welcomeOwed().catch(() => false) && token === before) return go('welcome', { next: page, nextOpts: opts, release });
+      release();
+    }
   }
-  // a page the shown game lacks (Set up from Co-op, the task pill, first run) is shown in the game that has it
+  // a page the shown game lacks (Set up from Co-op, Settings from Zonith, the task pill, first run) is shown in the game that has it
   const owner = gameForPage(shown, page);
   if (owner && owner !== shown) return switchGame(owner.id, page, opts);
   const id = ++token;
@@ -224,6 +290,7 @@ async function go(page, opts = {}) {
   const ctx = {
     ...opts,
     go,
+    switchGame,
     game: shown,
     on(fn) {
       if (id !== token) return () => {};
@@ -261,11 +328,14 @@ function drawWindowButtons() {
   document.getElementById('win-min').addEventListener('click', () => quiet(win.minimize()));
   document.getElementById('win-max').addEventListener('click', () => quiet(win.toggleMaximize()));
   document.getElementById('win-close').addEventListener('click', () => quiet(win.close()));
-  document.getElementById('titlebar').addEventListener('pointerdown', (e) => {
+  const bar = document.getElementById('topbar');
+  bar.addEventListener('pointerdown', (e) => {
     if (e.pointerType !== 'touch' || e.target.closest('button')) return;
     e.preventDefault();
     quiet(win.startDragging());
   });
+  // the bar lies over the page, so the wheel over it scrolls the page as it would anywhere else
+  bar.addEventListener('wheel', (e) => view.scrollBy({ top: e.deltaY, left: 0 }), { passive: true });
   const max = document.getElementById('win-max');
   const syncMax = () => quiet(win.isMaximized().then((on) => {
     max.innerHTML = icon(on ? 'copy' : 'square');
@@ -276,14 +346,26 @@ function drawWindowButtons() {
   syncMax();
 }
 
+/** What the pad's buttons do, along the bottom while a pad is in use. The Start button is the shown Home's main button. */
+function drawPadBar() {
+  const hint = (buttons, label) => `<span class="pad-hint">${buttons.map(([b, cls]) => padGlyph(b, cls)).join('')}${esc(label)}</span>`;
+  document.getElementById('padbar').innerHTML = hint([['LT'], ['RT']], t('Game')) + hint([['LB'], ['RB']], t('Page'))
+    + hint([['Start']], t('Play')) + hint([['B', 'round b']], t('Back')) + hint([['A', 'round a']], t('Select'));
+}
+
 async function start() {
   // the static shell of index.html is English; the language of the player goes on here
-  nav.setAttribute('aria-label', t('Main'));
   document.getElementById('winbtns').setAttribute('aria-label', t('Window'));
-  startGamepadNav();
+  startGamepadNav({
+    switchGame: (step) => switchGame(stepGame(shown.id, step).id),
+    play: () => document.querySelector('#view [data-hero-play]:not(:disabled)')?.click(),
+  });
   shown = gameOf(await api.getConfig().then((c) => c?.game, () => ''));
-  listenNav();
+  listen();
+  drawRail();
+  drawTools();
   drawNav();
+  drawPadBar();
   drawWindowButtons();
   const showSidebar = document.getElementById('show-sidebar');
   showSidebar.innerHTML = `${icon('eye')}<span>${esc(t('Show sidebar'))}</span>`;
@@ -292,15 +374,16 @@ async function start() {
     try { localStorage.setItem('sidebar', 'show'); } catch { /* the choice lasts until the launcher closes */ }
     applySidebar(false);
   });
-  store.subscribe(drawChrome);
+  store.subscribe(() => { if (current) drawChrome(); });
   store.subscribe((_s, why) => { if (why === 'news') syncLook(); });
   syncLook();
-  drawChrome();
   store.start().catch((e) => console.error(e));
   const once = store.subscribe((s, why) => {
     if (why !== 'app') return;
     once();
     if (startPage) go(startPage, startOpts);
+    // first run sets up Recompia; a player who chose Zonith opens on it, it has nothing to set up here
+    else if (shown.product === 'zonith') go(shown.home);
     else go(isFirstRun(s) ? 'setup' : shown.home, { firstRun: isFirstRun(s) });
   });
 }

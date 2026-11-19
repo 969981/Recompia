@@ -68,6 +68,10 @@ pub fn run_update(app: &AppHandle, st: &update::UpdateState, wanted: Option<Want
 
 fn update_steps(app: &AppHandle, st: &update::UpdateState, wanted: Option<Wanted>, log: &setuplog::SetupLog) -> Result<(), String> {
     let _claim = st.claim().ok_or("An update is already running.")?;
+    // the launcher restarts to finish its update, and a Zonith download would be cut off
+    if crate::zonith_cmds::job_running() {
+        return Err("Zonith is downloading. Let it finish or cancel it first.".into());
+    }
     // Set up builds in the game folder the update prepares in. The game may run: the update downloads and prepares meanwhile, and
     // waits for it to close before files move (`busy`, asked until then)
     const SETUP_RUNS: &str = "Setup is running. Pause it first, then update.";

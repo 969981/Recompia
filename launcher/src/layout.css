@@ -1,4 +1,7 @@
-/* Where things sit. Everything visual comes from theme.css tokens. */
+/* Where things sit. Everything visual comes from theme.css tokens.
+
+   The shell: a rail of games on the left (main.js drawRail), and to its right the shown game: a top bar with its pages and the window
+   buttons laid over the page, so a Home's art runs to the top edge, and the page itself, which scrolls under the bar. */
 
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -18,8 +21,8 @@ body {
   -webkit-user-select: none;
 }
 
-/* background: painted once; the blurred copy and the scrims are separate layers so no blur is ever animated */
-#bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; }
+/* background: painted once per game; the blurred copy and the scrims are separate layers so no blur is ever animated */
+#bg { position: fixed; inset: 0 0 0 var(--rail-w); z-index: 0; overflow: hidden; }
 .art, .scrim { position: absolute; inset: 0; transition: opacity var(--dur-slow) var(--ease); }
 .art { background: var(--art-url) var(--art-position) / cover no-repeat; }
 .art-soft { inset: calc(var(--art-soft-bleed) * -1); background-image: var(--art-soft-url); }   /* pre-blurred; bleed keeps its soft edges off screen */
@@ -30,56 +33,62 @@ body[data-art="sharp"] .scrim-soft { opacity: 0; }
 body[data-art="sharp"] .scrim-hero { opacity: 1; }
 body[data-art="clear"] .art-soft,
 body[data-art="clear"] .scrim-soft { opacity: 0; }
+/* switching games fades the new art in (main.js sets data-swapping for one slow beat) */
+body[data-swapping] .art { opacity: 0.35; }
 
 #app {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
   height: 100%;
-  padding: var(--gutter) 0 var(--gutter) var(--gutter);
-  column-gap: var(--gutter);
 }
-body[data-shell="full"] #app { grid-template-columns: minmax(0, 1fr); padding: 0; }
-body[data-shell="full"] #nav { display: none; }
+/* first-run setup: the rail stays (a player here for Zonith goes straight to it), the page tabs go until Recompia is set up */
+body[data-shell="full"] #nav,
+body[data-shell="full"] #tools { display: none; }
 
-#nav { display: flex; flex-direction: column; min-height: 0; padding: var(--space-3); gap: var(--space-1); }
+#rail { display: flex; flex-direction: column; align-items: center; min-height: 0; padding: var(--space-3) 0 var(--space-3); gap: var(--space-2); overflow: hidden auto; scrollbar-width: none; }
+#rail::-webkit-scrollbar { display: none; }
+
+#main { position: relative; min-width: 0; min-height: 0; }
+
+#topbar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: var(--titlebar-h);
+  padding: 0 var(--space-2) 0 var(--space-6);
+  background: var(--topbar-bg);   /* the window's title bar: it drags the window (data-tauri-drag-region on the bar, the tab row and the tools) */
+}
+body[data-shell="full"] #topbar { background: none; }
+
+#nav { display: flex; align-items: stretch; gap: var(--space-1); min-width: 0; height: 100%; overflow: hidden; }
+#tools { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+#winbtns { display: flex; gap: var(--space-1); }
+/* the tools go with the rail; the window buttons stay at the right edge */
+body[data-shell="full"] #topbar #winbtns, :root[data-sidebar="hide"] #topbar #winbtns { margin-left: auto; }   /* #tools is hidden there */
 
 #view {
+  height: 100%;
   min-width: 0;
-  min-height: 0;
-  margin-block: calc(var(--gutter) * -1);
   overflow-x: hidden;
   overflow-y: auto;
   outline: none;
 }
-body[data-shell="full"] #view { margin-block: 0; }
 .page-host { min-height: 100%; }
 
 .page {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  max-width: 820px;
+  max-width: 880px;
   margin-inline: auto;
-  padding: calc(var(--titlebar-h) + var(--space-3)) var(--space-7) var(--space-7);
+  padding: calc(var(--titlebar-h) + var(--space-4)) var(--space-7) var(--space-8);
 }
 .page.wide { max-width: none; }
-
-#titlebar {
-  position: fixed;
-  top: 0;
-  right: 0;
-  left: calc(var(--sidebar-w) + var(--gutter) * 2);
-  z-index: 5;
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  height: var(--titlebar-h);
-  padding-inline: var(--space-2);
-}
-body[data-shell="full"] #titlebar { left: 0; }
-#winbtns { display: flex; gap: var(--space-1); }
 
 #toast {
   position: fixed;
@@ -93,15 +102,36 @@ body[data-shell="full"] #titlebar { left: 0; }
   max-width: min(420px, calc(100vw - var(--space-8)));
   pointer-events: none;
 }
+body.pad-nav #toast { bottom: calc(var(--padbar-h) + var(--space-3)); }
 
-/* Hide sidebar: a player preference (main.js sets data-sidebar="hide" on <html>). The nav collapses so the art is unobstructed;
-   the floating #show-sidebar button is the only thing left to bring it back. */
-:root[data-sidebar="hide"] #app { grid-template-columns: minmax(0, 1fr); padding-left: 0; }
-:root[data-sidebar="hide"] #nav { display: none; }
-:root[data-sidebar="hide"] #titlebar { left: 0; }
-#show-sidebar { position: fixed; left: var(--space-5); bottom: var(--space-5); z-index: 5; display: none; }
+/* Hide sidebar: a player preference (main.js sets data-sidebar="hide" on <html>). The rail and the page tabs go so the art is unobstructed;
+   the #show-sidebar button, in the empty top bar's corner, is the only thing left to bring them back. */
+:root[data-sidebar="hide"] #app { grid-template-columns: minmax(0, 1fr); }
+:root[data-sidebar="hide"] #rail,
+:root[data-sidebar="hide"] #nav,
+:root[data-sidebar="hide"] #tools { display: none; }
+:root[data-sidebar="hide"] #bg { left: 0; }
+:root[data-sidebar="hide"] #topbar { background: none; }
+#show-sidebar { position: fixed; left: var(--space-4); top: calc((var(--titlebar-h) - var(--control-h)) / 2); z-index: 6; display: none; }
 :root[data-sidebar="hide"] #show-sidebar { display: inline-flex; }
-:root body[data-shell="full"] #show-sidebar { display: none; }
+
+/* the controller's button hints along the bottom (gamepad-nav.js) */
+#padbar {
+  position: fixed;
+  inset: auto 0 0 var(--rail-w);
+  z-index: 15;
+  display: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-5);
+  height: var(--padbar-h);
+  padding: 0 var(--space-6);
+  background: var(--padbar-bg);
+  pointer-events: none;
+}
+body.pad-nav #padbar { display: flex; }
+:root[data-sidebar="hide"] #padbar { left: 0; }
+body.pad-nav .page { padding-bottom: calc(var(--padbar-h) + var(--space-5)); }
 
 .stack { display: flex; flex-direction: column; gap: var(--space-3); }
 .cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
@@ -121,8 +151,8 @@ body[data-shell="full"] #titlebar { left: 0; }
 @keyframes page-fade { from { opacity: 0; } }
 
 @media (max-width: 999.98px) {
-  :root { --sidebar-w: var(--rail-w); }
   .page { padding-inline: var(--space-6); }
+  #topbar { padding-left: var(--space-4); }
 }
 
 @media (prefers-reduced-motion: reduce) {

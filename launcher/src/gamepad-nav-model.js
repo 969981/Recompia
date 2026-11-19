@@ -6,7 +6,7 @@ export const FIRST_REPEAT_MS = 420;
 export const REPEAT_MS = 130;
 
 // Standard-mapping button numbers (the browser's "standard" gamepad layout, which Steam Input and the XInput pads use).
-export const BTN = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, BACK: 8, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
+export const BTN = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, BACK: 8, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
 
 /** What a pad is doing now: { dir: 'up'|'down'|'left'|'right'|null, down: Set of button numbers, scroll: -1..1 (right stick, + = down) }. */
 export function readPad(pad) {
@@ -69,4 +69,15 @@ export function pickNext(from, rects, dir) {
 export function cycle(i, n, step) {
   if (n <= 0) return -1;
   return ((i < 0 ? (step > 0 ? -1 : 0) : i) + step + n) % n;
+}
+
+/** A pad as readPad reads it, from the launcher's own pad reader (src-tauri/src/pad.rs `pad-state`): { connected, buttons: [bool x17] in
+ *  standard order, axes: [lx, ly, rx, ry] }. Null when it reports none. Used where the webview has no Gamepad API (WebKitGTK on Linux). */
+export function nativePad(state) {
+  if (!state || !state.connected) return null;
+  return {
+    connected: true,
+    buttons: (state.buttons || []).map((on) => ({ pressed: !!on, value: on ? 1 : 0 })),
+    axes: [...(state.axes || [])],
+  };
 }

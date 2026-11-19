@@ -131,7 +131,7 @@ let dumpDir = sc.dump ? 'D:/Dumps/Game' : '';
 let relay = null;
 let mockSteam = { found: true, running: false, accounts: 1, game_added: 0, launcher_added: 0 };
 let mockChannel = 'stable';
-let mockGame = params.get('game') || '';   // launcher.json `game` (games.js); &game=coop opens Recompia: Co-op
+let mockGame = params.get('game') || 'recompia';   // &game=<recompia|coop|zonith> opens that game
 let mockOnline = { online_asked: false, online_name: '', online_salt: 'mock-salt' };   // the switch itself is pkp.online_presence
 let mockRepair = null;
 // the online account (cloud_signin.rs): &account=off|signed_out|signed_in|expired (default signed_out). A sign-in approves itself after a
@@ -670,16 +670,90 @@ function handle(cmd, args) {
     }
     case 'open_mods_dir': return null;
     case 'achievements_view': return structuredClone(mockAchievements);
+    case 'zonith_status': return structuredClone(zonithStatus());
+    case 'zonith_download': zonithDownload(); return null;
+    case 'zonith_cancel': zStop = true; return null;
+    case 'zonith_play':
+      if (!zInstalled) throw 'Zonith is not on this PC yet.';
+      zRunning = true; emit('zonith-game', { state: 'running' });
+      sleep(2500).then(() => { zRunning = false; emit('zonith-game', { state: 'exited', code: 0 }); });
+      return null;
+    case 'zonith_open_dir': return null;
+    case 'pad_poll': return { connected: false, buttons: Array(17).fill(false), axes: [0, 0, 0, 0] };
     default:
       console.warn('[mock] unknown command', cmd, args);
       throw `The mock has no command ${cmd}`;
   }
 }
 
+// Zonith (zonith.rs). &z=<new|installed|update|soon|offline> picks its state; new (the default): out, not on this PC yet.
+const zScenario = params.get('z') || 'new';
+const Z_BODY = `The first Zonith release.
+
+### Added
+- New name and look: Zonith, with a new logo and icon.
+- Linux builds can use the execution profile (PGO), like Windows.
+- Interval hold: one slow frame no longer drops the game to a lower frame rate for seconds.
+
+### Fixed
+- Flashing triangles and seams on the ground after a few minutes of walking, mostly on Linux handhelds.
+- A crash on AMD GPUs when the game wrote back small render targets during a frame.`;
+const zRelease = (tag, date, body = Z_BODY) => ({ tag, name: `Zonith ${tag.slice(1)}`, date, body, url: `https://github.com/Dittobyte/Zonith/releases/tag/${tag}`, prerelease: false });
+const Z_RELEASES = [zRelease('v0.5.1', '2026-11-26T18:00:00Z', `### Fixed\n- Stutter when the sky islands stream in on the Steam Deck.\n- The setup keeps your DLSS choice.`), zRelease('v0.5.0', '2026-11-19T03:33:51Z')];
+let zInstalled = { installed: { tag: 'v0.5.1', path: 'C:/Users/Player/AppData/Local/Recompia/zonith/v0.5.1' }, update: { tag: 'v0.5.0', path: 'C:/Users/Player/AppData/Local/Recompia/zonith/v0.5.0' } }[zScenario] ?? null;
+let zJob = null;
+let zRunning = false;
+let zStop = false;
+const zLatest = () => ({ tag: 'v0.5.1', name: 'Zonith 0.5.1', date: Z_RELEASES[0].date, url: Z_RELEASES[0].url, asset: 'TotK-Setup-0.5.1-windows.zip', size: 157_045_707 });
+function zonithStatus() {
+  const soon = zScenario === 'soon', offline = zScenario === 'offline';
+  return {
+    supported: true,
+    releases: soon || offline ? [] : Z_RELEASES,
+    latest: soon || offline ? null : zLatest(),
+    release_error: soon ? 'not_public' : offline ? 'offline' : null,
+    installed: zInstalled,
+    update: !!zInstalled && !soon && !offline && zInstalled.tag !== 'v0.5.1',
+    job: zJob,
+    running: zRunning,
+  };
+}
+async function zonithDownload() {
+  if (zJob) throw 'Zonith is already downloading.';
+  zStop = false;
+  const total = 157_045_707;
+  for (let i = 0; i <= 30; i++) {
+    if (zStop) { zJob = null; emit('zonith-progress', { state: 'cancelled' }); return null; }
+    zJob = { state: 'download', done: Math.round(total * i / 30), total, pct: 90 * i / 30 };
+    emit('zonith-progress', zJob);
+    await sleep(150);
+  }
+  zJob = { state: 'unpack', done: null, total: null, pct: 95 };
+  emit('zonith-progress', zJob);
+  await sleep(700);
+  zJob = null;
+  zInstalled = { tag: 'v0.5.1', path: 'C:/Users/Player/AppData/Local/Recompia/zonith/v0.5.1' };
+  emit('zonith-progress', { state: 'done', pct: 100 });
+  return null;
+}
+
 mockWindows('main');
 mockIPC(handle, { shouldMockEvents: true });
 
 if (sc.autoSetup) sleep(50).then(runSetup);
+// &theme=<sunrise|dusk|meadow> &sidebar=<hide|show> &lang=<code|auto>: the per-PC choices the launcher keeps in localStorage, for a
+// screenshot. Only a flag in the URL is written (the Colours and language pickers keep working otherwise); a change reloads once.
+{
+  let changed = false;
+  try {
+    for (const [flag, key] of [['theme', 'theme'], ['sidebar', 'sidebar'], ['lang', 'language']]) {
+      const v = params.get(flag);
+      if (v !== null && localStorage.getItem(key) !== v) { localStorage.setItem(key, v); changed = true; }
+    }
+  } catch { /* no storage: the defaults */ }
+  if (changed) location.reload();
+}
+if (params.has('zdl')) sleep(300).then(zonithDownload);   // &zdl: Zonith starts downloading at once
 if (sc.updating) sleep(300).then(() => runUpdate().catch(() => {}));
 
 function switcher() {
@@ -693,3 +767,11 @@ function switcher() {
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', switcher);
 else switcher();
+
+// &pad shows the launcher as a controller sees it: the hint bar, the bumper glyphs and the focus ring on the page's main button
+if (params.has('pad')) {
+  setTimeout(() => {
+    document.body.classList.add('pad-nav');
+    document.querySelector('#view [data-hero-play], #view .btn.primary')?.focus();
+  }, 1500);
+}

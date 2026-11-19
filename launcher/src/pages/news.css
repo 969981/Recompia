@@ -4,7 +4,7 @@
   gap: 0;
   height: 100vh;
   max-width: none;
-  padding: var(--titlebar-h) var(--gutter) var(--gutter) 0;
+  padding: var(--titlebar-h) var(--gutter) var(--gutter);
 }
 .news-page [hidden] { display: none; }
 

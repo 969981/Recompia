@@ -124,6 +124,16 @@ export const api = {
   modsKeepLocked: () => invoke('mods_keep_locked'),   // ['install' | 'switch_on' | 'share_on'] done, once at launcher start
   modsSetLock: (args) => invoke('mods_set_lock', args),   // { what: 'mod' | 'sharing', locked }
   openModsDir: () => invoke('open_mods_dir'),
+  // Zonith (zonith.rs): the launcher fetches its newest release and starts it; Zonith's own setup builds the game the first time
+  zonithStatus: (args) => invoke('zonith_status', args),   // { refresh }
+  zonithDownload: () => invoke('zonith_download'),   // progress: "zonith-progress"
+  zonithCancel: () => invoke('zonith_cancel'),
+  zonithPlay: () => invoke('zonith_play'),   // "zonith-game" { state: 'running' | 'exited', code }
+  zonithOpenDir: () => invoke('zonith_open_dir'),
+
+  // Controller (pad.rs): the pad as the launcher reads it, for a webview with no Gamepad API; "pad-state" on every change
+  padPoll: () => invoke('pad_poll'),
+
   // Achievements (the community tracker)
   achievementsView: (args) => invoke('achievements_view', args),   // { refresh }
 };
