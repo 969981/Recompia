@@ -17,8 +17,18 @@ export const LATEST = '';
 /** The channel launcher.json names: Experimental only when it says so. */
 export const channelOf = (config) => (String(config?.channel ?? '').trim().toLowerCase() === EXPERIMENTAL ? EXPERIMENTAL : STABLE);
 
-/** The version the player picked, '' for none (Latest on Stable, nothing picked yet on Experimental). A retired Testing channel has none. */
-export const pickedOf = (config) => (String(config?.channel ?? '').trim().toLowerCase() === 'testing' ? LATEST : String(config?.picked_version ?? '').trim());
+const bare = (v) => String(v ?? '').trim().replace(/^v/i, '');
+
+/**
+ * The version the player picked, '' for none (Latest on Stable, nothing picked yet on Experimental). A pick counts only while it is the
+ * version running (`installed`), as in update_cmds.rs follows_latest: a pick whose install never finished, or one an older launcher
+ * updated away from, is none. A retired Testing channel has none.
+ */
+export function pickedOf(config, installed) {
+  if (String(config?.channel ?? '').trim().toLowerCase() === 'testing') return LATEST;
+  const picked = String(config?.picked_version ?? '').trim();
+  return picked && bare(picked) === bare(installed) ? picked : LATEST;
+}
 
 export const channelOptions = () => [{ value: STABLE, label: t('Stable') }, { value: EXPERIMENTAL, label: t('Experimental') }];
 

@@ -35,12 +35,32 @@ pub fn releases_of(app: &AppHandle, refresh: bool) -> Vec<releases::GhRelease> {
 /// Channel::offers_updates) and on Stable with a version the player picked (config.rs `picked_version`): only Latest updates.
 fn update_current(app: &AppHandle) -> Option<String> {
     let cfg = load_config(app);
-    update_version(app).filter(|_| follows_latest(&cfg.channel, &cfg.picked_version))
+    update_version(app).filter(|v| follows_latest(&cfg.channel, &cfg.picked_version, v))
 }
 
-/// Whether the player follows the newest release: Stable with Latest picked.
-pub fn follows_latest(channel: &str, picked: &str) -> bool {
-    Channel::parse(channel).offers_updates() && picked.trim().is_empty()
+/// Whether the player follows the newest release: Stable with Latest picked. A picked version counts only while it is the version
+/// running (`running`): a pick whose install never finished (the launcher was closed or crashed during it), or one an older launcher
+/// updated away from (it knows no picks), is Latest again, so a player is never left on a pin they do not have.
+pub fn follows_latest(channel: &str, picked: &str, running: &str) -> bool {
+    let bare = |v: &str| v.trim().trim_start_matches(['v', 'V']).to_string();
+    Channel::parse(channel).offers_updates() && (picked.trim().is_empty() || bare(picked) != bare(running))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::follows_latest;
+
+    #[test]
+    fn only_stable_with_latest_or_a_pick_it_is_not_on_takes_updates() {
+        assert!(follows_latest("stable", "", "0.15.1"), "Latest");
+        assert!(follows_latest("", "", "0.15.1"), "no channel: Stable, Latest");
+        assert!(follows_latest("testing", "", "0.16.0-beta.1"), "the retired Testing: Stable, Latest");
+        assert!(!follows_latest("stable", "v0.15.0", "0.15.0"), "a picked version stays");
+        assert!(!follows_latest("stable", " V0.15.0 ", "0.15.0"));
+        assert!(follows_latest("stable", "v0.15.0", "0.15.1"), "a pick that is not installed (install cut off, or updated away) is Latest");
+        assert!(!follows_latest("experimental", "", "0.16.0-beta.1"), "Experimental never updates");
+        assert!(!follows_latest("experimental", "v0.16.0-beta.1", "0.15.1"), "not even when its pick is not installed");
+    }
 }
 
 /// Patch notes for the launcher and the update for this build, if there is one. Never fails: an empty list at worst.

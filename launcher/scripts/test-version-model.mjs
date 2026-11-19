@@ -14,8 +14,12 @@ const experimental = [b('v0.17.0-alpha.2', true, 'newer'), b('v0.16.1-beta.1', t
 check(channelOf({ channel: 'experimental' }) === EXPERIMENTAL && channelOf({ channel: ' Experimental ' }) === EXPERIMENTAL, 'experimental');
 for (const c of ['stable', 'testing', '', undefined, 'beta']) check(channelOf({ channel: c }) === STABLE, `${c} is Stable`);
 check(channelOf(null) === STABLE, 'no config: Stable');
-check(pickedOf({ channel: 'testing', picked_version: 'v0.16.0-beta.1' }) === LATEST, 'Testing becomes Latest');
-check(pickedOf({ channel: 'stable', picked_version: ' v0.15.0 ' }) === 'v0.15.0', 'a pinned version is kept');
+check(pickedOf({ channel: 'testing', picked_version: 'v0.16.0-beta.1' }, '0.16.0-beta.1') === LATEST, 'Testing becomes Latest');
+check(pickedOf({ channel: 'stable', picked_version: ' v0.15.0 ' }, '0.15.0') === 'v0.15.0', 'a pinned version is kept');
+check(pickedOf({ channel: 'stable', picked_version: 'v0.15.0' }, '0.15.1') === LATEST, 'a pick that is not installed is Latest');
+check(pickedOf({ channel: 'experimental', picked_version: 'v0.16.0-beta.1' }, '0.15.1') === LATEST, 'Experimental pick not installed: none');
+check(pickedOf({ channel: 'experimental', picked_version: 'v0.16.0-beta.1' }, '0.16.0-beta.1') === 'v0.16.0-beta.1', 'Experimental pick installed');
+check(pickedOf({ channel: 'stable', picked_version: 'v0.15.0' }, undefined) === LATEST, 'no version known: none');
 
 // Stable: Latest first, then every release; a release that cannot be installed here is shown but not pickable
 let c = versionChoice(STABLE, [...stable, ...experimental], LATEST);

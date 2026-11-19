@@ -62,14 +62,15 @@ const selectHtml = (id, label, opts, value, off, cls) => `<span class="select ${
  *  patches on change keeps an open dropdown open. */
 export function pickerHtml(cls = '') {
   const channel = channelOf(state.config);
-  const choice = versionChoice(channel, state.builds[channel], pickedOf(state.config));
+  const choice = versionChoice(channel, state.builds[channel], pickerVersion());
   const off = pickerLocked();
   return selectHtml('channel-pick', t('Update channel'), channelOptions(), channel, off, cls)
     + selectHtml('version-pick', t('Version'), choice.options, choice.value, off || choice.options.every((o) => o.disabled), cls);
 }
 
 export const pickerChannel = () => channelOf(state.config);
-export const pickerVersion = () => pickedOf(state.config);
+/** The picked version, while it is the one running (version-model.js pickedOf). */
+export const pickerVersion = () => pickedOf(state.config, store.state.app?.version);
 
 async function save(channel, picked) {
   const config = { ...(await api.getConfig()), channel, picked_version: picked };
@@ -89,7 +90,7 @@ async function save(channel, picked) {
 /** Saves the choice and installs `b`; an install that comes back (it failed or was cancelled) puts the old choice back. */
 async function install(channel, b, accepted) {
   if (!canInstall(store.state)) return;
-  const before = { channel: channelOf(state.config), picked: pickedOf(state.config) };
+  const before = { channel: channelOf(state.config), picked: pickerVersion() };
   await save(channel, b.tag);
   tell();
   await store.installVersion(b.tag, channel, accepted);   // on success the launcher restarts and this never returns

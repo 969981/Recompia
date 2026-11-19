@@ -19,8 +19,8 @@ use std::time::Duration;
 use crate::release_names::Suffixes;
 
 const REPO: &str = "featureJosh/pokopia-recomp";
-/// The releases list: small, so a whole-call limit, generous for a slow link.
-const API_TIMEOUT: Duration = Duration::from_secs(15);
+/// One page of the releases list (about 1 MB for a hundred releases): a whole-call limit, generous for a slow link.
+const API_TIMEOUT: Duration = Duration::from_secs(30);
 /// Builds from a checkout carry these (0.0.0 = untagged build, 0.1.1 = the Cargo.toml default); a tagged release stamps its own.
 const DEV_VERSIONS: [&str; 2] = ["0.0.0", "0.1.1"];
 /// One page: a hundred releases with long notes and their asset lists; a cut JSON fails to parse and the cache is served.

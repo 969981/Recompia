@@ -47,7 +47,8 @@ pub struct Config {
     pub channel: String,
     /// The version the player picked next to Play (a release tag, "v0.15.1"). On Stable, empty is Latest: the Update button offers the
     /// newest release; a picked version is kept and no update is offered. On Experimental it is the prerelease the player picked; empty
-    /// until they pick one, and Experimental never offers an update either way. Written by the page, before the install it starts.
+    /// until they pick one, and Experimental never offers an update either way. Written by the page, before the install it starts; it
+    /// counts only while it names the running version (update_cmds.rs follows_latest), so an install that never finished leaves Latest.
     pub picked_version: String,
     /// Once per launcher start, update the installed mods from the mod hub (mods_update.rs). Off unless the player switches it on.
     pub mods_auto_update: bool,
