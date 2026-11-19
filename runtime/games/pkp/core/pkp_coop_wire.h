@@ -6,9 +6,10 @@
 // Then, by type (offsets from the start of the payload; a payload shorter than its layout is dropped):
 //   StoryStates +2 u16 count n, then n times: u16 quest id (1..1000), u8 that quest's state on the origin (2..4)
 //   Ability     +2 u8[0x14] the ability effect command as the quest effect gave it (+0 its type, 0x01 or 0x19)
-//   TalkAsk     +2 u32 character id                          (a member asks the authority for the talk lock)
-//   TalkDone    +2 u32 character id                          (the holder gives the lock back)
-//   TalkHolder  +2 u32 character id, +6 u8 holder node (kNobody: free)   (the authority tells every member who holds it)
+//   TalkAsk     +2 u32 character key                         (a member asks the authority for the talk lock)
+//   TalkDone    +2 u32 character key                         (the holder gives the lock back)
+//   TalkHolder  +2 u32 character key, +6 u8 holder node (kNobody: free)   (the authority tells every member who holds it)
+//               the key is one character, not its species: (data id << 16) | idx of a resident (pkp_coop_talk.cpp)
 //   NamePrompt  nothing more                                 (the talker entered their name in the game's name entry)
 //   Items       +2 u16 item id, +4 u8 count (1..255)         (the talker's event script gave items)
 //   StoryDigest +2 u16 count n (kQuestCount), n u8 quest states (id 1 first), then u8[kAbilityBytes] the ability bits
