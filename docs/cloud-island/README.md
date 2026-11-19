@@ -12,8 +12,10 @@ Run-tested on 0.13.1 with this branch (two copies on one PC): online, travel to 
 owner's return (download), a second player joining by address and Link Code, and the game's own "Kick a player". "Send a report"
 reaches `Screening/IssueUploadUri`, which the server does not answer yet.
 
-Not done: more than two players, a relay for strict NATs, accounts (the tests used the server's `--insecure-no-auth`), TLS in the
-runtime, a lifter site for the fiber switch (see below).
+Accounts (see Account mode below): run-tested on 0.15.0, hosting an island through the launcher's account gateway on a server in
+account mode (create, matchmaking record, island upload).
+
+Not done: more than two players, a relay for strict NATs, TLS in the runtime, a lifter site for the fiber switch (see below).
 
 ## Configuration (`pkp.ini`)
 
@@ -32,6 +34,37 @@ Without it:
 
 Run `gateway.py --server <address>:443 --ca <ca.crt> --sni storage.npln.nintendo.net` next to the game. The game does its own TLS for
 gRPC; the island file goes through `nn::ssl`, which the runtime does not implement, so that one connection goes through the gateway.
+
+## Account mode (sign-in from the launcher)
+
+A server in account mode (`--client-ca`) takes only connections that present a device certificate its account portal issued. The
+game cannot present one, so for each game run the launcher starts a small gateway on 127.0.0.1 (`launcher/cloud-gateway`, program
+`recompia-cloud-gateway`) that pipes the game's connections to the server over mutual TLS with the device certificate, and checks
+the server's certificate against the CA the portal handed out at sign-in. Signing in is optional: without `cloud_portal` nothing
+changes, and signed out the game plays as before with only Cloud Islands unavailable.
+
+```ini
+[net]
+cloud_server = <server address>
+cloud_portal = https://<portal>      ; the account portal: the Home screen shows a Sign in chip and account mode is on
+cloud_account = on                   ; optional: on / off overrides what cloud_portal implies
+cloud_account_dir = <folder>         ; optional: the device folder (default: the launcher's data folder under %LOCALAPPDATA% or ~/.local/share)
+cloud_account_tls_port = 18443       ; optional: the gateway's ports on 127.0.0.1 (these are the launcher's defaults)
+cloud_account_plain_port = 18444
+```
+
+Home, account chip, **Online account**: **Use this PC** opens the portal's `/link` page in the browser and takes the answer on a
+one-shot listener on 127.0.0.1 (PKCE S256, state checked); **Use my phone** shows a QR code and a short code, and a phone signed in
+to the portal approves the device at `/link?ticket=...` (the device polls `/api/link/remote/poll`; the phone then says the device is
+signed in). Either way the device makes its own key and sends only a CSR; the key stays in the device folder (Windows: encrypted, the
+passphrase protected by DPAPI; elsewhere owner-only files). Removing the device on the portal's account page revokes it.
+
+The launcher hands the game the gateway's ports and its CA (`NXRT_NET_CLOUD_ACCOUNT_TLS_PORT`, `NXRT_NET_CLOUD_ACCOUNT_PLAIN_PORT`,
+`NXRT_NET_CLOUD_CA`) for that run only; pkp.ini is not written. The gateway makes a new CA at every start and drops its key after
+signing, starts even when signed out, and picks up a sign-in or sign-out at the next connection. Log: `cloud_gateway.log` next to
+`pkp.log`. Without the launcher: `recompia-cloud-gateway signin --portal <url> [--home <dir>] [--method browser|phone]`, `status`,
+`signout`, and `run [--home <dir>] [--tls-port N] [--plain-port N] [--ca-out <file>]` next to a game whose pkp.ini sets the two
+ports and `cloud_ca` = that file.
 
 ## The game executable needs 131 more entries
 
