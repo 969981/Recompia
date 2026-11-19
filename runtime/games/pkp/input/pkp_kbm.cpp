@@ -32,6 +32,7 @@
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 #include "core/pkp_settings.h"
+#include "core/pkp_sprites.h"
 #include "input/pkp_baked_prompts.h"
 #include "input/pkp_prompt_icons.h"
 
@@ -68,12 +69,11 @@ using layout::kInputMgr;
 using layout::kActionButtons;
 constexpr uint64_t kActionButton = 0x1126e18;     // u8 (mgr, u16 action, bool remap, bool): the button code of an action
 constexpr uint64_t kTagIcon = 0xa8332c;           // (type, id, u32* sprite, u16* sheet, u16* extra): the sprite of an icon tag
-constexpr uint64_t kSheet = 0x9125e0;             // (u16* sheet) -> the sprite sheet
-constexpr uint64_t kSheetSprite = 0x24ec2c0;      // (sheet, sprite id) -> the 88-byte sprite record
+using sprites::kSheet;
+using sprites::kSheetSprite;
 constexpr uint64_t kEmpty = 0x124750;             // a function that only returns
 using layout::kTables;
 using layout::kUiMgr;
-constexpr uint32_t kGuestMagic = 0x4e585433;      // "NXT3": the runtime's header in the game's NVN objects (+8)
 
 // Glyph slots: the 16 button codes, then the two stick glyphs.
 constexpr int kCodes = 16, kSlotLS = 16, kSlotRS = 17, kSlots = 18;   // the sticks are found by their sprite names (..._ls, ..._rs)
@@ -189,26 +189,6 @@ bool input_for_bits(const play::Settings& s, uint64_t bit, play::InputId* out) {
 }
 
 // ---- the sprite and its atlas ----
-// The game's NVNtexture reachable from the sprite record: a breadth-first walk over the pointers it holds (the runtime's header names it).
-uint64_t find_texture(uint64_t root) {
-    std::vector<uint64_t> todo{root}, seen;
-    for (size_t i = 0; i < todo.size() && i < 256; ++i) {
-        const uint64_t node = todo[i];
-        if (std::find(seen.begin(), seen.end(), node) != seen.end()) continue;
-        seen.push_back(node);
-        if (!mem::is_mapped(node, 0x110)) continue;
-        for (uint64_t off = 0; off < 0x100; off += 8) {
-            if (rd<uint32_t>(node + off + 8) == kGuestMagic) {
-                gfx::GuestTexInfo ti;
-                if (gfx::guest_texture_info(reinterpret_cast<const void*>(node + off), &ti) && ti.bc7) return node + off;
-            }
-            const uint64_t p = rd<uint64_t>(node + off);
-            if (p >= 0x7000000000ull && p < 0x8000000000ull && (p & 7) == 0 && todo.size() < 512) todo.push_back(p);
-        }
-    }
-    return 0;
-}
-
 #if NXRT_TESTTOOLS   // a dev aid: release packages carry no env-var dumps
 // NXRT_PKP_KBM_DUMP=<folder>: the atlas's level 0 as raw BC7 blocks (<folder>/atlas_<id>_<w>x<h>.bc7), once per texture. Caller holds s.mu.
 void dump_atlas(State& s, uint64_t tex) {
@@ -255,10 +235,10 @@ bool resolve_code(::Ctx* c, State& s, uint32_t code, uint32_t action) {
     Glyph& g = s.glyph[slot];
     if (g.tried) return true;
     g.tried = true;
-    const uint64_t quad = rd<uint64_t>(rec + 80);
-    g.tex = find_texture(rec);
+    g.tex = sprites::texture_of(rec);
     gfx::GuestTexInfo ti;
-    if (!g.tex || !quad || !mem::is_mapped(quad + 24, 32) || !gfx::guest_texture_info(reinterpret_cast<const void*>(g.tex), &ti)) {
+    sprites::Rect r;
+    if (!g.tex || !gfx::guest_texture_info(reinterpret_cast<const void*>(g.tex), &ti) || !sprites::rect_of(rec, ti.width, ti.height, &r)) {
         NXLOG_W(kTag, "kbm prompt %s: sprite %s, atlas texture not found", kSlotName[slot], name);
         g.tex = 0;
         return true;
@@ -266,15 +246,7 @@ bool resolve_code(::Ctx* c, State& s, uint32_t code, uint32_t action) {
 #if NXRT_TESTTOOLS
     dump_atlas(s, g.tex);
 #endif
-    float u0 = 1, v0 = 1, u1 = 0, v1 = 0;
-    for (int k = 0; k < 4; ++k) {
-        const float u = rd<float>(quad + 24 + 8 * k), v = rd<float>(quad + 28 + 8 * k);
-        u0 = std::min(u0, u), u1 = std::max(u1, u), v0 = std::min(v0, v), v1 = std::max(v1, v);
-    }
-    g.x = static_cast<uint32_t>(std::lround(u0 * ti.width));
-    g.y = static_cast<uint32_t>(std::lround(v0 * ti.height));
-    g.w = static_cast<uint32_t>(std::lround(u1 * ti.width)) - g.x;
-    g.h = static_cast<uint32_t>(std::lround(v1 * ti.height)) - g.y;
+    g.x = r.x, g.y = r.y, g.w = r.w, g.h = r.h;
     const bool ok = ((g.x | g.y | g.w | g.h) & 3u) == 0 && g.w && g.h && g.w <= 256 && g.h <= 256;
     NXLOG_I(kTag, "kbm prompt %s (code %u): sprite %s %ux%u at (%u, %u) of texture #%u (%ux%u, %u levels)%s", kSlotName[slot], code, name, g.w,
             g.h, g.x, g.y, ti.id, ti.width, ti.height, ti.levels, ok ? "" : ", not 4x4 aligned: text only");

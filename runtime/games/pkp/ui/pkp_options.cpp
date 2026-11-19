@@ -63,7 +63,6 @@ constexpr uint64_t kClockText = 0xead978;     // (hour, minute, out): the time o
 constexpr uint64_t kBarTitle = 0xeb1b40;      // (bar, title byte): the title under the bar
 constexpr uint64_t kBarTitleBuild = 0x10134e8, kBarTitleChange = 0x1013f54, kBarTitleChangeAlt = 0x1014004;   // its return addresses in the Options bar (x19 = the bar's holder)
 using layout::kChildOf;
-constexpr uint64_t kSetSprite = 0xa7c05c;     // (pane holder, slot, sprite, 0, 0)
 using layout::kTables;
 constexpr uint64_t kOptionTable = 0x10 + 0x828, kRowId = 0x420, kItemValue = 0x358;
 constexpr uint64_t kScreenState = 0x90;
@@ -72,6 +71,8 @@ constexpr uint32_t kCustomText = 801;         // past the game's guards (1..800)
 constexpr uint32_t kFirstValueSlot = 7;       // text slots of the value names
 constexpr uint32_t kSliderSlot = 0x14, kLabelSlot = 4, kTitleSlot = 0x19;
 using layout::kLayoutOf;
+using layout::kPaneKind;
+using layout::kTextPane;
 constexpr uint64_t kPaneIndex = 0xa72644;     // the slot to pane lookup (with layout::kLayoutOf)
 constexpr uint32_t kPaneWidth = 0xf0;         // int16, text pane
 constexpr int16_t kSliderTextWidth = 420;     // room for the longest value name above the slider
@@ -80,8 +81,6 @@ constexpr uint8_t kNoGroup = 0xee;            // a slot not used by the current 
 constexpr uint8_t kFirstOrder = 40;           // after the game's own rows of the tab
 constexpr uint8_t kCellClass = 0x49;
 constexpr uint32_t kFirstCell = 0x62b;        // the bar's cell widgets, 16 of them
-// ponytail: every new tab shows the Game tab's icon until there is art; add a sprite pair per tab when it exists.
-constexpr uint32_t kIconOn = 0x88, kIconOff = 0x87;
 
 // ---- tabs ------------------------------------------------------------------------------------------------------------------------
 
@@ -113,8 +112,10 @@ const Tab kTabs[] = {
 };
 constexpr int kTabCount = static_cast<int>(std::size(kTabs));
 constexpr int kGameTabs = 3;
-// The bar has 16 cells (kFirstCell) and its layout table (hook_bar_state) has 16 entries: one more tab needs nothing else.
+// The bar has 16 cells (kFirstCell) and its layout table (hook_bar_state) has 16 entries: one more tab needs nothing else but its icon
+// (tools/settings_tab_icons.py, in this order).
 static_assert(kTabCount <= 16, "the tab bar has 16 cells");
+static_assert(kTabCount - kGameTabs == icons::kTabs, "one icon per tab of ours");
 
 // ---- state -------------------------------------------------------------------------------------------------------------------------
 
@@ -353,16 +354,17 @@ void hook_bar_state(::Ctx* c, uint64_t, void*) {
     c->x[1] = rd<uint32_t>(c->x[9] + (kTabCount - 1) * 4);   // the game masks this index to its three tabs; its 16 entries are 17 - the tab count
 }
 
+// The game sets the icons of its own three cells after this; ours get theirs here (pkp_options_icons.cpp).
 void hook_bar_icons(::Ctx* c, uint64_t, void*) {
     if (!g.bar_extended) return;
     const uint64_t bar = c->x[21];
     const uint64_t cls = (c->x[31] - 0x20) & ~uint64_t{0xf};
+    const bool painted = icons::prepare(c, g.base, cls, cls - 0x10);
     for (uint32_t i = kGameTabs; i < kTabCount; ++i) {
         wr<uint16_t>(cls, 0);
         const uint64_t cell = call(c, g.base + kChildOf, bar + 0x48, kFirstCell + i, cls, 0, 0, cls - 0x10);
         if (!cell || rd<uint16_t>(cls) != kCellClass) continue;
-        call(c, g.base + kSetSprite, cell + 0x30, 5, kIconOn, 0, 0, cls - 0x10);
-        call(c, g.base + kSetSprite, cell + 0x30, 6, kIconOff, 0, 0, cls - 0x10);
+        icons::set_cell(c, g.base, cell + 0x30, static_cast<int>(i) - kGameTabs, painted, cls - 0x10);
     }
 }
 
@@ -408,18 +410,10 @@ void hook_row_drawn(::Ctx* c, uint64_t, void*) {
     }
 }
 
-// The widget's text pane for a slot: the game's own walk (see 0xa7abe0). 0 if there is none.
+// The widget's text pane for a slot, 0 if there is none.
 uint64_t text_pane(::Ctx* c, uint64_t widget, uint32_t slot) {
-    const uint64_t handler = rd<uint64_t>(widget + 0x68);
-    const uint64_t source = handler ? rd<uint64_t>(handler + 8) : 0;
-    const uint64_t layout = source ? call(c, g.base + kLayoutOf, source) : 0;
-    if (!layout || rd<uint16_t>(layout + 0x92) <= slot) return 0;
-    const uint32_t index = static_cast<uint32_t>(call(c, g.base + kPaneIndex, handler, slot));
-    const uint32_t count = static_cast<uint32_t>(call(c, rd<uint64_t>(rd<uint64_t>(layout + 0x10) + 0x20), layout + 0x10));
-    uint64_t node = index < count ? rd<uint64_t>(layout + 0x20) : 0;
-    for (uint32_t i = 0; node && i < index; ++i) node = rd<uint64_t>(node + 8);
-    const uint64_t pane = rd<uint64_t>(node ? node + 0x10 : layout + 0x28);
-    return pane && rd<uint8_t>(pane + 0x112) == 2 ? pane : 0;
+    const uint64_t pane = slot_pane(c, rd<uint64_t>(widget + 0x68), slot);
+    return pane && rd<uint8_t>(pane + kPaneKind) == kTextPane ? pane : 0;
 }
 
 void hook_slider_text(::Ctx* c, uint64_t, void*) {
@@ -484,9 +478,21 @@ void install(const FeatureInstall& in) {
 }
 
 }  // namespace
+
+uint64_t slot_pane(::Ctx* c, uint64_t handler, uint32_t slot) {
+    const uint64_t source = handler ? rd<uint64_t>(handler + 8) : 0;
+    const uint64_t layout = source ? call(c, g.base + kLayoutOf, source) : 0;
+    if (!layout || rd<uint16_t>(layout + 0x92) <= slot) return 0;
+    const uint32_t index = static_cast<uint32_t>(call(c, g.base + kPaneIndex, handler, slot));
+    const uint32_t count = static_cast<uint32_t>(call(c, rd<uint64_t>(rd<uint64_t>(layout + 0x10) + 0x20), layout + 0x10));
+    uint64_t node = index < count ? rd<uint64_t>(layout + 0x20) : 0;
+    for (uint32_t i = 0; node && i < index; ++i) node = rd<uint64_t>(node + 8);
+    return rd<uint64_t>(node ? node + 0x10 : layout + 0x28);
+}
+
 }  // namespace options_detail
 
-const Feature kOptionsFeature = {.name = "options", .install = &options_detail::install, .frame = &options_detail::frame,
-                                 .game_frame = &options_detail::game_frame};
+const Feature kOptionsFeature = {.name = "options", .install = &options_detail::install, .remove = &options_detail::icons::restore,
+                                 .frame = &options_detail::frame, .game_frame = &options_detail::game_frame};
 
 }  // namespace nxrt::games::pkp

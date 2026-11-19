@@ -8,6 +8,7 @@
 //   pkp_options_time.cpp   the Time and Events tabs: their rows, the event list and the game clock
 //   pkp_options_mods.cpp   the Mods tab: the Modtopia mods of the mods host (nxrt/mods.h)
 //   pkp_options_items.cpp  the Items tab: the item editor's screen (pkp_item_edit.h)
+//   pkp_options_icons.cpp  the icons of our tabs in the tab bar
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -121,5 +122,23 @@ void refresh_audio_devices();                 // the Output Device row's list, r
 
 // ---- pkp_options_time.cpp (its tabs: pkp_options_model.h) ----
 int hook_clock_text(::Ctx* c, uint64_t, void*);   // [tweaks] clock_format in the game's time-of-day text
+
+// ---- pkp_options.cpp ----
+// The pane behind slot `slot` of a layout handler (a widget's [+0x68], a tab cell's +0x30): the game's own walk (see 0xa7abe0). 0 if
+// there is none.
+uint64_t slot_pane(::Ctx* c, uint64_t handler, uint32_t slot);
+
+// ---- pkp_options_icons.cpp ----
+namespace icons {
+constexpr int kTabs = 12;                     // our tabs, each with its own icon (tools/settings_tab_icons.py)
+// Once per build of the extended tab bar, before set_cell: finds the atlas of the game's tab icons and paints our tabs' icons into a part
+// of it nothing uses, unless that texture has them already. False when the atlas is not the one the icons were placed for.
+bool prepare(::Ctx* c, uint64_t base, uint64_t scratch, uint64_t sp);
+// A cell of our tab number `index` (0 = the first tab after the game's three; holder = the cell + 0x30): its two icon panes show that
+// tab's icon, or the Game tab's when prepare said false.
+void set_cell(::Ctx* c, uint64_t base, uint64_t holder, int index, bool painted, uint64_t sp);
+// The atlas gets its own texels back (the feature's remove).
+void restore();
+}  // namespace icons
 
 }  // namespace nxrt::games::pkp::options_detail
