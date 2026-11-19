@@ -251,7 +251,7 @@ midhook 0x71000b1030
 #   starts) and its online pattern (above, shared with Interact everywhere); the talk start 0x71003180e0, the `mov w0, wzr` right after
 #   its talk event call returns (w22 bit 0 clear next: "no talk after all") and the end of a talk's event chain 0x710047bd00; the setters of a story quest's state (m_story,
 #   id, state) and flag (m_story, id, bool); one effect command of a completed quest; event-script commands 0x44
-#   (the name entry) and 0xbea (items)
+#   (the name entry) and 0xbea (items); the wild-creature appearance 0x71001240dc (script command 0xc1e, quest effect 0x33)
 midhook 0x71000b0f74
 entryhook 0x71003180e0
 midhook 0x71003181cc
@@ -259,6 +259,7 @@ entryhook 0x710047bd00
 entryhook 0x71005d865c
 entryhook 0x71005d8774
 entryhook 0x710011b214
+entryhook 0x71001240dc
 entryhook 0x710043d3e0
 entryhook 0x710012c734
 #   Seamless co-op, the requests (pkp_coop_requests.cpp): the bind gate of the unique request manager ("can this creature have requests
@@ -291,6 +292,11 @@ entryhook 0x7100241324
 entryhook 0x7100245200
 entryhook 0x71005a8a34
 entryhook 0x71005727c0
+#   Seamless co-op, the shops (pkp_coop_purchases.cpp): a purchase's give 0x7100e889f8 (the shop's buy 0x7100e88868 tail-calls it; on a
+#   visitor the host's answer to its buy, 0x7100226280, calls it), and "this shop row is for offline play only" 0x7100e87260 (the bag
+#   upgrades; its callers, the listing tests 0x7100e86494 / 0x7100e87424, hide such rows whenever the game is online)
+entryhook 0x7100e889f8
+entryhook 0x7100e87260
 #   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): the talk handler
 #   0x71004c024c at `orr w8, w25, w0` (w0 = IsHost's answer); talk conditions 0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0`
 #   after IsOnline), and condition 0x22, the one instruction `b IsOnline`; the quest pump 0x710011b600 at `tbz w0, #0` after the flag read;

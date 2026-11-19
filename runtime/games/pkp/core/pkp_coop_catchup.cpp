@@ -217,7 +217,7 @@ int on_name_entry(::Ctx*) {
 
 int on_script_items(::Ctx* c) {
     State& s = st();
-    if (s.remote || !link::in_session() || !guest::ok(c->x[0], 0xc)) return 0;
+    if (s.remote || purchases::replaying() || !link::in_session() || !guest::ok(c->x[0], 0xc)) return 0;
     const uint16_t item = guest::rd<uint16_t>(c->x[0] + 4);
     const uint32_t count = guest::rd<uint32_t>(c->x[0] + 8);
     if (item < 1 || item > kItemMax || !count) return 0;

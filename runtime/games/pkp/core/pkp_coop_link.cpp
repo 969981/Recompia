@@ -49,6 +49,10 @@ constexpr Route kRoutes[] = {
     {wire::Type::ReqUnique, Path::Shared, &requests::on_unique_message},
     {wire::Type::ReqOutcome, Path::ToAuthority, &outcomes::on_outcome_message},
     {wire::Type::RecipeKnown, Path::Shared, &recipes::on_known_message},
+    {wire::Type::WildPop, Path::ToAuthority, &story::on_wild_pop_message},
+    {wire::Type::Purchase, Path::ToAuthority, &purchases::on_purchase_message},
+    {wire::Type::PurchaseAsk, Path::ToAuthority, &purchases::on_ask_message},
+    {wire::Type::PurchaseLog, Path::FromAuthority, &purchases::on_log_message},
 };
 
 struct State {
@@ -118,6 +122,7 @@ void on_member(const ch::MemberEvent& e) {
         notice::on_session_change();
         requests::on_session_change();
         recipes::on_session_change();
+        purchases::on_session_change();
         NXLOG_I(kTag, "Co-op: %s the session's channel as node %d%s", e.joined ? "in" : "out of", e.node, e.authority ? " (the authority)" : "");
         if (e.joined && e.authority != (role() == CoopRole::Host))
             NXLOG_W(kTag, "Co-op: this process is %s of the session, but its launch role is %s", e.authority ? "the authority" : "a member",

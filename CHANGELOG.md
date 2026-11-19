@@ -2,11 +2,21 @@
 
 ## Unreleased
 
-Press **Update** in the launcher, then **Set up again** (co-op gets a new game hook point; saves and shaders are kept).
+- Launcher: a new look with a rail of games on the left, a Home with one big Play button for each game, and Recompia: Co-op with its own Home. It also downloads, updates and starts Zonith, with its own What's New, and on Linux and the Steam Deck it reads the controller itself (LT/RT switch games, Start plays).
+
+## 0.15.1 (build S: Sloth Hotfix a1)
+
+**Update:** press **Update** in the launcher, then **Set up again** (co-op gets new game hook points; saves and shaders are kept).
+
+### Highlights
+- **Co-op: shop purchases are shared.** Whatever one player buys, every teammate gets too, and so does anyone who joins later. Only the buyer pays
+- **Co-op: the host's shop now sells the Backpack Upgrade (Packing Tips) and PP Up** (#780)
+- **Co-op: the group travels to another area together**, and a player who is offline no longer freezes the others once the story has begun
 
 ### Gameplay
 - Press **F5** while playing to save and keep playing (#659). Change the shortcut under **Settings > Keyboard & Mouse > Quick Save Key**.
 - Linux: fixed rhythmic audio crackling with SDL3's PipeWire backend.
+- Each in-game Settings tab has its own icon.
 
 ### Performance
 - Fixed the no-Resizable-BAR path not being used on large graphics cards without Resizable BAR (such as some eGPU connections): such cards now read the game's shader constants from video memory too, like 4 and 6 GB cards. Cards of 8 GB or more with Resizable BAR, handhelds and PCs without a separate graphics card are unchanged.
@@ -15,6 +25,8 @@ Press **Update** in the launcher, then **Set up again** (co-op gets a new game h
 - The group travels to another area together or not at all. A move to another area asks the whole group with the game's own poll; it goes ahead only if everyone answers yes, and the host then takes everyone along. On a no, nobody moves. A teammate's map trip that everyone agrees to now actually takes the group there. Needs **Set up again** (a new hook point), and every player on the same build
 - The game now waits for every player only at the very start of a new co-op world. Once the story has begun, a player who is not online no longer freezes the others, and they can join at any time.
 - Launcher: the Co-op page says plainly that co-op is experimental and needs its own new save, which starts from the beginning.
+- Fixed Bulbasaur never coming to the tall grass after Squirtle when another player than the host had the talk that sends it there, which left the story stuck. Such talks now bring the Pokémon into the host's world, the group's. A world already stuck this way is not repaired: start a new co-op save.
+- Shop purchases are shared: whatever one player buys in a shop (an item, an upgrade such as the Backpack Upgrade, a recipe) every other player gets too, with a line in the message log, and so does anyone who joins the group later. Only the buyer pays. A one-of-a-kind item that is sold out after a teammate bought it is no longer missed. The host's shop now sells the Backpack Upgrade (Packing Tips), PP Up and the other items it only showed offline (#780). Needs **Set up again** (a new hook point), and every player on the same build
 
 ## 0.15.0 (build S: Sloth)
 

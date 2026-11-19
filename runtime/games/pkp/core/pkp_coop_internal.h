@@ -16,6 +16,7 @@
 //   pkp_coop_requests.cpp the creature requests a member took on or finished, listed in every member's requests app
 //   pkp_coop_outcomes.cpp what a finished request adds to the world (town goal, friendship), applied once for the group
 //   pkp_coop_recipes.cpp  the crafting recipes any member knows, learned by every member
+//   pkp_coop_purchases.cpp what any member buys in a shop, given to every member (and to later joiners) too
 //   pkp_coop_travel.cpp   the group's trips: a move to another area runs only after the game's poll passed, and the host makes it for all
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
@@ -36,6 +37,8 @@ namespace nxrt::games::pkp::coop {
 uint64_t base();
 CoopRole role();
 int members();
+// This player's member key (the launch's 32 lower-case hex digits; the same on every launch of this player in the group).
+const std::string& member_key();
 
 // The game state's Link Play session bits (layout::kSession*); 0 with no game state or no session.
 uint8_t session_bits();
@@ -77,10 +80,12 @@ int on_mask_pattern(::Ctx* c);   // midhook 0xb1030: the story-area online patte
 int on_quest_state(::Ctx* c);    // entry 0x5d865c
 int on_quest_flag(::Ctx* c);     // entry 0x5d8774: logged only
 int on_quest_effect(::Ctx* c);   // entry 0x11b214: world effects run on the authority only
+int on_wild_pop(::Ctx* c);       // entry 0x1240dc: a member's wild-creature appearance is sent to the authority
 // The messages (pkp_coop_link.cpp).
 void on_states_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_ability_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_digest_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_wild_pop_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // Moves the quests behind another member's state one step on, shares the quest states and ability bits that rose here (once a frame,
 // after the channel's handlers).
 void tick(::Ctx* c);
@@ -134,6 +139,24 @@ void on_session_change();   // this process joined or left: the recipes are read
 void on_member_joined();    // another member joined: the whole list is sent again
 void reset();
 }  // namespace recipes
+
+namespace purchases {
+// The hook site (pkp_coop.cpp): entry 0xe889f8, a purchase's give on the buyer's process; it is logged for the group.
+int on_grant(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0xe87260, "this shop row is for offline play only"; in a session no row is.
+int on_offline_only(::Ctx* c);
+// True while a teammate's purchase is given here, and shortly after a received upgrade (its scripted event may still give items):
+// those gives are not shared again (pkp_coop_catchup.cpp).
+bool replaying();
+// The messages (pkp_coop_link.cpp).
+void on_purchase_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // the authority: a member bought something
+void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);        // the authority: a member asks for what it lacks
+void on_log_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);        // a member: purchases of the group's log
+// Sends this player's purchases, asks for missing ones and gives another's purchase here at a safe moment (once a frame).
+void tick(::Ctx* c, bool in_game);
+void on_session_change();   // this process joined or left: what it lacks is asked again
+void reset();
+}  // namespace purchases
 
 namespace travel {
 // The hook site (pkp_coop.cpp): entry 0xbda20, the area move by destination index. In a session it runs only after the group's poll

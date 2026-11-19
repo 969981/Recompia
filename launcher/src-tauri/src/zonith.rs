@@ -1,0 +1,309 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! Zonith, the launcher's second game. The launcher keeps Zonith's own setup app up to date and starts it; that app sets the game up
+//! and plays it. This file is the pure part: the release list, which release this platform installs, what the launcher downloaded
+//! (`<data>/zonith/current.json`) and the progress the page shows. The commands are zonith_cmds.rs.
+
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+
+/// Unauthenticated: until the repository is public this answers 404, which is "not public yet".
+pub const RELEASES_URL: &str = "https://api.github.com/repos/Dittobyte/Zonith/releases?per_page=20";
+
+/// The setup file this platform downloads (by the end of its name).
+pub const ASSET_SUFFIX: &str = if cfg!(windows) { "-windows.zip" } else { ".AppImage" };
+
+/// Zonith has Windows and Linux builds only.
+pub const SUPPORTED: bool = cfg!(any(windows, target_os = "linux"));
+
+/// What the launcher downloaded last, in `<data>/zonith/`.
+pub const CURRENT_FILE: &str = "current.json";
+
+/// The folder the Windows zip holds, with TotK-Setup.exe in it.
+pub const WINDOWS_ROOT: &str = "TotK-Setup-windows";
+pub const WINDOWS_EXE: &str = "TotK-Setup.exe";
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct GhAsset {
+    pub name: String,
+    #[serde(default)]
+    pub size: u64,
+    #[serde(default)]
+    pub browser_download_url: String,
+    /// "sha256:<hex>", which GitHub lists for assets
+    #[serde(default)]
+    pub digest: Option<String>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct GhRelease {
+    pub tag_name: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub published_at: Option<String>,
+    #[serde(default)]
+    pub body: Option<String>,
+    #[serde(default)]
+    pub html_url: String,
+    #[serde(default)]
+    pub prerelease: bool,
+    #[serde(default)]
+    pub draft: bool,
+    #[serde(default)]
+    pub assets: Vec<GhAsset>,
+}
+
+impl GhRelease {
+    fn title(&self) -> String {
+        self.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| format!("Zonith {}", self.tag_name))
+    }
+}
+
+/// A release for the What's New page.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct ReleaseRow {
+    pub tag: String,
+    pub name: String,
+    pub date: String,
+    pub body: String,
+    pub url: String,
+    pub prerelease: bool,
+}
+
+/// The release this platform installs, plus what the download needs (not sent).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Latest {
+    pub tag: String,
+    pub name: String,
+    pub date: String,
+    pub url: String,
+    /// the setup file's name
+    pub asset: String,
+    pub size: u64,
+    #[serde(skip)]
+    pub download_url: String,
+    #[serde(skip)]
+    pub sha256: String,
+}
+
+pub fn parse_releases(body: &[u8]) -> Result<Vec<GhRelease>, String> {
+    let list: Vec<GhRelease> = serde_json::from_slice(body).map_err(|e| e.to_string())?;
+    Ok(list.into_iter().filter(|r| !r.draft).collect())
+}
+
+/// The releases, newest first (by version; GitHub's order otherwise).
+pub fn rows(list: &[GhRelease]) -> Vec<ReleaseRow> {
+    let mut out: Vec<ReleaseRow> = list
+        .iter()
+        .map(|r| ReleaseRow { tag: r.tag_name.clone(), name: r.title(), date: r.published_at.clone().unwrap_or_default(), body: r.body.clone().unwrap_or_default(), url: r.html_url.clone(), prerelease: r.prerelease })
+        .collect();
+    out.sort_by(|a, b| match (crate::releases::Version::parse(&a.tag), crate::releases::Version::parse(&b.tag)) {
+        (Some(x), Some(y)) => y.cmp(&x),
+        _ => std::cmp::Ordering::Equal,
+    });
+    out
+}
+
+/// The lower-case hex of a GitHub "sha256:<hex>" digest; None for any other form.
+pub fn parse_digest(d: &str) -> Option<String> {
+    let hex = d.trim().strip_prefix("sha256:")?;
+    (hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit())).then(|| hex.to_ascii_lowercase())
+}
+
+/// The newest non-prerelease with this platform's setup and its digest (an asset without one cannot be checked, so it is skipped).
+pub fn latest(list: &[GhRelease], suffix: &str) -> Option<Latest> {
+    list.iter()
+        .filter(|r| !r.prerelease && crate::releases::Version::parse(&r.tag_name).is_some())
+        .filter_map(|r| {
+            let a = r.assets.iter().find(|a| a.name.ends_with(suffix) && !a.browser_download_url.is_empty())?;
+            let sha256 = parse_digest(a.digest.as_deref()?)?;
+            Some(Latest {
+                tag: r.tag_name.clone(),
+                name: r.title(),
+                date: r.published_at.clone().unwrap_or_default(),
+                url: r.html_url.clone(),
+                asset: a.name.clone(),
+                size: a.size,
+                download_url: a.browser_download_url.clone(),
+                sha256,
+            })
+        })
+        .max_by(|a, b| crate::releases::Version::parse(&a.tag).cmp(&crate::releases::Version::parse(&b.tag)))
+}
+
+/// The tag as a folder name.
+pub fn safe_tag(tag: &str) -> String {
+    let t: String = tag.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')).collect();
+    if t.is_empty() || t.chars().all(|c| c == '.') { "latest".into() } else { t }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Current {
+    pub tag: String,
+    /// the release file it came from (the AppImage on Linux, the zip on Windows)
+    #[serde(default)]
+    pub asset: String,
+}
+
+/// The setup app to start, in the launcher's Zonith folder: Windows `<tag>/TotK-Setup-windows/TotK-Setup.exe`; Linux the AppImage at the
+/// folder's top, always at the same path, because the rebuild command Zonith writes into an install starts that file (docs/installer.md).
+pub fn app_path(zonith: &Path, c: &Current) -> std::path::PathBuf {
+    if cfg!(windows) { zonith.join(safe_tag(&c.tag)).join(WINDOWS_ROOT).join(WINDOWS_EXE) } else { zonith.join(&c.asset) }
+}
+
+/// What the launcher downloaded: current.json, when its setup app is still there.
+pub fn read_current(zonith: &Path) -> Option<Current> {
+    let c: Current = serde_json::from_str(&std::fs::read_to_string(zonith.join(CURRENT_FILE)).ok()?).ok()?;
+    if c.tag.is_empty() {
+        return None;
+    }
+    app_path(zonith, &c).is_file().then_some(c)
+}
+
+/// The release tag is newer than the downloaded one ("v0.5.1" against "0.5.0"; releases::Version drops a leading v).
+pub fn update_available(installed: &str, tag: &str) -> bool {
+    crate::releases::is_newer(tag, installed)
+}
+
+/// The `zonith-progress` payload.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+pub struct ZonithProgress {
+    /// download | unpack | done | error | cancelled
+    pub state: String,
+    pub done: Option<u64>,
+    pub total: Option<u64>,
+    pub pct: Option<f64>,
+    pub message: Option<String>,
+}
+
+const DOWNLOAD_SHARE: f64 = 90.0;
+
+impl ZonithProgress {
+    pub fn download(done: u64, total: u64) -> Self {
+        let frac = if total > 0 { (done as f64 / total as f64).min(1.0) } else { 0.0 };
+        ZonithProgress { state: "download".into(), done: Some(done), total: Some(total), pct: Some((DOWNLOAD_SHARE * frac * 10.0).round() / 10.0), message: None }
+    }
+    pub fn unpack() -> Self {
+        ZonithProgress { state: "unpack".into(), pct: Some(DOWNLOAD_SHARE), ..Default::default() }
+    }
+    pub fn end(state: &str, message: Option<String>) -> Self {
+        ZonithProgress { state: state.into(), pct: (state == "done").then_some(100.0), message, ..Default::default() }
+    }
+}
+
+/// Deletes the folders of older setups once the new one is recorded (`keep`: its folder). The setup app's starter exits at once, so the
+/// launcher cannot tell whether an old setup window is still open: each folder is renamed first, which Windows refuses while a program
+/// runs from it, and a folder that will not rename is left for the next update rather than half deleted under the window.
+pub fn remove_old(zonith: &Path, keep: &str) {
+    for e in std::fs::read_dir(zonith).map(|r| r.flatten().collect::<Vec<_>>()).unwrap_or_default() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if !e.path().is_dir() || name == keep {
+            continue;
+        }
+        let gone = if name.ends_with(".old") { e.path() } else { zonith.join(format!("{name}.old")) };
+        if gone == e.path() || std::fs::rename(e.path(), &gone).is_ok() {
+            let _ = std::fs::remove_dir_all(&gone);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const HEX: &str = "9a44d60023efd21255ba43b88ca72480d81330899ace099845df3e72da0917b2";
+
+    fn list() -> Vec<GhRelease> {
+        let asset = |name: &str, digest: Option<&str>| json!({"name": name, "size": 10, "browser_download_url": format!("https://x/{name}"), "digest": digest});
+        let d = format!("sha256:{HEX}");
+        let body = json!([
+            {"tag_name": "v0.6.0-rc.1", "prerelease": true, "assets": [asset("TotK-Setup-0.6.0-windows.zip", Some(&d)), asset("TotK-Setup-x86_64.AppImage", Some(&d))]},
+            {"tag_name": "v0.5.1", "name": "Zonith 0.5.1", "assets": [asset("TotK-Setup-0.5.1-windows.zip", None), asset("TotK-Setup-x86_64.AppImage", Some(&d))]},
+            {"tag_name": "v0.5.0", "name": "", "published_at": "2026-11-19T03:33:51Z", "body": "notes", "html_url": "https://github.com/Dittobyte/Zonith/releases/tag/v0.5.0",
+             "assets": [asset("TotK-Setup-0.5.0-windows.zip", Some(&d)), asset("TotK-Setup-x86_64.AppImage", Some(&d))]},
+            {"tag_name": "v9.9.9", "draft": true, "assets": []}
+        ]);
+        parse_releases(body.to_string().as_bytes()).unwrap()
+    }
+
+    #[test]
+    fn digests() {
+        assert_eq!(parse_digest(&format!("sha256:{HEX}")).as_deref(), Some(HEX));
+        assert_eq!(parse_digest(&format!("sha256:{}", HEX.to_uppercase())).as_deref(), Some(HEX));
+        assert!(parse_digest("sha512:abcd").is_none());
+        assert!(parse_digest("sha256:abc").is_none());
+    }
+
+    #[test]
+    fn latest_skips_prereleases_drafts_and_unchecked_assets() {
+        let l = list();
+        assert_eq!(l.len(), 3, "the draft is dropped");
+        let w = latest(&l, "-windows.zip").unwrap();
+        assert_eq!((w.tag.as_str(), w.name.as_str(), w.asset.as_str(), w.sha256.as_str()), ("v0.5.0", "Zonith v0.5.0", "TotK-Setup-0.5.0-windows.zip", HEX));
+        assert_eq!(latest(&l, ".AppImage").unwrap().tag, "v0.5.1");
+        assert!(latest(&l, ".dmg").is_none());
+        let sent = serde_json::to_value(&w).unwrap();
+        assert!(sent.get("sha256").is_none() && sent.get("download_url").is_none());
+        let r = rows(&l);
+        assert_eq!(r.iter().map(|r| r.tag.as_str()).collect::<Vec<_>>(), ["v0.6.0-rc.1", "v0.5.1", "v0.5.0"]);
+        assert!(r[0].prerelease && !r[1].prerelease);
+    }
+
+    #[test]
+    fn versions_with_and_without_v() {
+        assert!(update_available("0.5.0", "v0.5.1"));
+        assert!(update_available("v0.5.0", "v0.6.0"));
+        assert!(!update_available("v0.5.0", "v0.5.0"));
+        assert!(!update_available("0.6.0", "v0.5.0"));
+        assert!(!update_available("", "v0.5.0"));
+    }
+
+    #[test]
+    fn current_needs_its_app() {
+        let dir = std::env::temp_dir().join(format!("zonith-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(read_current(&dir).is_none());
+        let asset = "TotK-Setup-x86_64.AppImage";
+        std::fs::write(dir.join(CURRENT_FILE), json!({"tag": "v0.5.0", "asset": asset}).to_string()).unwrap();
+        assert!(read_current(&dir).is_none(), "no setup app yet");
+        let app = app_path(&dir, &Current { tag: "v0.5.0".into(), asset: asset.into() });
+        std::fs::create_dir_all(app.parent().unwrap()).unwrap();
+        std::fs::write(&app, b"x").unwrap();
+        assert_eq!(read_current(&dir), Some(Current { tag: "v0.5.0".into(), asset: asset.into() }));
+        std::fs::write(dir.join(CURRENT_FILE), "not json").unwrap();
+        assert!(read_current(&dir).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tags_and_progress() {
+        assert_eq!(safe_tag("v0.5.0"), "v0.5.0");
+        assert_eq!(safe_tag("../x"), "..x");
+        assert_eq!(safe_tag(".."), "latest");
+        assert_eq!(safe_tag("/"), "latest");
+        assert_eq!(ZonithProgress::download(50, 100).pct, Some(45.0));
+        assert_eq!(ZonithProgress::download(0, 0).pct, Some(0.0));
+        assert_eq!(ZonithProgress::unpack().pct, Some(90.0));
+        assert_eq!(ZonithProgress::end("done", None).pct, Some(100.0));
+        assert_eq!(ZonithProgress::end("error", Some("x".into())).pct, None);
+    }
+
+    #[test]
+    fn old_setups_go_files_stay() {
+        let dir = std::env::temp_dir().join(format!("zonith-old-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for d in ["v0.5.0/TotK-Setup-windows", "v0.5.1", "v0.4.0.old"] {
+            std::fs::create_dir_all(dir.join(d)).unwrap();
+        }
+        std::fs::write(dir.join("v0.5.0/TotK-Setup-windows/x"), b"x").unwrap();
+        std::fs::write(dir.join(CURRENT_FILE), "{}").unwrap();
+        std::fs::write(dir.join("TotK-Setup-x86_64.AppImage"), b"x").unwrap();
+        remove_old(&dir, "v0.5.1");
+        let mut left: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        left.sort();
+        assert_eq!(left, ["TotK-Setup-x86_64.AppImage", CURRENT_FILE, "v0.5.1"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

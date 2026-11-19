@@ -1,9 +1,13 @@
 /* Co-op Home (coop.js): a head with the two ways in, one glass card per co-op save, the three steps when there is none. */
 
-.coop-head { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--space-3) var(--space-4); }
-.coop-head h1 { margin-bottom: var(--space-1); }
-.coop-lead { max-width: 520px; color: var(--color-text-2); }
-.coop-head [hidden] { display: none; }
+.coop { max-width: 960px; margin-inline: var(--space-8) auto; }
+/* the co-op hero: its own wordmark over the island, the two ways in beside the first save */
+.coop-hero { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); padding: var(--space-7) 0 var(--space-2); }
+.coop-logo { display: block; width: min(380px, 100%); height: auto; margin: 0 0 calc(var(--space-2) * -1) -14px; filter: drop-shadow(0 6px 24px rgb(0 0 0 / 0.4)); }
+.coop-lead { max-width: 520px; color: var(--color-text); text-shadow: var(--shadow-text); }
+.coop-hero-actions .btn.big { border-radius: var(--radius-sm); }
+.coop-hero-actions .btn.big.icon-only { width: var(--control-lg); padding: 0; }
+.coop-hero [hidden] { display: none; }
 .coop-body { display: flex; flex-direction: column; gap: var(--space-4); }
 
 /* no save yet: two big choices, then how it works */
@@ -71,3 +75,4 @@
 .coop-who { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; border: 0; }
 .coop-who legend { margin-bottom: var(--space-2); font-size: var(--text-sm); font-weight: var(--weight-medium); }
 .coop-note { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+.coop-hero-actions[hidden] { display: none; }

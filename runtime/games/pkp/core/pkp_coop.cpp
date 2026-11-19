@@ -42,6 +42,8 @@ enum class Site : uintptr_t {
     QuestFlag,        // a story quest's flag is set here: logged (the quests' states are what is shared, pkp_coop_story.cpp)
     QuestEffect,      // one effect command of a completed quest: world kinds run once, on the authority (the game's replication brings
                       // them to the others); personal kinds and story flags run on every member
+    WildPop,          // a wild creature's appearance armed or cleared (event-script command 0xc1e, quest effect 0x33): a member's goes
+                      // to the authority, whose world is the group's
     NameEntry,        // event-script command 0x44, the name entry: after the talker's, every other member enters a name of their own
     ScriptItems,      // event-script command 0xbea, items given by a script: replayed for every member
     MaskStart,        // the permission-mask builder starts: its arguments are set so every stage type builds the full mask
@@ -66,6 +68,11 @@ enum class Site : uintptr_t {
     // ---- the save ----
     SaveWrite,        // a member's own save write (three writers): held, the authority writes the co-op save
     JoinBagSync,      // the bag sync of a join: the authority's working copy never overwrites a member's own bag
+    // ---- the shops ----
+    ShopGrant,        // a purchase's give on the buyer's process (the shop's buy, or a visitor's buy the host answered): logged for the
+                      // group, so every member gets it too (pkp_coop_purchases.cpp)
+    OfflineGoods,     // "this shop row is for offline play only" (the bag upgrades among them): no row is, in a session, so the shop
+                      // lists them as it does offline (#780)
 };
 
 struct CoopSite {
@@ -79,6 +86,7 @@ constexpr CoopSite kSites[] = {
     {{0x5d865c, 0x51000428u, true}, Site::QuestState},       // sub w8, w1, #1
     {{0x5d8774, 0x51000428u, true}, Site::QuestFlag},        // sub w8, w1, #1
     {{0x11b214, 0x39400008u, true}, Site::QuestEffect},      // ldrb w8, [x0]
+    {{0x1240dc, kPacibsp, true}, Site::WildPop},
     {{0x43d3e0, kPacibsp, true}, Site::NameEntry},
     {{0x12c734, 0x79400808u, true}, Site::ScriptItems},      // ldrh w8, [x0, #4]
     {{0xb0f74, 0xaa0003f3u, false}, Site::MaskStart},        // mov x19, x0
@@ -103,6 +111,8 @@ constexpr CoopSite kSites[] = {
     {{0x245200, kPacibsp, true}, Site::SaveWrite},
     {{0x5a8a34, kPacibsp, true}, Site::SaveWrite},
     {{0x5727c0, kPacibsp, true}, Site::JoinBagSync},
+    {{0xe889f8, kPacibsp, true}, Site::ShopGrant},
+    {{0xe87260, kPacibsp, true}, Site::OfflineGoods},
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -130,6 +140,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::QuestState: return coop::story::on_quest_state(c);
         case Site::QuestFlag: return coop::story::on_quest_flag(c);
         case Site::QuestEffect: return coop::story::on_quest_effect(c);
+        case Site::WildPop: return coop::story::on_wild_pop(c);
         case Site::TalkStart: return coop::talk::on_talk_start(c);
         case Site::TalkNone: return coop::talk::on_no_talk(c);
         case Site::TalkEnd: return coop::talk::on_talk_end(c);
@@ -139,6 +150,8 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::GoalCount: return coop::outcomes::on_goal_count(c);
         case Site::Friendship: return coop::outcomes::on_friendship(c);
         case Site::AreaMove: return coop::travel::on_area_move(c);
+        case Site::ShopGrant: return coop::purchases::on_grant(c);
+        case Site::OfflineGoods: return coop::purchases::on_offline_only(c);
         default: return 0;
     }
 }
@@ -203,6 +216,7 @@ void game_frame(::Ctx* c) {
     coop::requests::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::outcomes::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::recipes::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::purchases::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::talk::tick();
     coop::travel::tick(c);
     coop::catchup::tick(c, s.in_game.load(std::memory_order_relaxed));
@@ -224,6 +238,7 @@ void remove() {   // the registry has removed the hooks
     coop::requests::reset();
     coop::outcomes::reset();
     coop::recipes::reset();
+    coop::purchases::reset();
     coop::talk::reset();
     coop::travel::reset();
     coop::catchup::reset();
@@ -241,6 +256,7 @@ namespace coop {
 uint64_t base() { return st().base; }
 CoopRole role() { return st().launch.role; }
 int members() { return st().launch.members; }
+const std::string& member_key() { return st().launch.member; }
 
 uint8_t session_bits() {
     const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
