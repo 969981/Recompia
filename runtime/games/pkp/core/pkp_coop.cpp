@@ -37,6 +37,8 @@ enum class Site : uintptr_t {
     TalkNone,         // the talk start right after its talk event call 0x4bf7c0 returns (every return): w22 bit 0 clear there is the
                       // "no talk after all" path (the function then returns 0), where the lock is given back
     TalkEnd,          // the end of a talk's event chain: the lock of that talk slot is given back
+    TalkKind,         // the talk handler's "is this the host" test: a member answers yes, so it gets the character's own talk (quest
+                      // talks too) and not the visitor's stub
     QuestState,       // a story quest's state is set: every write comes from the quest pump's own steps, which every process runs on
                       // the flag alone, so nothing is sent; a write from anywhere else is logged once
     QuestFlag,        // a story quest's flag is set here: logged (the quests' states are what is shared, pkp_coop_story.cpp)
@@ -96,6 +98,7 @@ constexpr CoopSite kSites[] = {
     {{0x3180e0, kPacibsp, true}, Site::TalkStart},
     {{0x3181cc, 0x2a1f03e0u, false}, Site::TalkNone},        // mov w0, wzr (after the talk event call 0x4bf7c0)
     {{0x47bd00, kPacibsp, true}, Site::TalkEnd},
+    {{0x4c06d8, 0x2a000328u, false}, Site::TalkKind},        // orr w8, w25, w0 (w0 = IsHost's answer)
     {{0x5d865c, 0x51000428u, true}, Site::QuestState},       // sub w8, w1, #1
     {{0x5d8774, 0x51000428u, true}, Site::QuestFlag},        // sub w8, w1, #1
     {{0x11b214, 0x39400008u, true}, Site::QuestEffect},      // ldrb w8, [x0]
@@ -164,6 +167,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::TalkStart: return coop::talk::on_talk_start(c);
         case Site::TalkNone: return coop::talk::on_no_talk(c);
         case Site::TalkEnd: return coop::talk::on_talk_end(c);
+        case Site::TalkKind: return coop::talk::on_talk_kind(c);
         case Site::NameEntry: return coop::catchup::on_name_entry(c);
         case Site::ScriptItems: return coop::catchup::on_script_items(c);
         case Site::GiverCheck: return coop::requests::on_giver_check(c);

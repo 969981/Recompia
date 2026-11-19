@@ -10,6 +10,9 @@
 //   - two members asking for one character: the authority's order decides, the other one's copy then names the holder.
 // The lock is given back (TalkDone, or by the authority itself) when the talk's event chain ends, when the press started no talk after
 // all, when nothing of the talk is running any more (watchdog, below) and, on the authority, when its holder leaves the session.
+// A talk an event starts from inside its own chain (w3 = 0) is never refused and takes no lock: the event's talk already holds this
+// player's lock, and that caller does not look at the answer. A member's talk takes the host's path in the talk handler (on_talk_kind),
+// so a member gets the character's own talk, quest talks too, instead of the visitor's stub; the lock above keeps it to one player.
 //
 // The game, 2.0.1:
 //   0x3180e0(obj, w1 slot, x2 &actor id, w3 flags)  the one real talk start (every other caller of the talk selector only probes).
@@ -27,6 +30,11 @@
 //   0x47bd00(runner)                  the end of a slot's whole event chain; byte runner+0x2000 is the slot
 //   event runners ER = [main+0x35650f8], ER + slot*0x2010: busy while u32 +8 < 9 or u32 +0xc < 9
 //   event queue Q = [main+0x3565100], Q + slot*0x20fa0 + 0x20e08: u32, the events still waiting for that slot's runner
+//   0x3180e0's callers: the A press 0x31347c (w3 = 1) and event callback 11, 0x48fd50 (w3 = 0: a talk with the runner's actor
+//                                     u16 +0x1514, started from inside a running event; it ignores the return)
+//   0x4c06d8 (midhook)                the talk handler 0x4c024c, online and outside Cloud Island: `orr w8, w25, w0` with w0 = IsHost
+//                                     0xa40bc; w8 bit 0 clear takes the visitor path 0x4c07e4 (the stub talk kinds 10 / 11), set the
+//                                     host's 0x4c06e0 (kind 3, or the character's talk table). w0 is not read after it
 // The refusal's line goes to the game's message log through notice::line (pkp_coop_notice.cpp), on the talker's slot; the slot of
 // this player's own talk starts is handed to the notices.
 #include "core/pkp_coop_internal.h"
@@ -60,6 +68,9 @@ constexpr uint8_t kSlots = 2;
 
 constexpr const char* kBusyLine = "This NPC is in a conversation with someone.";
 
+constexpr uint64_t kFlagsReg = 3;       // 0x3180e0's w3: bit 0 clear, a talk started from inside a running event (0x48fd50)
+constexpr uint64_t kIsHostReg = 0;      // at 0x4c06d8: IsHost's answer, or'd into the "take the host's path" bit
+
 constexpr double kLease = 5.0;        // a grant not used for a talk by then is given back
 constexpr double kAskAgain = 2.0;     // a press on the same character asks again after this long without an answer
 constexpr int kIdleFrames = 90;       // a talk with no event running or waiting for this many frames has ended
@@ -77,6 +88,7 @@ struct State {
     std::optional<Held> held;                        // the lock this process holds
     uint32_t asked = 0;                              // a member's TalkAsk in flight
     double asked_at = 0.0;
+    bool chained = false;                            // the talk start running now came from inside an event (w3 = 0)
 };
 State& st() {
     static State s;
@@ -146,7 +158,12 @@ bool slot_idle(uint8_t slot) {
 
 int on_talk_start(::Ctx* c) {
     State& s = st();
+    s.chained = false;
     if (!link::in_session()) return 0;
+    if (!(c->x[kFlagsReg] & 1)) {   // chained from inside an event: it runs under that event's talk and its lock
+        s.chained = true;
+        return 0;
+    }
     const uint8_t slot = static_cast<uint8_t>(c->x[kSlotReg]);
     const uint32_t chara = character_of(c, c->x[kActorReg]);
     if (!chara || slot >= kSlots) return 0;
@@ -183,8 +200,14 @@ int on_talk_start(::Ctx* c) {
 
 int on_no_talk(::Ctx* c) {
     State& s = st();
+    if (s.chained) return 0;   // a chained talk that did not start: the event's own talk still runs, and its lock stays
     if (s.held && s.held->talking && !(c->x[kTalkedReg] & 1) && s.held->slot == static_cast<uint8_t>(c->x[kNoTalkSlotReg]))
         release("no talk started");
+    return 0;
+}
+
+int on_talk_kind(::Ctx* c) {
+    if (link::in_session() && !link::is_authority()) c->x[kIsHostReg] = 1;
     return 0;
 }
 
