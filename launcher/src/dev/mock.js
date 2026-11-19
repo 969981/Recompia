@@ -136,7 +136,9 @@ let mockOnline = { online_asked: false, online_name: '', online_salt: 'mock-salt
 let mockRepair = null;
 // the online account (cloud_signin.rs): &account=off|signed_out|signed_in|expired (default signed_out). A sign-in approves itself after a
 // few seconds (5 browser, 12 phone). The QR code is a made-up pattern in the shape signin.rs draws, so safeQr takes it; it does not scan.
+// Signed out or expired, Home opens the dialog by itself at start (with Skip); &skipped=1 previews an install that pressed Skip before.
 let mockAccount = params.get('account') || 'signed_out';
+let mockSkipped = params.get('skipped') === '1';   // launcher.json signin_skipped
 let mockSignin = null;   // { method, at }
 function mockQr() {
   const n = 25, q = 2, s = n + 2 * q, b = 2 * Math.floor(n / 10) + 1, o = q + (n - b) / 2;   // the middle square as signin::qr_badge
@@ -509,8 +511,9 @@ function handle(cmd, args) {
       console.info('[mock] open', cmd, args);
       return null;
     case 'save_log_bundle': return { path: 'C:/Users/Player/Downloads/recompia-logs-20260101-120000.zip' };
-    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, mods_auto_update: modsAutoUpdate, achievements_unlocked: !mockLocks.kept, achievements_sharing_unlocked: !mockLocks.sharing, ...mockOnline, game: mockGame };
+    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, mods_auto_update: modsAutoUpdate, achievements_unlocked: !mockLocks.kept, achievements_sharing_unlocked: !mockLocks.sharing, ...mockOnline, signin_skipped: mockSkipped, game: mockGame };
     case 'save_config': modsAutoUpdate = !!args.config.mods_auto_update; looseShaders = !!args.config.loose_shaders; mockChannel = args.config.channel || 'stable'; mockGame = args.config.game ?? mockGame;
+      mockSkipped = !!args.config.signin_skipped;
       mockOnline = { online_asked: !!args.config.online_asked, online_name: args.config.online_name ?? '', online_salt: args.config.online_salt ?? '' };
       return null;
     case 'apply_branding': return null;

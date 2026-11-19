@@ -9,6 +9,12 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 /** Whether the launcher shows the sign-in at all (an account portal is set in Settings > Game > Online). */
 export const shown = (st) => !!st && !!st.state && st.state !== 'off';
 
+/**
+ * Whether Home opens the dialog by itself at start: a portal is set, this device is signed out or its sign-in expired, and the
+ * player has not pressed Skip since the last sign-in or sign-out (`skipped`: launcher.json signin_skipped).
+ */
+export const autoOpen = (st, skipped) => shown(st) && ['signed_out', 'expired'].includes(st.state) && !skipped;
+
 /** m:ss */
 export const countdown = (seconds) => {
   const s = Math.max(0, Math.round(seconds));
@@ -56,12 +62,13 @@ const error = (e) => (e ? `<p class="form-error" role="alert">${esc(e)}</p>` : '
 
 /**
  * The dialog for a state: { body, actions } as HTML. `note` is 'signed-out' right after Sign out. `mark`: the picture for the
- * middle of the QR code (Recompia's mark). Buttons carry data-signin: browser | phone (start that way), close (Not now: also stops
- * waiting), sign-out, account (the account page).
+ * middle of the QR code (Recompia's mark). `startup`: Home opened it by itself (autoOpen), so the way out reads Skip, except right
+ * after Sign out. Buttons carry data-signin: browser | phone (start that way), close (Not now or Skip: also stops waiting), sign-out,
+ * account (the account page).
  */
-export function view(st, icon, note = '', mark = '') {
+export function view(st, icon, note = '', mark = '', startup = false) {
   const device = st?.device_name || t('this device');
-  const notNow = btn('close', t('Not now'), 'quiet');
+  const notNow = btn('close', startup && note !== 'signed-out' ? t('Skip') : t('Not now'), 'quiet');
   if (!shown(st)) {
     return { body: `<p>${esc(t('Online accounts are off. Set the account portal in Settings > Game > Online.'))}</p>`, actions: btn('close', t('Close'), 'primary') };
   }

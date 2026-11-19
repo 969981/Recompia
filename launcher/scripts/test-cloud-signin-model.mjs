@@ -1,5 +1,5 @@
 // Tests for what the online account sign-in says (src/cloud-signin-model.js). Run: node scripts/test-cloud-signin-model.mjs   (exit 1 on a failure)
-import { chip, countdown, safeQr, shown, view } from '../src/cloud-signin-model.js';
+import { autoOpen, chip, countdown, safeQr, shown, view } from '../src/cloud-signin-model.js';
 
 let bad = 0;
 const check = (ok, what) => { if (!ok) { console.log(`FAIL ${what}`); bad++; } };
@@ -49,6 +49,18 @@ check(inn.body.includes('Signed in as Ana') && inn.actions.includes('data-signin
 const out = view({ ...base, state: 'signed_out' }, icon, 'signed-out');
 check(out.body.includes('remove it on your account page') && out.actions.includes('data-signin="account"'), 'after sign out: how to revoke');
 check(view({ ...base, state: 'expired' }, icon).body.includes('expired'), 'expired says so');
+
+// Home opens it by itself at start: signed out or expired with a portal, until Skip; never with no portal, signed in or waiting
+check(autoOpen({ ...base, state: 'signed_out' }, false) && autoOpen({ ...base, state: 'expired' }, false), 'opens by itself: signed out, expired');
+check(!autoOpen({ ...base, state: 'signed_out' }, true) && !autoOpen({ ...base, state: 'expired' }, true), 'not after Skip');
+check(!autoOpen(null, false) && !autoOpen({ ...base, state: 'off' }, false), 'not without a portal');
+check(!autoOpen({ ...base, state: 'signed_in', account_name: 'Ana' }, false) && !autoOpen({ ...base, state: 'waiting' }, false), 'not signed in or waiting');
+const startup = view({ ...base, state: 'signed_out' }, icon, '', '', true);
+check(startup.actions.includes('data-signin="close">Skip<') && !startup.actions.includes('Not now'), 'at start the way out is Skip');
+check(view({ ...base, state: 'expired' }, icon, '', '', true).actions.includes('>Skip<'), 'expired at start: Skip');
+check(view({ ...base, state: 'waiting', phase: { phase: 'phone', user_code: 'A', qr_svg: qr } }, icon, '', '', true).actions.includes('>Skip<'), 'waiting at start: Skip stops it');
+check(view({ ...base, state: 'signed_out' }, icon, 'signed-out', '', true).actions.includes('Not now'), 'right after Sign out: Not now');
+check(!view({ ...base, state: 'signed_in', account_name: 'Ana' }, icon, '', '', true).actions.includes('Skip'), 'signed in: no Skip');
 
 check(countdown(0) === '0:00' && countdown(61.4) === '1:01' && countdown(-5) === '0:00', 'countdown');
 
