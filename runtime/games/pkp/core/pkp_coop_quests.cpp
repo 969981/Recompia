@@ -35,8 +35,14 @@
 // On the authority, an ask is applied when its own state of the quest is the member's (a flag means "the next step of this state")
 // and the quest is in that state's list (QL = GM+0x3b9328, as 0x119920 reads it: C ids +4, A {id, timer} +0x64, B ids +0x1bc, 40 at
 // most): its flag is set and its own pump makes the step, whose new state reaches every member through the share and the digest.
-// An ask the authority cannot apply yet (not listed) waits up to kPendingFor seconds, retried each frame; one for a state the
-// authority is past or not at is dropped. Single player, and a process outside a session, run every set as the game does.
+// An ask the authority cannot apply yet (its state is the member's, but the quest is not listed) waits for the session, retried
+// each frame, until it is applied or the authority's state of the quest moves on (another way made that step): a talk or a scene
+// asks once and cannot be made again, so an ask given up on would leave the quest where it is. One slot per quest (the authority
+// is at one state of it, and only an ask for that state waits), so the waiting asks are bounded by the quest count and a new one
+// never finds the list full. One for a state the authority is past or not at is dropped (a member ahead of the authority does not
+// move the group's quest). On a member, an ask waits in one slot per quest too until the channel carries it: it is not dropped
+// while the member is in the session, whatever the game's session bits say that frame. Single player, and a process outside a
+// session, run every set as the game does.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -72,26 +78,21 @@ constexpr uint64_t kNewDay = 0x1fbad8;   // the event matches and 0x11598c are a
 constexpr uint8_t kPlayerTypes[] = {0x01, 0x05, 0x09, 0x0e, 0x11, 0x13, 0x1a};
 
 constexpr double kAskEvery = 2.0;      // a polled condition that still holds: asked again at most this often
-constexpr double kPendingFor = 30.0;   // an ask the authority cannot apply yet: retried this long
-constexpr size_t kAskQueue = 64, kPendingMax = 64;
 
 struct Ask {
     uint16_t id;
     uint8_t state;
 };
-struct Pending {
-    uint16_t id;
-    uint8_t state, origin;
-    double until;
-};
 
 struct State {
     bool own_set = false;                 // the catch-up's own set is running (set_flag)
-    std::vector<Ask> asks;                // a member's asks not sent yet
+    std::vector<Ask> asks;                // a member's asks not sent yet, one per quest (at most kQuestMax)
     double asked_at[kQuestMax] = {};      // per quest (id - 1): when it was last asked, and for which state
     uint8_t asked_state[kQuestMax] = {};
     uint8_t logged_state[kQuestMax] = {}; // per quest: the state a skipped set was last logged for
-    std::vector<Pending> pending;         // the authority's asks waiting for their quest to be listed
+    uint8_t pending[kQuestMax] = {};      // the authority, per quest: the state of a waiting ask (0: none), and whose it is
+    uint8_t pending_origin[kQuestMax] = {};
+    uint32_t pending_count = 0;
     uint8_t refused_state[kQuestMax] = {};   // the authority, per quest: the asked state last logged as not applied (state + 1)
     alignas(8) uint8_t cond[0x20] = {};   // 0x11e1bc's out, guest-readable
 };
@@ -169,10 +170,12 @@ bool apply(::Ctx* c, uint32_t id, uint8_t state, uint8_t origin) {
     return true;
 }
 
+// A member's asks to the authority, once the channel carries them. Kept while the member is in the session (a stage move can clear
+// the game's session bits for a few frames); the session change empties them (on_session_change).
 void send_asks() {
     State& s = st();
-    if (s.asks.empty()) return;
-    if (!member_rules()) {
+    if (s.asks.empty() || !link::in_session()) return;
+    if (link::is_authority()) {
         s.asks.clear();
         return;
     }
@@ -184,27 +187,37 @@ void send_asks() {
     s.asks.erase(s.asks.begin(), s.asks.begin() + static_cast<std::ptrdiff_t>(sent));
 }
 
+void clear_pending() {
+    State& s = st();
+    std::memset(s.pending, 0, sizeof s.pending);
+    std::memset(s.pending_origin, 0, sizeof s.pending_origin);
+    s.pending_count = 0;
+}
+
+// The authority's waiting asks, each frame: applied once the quest is listed; done once the quest's state here moved on.
 void run_pending(::Ctx* c) {
     State& s = st();
-    if (s.pending.empty()) return;
-    const uint64_t story_obj = story();
-    if (!link::is_authority() || !link::in_session() || !story_obj) {
-        s.pending.clear();
+    if (!s.pending_count) return;
+    if (!link::is_authority() || !link::in_session()) {
+        clear_pending();
         return;
     }
-    const double now = qpc::seconds();
-    for (size_t k = 0; k < s.pending.size();) {
-        const Pending p = s.pending[k];
-        const uint8_t here = state_of(c, story_obj, p.id);
-        bool done = here != p.state;   // stepped meanwhile (by its own pass, or another ask)
-        if (!done) done = apply(c, p.id, p.state, p.origin);
-        if (!done && now >= p.until) {
-            NXLOG_W(kTag, "Co-op quests: node %u's ask for quest %u at state %u dropped after %.0f s: the quest is not listed here", p.origin,
-                    p.id, p.state, kPendingFor);
-            done = true;
-        }
-        if (done) s.pending.erase(s.pending.begin() + static_cast<std::ptrdiff_t>(k));
-        else ++k;
+    const uint64_t story_obj = story();
+    if (!story_obj) return;   // the save is not there this frame (a load): kept
+    for (uint32_t i = 0; i < kQuestMax; ++i) {
+        const uint8_t want = s.pending[i];
+        if (!want) continue;
+        const uint32_t id = i + 1;
+        const uint8_t here = state_of(c, story_obj, id);
+        bool done = here != want;   // stepped meanwhile (by its own pass, or another ask)
+        if (done)
+            NXLOG_I(kTag, "Co-op quests: node %u's waiting ask for quest %u at state %u ends: it is at %u here", s.pending_origin[i], id,
+                    want, here);
+        else
+            done = apply(c, id, want, s.pending_origin[i]);
+        if (!done) continue;
+        s.pending[i] = 0;
+        --s.pending_count;
     }
 }
 
@@ -243,13 +256,19 @@ int on_quest_flag(::Ctx* c) {
     }
     const double now = qpc::seconds();
     const bool again = s.asked_state[i] == state && now - s.asked_at[i] < kAskEvery;
-    if (!again && s.asks.size() < kAskQueue) {
+    if (!again) {
         if (s.asked_state[i] != state)
             NXLOG_I(kTag, "Co-op quests: quest %u's step at state %u made here (from main+0x%llx, condition type %u), asked of the authority",
                     id, state, static_cast<unsigned long long>(from), type);
         s.asked_at[i] = now;
         s.asked_state[i] = state;
-        s.asks.push_back({static_cast<uint16_t>(id), state});
+        bool queued = false;   // one per quest: a quest not sent yet is asked once, at its latest state
+        for (Ask& a : s.asks)
+            if (a.id == id) {
+                a.state = state;
+                queued = true;
+            }
+        if (!queued) s.asks.push_back({static_cast<uint16_t>(id), state});
     }
     return 1;
 }
@@ -270,14 +289,13 @@ void on_ask_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
         return;
     }
     if (apply(c, id, state, origin)) return;
-    for (const Pending& p : s.pending)
-        if (p.id == id && p.state == state) return;   // waiting already
-    if (s.pending.size() >= kPendingMax) {
-        NXLOG_W(kTag, "Co-op quests: node %u's ask for quest %u dropped: %zu asks wait already", origin, id, s.pending.size());
-        return;
-    }
-    s.pending.push_back({id, state, origin, qpc::seconds() + kPendingFor});
-    NXLOG_I(kTag, "Co-op quests: node %u's ask for quest %u at state %u waits: the quest is not listed here yet", origin, id, state);
+    uint8_t& slot = s.pending[id - 1];
+    if (slot == state) return;   // waiting already
+    if (!slot) ++s.pending_count;
+    slot = state;   // the authority is at this state of the quest now: any other waiting state of it was done already
+    s.pending_origin[id - 1] = origin;
+    NXLOG_I(kTag, "Co-op quests: node %u's ask for quest %u at state %u waits: the quest is not listed here yet (kept for the session)",
+            origin, id, state);
 }
 
 void tick(::Ctx* c) {
@@ -288,7 +306,7 @@ void tick(::Ctx* c) {
 void on_session_change() {
     State& s = st();
     s.asks.clear();
-    s.pending.clear();
+    clear_pending();
     std::memset(s.asked_state, 0, sizeof s.asked_state);
     std::memset(s.logged_state, 0, sizeof s.logged_state);
     std::memset(s.refused_state, 0, sizeof s.refused_state);
