@@ -43,6 +43,8 @@ struct Cfg {
     uint32_t ip = 0;
     uint16_t gateway = 0;
     uint16_t storage = 0;
+    uint16_t acct_tls = 0;     // [net] cloud_account_tls_port: the account gateway's TLS listener on 127.0.0.1 (0: off)
+    uint16_t acct_plain = 0;   // [net] cloud_account_plain_port: the account gateway's plaintext listener on 127.0.0.1 (0: off)
 };
 
 const Cfg& cfg() {
@@ -62,6 +64,14 @@ const Cfg& cfg() {
             else
                 NXLOG_I("net", "[net] cloud_server = %s: the NPLN names resolve there, SOCK_STREAM sockets are host TCP, ssl passes bytes through"
                                " (guest port 443 -> 127.0.0.1:%u)", s.c_str(), r.gateway);
+            // Account mode (docs/cloud-island/README.md): the server takes only connections that carry this device's certificate,
+            // which the launcher's local gateway presents. Both keys absent or 0: nothing below changes.
+            const int at = config_get_int("net", "cloud_account_tls_port", 0), ap = config_get_int("net", "cloud_account_plain_port", 0);
+            if (at > 0 && at < 65536) r.acct_tls = static_cast<uint16_t>(at);
+            if (ap > 0 && ap < 65536) r.acct_plain = static_cast<uint16_t>(ap);
+            if (r.acct_tls || r.acct_plain)
+                NXLOG_I("net", "[net] cloud account gateway: the game's TCP connections to the server's port 443 go to 127.0.0.1:%u (TLS),"
+                               " nn::ssl connections to 127.0.0.1:%u (plain); 0 = not redirected", r.acct_tls, r.acct_plain);
         } else {
             NXLOG_W("net", "[net] cloud_server = \"%s\" is not an IPv4 address: cloud islands stay off", s.c_str());
         }
@@ -442,11 +452,13 @@ vsock::Ret eventfd(uint64_t init, int flags) {
 // local gateway (127.0.0.1:[net] cloud_gateway_port), which does the TLS to the server. Nothing has been sent on it yet.
 bool to_gateway(int fd) {
     auto sk = get(fd);
-    if (!sk || sk->event || (!gateway_port() && !storage_port())) return false;
+    const uint16_t acct = cfg().acct_plain;   // account mode: the launcher's gateway carries the island file too
+    if (!sk || sk->event || (!gateway_port() && !storage_port() && !acct)) return false;
     const SOCKET n = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (n == INVALID_SOCKET) return false;
     // [net] cloud_storage_port: straight to the server's plain HTTP storage port; else the local TLS gateway
-    const vsock::Addr to = storage_port() ? vsock::Addr{server_ip(), storage_port()} : vsock::Addr{0x7F000001u, gateway_port()};
+    const vsock::Addr to = acct ? vsock::Addr{0x7F000001u, acct}
+                         : storage_port() ? vsock::Addr{server_ip(), storage_port()} : vsock::Addr{0x7F000001u, gateway_port()};
     sockaddr_in sa = to_sa(to);
     if (::connect(n, reinterpret_cast<sockaddr*>(&sa), sizeof sa) != 0) {
         NXLOG_W("net", "cloud: nothing answers on %u.%u.%u.%u:%u (Winsock %d): the upload connection stays as it is", to.ip >> 24,
@@ -461,7 +473,7 @@ bool to_gateway(int fd) {
     const SOCKET old = sk->s;
     sk->s = n;
     closesocket(old);
-    NXLOG_D("net", "cloud: fd %d now goes to %s port %u", fd, storage_port() ? "the server's storage" : "the local TLS gateway", to.port);
+    NXLOG_D("net", "cloud: fd %d now goes to %s port %u", fd, acct ? "the account gateway" : storage_port() ? "the server's storage" : "the local TLS gateway", to.port);
     return true;
 }
 
@@ -476,6 +488,10 @@ vsock::Ret connect(int fd, vsock::Addr a) {
     auto sk = get(fd);
     if (!sk) return fail(vsock::kEbadf);
     vsock::Addr target = a;
+    // Account mode: the game's own TLS connections (gRPC) to the server's port 443 go to the local account gateway, which listens
+    // on an unprivileged loopback port and presents the device certificate to the server.
+    if (cfg().acct_tls && !sk->event && sk->type != vsock::kSockDgram && a.ip == server_ip() && a.port == 443)
+        target = vsock::Addr{0x7F000001u, cfg().acct_tls};
     const bool redirected = target.ip != a.ip || target.port != a.port;
     NXLOG_D("net", "cloud: connect fd %d -> %u.%u.%u.%u:%u%s", fd, a.ip >> 24, (a.ip >> 16) & 255, (a.ip >> 8) & 255, a.ip & 255, a.port,
             redirected ? " (through the local gateway)" : "");

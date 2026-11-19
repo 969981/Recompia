@@ -4,6 +4,8 @@
 // TCP and UDP sockets. The game does its own TLS for gRPC; for the island upload and download it uses nn::ssl, and the runtime has no
 // TLS yet, so that connection goes to a local plaintext-to-TLS gateway on 127.0.0.1:[net] cloud_gateway_port
 // (docs/cloud-island/gateway.py). Nothing here contacts Nintendo: every name resolves to cloud_server or fails. Off without cloud_server.
+// Account mode ([net] cloud_account_tls_port / cloud_account_plain_port): both kinds of connection go to the launcher's local account
+// gateway on 127.0.0.1 instead, which presents the device certificate.
 #pragma once
 #include <cstddef>
 #include <cstdint>
