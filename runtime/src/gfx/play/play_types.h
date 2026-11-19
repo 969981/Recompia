@@ -197,7 +197,7 @@ struct DisplaySettings {
     bool fast_gpu_memory = true;   // device-local copies of the pools draws read ([nvn] pool_mirror = on); costs up to 2 GiB of video memory
     bool fewer_gpu_waits = true;   // no full barrier after passes that only wrote their attachments ([nvn] pass_barriers = tracked)
     bool shader_prewarm = true;    // build the pipelines recorded by earlier runs ahead of the draws ([nvn] prewarm); at the next start, [nvn] prewarm in the ini wins
-    // Uniform blocks from video memory: auto (discrete GPUs under 7 GiB), on or off; becomes [nvn] uniform_snapshot at the next start unless the ini or the environment set it
+    // Uniform blocks from video memory: auto (discrete GPUs under 7 GiB or without resizable BAR), on or off; becomes [nvn] uniform_snapshot at the next start unless the ini or the environment set it
     std::string uniform_snapshot = "auto";
     std::string astc_quality = "high";   // ASTC texture quality on this GPU: fast, high or uncompressed (RGBA8, lots of video memory); becomes [gfx] astc_quality at the next start unless the ini or the environment set it
     // The display the window lives on, 1-based in the system's order; 0 = automatic (wherever the window opens). Applied live (the window moves).

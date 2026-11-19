@@ -8,6 +8,9 @@ Press **Update** in the launcher. This change keeps your saves and shader cache 
 - Press **F5** while playing to save and keep playing (#659). Change the shortcut under **Settings > Keyboard & Mouse > Quick Save Key**.
 - Linux: fixed rhythmic audio crackling with SDL3's PipeWire backend.
 
+### Performance
+- Fixed the no-Resizable-BAR path not being used on large graphics cards without Resizable BAR (such as some eGPU connections): such cards now read the game's shader constants from video memory too, like 4 and 6 GB cards. Cards of 8 GB or more with Resizable BAR, handhelds and PCs without a separate graphics card are unchanged.
+
 ### Co-op
 - The game now waits for every player only at the very start of a new co-op world. Once the story has begun, a player who is not online no longer freezes the others, and they can join at any time.
 
