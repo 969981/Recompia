@@ -304,6 +304,7 @@ const WINDOW_SIZE = {
 // launcher only names them here (label, the options of a number, notes that follow a row). A gameplay key without an entry here throws,
 // so a new mod cannot ship without its row (scripts/test-settings-schema.mjs runs this).
 const isOn = (id) => (v) => v[id] === true || v[id] === '1';
+const integerOptions = (k) => Array.from({ length: k.max - k.min + 1 }, (_, n) => n + k.min).map((n) => ({ value: String(n), label: num(n) }));
 const GAMEPLAY = {
   jump_momentum: { label: t('Running jump keeps speed') },
   camera_aim: {
@@ -313,6 +314,13 @@ const GAMEPLAY = {
   camera_aim_reach: { label: t('Extra reach in blocks'), options: (k) => Array.from({ length: k.max - k.min + 1 }, (_, n) => n + k.min).map((n) => ({ value: String(n), label: n === 0 ? t('Off') : num(n) })) },
   inventory_sort: { label: t('Sort button in the bag and containers') },
   inventory_autosort: { label: t('Sort each time the bag opens') },
+  box_tabs: { label: t('Storage box tabs') },
+  box_tab_pages: { label: t('Pages per storage box'), options: integerOptions },
+  big_box_tabs: {
+    label: t('Tabs per big storage box'),
+    options: integerOptions,
+    after: [{ id: 'big_box_tabs_note', type: 'note', when: isOn('box_tabs'), note: () => ({ text: t('Each tab has 3 pages (60 slots) and uses one of the island\'s 256 big box spots. At 8 tabs (480 slots), about the first 32 big boxes placed get every tab. Later boxes get fewer or none. At 1, only the box itself is enabled. Tabs with items stay available if you lower the limit. Extra tabs are off during Link Play. Items stay saved.') }) }],
+  },
   craft_search: { label: t('Search in the crafting screen') },
   save_now: { label: t('Save button in the pause menu') },
   item_editor: {
@@ -323,7 +331,7 @@ const GAMEPLAY = {
     label: t('More creatures in town'),
     after: [{ id: 'pokemon_cap_note', type: 'note', when: isOn('pokemon_cap_50'), note: () => ({ text: t('Experimental. Visitors and temporary spawns share the game\'s 50 slots with your residents, so a high number leaves them less room.') }) }],
   },
-  pokemon_cap_limit: { label: t('Creatures in town'), options: (k) => Array.from({ length: k.max - k.min + 1 }, (_, n) => n + k.min).map((n) => ({ value: String(n), label: num(n) })) },
+  pokemon_cap_limit: { label: t('Creatures in town'), options: integerOptions },
 };
 
 const gameplaySchema = () => SCHEMAS.pkp.sections.find((s) => s.name === 'pkp').keys.filter((k) => k.group === 'gameplay');
