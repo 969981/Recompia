@@ -2,7 +2,7 @@
 // Game layer: seamless co-op's trace (pkp_coop_internal.h). What the testers' logs need to put two players' runs side by side:
 // it only reads, and only in a session. Every line starts "Co-op trace:".
 //   clock    the wall clock (UTC) and this process's node and role, at the session's start and every minute: two logs line up on it
-//   quests   the state word of every quest (save root + kQuestWords, u16 per id): at the session's start the ones past 1 (listed) and how
+//   quests   the state word of every quest (save root + layout::quest_word(id), u16 per id): at the session's start the ones past 1 (listed) and how
 //            many are listed, then each change
 //   players  this player's place and the second player slot's (player manager +0x38), every 3 s when one moved 30 units or more
 //   chara    a character's place (its CharacterStatus record: position vec4 at +0x10 with w 1.0, data id at +0x24) when it moved 150 units
@@ -97,11 +97,12 @@ Vec vec_at(uint64_t a) {
     return v;
 }
 
-uint64_t quest_words() {
+// Every quest's word (ids 801..1000 from their own run, as the game keeps them) into out; false when the save is not readable.
+bool read_quests(uint16_t (&out)[layout::kQuestWordCount]) {
     const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
-    if (!guest::ok(r, 8)) return 0;
-    const uint64_t q = r + layout::kQuestWords;
-    return guest::ok(q, layout::kQuestWordCount * 2) ? q : 0;
+    if (!guest::ok(r, 8) || !guest::ok(r + layout::kQuestWords, layout::kQuestWordsEnd - layout::kQuestWords)) return false;
+    for (uint32_t i = 0; i < layout::kQuestWordCount; ++i) out[i] = guest::rd<uint16_t>(r + layout::quest_word(i + 1));
+    return true;
 }
 
 uint64_t chara_records() {
@@ -128,9 +129,7 @@ void log_clock() {
 }
 
 void start_quests(State& s) {
-    const uint64_t q = quest_words();
-    if (!q) return;
-    std::memcpy(s.quests, reinterpret_cast<const void*>(q), sizeof s.quests);
+    if (!read_quests(s.quests)) return;
     std::string line;
     int n = 0, listed = 0;
     for (uint32_t i = 0; i < layout::kQuestWordCount; ++i) {
@@ -149,10 +148,8 @@ void start_quests(State& s) {
 }
 
 void watch_quests(State& s) {
-    const uint64_t q = quest_words();
-    if (!q) return;
     uint16_t now[layout::kQuestWordCount];
-    std::memcpy(now, reinterpret_cast<const void*>(q), sizeof now);
+    if (!read_quests(now)) return;
     if (std::memcmp(now, s.quests, sizeof now) == 0) return;
     for (uint32_t i = 0; i < layout::kQuestWordCount; ++i)
         if (now[i] != s.quests[i])

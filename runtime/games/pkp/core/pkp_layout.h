@@ -117,6 +117,15 @@ constexpr uint32_t kStringText = 0xa8;           // text id "<string;0(lstr1)>"
 constexpr uint64_t kQuestWords = 0x4a3702;       // save root: u16 per quest id 1..1000 (index id - 1; 0x4a3700 + id * 2), low byte the state,
                                                  // 0x100 the flag (a flag set on quest 2 in state 3 turned 0x4a3704 0x3 -> 0x103 -> 0x4)
 constexpr uint32_t kQuestWordCount = 1000;
+// Ids 801..1000 (the DLC quests) are not in that run: the state reader 0x5d85c0 and setter 0x5d865c send them through 0x11e884
+// (id - 0x20, low byte: id - 800) to m_story + 0x1860 + (id - 800) * 2, save root 0x4a3f00 + (id - 800) * 2.
+constexpr uint32_t kQuestBaseCount = 800;
+constexpr uint64_t kQuestDlcWords = 0x4a3f02;    // save root: u16 per quest id 801..1000 (index id - 801)
+constexpr uint64_t kQuestWordsEnd = kQuestDlcWords + (kQuestWordCount - kQuestBaseCount) * 2;
+// Save root + this: the state word of quest id 1..1000, where the game keeps it.
+constexpr uint64_t quest_word(uint32_t id) {
+    return id <= kQuestBaseCount ? kQuestWords + (id - 1) * 2 : kQuestDlcWords + (id - kQuestBaseCount - 1) * 2;
+}
 constexpr uint64_t kSaveAbilities = 0x4a26a8;    // save root: the ability bits, id 1..0xf9 at byte id >> 3, bit id & 7 (0x20 bytes)
 constexpr uint64_t kSaveUniqueRequests = 0x6fabd9;   // save root + id * 4: the record of unique request id 1..200 (+0 its state)
 constexpr uint32_t kUniqueRequestCount = 200;

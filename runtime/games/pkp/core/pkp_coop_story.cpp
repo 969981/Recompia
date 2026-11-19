@@ -15,7 +15,8 @@
 // frame) moves a quest on its flag alone: flag -> start / complete / close, which writes the state and clears the flag through the two
 // setters and runs the quest's effect commands. In 2.0.1 the state setter has three callers, all inside those pump steps.
 // Whoever moves a quest on moves it on for everyone: every process shares its quests' states (the low byte of each quest word, save
-// root + kQuestWords), all of them when it joins a session or another member does, then every state that rose since the last look.
+// root + layout::quest_word(id); the DLC ids 801..1000 have their own run, as the game keeps them), all of them when it joins a
+// session or another member does, then every state that rose since the last look.
 // A process behind a received state catches up through its own pump: it sets the quest's flag in its own state, the pump makes the
 // step (state write, effects), and the next frame sets it again until the state is reached. So a step only one player could make (a
 // quest active for one of them, a condition met in one process: the grass built by another player, a talk started by another) is
@@ -84,7 +85,7 @@ constexpr uint64_t kMemberPattern = 0x7f7fffffull;      // the same without bit 
 constexpr uint64_t kStory = 0x4a26a0, kAbilities = layout::kSaveAbilities;         // save root +
 constexpr uint64_t kFlagOf = 0x5d86e4, kSetFlag = 0x5d8774;   // (S, id[, value]); the state is read from the quest words
 constexpr uint64_t kPumpStateWrites[] = {0x11bcc0, 0x11bda8, 0x11c00c};             // return sites of the state setter's callers
-constexpr uint32_t kQuestMax = layout::kQuestWordCount;   // ids 1..1000; word of id at kQuestWords + (id - 1) * 2, state in its low byte
+constexpr uint32_t kQuestMax = layout::kQuestWordCount;   // ids 1..1000; word of id at save root + layout::quest_word(id), state in its low byte
 constexpr uint8_t kListed = 1;                            // a quest no one has started: not sent
 constexpr uint8_t kStarted = 2, kClosed = 4;              // the states a quest can be shared at; a received state past kClosed
                                                           // is one no pump step reaches, so the catch-up would flag it for ever
@@ -153,10 +154,14 @@ uint64_t story() {
     return r ? r + kStory : 0;
 }
 
+// The save root, when every quest word (ids 1..800 and the DLC run 801..1000) is readable; read through state_at.
 uint64_t quest_words() {
     const uint64_t r = save_root();
-    return r && guest::ok(r + layout::kQuestWords, kQuestMax * 2) ? r + layout::kQuestWords : 0;
+    return r && guest::ok(r + layout::kQuestWords, layout::kQuestWordsEnd - layout::kQuestWords) ? r : 0;
 }
+
+// Quest (index + 1)'s state, from its word where the game keeps it (0x5d85c0's mapping).
+uint8_t state_at(uint64_t words, uint32_t i) { return static_cast<uint8_t>(guest::rd<uint16_t>(words + layout::quest_word(i + 1))); }
 
 bool quest_flag(::Ctx* c, uint64_t s, uint32_t id) { return guest::call(c, base() + kFlagOf, s, id) & 1; }
 
@@ -184,7 +189,7 @@ void share_states() {
     std::vector<uint8_t> pairs;
     uint16_t n = 0;
     for (uint32_t i = 0; i < kQuestMax; ++i) {
-        const uint8_t state = static_cast<uint8_t>(guest::rd<uint16_t>(words + i * 2));
+        const uint8_t state = state_at(words, i);
         if (state <= kListed || (!all && state <= s.sent[i])) continue;
         s.sent[i] = state;
         if (!all && state <= s.target[i]) continue;   // caught up to another member's state: they have it already
@@ -201,8 +206,6 @@ void share_states() {
     link::share(wire::Type::StoryStates, wire::Writer(link::self()).u16(n).bytes(pairs.data(), pairs.size()).take());
     if (all) NXLOG_I(kTag, "Co-op story: the states of %u started quests shared (a join)", static_cast<unsigned>(n));
 }
-
-uint8_t state_at(uint64_t words, uint32_t i) { return static_cast<uint8_t>(guest::rd<uint16_t>(words + i * 2)); }
 
 // The game's own session is up, and on a member it is in the host's world: the condition the world effects' skip uses too.
 bool story_shared_here() {
@@ -417,7 +420,7 @@ void on_states_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
         const uint8_t state = r.u8();
         if (!r.ok() || id - 1u >= kQuestMax || state < kStarted || state > kClosed || state <= s.target[id - 1]) continue;
         s.target[id - 1] = state;
-        const uint8_t here = words ? static_cast<uint8_t>(guest::rd<uint16_t>(words + (id - 1u) * 2)) : 0;
+        const uint8_t here = words ? state_at(words, id - 1u) : 0;
         if (here < state) {
             ++ahead;
             completed |= state >= kComplete;
