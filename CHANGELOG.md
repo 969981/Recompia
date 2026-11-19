@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### For developers
+- Linux: fixed the sampling profiler (`[prof] sample_hz`) writing no samples, and freeze reports having no host stack for the stuck threads. SuspendThread and GetThreadContext now stop a running thread with a signal, as macOS does with its thread calls (#814)
+
 - Launcher: Fixed a Zonith update or reinstall deleting the game when the player had installed it into the launcher's Zonith folder (Zonith's setup starts in that folder, so its folder picker can open there): an update now removes only the launcher's own older setup folders, and never one that holds a Zonith install, and a reinstall no longer replaces a setup folder that holds one. On Linux, Open folder now opens the folder with Zonith's setup instead of an empty one.
 - Launcher: the Testing channel is now **Experimental**, and the channel and version are picked next to the Play button (and in Settings > About) instead of with Choose a version. On **Stable**, **Latest** updates as before, or pick any stable release to stay on it with no updates. On **Experimental**, pick one of all the prereleases, each testing its own features; nothing updates by itself there. Players who were on Testing are moved to Stable with Latest.
 - Co-op: when a teammate does a quest step the host's game cannot take yet (a talk or a scene for a quest the host has not put on its list), the host now keeps it for the whole session and makes the step as soon as it can, instead of giving up after 30 seconds and leaving the talk done but the quest stuck.

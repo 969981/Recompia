@@ -137,9 +137,14 @@ ThreadObj* self_thread() {
         t->tid = self_tid();
         t->started.store(true, std::memory_order_relaxed);
         t_self = t;
+#if defined(__linux__)
+        note_kernel_tid(t);
+#endif
     }
     return t_self;
 }
+
+ThreadObj* thread_if_known() { return t_self; }
 
 uint64_t filetime_of(const struct timespec& ts) {
     return 11644473600ull * 10000000ull + static_cast<uint64_t>(ts.tv_sec) * 10000000ull +
@@ -786,6 +791,9 @@ void* thread_trampoline(void* p) {
     nxos_install_altstack();   // so a fault on this thread is reportable even when its stack is exhausted
     t_tid = box.self->tid;
     t_self = box.self;
+#if defined(__linux__)
+    note_kernel_tid(box.self);
+#endif
     box.self->started.store(true, std::memory_order_release);
 
     // CREATE_SUSPENDED: the creator fills the guest Ctx before the thread may run (kernel/thread.cpp:146).
@@ -926,6 +934,14 @@ DWORD SuspendThread(HANDLE h) {
         return static_cast<DWORD>(-1);
     }
     return static_cast<DWORD>(t->suspend.fetch_add(1, std::memory_order_relaxed));
+#elif defined(__linux__)
+    // a running thread stops in the stop signal's handler (os_posix_suspend.cpp)
+    DWORD prev = 0;
+    if (!signal_suspend(t, &prev)) {
+        t_last_error = ERROR_INVALID_HANDLE;
+        return static_cast<DWORD>(-1);
+    }
+    return prev;
 #else
     t_last_error = ERROR_CALL_NOT_IMPLEMENTED;
     return static_cast<DWORD>(-1);
@@ -945,6 +961,9 @@ DWORD ResumeThread(HANDLE h) {
     }
     return 0;
 #else
+#if defined(__linux__)
+    if (DWORD stopped = 0; signal_resume(t, &stopped)) return stopped;   // stopped by SuspendThread (os_posix_suspend.cpp)
+#endif
     const int prev = t->suspend.load(std::memory_order_relaxed);
     if (prev > 0) {
         pthread_mutex_lock(&t->mu);
@@ -2041,6 +2060,13 @@ BOOL GetThreadContext(HANDLE h, LPCONTEXT ctx) {
     ctx->pc = st.__pc;
     ctx->Cpsr = st.__cpsr;
     ctx->ContextFlags = 0x00100007u;   // CONTEXT_ARM64 | CONTROL | INTEGER | FLOATING_POINT: the whole file is there
+    return TRUE;
+#elif defined(__linux__)
+    // the registers its stop signal's handler saved: the caller suspended it first (os_posix_suspend.cpp)
+    if (!signal_context(t, ctx)) {
+        t_last_error = ERROR_INVALID_HANDLE;
+        return FALSE;
+    }
     return TRUE;
 #else
     t_last_error = ERROR_CALL_NOT_IMPLEMENTED;
