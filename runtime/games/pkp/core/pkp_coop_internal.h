@@ -20,6 +20,7 @@
 //   pkp_coop_purchases.cpp what any member buys in a shop, given to every member (and to later joiners) too
 //   pkp_coop_events.cpp   what an ended talk or scene leaves in the save (scenes played, conversations seen, story lines moved on)
 //                         kept by every member
+//   pkp_coop_held.cpp     the story events a member's game holds for Link Play's request counters: let through once they are stuck
 //   pkp_coop_travel.cpp   the group's trips: a move to another area runs only after the game's poll passed, and the host makes it for all
 //   pkp_coop_discovery.cpp the Pokédex entries and habitats any member found, found by every member, with the game's own scenes
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
@@ -199,6 +200,11 @@ void on_session_change();   // this process joined or left: the lists are read a
 void on_member_joined();    // another member joined: the whole lists are sent again
 void reset();
 }  // namespace discovery
+namespace held {
+// The hook site (pkp_coop.cpp): entry 0x313418, the visitor's "requests answered" test, from the event queue's ready test only.
+int on_visitor_sync(::Ctx* c);
+void reset();
+}  // namespace held
 
 namespace travel {
 // The hook site (pkp_coop.cpp): entry 0xbda20, the area move by destination index. In a session it runs only after the group's poll

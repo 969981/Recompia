@@ -302,6 +302,9 @@ entryhook 0x7100e87260
 #   habitat build 0x7100957588 and 0x71009598c0 call it)
 entryhook 0x71003b9060
 entryhook 0x710045f2a0
+#   Seamless co-op, held story events (pkp_coop_held.cpp): the visitor's "every Link Play request answered" test 0x7100313418, which
+#   the event queue's ready test 0x7100479c60 asks for events with flag bit 22
+entryhook 0x7100313418
 #   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): the talk handler
 #   0x71004c024c at `orr w8, w25, w0` (w0 = IsHost's answer); talk conditions 0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0`
 #   after IsOnline), and condition 0x22, the one instruction `b IsOnline`; the quest pump 0x710011b600 at `tbz w0, #0` after the flag read;
