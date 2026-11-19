@@ -145,6 +145,9 @@ namespace purchases {
 int on_grant(::Ctx* c);
 // The hook site (pkp_coop.cpp): entry 0xe87260, "this shop row is for offline play only"; in a session no row is.
 int on_offline_only(::Ctx* c);
+// True while a teammate's purchase is given here, and shortly after a received upgrade (its scripted event may still give items):
+// those gives are not shared again (pkp_coop_catchup.cpp).
+bool replaying();
 // The messages (pkp_coop_link.cpp).
 void on_purchase_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // the authority: a member bought something
 void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);        // the authority: a member asks for what it lacks

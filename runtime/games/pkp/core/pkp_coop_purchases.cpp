@@ -65,6 +65,8 @@ constexpr uint64_t kShopManager = 0x3565170;  // main + : the shop manager
 constexpr uint32_t kEntryMax = 0x7ff;         // entries 1..0x7ff (the grant's own check)
 constexpr uint32_t kCountMax = 999;
 constexpr uint64_t kItemCategory = 0x3a;      // item record + : u8 category (the grant's switch, 0x0e..0x15)
+constexpr uint8_t kCategoryEvent = 0x12;      // the grant queues the item's scripted event (PP Up, the handy bag, Packing Tips)
+constexpr double kEventQuiet = 30.0;          // seconds after such a give in which the event's own item gives are not shared again
 constexpr uint8_t kCategoryRecipe = 0x0f;     // the grant learns a recipe (0 when known: not a failure to retry)
 
 // The mark in this player's save: elements of the unique request record array (4 bytes each).
@@ -104,6 +106,7 @@ struct State {
     double asked_at = -1e9;
     int tries = 0;
     double retry_at = 0.0;
+    double quiet_until = 0.0;          // a received upgrade's scripted event may still run until then
 };
 State& st() {
     static State s;
@@ -192,6 +195,16 @@ void save_log() {
     if (!write_file_atomic(s.log_path, out, &err)) NXLOG_W(kTag, "Co-op purchases: the log is not written: %s", err.c_str());
 }
 
+// A new, empty log with a new id (every member then starts at its first entry).
+void new_log() {
+    State& s = st();
+    std::random_device rd;
+    s.log_id = (uint64_t{rd()} << 32 | rd()) | 1;
+    s.log.clear();
+    save_log();
+    NXLOG_I(kTag, "Co-op purchases: a new purchase log for this world");
+}
+
 // The authority's log, read from its file once (a new log, with a new id, when there is none).
 void load_log() {
     State& s = st();
@@ -213,10 +226,7 @@ void load_log() {
         }
     }
     if (!s.log_id) {
-        std::random_device rd;
-        s.log_id = (uint64_t{rd()} << 32 | rd()) | 1;
-        save_log();
-        NXLOG_I(kTag, "Co-op purchases: a new purchase log for this world");
+        new_log();
     } else {
         NXLOG_I(kTag, "Co-op purchases: the purchase log holds %zu purchases", s.log.size());
     }
@@ -278,6 +288,7 @@ bool give(::Ctx* c, const Entry& e) {
     ++s.remote;
     const bool given = guest::call(c, base() + kGrant, 0, e.entry, e.count, 0) & 1;
     --s.remote;
+    if (given && cat == kCategoryEvent) s.quiet_until = qpc::seconds() + kEventQuiet;
     if (!given && cat != kCategoryRecipe) {
         if (++s.tries < kTries) {
             s.retry_at = qpc::seconds() + kRetryAfter;
@@ -357,6 +368,11 @@ void tick_ask() {
 
 }  // namespace
 
+bool replaying() {
+    const State& s = st();
+    return s.remote > 0 || qpc::seconds() < s.quiet_until;
+}
+
 int on_offline_only(::Ctx* c) {
     if (!(session_bits() & layout::kSessionOnline)) return 0;
     c->x[0] = 0;
@@ -431,8 +447,14 @@ void tick(::Ctx* c, bool in_game) {
     State& s = st();
     if (!s.have_key) s.have_key = parse_key(member_key(), s.key);
     if (!c || !link::in_session()) return;
-    if (link::is_authority() && !s.known_log) {   // the authority applies its own log as every member does
+    if (link::is_authority() && !s.known_log && records()) {   // the authority applies its own log as every member does
         load_log();
+        // A log the authority's own save has no mark of is not this world's (the co-op save was made again in this folder): the
+        // authority applies every entry, its own too, so a world that has seen the log carries the mark.
+        if (!s.log.empty() && marked_log() != s.log_id) {
+            NXLOG_W(kTag, "Co-op purchases: the purchase log file belongs to another world; a new log is started");
+            new_log();
+        }
         s.known_log = s.log_id;
         s.known_end = static_cast<uint32_t>(s.log.size());
         for (uint32_t seq = applied(s.log_id) + 1; seq <= s.log.size(); ++seq) s.pending[seq] = s.log[seq - 1];
