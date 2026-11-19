@@ -24,7 +24,7 @@
 //   PurchaseLog +2 u64 the authority's purchase log id, +10 u32 its last entry, +14 u16 count n, then n times: u32 entry number,
 //               u8[16] buyer's member key, u16 shop entry, u16 count     (new purchases, or the answer to a PurchaseAsk)
 //   EventHistory +2 u16 n, n bytes: the origin's played-scene bits (byte i bit j = scene id i * 8 + j, ids 1..2998), then u16 m,
-//                m bytes: its conversation rows (row 0..m-1, bits 0..1 kept)   (whole, when either grew; a receiver takes the union)
+//                m bytes: its conversation rows (row 0..m-1, bit 0 kept)   (whole, when either grew; a receiver takes the union)
 //   StoryLines   +2 u8 count n, then n times: u8 story line (1..0xfe), u8 the line's id, s16 its step, u16 its condition bits
 //                                                            (the lines that changed on the origin; a receiver takes the furthest)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,

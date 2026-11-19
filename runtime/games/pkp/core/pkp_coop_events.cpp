@@ -11,10 +11,11 @@
 //   save root + 0x4a2cec + s / 8     m_playedContentsSkitFlag (CMNDAT): bit s & 7, set by kPlayed(s, 1), the runner its only caller.
 //   save root + 0x4a4100 + row       m_storyQuestUIState (CMNDAT): kQuestUi(s) moves the rows of table slot 0x1a9 tied to s to 5
 //                                    (their first time also gives the row's character its friendship) or 3. Each row only once.
-//   save root + 0x73b2f8 + row       m_crossTalkV2 (CMNDAT), rows 1..300 (event id -> row, map 0xa59bc0): bit 0 at state 4, bit 1
-//                                    from the cleanup 0x47f360 and 0x2c6bc0. The game has no setter (the writes are inline). The
-//                                    conversation pickers (0x30fa0, 0x474b00, 0x4d3820, 0x4d3bc4, 0x3abbe0, 0x955f20) offer only
-//                                    rows whose bits are clear: a row seen on one process was offered again on the others.
+//   save root + 0x73b2f8 + row       m_crossTalkV2 (CMNDAT), rows 1..300 (event id -> row, map 0xa59bc0): bit 0 at state 4 (bit 1, from
+//                                    the cleanup 0x47f360 and 0x2c6bc0, is not known well enough to share). The game has no setter
+//                                    (the writes are inline). The conversation pickers (0x30fa0, 0x474b00, 0x4d3820, 0x4d3bc4,
+//                                    0x3abbe0, 0x955f20) offer only rows whose bit 0 (or 0 and 1) is clear: a row seen on one process
+//                                    was offered again on the others.
 //   save root + 0x4a4410 + b * 0x10  the story lines b = 1..0xfe (m_StoryId / m_StoryCounter / m_StoryConditionFlags, CMNDAT): +8 u8
 //                                    the line's id (1..0xfe valid), +0xa s16 its step (>= 0 valid), +0xc u16 one bit per condition of
 //                                    that step (the unused bits are set). The event bus 0x10d260 (GM + 0xd0) sets the bits of the
@@ -54,7 +55,7 @@ constexpr uint32_t kSceneMax = 2998;          // scene ids 1..2998
 constexpr size_t kPlayedBytes = kSceneMax / 8 + 1;
 constexpr uint64_t kSeenRows = 0x73b2f8;      // save root +: the conversation rows
 constexpr size_t kRowCount = 301;             // rows 0..300 (1..300 used)
-constexpr uint8_t kRowBits = 0x03;
+constexpr uint8_t kRowBits = 0x01;   // bit 0: seen to the end (state 4)
 constexpr uint64_t kLines = 0x4a4410;         // save root + b * kLineSize
 constexpr uint64_t kLineSize = 0x10, kLineId = 8, kLineStep = 0xa, kLineBits = 0xc;
 constexpr uint32_t kLineMax = 0xfe;
@@ -87,6 +88,7 @@ struct State {
     Line lines_want[kLineMax + 1];            // the furthest another member has (id 0: none)
     uint8_t line_origin[kLineMax + 1] = {};
     uint8_t line_tries[kLineMax + 1] = {};
+    std::bitset<kLineMax + 1> line_waits;     // logged once: a line another member has waits here (not started, not on the bus)
     bool have_seen = false;
     bool send_all = true;
     double all_at = 0.0;
@@ -230,14 +232,25 @@ void apply_lines(::Ctx* c, uint64_t root) {
         if (!want.id) continue;
         const Line here = line(root, b);
         const bool level = valid(here) && (here.step > want.step || (here.step == want.step && (here.bits & want.bits) == want.bits));
-        if (!valid(here) || here.id != want.id || level) {
+        if (level || (valid(here) && here.id != want.id)) {
             if (level) s.lines_seen[b] = here;   // as far as the member: not sent back as new
             s.lines_want[b] = Line{};
             s.line_tries[b] = 0;
+            s.line_waits.reset(b);
             continue;
         }
-        const uint64_t entry = entry_of(gm_bus, b);
-        if (!entry || guest::rd<uint8_t>(entry + 2) || !(guest::call(c, base() + kStoryOn, b) & 1)) continue;   // not now
+        // A line starts at a stage start (0x10aaa8 from 0xb2f00, on every process from the same quest states): one not started here
+        // yet, or not on this stage's bus, waits for that.
+        const uint64_t entry = valid(here) ? entry_of(gm_bus, b) : 0;
+        if (!entry) {
+            if (!s.line_waits.test(b))
+                NXLOG_I(kTag, "Co-op events: story line %u from node %u (step %d) waits: %s here", b, s.line_origin[b], want.step,
+                        valid(here) ? "not on this stage's event bus" : "not started");
+            s.line_waits.set(b);
+            continue;
+        }
+        if (guest::rd<uint8_t>(entry + 2) || !(guest::call(c, base() + kStoryOn, b) & 1)) continue;   // not now
+        s.line_waits.reset(b);
         const uint16_t bits = here.step < want.step ? kAllBits : static_cast<uint16_t>(here.bits | want.bits);
         guest::wr<uint16_t>(root + kLines + b * kLineSize + kLineBits, bits);
         if (bits == kAllBits) {
