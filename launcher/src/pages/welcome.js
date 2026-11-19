@@ -1,9 +1,11 @@
 // The sign-in screen: a full-window screen (main.js: the page tabs go, the rail of games stays), Recompia's logo on the floating island
-// and a card that signs in right here (cloud-signin-model.js welcome()). The one place for the online account: the launcher starts on it before the first Home
-// of a launcher start while an account portal is set, this device is signed out of it (or its sign-in expired) and the player has not
-// pressed Skip (cloud-signin.js welcomeOwed), and Home's account chip opens it (ctx.from === 'chip') at any time, signed in or not.
-// At start the way out is Skip (or Esc): on to Home at once, remembered (launcher.json signin_skipped); signed in, the card says so
-// for a moment and goes on by itself. From the chip the way out is Back (or Esc): Home again, the skip flag untouched; signed in, the
+// and a card that signs in right here (cloud-signin-model.js welcome()), marked Experimental. The one place for the online account, only
+// while Cloud Islands are switched on (Settings > Game > Online): the launcher starts on it before the first Home of a launcher start
+// when this device is signed out (or its sign-in expired) and the player has not pressed Skip (cloud-signin.js welcomeOwed); switching
+// Cloud Islands on opens it at once (ctx.from === 'settings', settings/controls.js); and Home's account chip opens it (ctx.from === 'chip')
+// at any time, signed in or not.
+// At start and from Settings the way out is Skip (or Esc): on to Home, or back to Settings, at once, remembered (launcher.json
+// signin_skipped); signed in, the card says so for a moment and goes on by itself. From the chip the way out is Back (or Esc): Home again, the skip flag untouched; signed in, the
 // card shows the account, Sign out and the account page. Leaving while a sign-in waits stops it, by the way out or any other (the rail,
 // the pad's LT and RT): another game or page is "not now", not remembered. Play is never behind it: the way out is on every step, and a
 // controller's B presses it (data-pad-back), as Esc does.
@@ -13,19 +15,19 @@ import { t } from '../i18n.js';
 import { errText, esc, icon, toast } from '../ui.js';
 import { brandUrl } from '../branding.js';
 import { follow, hero, rememberSkip } from '../cloud-signin.js';
-import { countdown, welcome } from '../cloud-signin-model.js';
+import { countdown, expTag, welcome } from '../cloud-signin-model.js';
 
 const DONE_MS = 1800;   // how long "Signed in as …" stays before Home (at start)
 
-/** ctx.next, ctx.nextOpts: the page to go on to (the game's Home); ctx.release: called once the screen is gone (main.js, at start);
- *  ctx.from: 'chip' when Home's account chip opened it. */
+/** ctx.next, ctx.nextOpts: the page to go on to (the game's Home, or Settings); ctx.release: called once the screen is gone (main.js, at
+ *  start); ctx.from: 'chip' when Home's account chip opened it, 'settings' when switching Cloud Islands on did. */
 export function render(host, ctx) {
   const next = ctx.next || ctx.game.home;
   const chip = ctx.from === 'chip';
   host.innerHTML = `<div class="welcome-screen"><div class="welcome-layout">
       <div class="welcome-hero">${hero('welcome')}</div>
       <section class="welcome-card signin glass strong" aria-labelledby="welcome-title" aria-live="polite">
-        <h1 id="welcome-title">${esc(t('Online account'))}</h1>
+        <div class="welcome-title"><h1 id="welcome-title">${esc(t('Online account'))}</h1>${expTag()}</div>
         <div class="welcome-main"></div>
         <div class="welcome-actions"></div>
       </section>
@@ -40,7 +42,7 @@ export function render(host, ctx) {
   let done = 0;
   let gone = false;
 
-  /** skip: Skip at start (remembered); otherwise Back from the chip, or on by itself (signed in at start, no portal). */
+  /** skip: Skip at start or from Settings (remembered); otherwise Back from the chip, or on by itself (signed in, Cloud Islands off). */
   const leave = (skip) => {
     if (gone) return;
     gone = true;

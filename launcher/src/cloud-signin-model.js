@@ -6,11 +6,11 @@ import { t } from './i18n.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-/** Whether the launcher shows the sign-in at all (an account portal is set in Settings > Game > Online). */
+/** Whether the launcher shows the sign-in at all (Cloud Islands are switched on in Settings > Game > Online). */
 export const shown = (st) => !!st && !!st.state && st.state !== 'off';
 
 /**
- * Whether the launcher starts on the welcome screen (pages/welcome.js) before Home: a portal is set, this device is signed out or
+ * Whether the launcher starts on the welcome screen (pages/welcome.js) before Home: Cloud Islands are on, this device is signed out or
  * its sign-in expired, and the player has not pressed Skip since the last sign-in or sign-out (`skipped`: launcher.json
  * signin_skipped).
  */
@@ -37,7 +37,7 @@ export const safeQr = (svg, mark = '') => {
   return svg.replace(/<\/svg>$/, `<image href="${esc(mark)}" x="${x + 0.5}" y="${y + 0.5}" width="${side - 1}" height="${side - 1}"/></svg>`);
 };
 
-/** Home's chip: '' when the sign-in is hidden. */
+/** Home's chip, with the red Experimental label in it: '' when the sign-in is hidden. */
 export function chip(st, icon) {
   if (!shown(st)) return '';
   const [cls, name, label] = {
@@ -45,8 +45,11 @@ export function chip(st, icon) {
     expired: ['warn', 'circle-alert', t('Sign in again')],
     waiting: ['', 'loader-circle', t('Signing in…')],
   }[st.state] ?? ['', 'log-in', t('Sign in')];
-  return `<button class="chip on-art ${cls}" id="account-chip" title="${esc(t('Online account'))}">${icon(name, st.state === 'waiting' ? 'spin' : '')}${esc(label)}</button>`;
+  return `<button class="chip on-art ${cls}" id="account-chip" title="${esc(t('Online account'))}">${icon(name, st.state === 'waiting' ? 'spin' : '')}${esc(label)}${expTag()}</button>`;
 }
+
+/** Experimental, in red (components.css .exp-tag): in Home's chip and on the sign-in screen, as next to Settings' switch. */
+export const expTag = () => `<span class="chip exp-tag">${esc(t('Experimental'))}</span>`;
 
 const btn = (act, label, cls = '', iconHtml = '', attrs = '') => `<button class="btn ${cls}" data-signin="${act}"${attrs}>${iconHtml}${esc(label)}</button>`;
 

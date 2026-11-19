@@ -8,7 +8,7 @@ const base = { default_method: 'browser', device_name: 'Windows PC' };
 const qr = '<svg xmlns="http://www.w3.org/2000/svg" width="148" height="148" viewBox="0 0 37 37" shape-rendering="crispEdges"><rect width="37" height="37" fill="#fff"/><path d="M4,4h1v1h-1zM5,4h1v1h-1z" fill="#000"/><rect x="16" y="16" width="5" height="5" fill="#fff"/></svg>';
 const plainQr = '<svg xmlns="http://www.w3.org/2000/svg" width="148" height="148" viewBox="0 0 37 37" shape-rendering="crispEdges"><rect width="37" height="37" fill="#fff"/><path d="M4,4h1v1h-1z" fill="#000"/></svg>';
 
-// hidden without a portal; no chip, and the screen goes straight on to Home
+// hidden while Cloud Islands are off; no chip, and the screen goes straight on to Home
 check(!shown(null) && !shown({ ...base, state: 'off' }), 'off is hidden');
 check(chip({ ...base, state: 'off' }, icon) === '', 'no chip when off');
 check(shown({ ...base, state: 'signed_out' }), 'signed out is shown');
@@ -18,6 +18,7 @@ check(chip({ ...base, state: 'signed_out' }, icon).includes('Sign in<'), 'chip: 
 check(chip({ ...base, state: 'signed_in', account_name: 'Ana' }, icon).includes('Signed in: Ana'), 'chip: signed in names the account');
 check(chip({ ...base, state: 'signed_in', account_name: '<b>' }, icon).includes('&lt;b&gt;'), 'chip escapes the name');
 check(chip({ ...base, state: 'expired' }, icon).includes('class="chip on-art warn"'), 'chip: expired warns');
+check(['signed_out', 'signed_in', 'expired', 'waiting'].every((state) => chip({ ...base, state }, icon).includes('<span class="chip exp-tag">Experimental</span></button>')), 'chip: marked Experimental in every state');
 
 // waiting on a phone: QR, the short code, the device name, a countdown, the other way
 const phoneSt = { ...base, state: 'waiting', method: 'phone', phase: { phase: 'phone', url: 'http://localhost:8790/link?ticket=x', user_code: 'ABCD-EFGH', qr_svg: qr, fingerprint: '0123 4567 89AB CDEF', expires_in: 299 } };
@@ -32,10 +33,10 @@ check(marked.body.includes('<image href="art/mark.png?&quot;x" x="16.5" y="16.5"
 check(safeQr('<svg xmlns="http://www.w3.org/2000/svg" width="148" height="148" viewBox="0 0 37 37" shape-rendering="crispEdges"><rect width="37" height="37" fill="#fff"/><path d="" fill="#000"/><rect x="16" y="16" width="5" height="6" fill="#fff"/></svg>', 'm.png') === '', 'a middle square that is not square is left out');
 check(!welcome({ ...base, state: 'waiting', phase: { phase: 'phone', user_code: 'A', qr_svg: '<svg><script>x</script></svg>' } }, icon).body.includes('<script>'), 'a strange QR is left out');
 
-// the launcher starts on the welcome screen: signed out or expired with a portal, until Skip; never with no portal, signed in or waiting
+// the launcher starts on the welcome screen: signed out or expired with Cloud Islands on, until Skip; never with them off, signed in or waiting
 check(welcomeAtStart({ ...base, state: 'signed_out' }, false) && welcomeAtStart({ ...base, state: 'expired' }, false), 'welcome: signed out, expired');
 check(!welcomeAtStart({ ...base, state: 'signed_out' }, true) && !welcomeAtStart({ ...base, state: 'expired' }, true), 'welcome: not after Skip');
-check(!welcomeAtStart(null, false) && !welcomeAtStart({ ...base, state: 'off' }, false), 'welcome: not without a portal');
+check(!welcomeAtStart(null, false) && !welcomeAtStart({ ...base, state: 'off' }, false), 'welcome: not while Cloud Islands are off');
 check(!welcomeAtStart({ ...base, state: 'signed_in', account_name: 'Ana' }, false) && !welcomeAtStart({ ...base, state: 'waiting' }, false), 'welcome: not signed in or waiting');
 
 // at start (the welcome): the platform's way in first and primary, the other one under it, Skip on every step but signed in
@@ -57,7 +58,7 @@ const wBusy = welcome({ ...base, state: 'waiting', phase: { phase: 'finishing' }
 check(wBusy.step === 'busy' && wBusy.body.includes('certificate') && wBusy.actions.includes('data-signin="skip"'), 'welcome finishing: Skip');
 const wIn = welcome({ ...base, state: 'signed_in', account_name: '<Ana>' }, icon);
 check(wIn.step === 'done' && wIn.body.includes('Signed in as &lt;Ana&gt;') && wIn.actions === '', 'welcome signed in: names the account (escaped), no buttons');
-check(welcome({ ...base, state: 'off' }, icon).step === 'off' && welcome(null, icon).step === 'off', 'welcome without a portal: on to Home');
+check(welcome({ ...base, state: 'off' }, icon).step === 'off' && welcome(null, icon).step === 'off', 'welcome with Cloud Islands off: on to Home');
 
 // opened from Home's chip: the same screen, its way out is Back (data-signin leave), never Skip, on every step
 const ways = (v) => [...v.actions.matchAll(/data-signin="(\w[\w-]*)"/g)].map((m) => m[1]).join(' ');
@@ -80,7 +81,7 @@ check(ways(cGone) === 'account leave', 'after Sign out: account page, Back');
 const cOld = welcome({ ...base, state: 'expired' }, icon, '', { chip: true });
 check(cOld.body.includes('expired') && cOld.body.includes('data-signin="phone"') && ways(cOld) === 'sign-out leave', 'chip expired: Sign out, Back');
 check(ways(welcome({ ...base, state: 'expired' }, icon)) === 'sign-out skip', 'start expired: Sign out, Skip');
-check(welcome({ ...base, state: 'off' }, icon, '', { chip: true }).step === 'off', 'chip without a portal: back to Home');
+check(welcome({ ...base, state: 'off' }, icon, '', { chip: true }).step === 'off', 'chip with Cloud Islands off: back to Home');
 
 check(countdown(0) === '0:00' && countdown(61.4) === '1:01' && countdown(-5) === '0:00', 'countdown');
 

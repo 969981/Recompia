@@ -32,6 +32,7 @@ body.pad-nav .welcome-layout { padding-bottom: calc(var(--padbar-h) + var(--spac
   box-shadow: var(--glass-highlight), var(--shadow-lg);
 }
 .welcome-screen[data-step="phone"] .welcome-card { width: 600px; padding: var(--space-5) var(--space-6); }
+.welcome-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
 .welcome-card h1 { font-size: var(--text-2xl); }
 .welcome-methods { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
 .welcome-methods .btn { width: 100%; height: 44px; }

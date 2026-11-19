@@ -2,7 +2,9 @@
 //! Signing this device in to a Cloud Islands account (launcher/cloud-gateway signin.rs), for the sign-in screen the
 //! launcher starts on and Home's account chip opens (launcher/src/pages/welcome.js, cloud-signin.js).
 //!
-//! Optional: with no account portal in pkp.ini (`[net] cloud_portal`) the chip is hidden and nothing here runs.
+//! Only while Cloud Islands are switched on (Settings > Game > Online, launcher.json `cloud_islands`): off, the state is
+//! "off", the chip is hidden and nothing here runs. The portal is cloud_account.rs `PORTAL`, or pkp.ini's `[net]
+//! cloud_portal` (a test server).
 //! Signed in, the device's four files are in the device folder (`[net] cloud_account_dir`, else the default one) and
 //! the account gateway (cloud_account.rs) presents them for the game; a running gateway notices a sign-in or sign-out
 //! by itself.
@@ -15,7 +17,7 @@
 //! - `cloud_sign_out`: removes the sign-in from this device
 //! - `cloud_account_page`: opens the account page (where devices are removed, which revokes them)
 
-use crate::config::game_dir;
+use crate::config::load_config;
 use recompia_cloud_gateway::device;
 use recompia_cloud_gateway::signin::{self, Flow, Method, Phase};
 use serde_json::{json, Value};
@@ -35,8 +37,12 @@ struct Setup {
 }
 
 fn setup(app: &AppHandle) -> Setup {
-    let pkp = crate::settings::read_pkp(&game_dir(app));
-    Setup { portal: crate::cloud_account::portal(&pkp).map(|p| signin::check_portal(&p)), dir: crate::cloud_account::device_dir(&pkp) }
+    let cfg = load_config(app);
+    let pkp = crate::settings::read_pkp(&crate::paths::game_dir_of(&cfg));
+    Setup {
+        portal: crate::cloud_account::portal(cfg.cloud_islands, &pkp).map(|p| signin::check_portal(&p)),
+        dir: crate::cloud_account::device_dir(&pkp),
+    }
 }
 
 /// What the sign-in screen shows. Always: `state`, `default_method`, `device_name`. Signed in or expired: `account_name`
@@ -95,7 +101,7 @@ pub fn cloud_signin_begin(app: AppHandle, method: Option<String>) -> Result<Valu
     let portal = match &s.portal {
         Some(Ok(p)) => p.clone(),
         Some(Err(e)) => return Err(e.clone()),
-        None => return Err("No account portal is set (Settings, Online).".into()),
+        None => return Err("Cloud Islands are switched off (Settings > Game > Online).".into()),
     };
     let method = match method.as_deref() {
         None | Some("") => signin::default_method(),
@@ -133,6 +139,6 @@ pub fn cloud_account_page(app: AppHandle) -> Result<(), String> {
     match setup(&app).portal {
         Some(Ok(p)) => crate::play::open_url(&format!("{p}/")),
         Some(Err(e)) => Err(e),
-        None => Err("No account portal is set (Settings, Online).".into()),
+        None => Err("Cloud Islands are switched off (Settings > Game > Online).".into()),
     }
 }

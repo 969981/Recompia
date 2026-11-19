@@ -213,7 +213,7 @@ export function render(el, ctx) {
       toast(errText(err), 'error');
     }
   }
-  // the online account (cloud-signin.js): shown only when Settings > Game > Online names an account portal; it opens the sign-in screen
+  // the online account (cloud-signin.js): shown only while Cloud Islands are switched on (Settings > Game > Online); it opens the sign-in screen
   const drawAccount = (st) => { accountChip = accountChipOf(st, icon); drawChips(); };
   drawChips();
   readAccount().then(drawAccount);

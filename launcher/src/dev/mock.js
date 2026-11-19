@@ -138,8 +138,10 @@ let mockRepair = null;
 // few seconds (5 browser, 12 phone; &hold=1: never, to look at the waiting steps). The QR code is a made-up pattern in the shape and size
 // signin.rs draws (4 px a module), so safeQr takes it; it does not scan. Signed out or expired, the launcher starts on the sign-in screen
 // (pages/welcome.js; ?page=welcome opens it directly, ?page=welcome&from=chip as Home's account chip opens it, with Back and, signed in,
-// the account); &skipped=1 previews an install that pressed Skip before.
+// the account); &skipped=1 previews an install that pressed Skip before. All of it only while Cloud Islands are switched on (launcher.json
+// cloud_islands, Settings > Game > Online): off by default, as in the launcher; &cloud=1, or any &account other than off, switches them on.
 let mockAccount = params.get('account') || 'signed_out';
+let mockCloud = params.get('cloud') === '1' || (params.has('account') && mockAccount !== 'off');
 let mockSkipped = params.get('skipped') === '1';   // launcher.json signin_skipped
 const mockHold = params.get('hold') === '1';
 let mockSignin = null;   // { method, at }
@@ -156,7 +158,7 @@ function mockQr() {
 }
 function accountState() {
   const base = { state: mockAccount, default_method: 'browser', device_name: 'Windows PC' };
-  if (mockAccount === 'off') return base;
+  if (!mockCloud || mockAccount === 'off') return { ...base, state: 'off' };
   if (mockSignin) {
     const s = (Date.now() - mockSignin.at) / 1000;
     if (mockHold || s < (mockSignin.method === 'phone' ? 12 : 5)) {
@@ -223,7 +225,6 @@ const settings = {
     'fs.romfs': 'D:/Dumps/Game/updates/2.0.1a/romfs', 'fs.save_dir': '', 'audio.volume': '0.8',
     'net.protocol': 'native', 'net.mode': 'auto', 'net.internet': 'false', 'net.relay': '', 'net.server': 'auto',
     'pkp.link_interact_everywhere': '0',
-    ...(mockAccount === 'off' ? {} : { 'net.cloud_portal': 'https://accounts.example.org' }),
   },
   controls: sc.noControls ? {} : {
     'display.window_mode': 'borderless', 'display.width': '1920', 'display.height': '1080', 'display.render_scale': 'auto', 'display.fps_limit': 'auto', 'display.vsync': '1',
@@ -514,9 +515,9 @@ function handle(cmd, args) {
       console.info('[mock] open', cmd, args);
       return null;
     case 'save_log_bundle': return { path: 'C:/Users/Player/Downloads/recompia-logs-20260101-120000.zip' };
-    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, mods_auto_update: modsAutoUpdate, achievements_unlocked: !mockLocks.kept, achievements_sharing_unlocked: !mockLocks.sharing, ...mockOnline, signin_skipped: mockSkipped, game: mockGame };
+    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, mods_auto_update: modsAutoUpdate, achievements_unlocked: !mockLocks.kept, achievements_sharing_unlocked: !mockLocks.sharing, ...mockOnline, cloud_islands: mockCloud, signin_skipped: mockSkipped, game: mockGame };
     case 'save_config': modsAutoUpdate = !!args.config.mods_auto_update; looseShaders = !!args.config.loose_shaders; mockChannel = args.config.channel || 'stable'; mockGame = args.config.game ?? mockGame;
-      mockSkipped = !!args.config.signin_skipped;
+      mockSkipped = !!args.config.signin_skipped; mockCloud = !!args.config.cloud_islands;
       mockOnline = { online_asked: !!args.config.online_asked, online_name: args.config.online_name ?? '', online_salt: args.config.online_salt ?? '' };
       return null;
     case 'apply_branding': return null;

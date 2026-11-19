@@ -261,7 +261,7 @@ function drawChrome() {
 async function go(page, opts = {}) {
   if (!PAGES[page]) return;
   // the first Home of a launcher start, when it is one of Recompia's (the online account is for its Cloud Islands; a start on Zonith is not
-  // asked): signed out of an account portal (and not skipped), the sign-in screen comes first and the start questions (freeing shader
+  // asked): Cloud Islands switched on and signed out (and not skipped), the sign-in screen comes first and the start questions (freeing shader
   // space) wait behind it (cloud-signin.js welcomeOwed, pages/welcome.js)
   const firstHome = !welcomeAsked && GAMES.find((g) => g.home === page);
   if (firstHome) {

@@ -61,7 +61,10 @@ function infoControl(r, e) {
   return text + actionsOf(r, e).map(actionButton).join('');
 }
 
-const rowHtml = (r, cls, label, control) => row(label, control).replace('class="row-item"', `class="row-item ${cls}" data-row="${r.id}"`);
+/** r.badge: a red label after the row's name (exp-tag, components.css): Experimental. */
+const rowHtml = (r, cls, label, control) => row(label, control)
+  .replace('class="row-item"', `class="row-item ${cls}" data-row="${r.id}"`)
+  .replace('</label>', r.badge ? ` <span class="chip exp-tag">${esc(r.badge)}</span></label>` : '</label>');
 
 function noteHtml(r, e) {
   const n = r.note(e);

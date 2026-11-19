@@ -67,6 +67,7 @@ fn report_files(dir: &Path, started: SystemTime) -> Vec<ReportFile> {
 pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool, coop: Option<crate::coop_launch::Launch>) -> Result<(), String> {
     let (minimize, discord) = (cfg.minimize_on_play, cfg.discord_presence);
     let gentle = cfg.gentle_build;
+    let cloud_islands = cfg.cloud_islands;
     {
         let st = app.play();
         if st.0.lock().unwrap().state == GameState::Running {
@@ -128,8 +129,9 @@ pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool,
                 return;
             }
         };
-        // Cloud Islands account mode ([net] cloud_account): the local gateway runs from here until the game has ended
-        let cloud_account = crate::cloud_account::Watch::start(&dir, &mut cmd);
+        // Cloud Islands (launcher.json cloud_islands): the game is pointed at the server, or at none; in account mode the local gateway
+        // runs from here until the game has ended
+        let cloud_account = crate::cloud_account::Watch::start(&dir, cloud_islands, &mut cmd);
         let started = SystemTime::now();
         let mut child = match cmd.spawn() {
             Ok(c) => c,
