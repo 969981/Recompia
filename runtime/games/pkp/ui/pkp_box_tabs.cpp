@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <utility>
 
+#include "nxrt/input_source.h"
 #include "nxrt/log.h"
 #include "nxrt/notices.h"
 
@@ -54,6 +55,7 @@ struct OpenBox {
     bool active = false;
     bool restore_physical = false;
     int pending = 0;
+    uint64_t prev_buttons = ~uint64_t{0};   // L / R as last seen (all set at open: a button held from before does not count)
 };
 struct State {
     uint64_t base = 0;
@@ -239,10 +241,26 @@ int hook_screen_frame(::Ctx* c, uint64_t, void*) {
         box = {.screen = screen, .last_frame = now, .physical = id, .shown = id, .type = type, .active = !online};
         const Tabs tabs = available_tabs(box);
         notice(type, 0, tabs.count, true, tabs.taken, online);
+        if (g.log)
+            NXLOG_I(kTag, "storage box tabs: opened type %u id %u, %d pages (%d taken)%s", type, id, tabs.count, tabs.taken, online ? ", online" : "");
         return 0;
     }
 
     box.last_frame = now;
+    if (box.type == kBoxType && box.active) {
+        // A one-page box's page selector takes no input (0xe980c0 is never asked), so L / R are read here, from the pad state the game
+        // reads too (keyboard and pad bindings included).
+        uint64_t buttons = 0;
+        if (auto src = hid::input_source()) {
+            hid::InputSnapshot snap;
+            src->poll(snap);
+            buttons = (snap.npad[0].buttons | snap.npad[hid::kNpadSlotHandheld].buttons) & (hid::btn(hid::kBtnL) | hid::btn(hid::kBtnR));
+        }
+        const uint64_t pressed = buttons & ~box.prev_buttons;
+        box.prev_buttons = buttons;
+        if (pressed & hid::btn(hid::kBtnR)) box.pending = 1;
+        else if (pressed & hid::btn(hid::kBtnL)) box.pending = -1;
+    }
     const int direction = std::exchange(box.pending, 0);
     if (!tab_shown && !direction) return 0;
     const bool online = call(c, g.base + layout::kIsOnline, 0) & 1;
@@ -270,10 +288,7 @@ int hook_page_request(::Ctx* c, uint64_t, void*) {
     // Both page lists use the same callback. Only list 2 belongs to the container.
     if (container_selector(c, box.screen) != selector) return 0;
     const int direction = request == 2 ? -1 : 1;
-    if (box.type == kBoxType) {
-        box.pending = direction;
-        return 0;
-    }
+    if (box.type != kBigBoxType) return 0;   // a one-page box's selector never asks (standard boxes: L / R in the frame hook)
 
     if (box.restore_physical || rd<uint16_t>(box.screen + kPhysicalPayload) != box.physical ||
         rd<uint16_t>(box.screen + kId) != box.shown || !ok(selector, kSelectorPage + sizeof(uint32_t)))
