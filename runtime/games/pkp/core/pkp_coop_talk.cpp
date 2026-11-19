@@ -10,8 +10,9 @@
 //   - two members asking for one character: the authority's order decides, the other one's copy then names the holder.
 // The lock is given back (TalkDone, or by the authority itself) when the talk's event chain ends, when the press started no talk after
 // all, when nothing of the talk is running any more (watchdog, below) and, on the authority, when its holder leaves the session.
-// A talk an event starts from inside its own chain (w3 = 0) is never refused and takes no lock: the event's talk already holds this
-// player's lock, and that caller does not look at the answer. A member's talk takes the host's path in the talk handler (on_talk_kind),
+// A talk an event starts from inside its own chain (w3 = 0) to the character this player holds is never refused and takes no lock:
+// the event's talk already holds this player's lock for it, and that caller does not look at the answer. One to another character
+// asks for that character's lock as a press does. A member's talk takes the host's path in the talk handler (on_talk_kind),
 // so a member gets the character's own talk, quest talks too, instead of the visitor's stub; the lock above keeps it to one player.
 //
 // The game, 2.0.1:
@@ -160,12 +161,14 @@ int on_talk_start(::Ctx* c) {
     State& s = st();
     s.chained = false;
     if (!link::in_session()) return 0;
-    if (!(c->x[kFlagsReg] & 1)) {   // chained from inside an event: it runs under that event's talk and its lock
+    const uint8_t slot = static_cast<uint8_t>(c->x[kSlotReg]);
+    const uint32_t chara = character_of(c, c->x[kActorReg]);
+    // Chained from inside an event, to the character whose lock this player holds: it runs under that event's talk and its lock. A
+    // chained talk to another character (the runner's actor need not be the event's) takes the lock path below like a press.
+    if (!(c->x[kFlagsReg] & 1) && chara && s.held && s.held->chara == chara) {
         s.chained = true;
         return 0;
     }
-    const uint8_t slot = static_cast<uint8_t>(c->x[kSlotReg]);
-    const uint32_t chara = character_of(c, c->x[kActorReg]);
     if (!chara || slot >= kSlots) return 0;
     notice::set_slot(slot);
     const uint8_t self = link::self();
