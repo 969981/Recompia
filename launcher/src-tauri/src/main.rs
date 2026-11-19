@@ -49,6 +49,7 @@ mod launch;
 mod nup;
 mod nx;
 mod online;
+mod pad;
 mod open;
 mod paths;
 mod play;
@@ -95,6 +96,8 @@ mod update_cmds;
 mod window;
 mod writecheck;
 mod zipout;
+mod zonith;
+mod zonith_cmds;
 
 use std::sync::atomic::Ordering;
 use tauri::Manager;
@@ -143,6 +146,8 @@ fn main() {
                     branding::on_start(&load_config(&handle));
                 });
             }
+            // controllers read natively, for a webview without the Gamepad API (pad.rs)
+            pad::start(app.handle().clone());
             #[cfg(debug_assertions)]
             testhook::drive_page(app);
             Ok(())
@@ -243,6 +248,12 @@ fn main() {
             mods_cmds::mods_set_lock,
             mods_cmds::open_mods_dir,
             achievements_cmds::achievements_view,
+            zonith_cmds::zonith_status,
+            zonith_cmds::zonith_download,
+            zonith_cmds::zonith_cancel,
+            zonith_cmds::zonith_play,
+            zonith_cmds::zonith_open_dir,
+            pad::pad_poll,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the launcher");

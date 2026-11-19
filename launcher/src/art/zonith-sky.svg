@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+  <!-- Zonith's launcher scene: an original picture made for the launcher (sky islands over a sea of cloud at dusk). Rendered to
+       zonith-sky-sharp.webp and zonith-sky-soft.webp by scripts/render-zonith-art.py. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#06121f"/>
+      <stop offset="0.38" stop-color="#0d3140"/>
+      <stop offset="0.66" stop-color="#1f6a6a"/>
+      <stop offset="0.82" stop-color="#e2b77a"/>
+      <stop offset="1" stop-color="#f3d9a6"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.72" cy="0.68" r="0.42">
+      <stop offset="0" stop-color="#fff1c8" stop-opacity="0.95"/>
+      <stop offset="0.18" stop-color="#ffd98f" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#6fd6bf" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#6fd6bf" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="isle" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a6b63"/>
+      <stop offset="0.25" stop-color="#173f44"/>
+      <stop offset="1" stop-color="#0a1d26"/>
+    </linearGradient>
+    <linearGradient id="isle-far" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4f9c8f"/>
+      <stop offset="1" stop-color="#1d4c52"/>
+    </linearGradient>
+    <linearGradient id="cloud" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbe8c2"/>
+      <stop offset="1" stop-color="#9cc9bb"/>
+    </linearGradient>
+    <linearGradient id="fall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bff7ea" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#bff7ea" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="haze"><feGaussianBlur stdDeviation="6"/></filter>
+    <filter id="glow"><feGaussianBlur stdDeviation="18"/></filter>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <rect width="1920" height="1080" fill="url(#sun)"/>
+
+  <!-- stars -->
+  <g fill="#e8fff8" opacity="0.7">
+    <circle cx="140" cy="90" r="1.6"/><circle cx="420" cy="60" r="1.2"/><circle cx="610" cy="150" r="1.4"/><circle cx="880" cy="70" r="1.1"/>
+    <circle cx="1130" cy="120" r="1.5"/><circle cx="1390" cy="50" r="1.2"/><circle cx="1620" cy="140" r="1.6"/><circle cx="1830" cy="80" r="1.1"/>
+    <circle cx="300" cy="210" r="1"/><circle cx="760" cy="240" r="1"/><circle cx="1270" cy="220" r="1.1"/><circle cx="1740" cy="250" r="1"/>
+  </g>
+
+  <!-- the great ring, faint in the sky -->
+  <g transform="translate(1380 430)" opacity="0.22" fill="none" stroke="#7ff0d6">
+    <circle r="330" stroke-width="26"/>
+    <circle r="330" stroke-width="2" stroke-dasharray="40 26" stroke="#d9fff4"/>
+    <circle r="300" stroke-width="2" opacity="0.6"/>
+  </g>
+  <circle cx="1380" cy="430" r="330" fill="none" stroke="#7ff0d6" stroke-width="40" opacity="0.08" filter="url(#glow)"/>
+
+  <!-- far islands -->
+  <g fill="url(#isle-far)" opacity="0.55" filter="url(#haze)">
+    <path d="M180 520 q60 -26 150 -8 q40 8 58 26 l-40 36 -40 60 -30 -40 -40 30 -36 -50 z"/>
+    <path d="M1600 380 q50 -20 120 -6 q30 8 44 22 l-30 28 -30 46 -24 -30 -30 22 -28 -40 z"/>
+    <path d="M820 300 q40 -14 96 -4 q24 6 34 16 l-24 22 -22 34 -18 -24 -24 18 -22 -30 z"/>
+  </g>
+
+  <!-- main island, right of the logo -->
+  <g transform="translate(360 40)">
+    <path fill="url(#isle)" d="M520 600 q120 -60 300 -40 q120 14 190 52 q-20 30 -70 48 l-40 70 -60 -20 -40 110 -60 -70 -50 130 -50 -120 -60 60 -40 -110 -70 20 z"/>
+    <path fill="#3f8f7d" d="M520 600 q120 -60 300 -40 q120 14 190 52 q-60 -16 -190 -24 q-160 -8 -300 12 z"/>
+    <!-- the ruin on top -->
+    <g fill="#d9cfa6" opacity="0.92">
+      <rect x="700" y="500" width="120" height="14" rx="2"/>
+      <rect x="708" y="514" width="14" height="60"/><rect x="742" y="514" width="14" height="60"/><rect x="776" y="514" width="14" height="60"/><rect x="804" y="514" width="10" height="60"/>
+      <path d="M690 500 l70 -42 l70 42 z"/>
+      <rect x="696" y="574" width="128" height="10" rx="2"/>
+    </g>
+    <!-- waterfall -->
+    <rect x="910" y="600" width="12" height="300" fill="url(#fall)"/>
+  </g>
+
+  <!-- small island, far right -->
+  <g transform="translate(180 -60) scale(0.9)">
+    <path fill="url(#isle)" d="M1380 690 q70 -30 170 -18 q50 8 80 28 l-40 34 -30 60 -40 -30 -30 70 -40 -60 -40 30 -20 -70 z"/>
+    <path fill="#3f8f7d" d="M1380 690 q70 -30 170 -18 q50 8 80 28 q-80 -14 -250 -10 z"/>
+    <g fill="#d9cfa6" opacity="0.85">
+      <rect x="1480" y="640" width="10" height="38"/><rect x="1504" y="646" width="10" height="32"/>
+      <rect x="1472" y="634" width="50" height="8" rx="2"/>
+    </g>
+  </g>
+
+  <!-- sea of cloud -->
+  <g fill="url(#cloud)">
+    <path opacity="0.55" d="M0 860 q80 -50 180 -22 q60 -50 150 -14 q70 -46 160 -6 q90 -40 170 4 q80 -38 170 0 q90 -44 180 2 q80 -36 170 0 q90 -40 180 4 q80 -30 170 0 q70 -26 190 6 L1920 850 V1080 H0 z"/>
+    <path opacity="0.85" d="M0 930 q100 -40 200 -10 q70 -44 170 -6 q80 -40 180 0 q90 -36 190 6 q80 -30 180 0 q90 -40 190 4 q80 -30 180 0 q90 -36 190 6 q80 -24 240 0 L1920 925 V1080 H0 z"/>
+    <path d="M0 1000 q120 -30 240 -4 q90 -34 200 0 q100 -30 220 2 q90 -26 210 0 q110 -30 230 4 q100 -24 220 0 q110 -26 260 2 q90 -20 340 -2 L1920 1000 V1080 H0 z"/>
+  </g>
+
+  <!-- soft clouds drifting -->
+  <g fill="#fdf1d6" opacity="0.6" filter="url(#haze)">
+    <ellipse cx="380" cy="430" rx="110" ry="20"/>
+    <ellipse cx="1120" cy="560" rx="140" ry="22"/>
+    <ellipse cx="1720" cy="560" rx="100" ry="16"/>
+  </g>
+</svg>

@@ -8,6 +8,7 @@ import { confirm, errCode, errText, esc, icon, toast } from './ui.js';
 import { keptLine, updatedLine } from './mods-model.js';
 import { canInstall, canUpdate, gamePhase, needsFinish, taskOf } from './action.js';
 import { askOnlineOnce } from './online.js';
+import { feedNativePad } from './gamepad-nav.js';
 
 const subs = new Set();
 let autoFinishDone = false;   // `updated` is acted on once
@@ -65,6 +66,14 @@ async function onSetupEvent(p) {
   if (was === 'running' && p.state === 'error') toast(t('Setup stopped with an error'), 'error');
 }
 
+async function onZonithProgress(p) {
+  set({ zonith: { ...(store.state.zonith ?? {}), job: p } }, 'zonith');
+  if (['download', 'unpack'].includes(p.state)) return;
+  if (p.state === 'done') toast(t('Zonith is ready to play'), 'ok');
+  if (p.state === 'error') toast(p.message || t('The Zonith download did not finish'), 'error');
+  await store.refreshZonith(false);
+}
+
 export const store = {
   state: {
     app: null,            // launcher_state, null until it loads
@@ -83,6 +92,8 @@ export const store = {
     dragging: false,      // files are being dragged over the window
     dropped: null,        // the paths of the drop that fired why 'drop'
     loadError: null,
+    zonith: null,         // zonith_status with the last zonith-progress as `job` (zonith-model.js), null until it loads
+    zonithStarting: false,   // a Zonith Play or Install click is on its way to Rust
   },
 
   /** ctx.on(fn) wraps this for pages. fn(state, why). */
@@ -101,6 +112,9 @@ export const store = {
       on('dlss-progress', (p) => store.state.dlss && set({ dlss: p }, 'task')),
       on('save-edit-data-progress', (p) => set({ saveEditData: p }, 'saveedit')),
       on('unpack-progress', (p) => store.state.unpack && set({ unpack: p }, 'task')),
+      on('zonith-progress', onZonithProgress),
+      on('zonith-game', (p) => store.state.zonith && set({ zonith: { ...store.state.zonith, running: p.state === 'running' } }, 'zonith')),
+      on('pad-state', feedNativePad),   // the launcher's own pad reader, for a webview with no Gamepad API (gamepad-nav.js)
       on('shader-storage-progress', (p) => store.state.repack && set({ repack: p }, 'task')),
       on('tauri://drag-enter', () => set({ dragging: true, dropped: null }, 'drop')),
       on('tauri://drag-leave', () => set({ dragging: false, dropped: null }, 'drop')),
@@ -108,6 +122,8 @@ export const store = {
     ]);
     await store.refresh();
     store.refreshNews(false).then(() => store.refreshNews(true));
+    store.refreshZonith(false).then(() => store.refreshZonith(true));
+    api.padPoll().then(feedNativePad, () => {});   // a pad already connected before the first pad-state
     afterUpdate();
     store.refreshStorage().then(offerCompact);
     store.keepLockedMods().then(() => store.updateMods());
@@ -200,6 +216,52 @@ export const store = {
       set({ news: { releases: news?.releases ?? [], update: news?.update ?? null } }, 'news');
     } catch (e) {
       console.warn('get_releases', e);
+    }
+  },
+
+  /** zonith_status. refresh=false serves the cache, true asks GitHub. A failure keeps the last status. */
+  async refreshZonith(refresh = false) {
+    try {
+      const z = await api.zonithStatus({ refresh });
+      const job = store.state.zonith?.job && !z.job ? store.state.zonith.job : z.job;
+      set({ zonith: { ...z, job: job && ['download', 'unpack'].includes(job.state) ? job : z.job } }, 'zonith');
+    } catch (e) {
+      console.warn('zonith_status', e);
+    }
+  },
+
+  /** Fetches Zonith's newest release (its first install, or an update). Progress comes as zonith-progress. */
+  async zonithDownload() {
+    if (store.state.zonithStarting) return;
+    set({ zonithStarting: true }, 'zonith');
+    try {
+      await api.zonithDownload();
+    } catch (e) {
+      toast(errText(e), 'error');
+    } finally {
+      set({ zonithStarting: false }, 'zonith');
+    }
+  },
+
+  async zonithCancel() {
+    try {
+      await api.zonithCancel();
+    } catch (e) {
+      toast(errText(e), 'error');
+    }
+  },
+
+  /** Opens Zonith's own setup window, which builds the game from the player's files and starts it. Running and exited come as
+   *  zonith-game: on Windows the starter exits at once, so the exit can arrive before this call returns. */
+  async zonithPlay() {
+    if (store.state.zonithStarting) return;
+    set({ zonithStarting: true }, 'zonith');
+    try {
+      await api.zonithPlay();
+    } catch (e) {
+      toast(errText(e), 'error');
+    } finally {
+      set({ zonithStarting: false }, 'zonith');
     }
   },
 

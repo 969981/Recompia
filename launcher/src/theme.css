@@ -61,10 +61,12 @@
   --scrim-soft: #8a8a8a;            /* multiplied over the blurred art: neutral grey, so it only dims and the page shows the same picture as Home */
   --hero-x: 300px;                 /* the title's middle: the scrim behind it stops short of the sun */
   --scrim-hero:
-    linear-gradient(90deg, rgba(7, 10, 30, 0.56) 0%, rgba(7, 10, 30, 0.3) 30%, rgba(7, 10, 30, 0) 50%),
-    radial-gradient(ellipse 285px 270px at var(--hero-x) 57%, rgba(7, 10, 30, 0.6) 0%, rgba(7, 10, 30, 0.48) 50%, rgba(7, 10, 30, 0) 100%),
+    linear-gradient(90deg, rgba(7, 10, 30, 0.62) 0%, rgba(7, 10, 30, 0.34) 34%, rgba(7, 10, 30, 0) 58%),
     linear-gradient(0deg, rgba(7, 10, 30, 0.72) 0%, rgba(7, 10, 30, 0.16) 30%, rgba(7, 10, 30, 0) 44%);
   --backdrop: rgba(6, 7, 22, 0.5);
+  --rail-bg: rgba(6, 8, 22, 0.78);
+  --topbar-bg: linear-gradient(180deg, rgba(6, 8, 22, 0.62) 0%, rgba(6, 8, 22, 0.28) 62%, rgba(6, 8, 22, 0) 100%);
+  --padbar-bg: linear-gradient(0deg, rgba(6, 8, 22, 0.9) 0%, rgba(6, 8, 22, 0.66) 70%, rgba(6, 8, 22, 0) 100%);
 
   /* type */
   --font-ui: "Inter Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
@@ -107,10 +109,11 @@
   --radius-pill: 999px;
 
   /* sizes */
-  --sidebar-w: 224px;
-  --rail-w: 68px;
+  --rail-w: 92px;                  /* the games rail (main.js drawRail) */
   --gutter: 12px;
-  --titlebar-h: 44px;
+  --titlebar-h: 56px;              /* the top bar with the page tabs, laid over the page */
+  --padbar-h: 44px;                /* the controller's button hints */
+  --hero-play-h: 60px;             /* a Home's Play button */
   --control-h: 36px;
   --control-sm: 30px;
   --control-lg: 52px;
@@ -134,7 +137,7 @@
 }
 
 @media (max-width: 999.98px) {
-  :root { --hero-x: 190px; }
+  :root { --hero-x: 190px; --rail-w: 76px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -172,7 +175,6 @@
   --glass-tint-strong: rgba(36, 18, 6, 0.62);
   --scrim-hero:
     linear-gradient(90deg, rgba(26, 12, 4, 0.58) 0%, rgba(26, 12, 4, 0.3) 30%, rgba(26, 12, 4, 0) 50%),
-    radial-gradient(ellipse 285px 270px at var(--hero-x) 57%, rgba(26, 12, 4, 0.6) 0%, rgba(26, 12, 4, 0.48) 50%, rgba(26, 12, 4, 0) 100%),
     linear-gradient(0deg, rgba(26, 12, 4, 0.74) 0%, rgba(26, 12, 4, 0.16) 30%, rgba(26, 12, 4, 0) 44%);
   --backdrop: rgba(22, 10, 3, 0.52);
   --shadow-accent: 0 10px 28px -10px rgba(255, 194, 61, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.45);
@@ -193,8 +195,37 @@
   --glass-tint-strong: rgba(6, 30, 28, 0.68);
   --scrim-hero:
     linear-gradient(90deg, rgba(4, 22, 20, 0.66) 0%, rgba(4, 22, 20, 0.36) 32%, rgba(4, 22, 20, 0) 54%),
-    radial-gradient(ellipse 285px 270px at var(--hero-x) 57%, rgba(4, 22, 20, 0.66) 0%, rgba(4, 22, 20, 0.52) 50%, rgba(4, 22, 20, 0) 100%),
     linear-gradient(0deg, rgba(4, 22, 20, 0.78) 0%, rgba(4, 22, 20, 0.2) 30%, rgba(4, 22, 20, 0) 44%);
   --backdrop: rgba(4, 22, 20, 0.54);
   --shadow-text: 0 2px 40px rgba(4, 22, 20, 0.6), 0 1px 3px rgba(4, 22, 20, 0.35);
+}
+
+/* Zonith: its own picture (art/zonith-sky.svg, an original scene made for the launcher) and its teal and parchment colours, in every theme:
+   the themes colour Recompia. Two attributes, so these win over any :root[data-theme]. */
+:root[data-game="zonith"][data-theme] {
+  --art-url: url("./art/zonith-sky-sharp.webp");
+  --art-soft-url: url("./art/zonith-sky-soft.webp");
+  --art-position: 50% 60%;
+  --color-bg: #06121f;
+  --color-menu: #0d2230;
+  --color-solid: #0b1e2a;
+  --color-solid-raised: #133042;
+  --color-selection: rgba(47, 211, 181, 0.28);
+  --color-accent: #2fd3b5;
+  --color-accent-hover: #4fe3c7;
+  --color-accent-press: #22bea2;
+  --color-on-accent: #04201b;
+  --color-ok: #7ff0d6;
+  --color-focus: #e8fff8;
+  --tint-accent: rgba(47, 211, 181, 0.15);
+  --surface-sunken: rgba(3, 12, 20, 0.4);
+  --glass-tint: rgba(5, 18, 28, 0.52);
+  --glass-tint-strong: rgba(5, 18, 28, 0.7);
+  --scrim-hero:
+    linear-gradient(90deg, rgba(3, 12, 20, 0.7) 0%, rgba(3, 12, 20, 0.38) 34%, rgba(3, 12, 20, 0) 56%),
+    linear-gradient(0deg, rgba(3, 12, 20, 0.8) 0%, rgba(3, 12, 20, 0.22) 32%, rgba(3, 12, 20, 0) 46%);
+  --backdrop: rgba(3, 12, 20, 0.56);
+  --rail-bg: rgba(3, 10, 18, 0.82);
+  --shadow-accent: 0 10px 28px -10px rgba(47, 211, 181, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  --shadow-text: 0 2px 40px rgba(3, 12, 20, 0.6), 0 1px 3px rgba(3, 12, 20, 0.35);
 }

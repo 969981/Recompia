@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-game="recompia">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Recompia</title>
   </head>
   <body data-art="soft">
-    <!-- The art never changes: the sharp copy shows on Home, the blurred one everywhere else. -->
+    <!-- The art is the shown game's (theme.css, html[data-game]): the sharp copy shows on a Home, the blurred one everywhere else. -->
     <div id="bg" aria-hidden="true">
       <div class="art art-sharp"></div>
       <div class="art art-soft"></div>
@@ -15,15 +15,22 @@
     </div>
 
     <div id="app">
-      <nav id="nav" class="glass" aria-label="Main"></nav>
-      <main id="view" tabindex="-1"></main>
-    </div>
-
-    <div id="titlebar" data-tauri-drag-region>
-      <div id="winbtns" role="group" aria-label="Window"></div>
+      <!-- the games, one entry each (games.js), grouped by what they install: Recompia (Solo, Co-op) and Zonith -->
+      <aside id="rail" aria-label="Games"></aside>
+      <div id="main">
+        <header id="topbar" data-tauri-drag-region>
+          <nav id="nav" aria-label="Main" data-tauri-drag-region></nav>
+          <div id="tools" data-tauri-drag-region></div>
+          <div id="winbtns" role="group" aria-label="Window"></div>
+        </header>
+        <main id="view" tabindex="-1"></main>
+      </div>
     </div>
 
     <button id="show-sidebar" class="btn on-art" aria-label="Show sidebar"></button>
+
+    <!-- what the pad's buttons do, shown while a controller is in use (gamepad-nav.js) -->
+    <div id="padbar" aria-hidden="true"></div>
 
     <div id="toast"></div>
 

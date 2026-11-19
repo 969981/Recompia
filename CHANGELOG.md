@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Launcher: a new look with a rail of games on the left, a Home with one big Play button for each game, and Recompia: Co-op with its own Home. It also downloads, updates and starts Zonith, with its own What's New, and on Linux and the Steam Deck it reads the controller itself (LT/RT switch games, Start plays).
+
 ## 0.15.1 (build S: Sloth Hotfix a1)
 
 **Update:** press **Update** in the launcher, then **Set up again** (co-op gets new game hook points; saves and shaders are kept).
