@@ -202,7 +202,9 @@ fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverri
     }
     #[cfg(target_os = "macos")]
     crate::host::sync_macos_runtime(dir)?;   // libpkp_rt.dylib and MoltenVK: a launcher update brings newer ones
-    let mut cmd = std::process::Command::new(exe);
+    // host::command: in the AppImage the game must not inherit LD_LIBRARY_PATH into the AppImage, or the system libcurl the
+    // runtime loads for mods' HTTPS requests picks up the AppImage's older libnghttp2 and fails to load (#819)
+    let mut cmd = crate::host::command(exe);
     cmd.current_dir(dir).args(["--log", "pkp.log"]);
     // macOS: the folder is not the release's installed layout (no exefs/main next to the binary), so name the settings file;
     // the game reads exefs and romfs from it.
@@ -276,4 +278,5 @@ mod tests {
         let off = cmd.get_envs().find(|(k, _)| *k == std::ffi::OsStr::new("NXRT_MODS_OFF")).and_then(|(_, v)| v);
         assert_eq!(off, Some(std::ffi::OsStr::new("1")));
     }
+
 }

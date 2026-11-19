@@ -43,6 +43,7 @@
 - Added Zonith: the launcher downloads, updates and starts it, with its own What's New
 - Added controller support in the launcher on Linux and the Steam Deck (LT/RT switch games, Start plays)
 - Fixed a Zonith update or reinstall deleting the game when the player had installed it into the launcher's Zonith folder (Zonith's setup starts in that folder, so its folder picker can open there): an update now removes only the launcher's own older setup folders, and never one that holds a Zonith install, and a reinstall no longer replaces a setup folder that holds one. On Linux, Open folder now opens the folder with Zonith's setup instead of an empty one.
+- Fixed mods' HTTPS requests (Community Achievements', for one) never getting an answer on Linux when the game was started from the launcher AppImage: the game inherited the AppImage's `LD_LIBRARY_PATH`, so the system's libcurl loaded the AppImage's older libnghttp2 and failed (#819)
 
 ### For developers
 - Co-op v2: `pkp_coop_quests.cpp` (host-authoritative quests, wire type 24 QuestFlagAsk), `pkp_coop_held.cpp` (held-event guard), `pkp_coop_trace.cpp` (held-event trace); the co-op rules version is part of the session's mods fingerprint (`kCoopRules`)
