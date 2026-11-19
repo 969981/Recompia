@@ -83,6 +83,9 @@ enum class Site : uintptr_t {
     DexScene,         // the "registered in the Pokédex" scene is queued on the finder's process: sent, so every member registers
                       // the creature and sees the same scene (pkp_coop_discovery.cpp)
     HabitatScene,     // the "new habitat" scene is queued likewise: every member finds the habitat, with its scene
+    // ---- the contents ----
+    PlacedNotice,     // the "object placed" notice to the contents (from the placement): on a member it waits until the object is in
+                      // the member's world, so the contents' "placed near a character" tests see it (pkp_coop_placement.cpp)
 };
 
 struct CoopSite {
@@ -128,6 +131,7 @@ constexpr CoopSite kSites[] = {
     {{0x3b9060, kPacibsp, true}, Site::DexScene},
     {{0x45f2a0, 0x12003c28u, true}, Site::HabitatScene},     // and w8, w1, #0xffff
     {{0x313418, kPacibsp, true}, Site::VisitorSync},
+    {{0x13596c, 0x12003c29u, true}, Site::PlacedNotice},     // and w9, w1, #0xffff
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -172,6 +176,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::DexScene: return coop::discovery::on_dex_scene(c);
         case Site::HabitatScene: return coop::discovery::on_habitat_scene(c);
         case Site::VisitorSync: return coop::held::on_visitor_sync(c);
+        case Site::PlacedNotice: return coop::placement::on_placed_notice(c);
         default: return 0;
     }
 }
@@ -244,6 +249,7 @@ void game_frame(::Ctx* c) {
     coop::travel::tick(c);
     coop::catchup::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::notice::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::placement::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::gate::tick(s.in_game.load(std::memory_order_relaxed));
     coop::trace::tick(s.in_game.load(std::memory_order_relaxed));
 }
@@ -273,6 +279,7 @@ void remove() {   // the registry has removed the hooks
     coop::gate::reset();
     coop::trace::reset();
     coop::held::reset();
+    coop::placement::reset();
     coop::session::reset();
 }
 

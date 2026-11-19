@@ -23,6 +23,7 @@
 //   pkp_coop_held.cpp     the story events a member's game holds for Link Play's request counters: let through once they are stuck
 //   pkp_coop_travel.cpp   the group's trips: a move to another area runs only after the game's poll passed, and the host makes it for all
 //   pkp_coop_discovery.cpp the Pokédex entries and habitats any member found, found by every member, with the game's own scenes
+//   pkp_coop_placement.cpp a member's "object placed" notice to the contents, raised once the host has put the object in its world
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -209,6 +210,15 @@ namespace held {
 int on_visitor_sync(::Ctx* c);
 void reset();
 }  // namespace held
+
+namespace placement {
+// The hook site (pkp_coop.cpp): entry 0x13596c, the "object placed" notice, from the placement 0x593120 only. On a member it waits
+// until the object is in this process's world grid.
+int on_placed_notice(::Ctx* c);
+// Raises a waiting notice once its object is in the world and the player can walk, or after a while as the game would (once a frame).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace placement
 
 namespace travel {
 // The hook site (pkp_coop.cpp): entry 0xbda20, the area move by destination index. In a session it runs only after the group's poll
