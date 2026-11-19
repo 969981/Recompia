@@ -47,6 +47,9 @@ constexpr uint64_t kQueueLocks = 0x41f40;   // u8 x3 after both slots, tested by
 constexpr uint64_t kModeWords = 0x35650e8, kModeWord = 0x140;   // u32 per slot: the game mode the queue matches against rec +0x6ec
 constexpr uint64_t kBlockMap = 0x34efc98, kRequestCounters = 0x9218378;
 constexpr uint64_t kEventRunnerRef = 0x3483e60, kRunnerHold = 0x4022;   // u8: set, the ready test passes only a few fixed ids
+// The dispatcher 0x479380 holds a whole slot (0 or 1) while the slot's load phases (u32 +8, +0xc of kSlotPhases + slot * 0x2010) are
+// not both above 8, and every slot while the scene holder (main+0x3485888 holds its address) has a scene at +0x32050.
+constexpr uint64_t kSlotPhases = 0x35650f8, kSlotPhaseSize = 0x2010, kSceneHolderRef = 0x3485888, kSceneHeld = 0x32050;
 constexpr double kHeldEvery = 2.0, kHeldAfter = 10.0;
 
 struct Vec {
@@ -251,6 +254,18 @@ std::string held_context(uint64_t q) {
     const uint64_t er_ref = guest::rd<uint64_t>(base() + kEventRunnerRef);
     const uint64_t er = guest::ok(er_ref, 8) ? guest::rd<uint64_t>(er_ref) : 0;
     const int hold = guest::ok(er, kRunnerHold + 1) ? guest::rd<uint8_t>(er + kRunnerHold) : -1;
+    const uint64_t ph = guest::rd<uint64_t>(base() + kSlotPhases);
+    unsigned phase[4] = {0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu};
+    if (guest::ok(ph, kSlotPhaseSize + 0x10))
+        for (int i = 0; i < 2; ++i) {
+            phase[i * 2] = guest::rd<uint32_t>(ph + i * kSlotPhaseSize + 8);
+            phase[i * 2 + 1] = guest::rd<uint32_t>(ph + i * kSlotPhaseSize + 0xc);
+        }
+    const uint64_t sh_ref = guest::rd<uint64_t>(base() + kSceneHolderRef);
+    const uint64_t sh = guest::ok(sh_ref, 8) ? guest::rd<uint64_t>(sh_ref) : 0;
+    const int scene = guest::ok(sh, kSceneHeld + 8) ? (guest::rd<uint64_t>(sh + kSceneHeld) != 0) : -1;
+    char more[96];
+    std::snprintf(more, sizeof more, ", slot phases %u/%u %u/%u, scene held %d", phase[0], phase[1], phase[2], phase[3], scene);
     if (have_rq)
         std::snprintf(line, sizeof line, "session bits 0x%x, requests %u/%u (%u %u %u)%s, mode word %u, locks %u %u %u, runner hold %d",
                       static_cast<unsigned>(session_bits()), rq[0], rq[1], rq[2], rq[3], rq[4], rq[0] != rq[1] ? " UNEQUAL" : "", mode,
@@ -259,7 +274,7 @@ std::string held_context(uint64_t q) {
         std::snprintf(line, sizeof line, "session bits 0x%x, no block map, mode word %u, locks %u %u %u, runner hold %d",
                       static_cast<unsigned>(session_bits()), mode, guest::rd<uint8_t>(q + kQueueLocks),
                       guest::rd<uint8_t>(q + kQueueLocks + 1), guest::rd<uint8_t>(q + kQueueLocks + 2), hold);
-    return line;
+    return std::string(line) + more;
 }
 
 void watch_held(State& s, double t) {
