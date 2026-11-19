@@ -12,7 +12,8 @@
 //            mode and flag word (rec +0x704, u24), with what the queue's ready test 0x479c60 reads besides: the visitor bit, Link Play's
 //            request counters (block map +0x9218378, u16 x5; bit 22 of the flag word waits on a visitor while the first two differ), the
 //            slot's mode word and the queue's locks. Logged once per record and on each change, and when a held record starts or leaves.
-//            The counters alone are logged too when they stand unequal and still for kHeldAfter seconds
+//            The counters alone are logged too when they stand unequal and still for kHeldAfter seconds, and the stage-change request
+//            when it stays kHeldAfter seconds in a phase below 5 (new events are dropped then, so they never show as held)
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -50,6 +51,9 @@ constexpr uint64_t kEventRunnerRef = 0x3483e60, kRunnerHold = 0x4022;   // u8: s
 // The dispatcher 0x479380 holds a whole slot (0 or 1) while the slot's load phases (u32 +8, +0xc of kSlotPhases + slot * 0x2010) are
 // not both above 8, and every slot while the scene holder (main+0x3485888 holds its address) has a scene at +0x32050.
 constexpr uint64_t kSlotPhases = 0x35650f8, kSlotPhaseSize = 0x2010, kSceneHolderRef = 0x3485888, kSceneHeld = 0x32050;
+// The queue refuses (drops) a new event without flag bit 4 while the game state's stage-change request (+0x3bb600: u32 phase, u32 kind)
+// is in a phase below 5, unless it is slot 0's kind 0xf (0x92210).
+constexpr uint64_t kGameState = 0x3561710, kTripRequest = 0x3bb600;
 constexpr double kHeldEvery = 2.0, kHeldAfter = 10.0;
 
 struct Vec {
@@ -73,6 +77,9 @@ struct State {
     uint16_t rq_sent = 0, rq_answered = 0;
     double rq_since = 0;
     bool rq_logged = false;
+    uint32_t trip_phase = 0xffffffffu, trip_kind = 0;
+    double trip_since = 0;
+    bool trip_logged = false;
 };
 State& st() {
     static State s;
@@ -243,6 +250,25 @@ void watch_requests(State& s, double t) {
     NXLOG_I(kTag, "Co-op trace: Link Play's request counters stand at %u sent / %u answered for %.0f s", sent, answered, t - s.rq_since);
 }
 
+// The stage-change request stays in a phase below 5 (0x45d5a0 drops new events then): logged once per phase and kind.
+void watch_trip(State& s, double t) {
+    const uint64_t gm = guest::rd<uint64_t>(base() + kGameState);
+    if (!guest::ok(gm, kTripRequest + 8)) return;
+    const uint32_t phase = guest::rd<uint32_t>(gm + kTripRequest), kind = guest::rd<uint32_t>(gm + kTripRequest + 4);
+    if (phase != s.trip_phase || kind != s.trip_kind) {
+        if (s.trip_logged) NXLOG_I(kTag, "Co-op trace: stage-change request now phase %u kind %u", phase, kind);
+        s.trip_phase = phase;
+        s.trip_kind = kind;
+        s.trip_since = t;
+        s.trip_logged = false;
+        return;
+    }
+    if (phase >= 5 || s.trip_logged || t - s.trip_since < kHeldAfter) return;
+    s.trip_logged = true;
+    NXLOG_I(kTag, "Co-op trace: stage-change request in phase %u kind %u for %.0f s: new story events without flag bit 4 are dropped", phase,
+            kind, t - s.trip_since);
+}
+
 std::string held_context(uint64_t q) {
     char line[256];
     const uint64_t bm = guest::rd<uint64_t>(base() + kBlockMap);
@@ -264,8 +290,12 @@ std::string held_context(uint64_t q) {
     const uint64_t sh_ref = guest::rd<uint64_t>(base() + kSceneHolderRef);
     const uint64_t sh = guest::ok(sh_ref, 8) ? guest::rd<uint64_t>(sh_ref) : 0;
     const int scene = guest::ok(sh, kSceneHeld + 8) ? (guest::rd<uint64_t>(sh + kSceneHeld) != 0) : -1;
-    char more[96];
-    std::snprintf(more, sizeof more, ", slot phases %u/%u %u/%u, scene held %d", phase[0], phase[1], phase[2], phase[3], scene);
+    const uint64_t gm = guest::rd<uint64_t>(base() + kGameState);
+    const bool trip = guest::ok(gm, kTripRequest + 8);
+    char more[128];
+    std::snprintf(more, sizeof more, ", slot phases %u/%u %u/%u, scene held %d, trip request phase %d kind %d", phase[0], phase[1],
+                  phase[2], phase[3], scene, trip ? static_cast<int>(guest::rd<uint32_t>(gm + kTripRequest)) : -1,
+                  trip ? static_cast<int>(guest::rd<uint32_t>(gm + kTripRequest + 4)) : -1);
     if (have_rq)
         std::snprintf(line, sizeof line, "session bits 0x%x, requests %u/%u (%u %u %u)%s, mode word %u, locks %u %u %u, runner hold %d",
                       static_cast<unsigned>(session_bits()), rq[0], rq[1], rq[2], rq[3], rq[4], rq[0] != rq[1] ? " UNEQUAL" : "", mode,
@@ -281,6 +311,7 @@ void watch_held(State& s, double t) {
     if (t - s.held_at < kHeldEvery) return;
     s.held_at = t;
     watch_requests(s, t);
+    watch_trip(s, t);
     const uint64_t q = event_queue();
     if (!q || !guest::ok(q, kQueueLocks + 3)) return;
     bool any_logged = false;
