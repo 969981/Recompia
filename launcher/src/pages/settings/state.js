@@ -6,6 +6,8 @@ import { canUpdate, gamePhase, updatePlayable } from '../../action.js';
 import { makeSource, sectionsIn } from '../../settings-schema.js';
 import { gameOf } from '../../games.js';
 import { backupDetail, backupText } from '../backups.js';
+import { pickerChannel, pickerVersion } from '../version-picker.js';
+import { pickerNote } from '../../version-model.js';
 
 let lastSection = 'display';   // coming back to Settings lands where the player was
 
@@ -76,6 +78,8 @@ export function env(st) {
     dlssPresent: !!st.dlss?.present,
     dlssBusy: !!s.dlss,
     canUpdate: canUpdate(s),
+    channel: pickerChannel(),
+    pickerNote: pickerNote(pickerChannel(), pickerVersion()),
     updating: !!s.update,
     checking: st.checking,
     updateText: st.checking ? t('Checking')

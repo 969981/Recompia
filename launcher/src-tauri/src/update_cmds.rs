@@ -31,9 +31,16 @@ pub fn releases_of(app: &AppHandle, refresh: bool) -> Vec<releases::GhRelease> {
     releases_for(app, refresh, Channel::parse(&load_config(app).channel))
 }
 
-/// The version the Update button compares with: None on a channel that offers no updates (Testing, releases.rs Channel::offers_updates).
+/// The version the Update button compares with: None on a channel that offers no updates (Experimental, releases.rs
+/// Channel::offers_updates) and on Stable with a version the player picked (config.rs `picked_version`): only Latest updates.
 fn update_current(app: &AppHandle) -> Option<String> {
-    update_version(app).filter(|_| Channel::parse(&load_config(app).channel).offers_updates())
+    let cfg = load_config(app);
+    update_version(app).filter(|_| follows_latest(&cfg.channel, &cfg.picked_version))
+}
+
+/// Whether the player follows the newest release: Stable with Latest picked.
+pub fn follows_latest(channel: &str, picked: &str) -> bool {
+    Channel::parse(channel).offers_updates() && picked.trim().is_empty()
 }
 
 /// Patch notes for the launcher and the update for this build, if there is one. Never fails: an empty list at worst.
@@ -81,7 +88,7 @@ fn update_steps(app: &AppHandle, st: &update::UpdateState, wanted: Option<Wanted
     // the newest newer build, or the one the player picked
     let (target, older) = match &wanted {
         None => {
-            update_current(app).ok_or("The Testing channel has no automatic update. Pick a build in Settings > About > Choose a version.")?;
+            update_current(app).ok_or("Updates only come on Stable with Latest picked. To move to another version, pick it next to Play.")?;
             (releases::target_here(&releases_of(app, false), &version).ok_or("No update is available right now.")?, false)
         }
         Some(w) => {
@@ -146,12 +153,17 @@ fn update_error(message: String) -> CmdError {
     CmdError::coded_if(message, update::CANCELLED, error::UPDATE_CANCELLED)
 }
 
-/// The builds a channel offers, newest first, with their notes and what going to each one means (releases.rs builds). Works for Testing
-/// before the channel is saved, so the join question can list them. Empty for a build that takes no updates.
+/// The builds a channel's version picker offers (releases.rs pickable: Stable the releases, Experimental every prerelease), newest
+/// first, with their notes and what going to each one means (releases.rs builds). Works for a channel that is not saved yet, so
+/// joining Experimental can list its builds first. From this session's copy of the list unless `refresh`. Empty for a build that
+/// takes no updates.
 #[tauri::command]
 pub async fn list_builds(app: AppHandle, channel: String, refresh: Option<bool>) -> Vec<releases::Build> {
     let Some(version) = update_version(&app) else { return Vec::new() };
-    tauri::async_runtime::spawn_blocking(move || releases::builds_here(&releases_for(&app, refresh.unwrap_or(false), Channel::parse(&channel)), &version)).await.unwrap_or_default()
+    tauri::async_runtime::spawn_blocking(move || {
+        let channel = Channel::parse(&channel);
+        releases::builds_here(&releases::pickable(releases_for(&app, refresh.unwrap_or(false), channel), channel), &version)
+    }).await.unwrap_or_default()
 }
 
 /// Installs the build the player picked (an older one only with `accepted`); the same steps and restart as the update.

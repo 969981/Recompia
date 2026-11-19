@@ -1,4 +1,5 @@
-// Home: one button that does the next right thing, what went wrong if anything did, and the newest releases.
+// Home: one button that does the next right thing, the channel and version beside it, what went wrong if anything did, and the newest
+// releases.
 import './home.css';
 import { brandImg } from '../branding.js';
 import { api } from '../api.js';
@@ -13,6 +14,7 @@ import { chip as accountChipOf } from '../cloud-signin-model.js';
 import { readAccount } from '../cloud-signin.js';
 import { formatDate, highlights, parseReleaseName } from '../markdown.js';
 import { playTimeLine } from '../play-time-model.js';
+import { loadPicker, onPicker, onPickerChange, pickerHtml } from './version-picker.js';
 
 const REPORT_LABEL = {
   'pkp_crash.txt': t('Crash report'),
@@ -35,7 +37,7 @@ function releaseCard(r) {
   const lines = highlights(r.body, CARD_LINES);
   return `<button class="release glass hover" data-tag="${esc(r.tag)}">
     <span class="release-head">
-      <span class="release-title clip"><strong>${esc(version)}</strong>${build ? ` ${esc(build)}` : ''}${r.prerelease ? ` <span class="note-mark">${esc(t('Testing'))}</span>` : ''}</span>
+      <span class="release-title clip"><strong>${esc(version)}</strong>${build ? ` ${esc(build)}` : ''}${r.prerelease ? ` <span class="note-mark">${esc(t('Experimental'))}</span>` : ''}</span>
       ${date ? `<time>${esc(date)}</time>` : ''}
     </span>
     ${lines.map((l) => `<span class="release-line">${esc(l)}</span>`).join('')}
@@ -80,6 +82,7 @@ export function render(el, ctx) {
       <div class="hero-actions">
         <button class="btn primary play" id="primary" data-hero-play></button>
         <button class="btn big on-art" id="update" data-act="update" hidden>${icon('download')}${esc(t('Update'))}</button>
+        <div class="hero-version" id="version" role="group" aria-label="${esc(t('Update channel'))}"></div>
       </div>
       <p class="home-detail" id="detail" hidden></p>
       <div class="home-task glass strong" id="task" hidden>
@@ -154,6 +157,8 @@ export function render(el, ctx) {
     detail.textContent = showDetail ? fromBackend(ready.detail) : s.app ? '' : s.loadError ?? '';
     detail.title = detail.textContent;
     detail.hidden = !detail.textContent;
+
+    patch(part('version'), pickerHtml('on-art'));   // the channel and version dropdowns (version-picker.js)
 
     drawTask(s);
 
@@ -242,6 +247,7 @@ export function render(el, ctx) {
     lastPhase = phase;
   });
   el.addEventListener('change', async (e) => {
+    if (onPickerChange(e.target)) return;
     if (e.target.id !== 'profile-pick') return;
     try {
       await api.profileSelect({ id: e.target.value });
@@ -253,4 +259,7 @@ export function render(el, ctx) {
 
   ctx.on(draw);
   draw(store.state);
+  const offPicker = onPicker(() => draw(store.state));
+  loadPicker();
+  return offPicker;
 }

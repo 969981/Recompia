@@ -13,6 +13,7 @@ import { isFirstRun } from './action.js';
 import { welcomeOwed } from './cloud-signin.js';
 import { padGlyph, startGamepadNav } from './gamepad-nav.js';
 import { zonithBadge } from './zonith-model.js';
+import { channelOf } from './version-model.js';
 import * as coop from './pages/coop.js';
 import * as home from './pages/home.js';
 import * as linkplay from './pages/linkplay.js';
@@ -119,7 +120,7 @@ function drawRail() {
   }).join('<div class="rail-sep" aria-hidden="true"></div>');
   rail.setAttribute('aria-label', t('Games'));
   rail.innerHTML = `
-    <div class="rail-brand" data-tauri-drag-region><span class="brand-tag">${esc(t('Testing'))}</span></div>
+    <div class="rail-brand" data-tauri-drag-region><span class="brand-tag">${esc(t('Experimental'))}</span></div>
     ${groups}
     <div class="rail-spacer"></div>
     <button class="rail-tool" id="theme-btn">${icon('palette')}${tip('')}</button>
@@ -196,11 +197,11 @@ async function switchGame(id, page, opts) {
   return go(page ?? next.home, opts);
 }
 
-/** The Testing channel is marked on the rail (a tag under the mark), so a tester can tell this launcher from a Stable one at a glance. */
+/** The Experimental channel is marked on the rail (a tag under the mark), so a tester can tell this launcher from a Stable one at a glance. */
 async function syncLook() {
   try {
     const c = await api.getConfig();
-    document.documentElement.dataset.channel = c?.channel === 'testing' ? 'testing' : 'stable';
+    document.documentElement.dataset.channel = channelOf(c);
   } catch (e) {
     console.warn('get_config', e);
   }
