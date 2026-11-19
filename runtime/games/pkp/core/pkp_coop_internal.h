@@ -16,6 +16,7 @@
 //   pkp_coop_requests.cpp the creature requests a member took on or finished, listed in every member's requests app
 //   pkp_coop_outcomes.cpp what a finished request adds to the world (town goal, friendship), applied once for the group
 //   pkp_coop_recipes.cpp  the crafting recipes any member knows, learned by every member
+//   pkp_coop_unlocks.cpp  the moves and emotes any member learned, the areas visited and buildings built, unlocked for every member
 //   pkp_coop_purchases.cpp what any member buys in a shop, given to every member (and to later joiners) too
 //   pkp_coop_events.cpp   what an ended talk or scene leaves in the save (scenes played, conversations seen, story lines moved on)
 //                         kept by every member
@@ -154,6 +155,16 @@ void on_session_change();   // this process joined or left: everything is read a
 void on_member_joined();    // another member joined: everything is sent again
 void reset();
 }  // namespace events
+namespace unlocks {
+// The message (pkp_coop_link.cpp): kept until this player can take it.
+void on_known_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Sets what other members have when this player can walk and talks to no one, reads this player's unlock lists and shares what grew
+// (once a frame, after the channel's handlers).
+void tick(::Ctx* c, bool in_game);
+void on_session_change();   // this process joined or left: the lists are read again, all of them sent
+void on_member_joined();    // another member joined: all lists are sent again
+void reset();
+}  // namespace unlocks
 
 namespace purchases {
 // The hook site (pkp_coop.cpp): entry 0xe889f8, a purchase's give on the buyer's process; it is logged for the group.

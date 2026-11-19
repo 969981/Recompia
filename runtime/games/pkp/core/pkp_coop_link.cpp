@@ -59,6 +59,7 @@ constexpr Route kRoutes[] = {
     {wire::Type::DexScene, Path::Shared, &discovery::on_dex_scene_message},
     {wire::Type::HabitatKnown, Path::Shared, &discovery::on_habitat_message},
     {wire::Type::HabitatScene, Path::Shared, &discovery::on_habitat_scene_message},
+    {wire::Type::UnlockKnown, Path::Shared, &unlocks::on_known_message},
 };
 
 struct State {
@@ -130,6 +131,7 @@ void on_member(const ch::MemberEvent& e) {
         recipes::on_session_change();
         events::on_session_change();
         discovery::on_session_change();
+        unlocks::on_session_change();
         purchases::on_session_change();
         NXLOG_I(kTag, "Co-op: %s the session's channel as node %d%s", e.joined ? "in" : "out of", e.node, e.authority ? " (the authority)" : "");
         if (e.joined && e.authority != (role() == CoopRole::Host))
@@ -144,6 +146,7 @@ void on_member(const ch::MemberEvent& e) {
         recipes::on_member_joined();
         events::on_member_joined();
         discovery::on_member_joined();
+        unlocks::on_member_joined();
     }
     NXLOG_I(kTag, "Co-op: node %d %s the session%s", e.node, e.joined ? "joined" : "left", e.authority ? " (the authority)" : "");
 }
