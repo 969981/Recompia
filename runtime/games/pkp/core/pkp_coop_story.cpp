@@ -29,6 +29,24 @@
 // passed over, for kStallSkip seconds doubled on each stall of that quest up to kStallSkipMax, so quests that cannot move never hold up
 // the ones that can. The flag stays set: the pump takes it whenever the quest can move. It runs only while the game's own session is
 // up (on a member: in the host's world), the same condition the world effects' skip uses.
+// The pump steps only quests in its lists (QL = GM+0x3b9328, the object 0x118d44 also keeps in *(main+0x34efd60): C, state 1, count
+// +0, u16 ids +4, 40 at most; A, state 2, count +0x60, {u32 id, f32 timer} at +0x64; B, state 3, count +0x1b8, u16 ids +0x1bc). A quest
+// is listed only when its prerequisites (5 u16 at the quest row +0x4e, 0x114e40(id, 0..4)) are all closed (0x11af60) and its stage
+// (0x11ac38) is this area's (GM+0x18): at the stage start (0x11933c clears, 0x119640(QL, GM+0x18) lists), and in C later only when
+// one of its prerequisites closes in this process's own pump (0x11c220(QL, prerequisite), the pump's only caller; it walks the follow-up
+// map 0xa58a80, checks the stage, the prerequisites, state 1 and duplicates itself). So:
+// - A quest behind whose prerequisites are not closed here is not flagged first: a prerequisite another member is ahead on is moved
+//   on before it (quest 11 needs 9, 10 and 44). A quest skipped after a stall is tried again at once when one of its prerequisites
+//   closes here.
+// - A quest that became listable after its prerequisite closed here through the catch-up, but that was off-stage or not yet at state
+//   1 then, is never put in C until the next stage start. When such a quest stalls at state 1 with its stage here and every
+//   prerequisite closed, the catch-up calls 0x11c220(QL, p) for each prerequisite p, as the pump would have; a quest still not listed
+//   after that (none to call with, or at state 2 / 3 not in A / B) gets the stage start's own rebuild, 0x11933c + 0x119640, at most
+//   once per kRebuildGap and once per quest and state. Both only at a moment the pump could run (not busy, 0x1186ec(0)), from the
+//   game thread between frames. 0x11933c clears whatever the gate is, but 0x119640 lists only behind its own gate (GM+0x8c bit 0,
+//   0x538750() clear, and not GM+0x98 with the player manager's +0x30 vt+0x148 true): the rebuild runs only when that gate is open,
+//   and the lists are put back as they were if it left all three empty.
+// - Why a stalled quest is not listed (its stage, a prerequisite, a full list) is logged once per reason.
 // The safety net (StoryDigest): every kDigestEvery seconds the authority sends every member its whole story (every quest's state and
 // the ability bits). A member behind it catches up as above; a member ahead of it sends each quest it is ahead on again, once per
 // state (a rise lost on the way is sent once more; one the authority's pump cannot step yet is not sent every digest); ability bits
@@ -108,6 +126,19 @@ constexpr uint32_t kQuestMax = layout::kQuestWordCount;   // ids 1..1000; word o
 constexpr uint8_t kListed = 1;                            // a quest no one has started: not sent
 constexpr uint8_t kStarted = 2, kClosed = 4;              // the states a quest can be shared at; a received state past kClosed
                                                           // is one no pump step reaches, so the catch-up would flag it for ever
+constexpr uint64_t kQuestListGlobal = 0x34efd60;   // GM: *(main + layout::kGameState)
+constexpr uint64_t kGmStage = 0x18, kGmQuestLists = 0x3b9328;   // GM + : this area's stage, the quest lists (QL)
+constexpr uint64_t kListC = 0x0, kListCIds = 0x4, kListA = 0x60, kListAEntries = 0x64, kListB = 0x1b8, kListBIds = 0x1bc;   // QL +
+constexpr uint64_t kListAEntry = 8, kListATimer = 4;   // A's entry {u32 id (low u16), f32 timer} (0x11b600, 0x119640 writes timer 0)
+constexpr uint32_t kListCap = 0x28;
+constexpr uint64_t kPrereqOf = 0x114e40, kStageOf = 0x11ac38, kUnlockFollowUps = 0x11c220;
+constexpr uint64_t kClearLists = 0x11933c, kListStage = 0x119640, kStoryBusy = 0x1186ec;
+constexpr unsigned kPrereqs = 5;
+constexpr unsigned kPrereqDepth = 4;     // prerequisites of prerequisites looked through, at most
+constexpr double kRebuildGap = 60.0;     // the stage start's list rebuild, at most once per this many seconds
+constexpr uint64_t kListsSize = 0x258;   // QL + 0 .. : the four lists 0x11933c clears (their counts and entries)
+constexpr uint64_t kGmStory = 0x8c, kGmLinkWait = 0x98, kPlayerMgr = 0x3561928, kPmObject = 0x30, kPmBusySlot = 0x148;
+constexpr uint64_t kStoryOff = 0x538750;
 constexpr uint32_t kFirstTalk = 2;   // a new world: quest 1 closes on entering the first room, quest 2 at the first talk (run P0RE-2)
 
 constexpr uint8_t kEveryProcessEffects[] = {0x01, 0x02, 0x03, 0x19, 0x1e, 0x1f, 0x30,    // personal
@@ -150,6 +181,12 @@ struct State {
     bool send_all = true;              // the next look shares every started quest (joined, or another member joined)
     double stall_until[kQuestMax] = {};   // per quest: passed over by the catch-up until then
     uint8_t stalls[kQuestMax] = {};       // per quest: how often the pump left its flag (the skip doubles each time)
+    uint16_t prereq[kQuestMax][kPrereqs] = {};   // per quest: its prerequisites (0x114e40), once read
+    bool prereq_read[kQuestMax] = {};
+    uint8_t closed_prereqs[kQuestMax] = {};      // per quest: how many of its prerequisites were closed here at the last look
+    uint8_t why[kQuestMax] = {};                 // per quest: the "not listed" reason last logged
+    double rebuilt_at = -1e9;
+    uint8_t rebuilt_for[kQuestMax] = {};         // per quest: the state the rebuild was last made for (once per quest and state)
     uint32_t stepping = 0;                // the quest the catch-up flagged last (id), and its state then
     uint8_t stepping_state = 0;
     double stepping_since = 0.0;
@@ -255,6 +292,213 @@ bool story_shared_here() {
     return role() == CoopRole::Host || (bits & layout::kSessionVisitor);
 }
 
+uint64_t quest_lists() {
+    const uint64_t gm = guest::rd<uint64_t>(base() + layout::kGameState);
+    if (!guest::ok(gm, kGmQuestLists + kListsSize)) return 0;
+    const uint64_t ql = gm + kGmQuestLists;
+    // The pump's own object (0xb80c0 passes GM+0x3b9328 to 0xba660); 0x118d44 keeps it in the global too.
+    return guest::rd<uint64_t>(base() + kQuestListGlobal) == ql ? ql : 0;
+}
+
+uint8_t area_stage() {
+    const uint64_t gm = guest::rd<uint64_t>(base() + layout::kGameState);
+    return guest::ok(gm, kGmStage + 1) ? guest::rd<uint8_t>(gm + kGmStage) : 0;
+}
+
+// Quest (index i)'s prerequisites as its row has them; read once the row is there (its stage nonzero: a stage-0 row is never listed).
+const uint16_t* prereqs_of(::Ctx* c, uint32_t i) {
+    State& s = st();
+    if (!s.prereq_read[i]) {
+        const uint32_t id = i + 1;
+        for (unsigned k = 0; k < kPrereqs; ++k) s.prereq[i][k] = static_cast<uint16_t>(guest::call(c, base() + kPrereqOf, id, k));
+        s.prereq_read[i] = (guest::call(c, base() + kStageOf, id) & 0xff) != 0;
+    }
+    return s.prereq[i];
+}
+
+bool quest_id(uint16_t id) { return static_cast<uint16_t>(id - 1) < kQuestMax; }
+
+// Quest id is in the list for its state here (C for 1, A for 2, B for 3).
+bool listed(uint64_t ql, uint32_t id, uint8_t state) {
+    if (state == kListed) {
+        const uint32_t n = std::min(guest::rd<uint32_t>(ql + kListC), kListCap);
+        for (uint32_t k = 0; k < n; ++k)
+            if (guest::rd<uint16_t>(ql + kListCIds + k * 2) == id) return true;
+    } else if (state == kStarted) {
+        const uint32_t n = std::min(guest::rd<uint32_t>(ql + kListA), kListCap);
+        for (uint32_t k = 0; k < n; ++k)
+            if ((guest::rd<uint32_t>(ql + kListAEntries + k * 8) & 0xffff) == id) return true;
+    } else if (state == kComplete) {
+        const uint32_t n = std::min(guest::rd<uint32_t>(ql + kListB), kListCap);
+        for (uint32_t k = 0; k < n; ++k)
+            if (guest::rd<uint16_t>(ql + kListBIds + k * 2) == id) return true;
+    }
+    return false;
+}
+
+// A prerequisite of quest (index i) that is not closed here and that another member is ahead on, and is not passed over now: the
+// one to move on first (looked through up to kPrereqDepth levels). 0 if none.
+uint32_t prereq_to_step(::Ctx* c, uint64_t words, uint32_t i, double now, unsigned depth = 0) {
+    State& s = st();
+    if (depth >= kPrereqDepth) return 0;
+    const uint16_t* pre = prereqs_of(c, i);
+    for (unsigned k = 0; k < kPrereqs; ++k) {
+        if (!quest_id(pre[k])) continue;
+        const uint32_t p = pre[k] - 1u;
+        if (state_at(words, p) >= kClosed) continue;
+        if (const uint32_t deeper = prereq_to_step(c, words, p, now, depth + 1)) return deeper;
+        if (s.target[p] > state_at(words, p) && now >= s.stall_until[p]) return p + 1;
+    }
+    return 0;
+}
+
+// Why the stalled quest (index i, at state here) is not stepped; logged once per reason.
+enum class Why : uint8_t { None, Listed, Stage, Prereq, Full, Unlisted };
+Why why_not(::Ctx* c, uint64_t words, uint64_t ql, uint32_t i, uint8_t state, uint16_t* prereq_open) {
+    const uint32_t id = i + 1;
+    *prereq_open = 0;
+    if (listed(ql, id, state)) return Why::Listed;
+    if ((guest::call(c, base() + kStageOf, id) & 0xff) != area_stage()) return Why::Stage;
+    const uint16_t* pre = prereqs_of(c, i);
+    for (unsigned k = 0; k < kPrereqs; ++k)
+        if (quest_id(pre[k]) && state_at(words, pre[k] - 1u) != kClosed) {
+            *prereq_open = pre[k];
+            return Why::Prereq;
+        }
+    if (state == kListed && guest::rd<uint32_t>(ql + kListC) >= kListCap) return Why::Full;
+    return Why::Unlisted;
+}
+
+void log_why(::Ctx* c, uint32_t i, uint8_t state, Why why, uint16_t prereq, uint64_t words) {
+    State& s = st();
+    if (s.why[i] == static_cast<uint8_t>(why)) return;
+    s.why[i] = static_cast<uint8_t>(why);
+    const uint32_t id = i + 1;
+    switch (why) {
+        case Why::Listed:
+            NXLOG_I(kTag, "Co-op story: quest %u is listed here at state %u; the pump does not step it yet (its condition, or busy)", id,
+                    state);
+            break;
+        case Why::Stage:
+            NXLOG_I(kTag, "Co-op story: quest %u is not listed here: its stage is %u, this area's %u", id,
+                    static_cast<unsigned>(guest::call(c, base() + kStageOf, id) & 0xff), area_stage());
+            break;
+        case Why::Prereq:
+            NXLOG_I(kTag, "Co-op story: quest %u is not listed here: its prerequisite %u is at state %u here (%u on the group)", id, prereq,
+                    state_at(words, prereq - 1u), st().target[prereq - 1u]);
+            break;
+        case Why::Full:
+            NXLOG_I(kTag, "Co-op story: quest %u is not listed here: the list of listed quests is full (%u)", id, kListCap);
+            break;
+        case Why::Unlisted:
+            NXLOG_I(kTag, "Co-op story: quest %u is not listed here (state %u): its prerequisites closed after this area's quests were listed",
+                    id, state);
+            break;
+        default: break;
+    }
+}
+
+uint32_t list_counts(uint64_t ql) {
+    return guest::rd<uint32_t>(ql + kListC) + guest::rd<uint32_t>(ql + kListA) + guest::rd<uint32_t>(ql + kListB);
+}
+
+// 0x119640's own gate: it lists nothing unless the story is on (GM+0x8c bit 0), 0x538750() is clear, and not (GM+0x98 set and the
+// player manager's object +0x30 answering true to its vt+0x148).
+bool stage_listing_open(::Ctx* c) {
+    const uint64_t gm = guest::rd<uint64_t>(base() + layout::kGameState);
+    if (!guest::ok(gm, kGmLinkWait + 8) || !(guest::rd<uint8_t>(gm + kGmStory) & 1)) return false;
+    if (guest::call(c, base() + kStoryOff, 0) & 1) return false;
+    if (!guest::rd<uint64_t>(gm + kGmLinkWait)) return true;
+    const uint64_t pm = guest::rd<uint64_t>(base() + kPlayerMgr);
+    const uint64_t obj = pm && guest::ok(pm + kPmObject, 8) ? guest::rd<uint64_t>(pm + kPmObject) : 0;
+    if (!obj || !guest::ok(obj, 8)) return true;
+    const uint64_t vt = guest::rd<uint64_t>(obj);
+    if (!guest::ok(vt + kPmBusySlot, 8)) return false;
+    return !(guest::call(c, guest::rd<uint64_t>(vt + kPmBusySlot), obj) & 1);
+}
+
+// A stalled quest whose stage is this area's and whose prerequisites are all closed, but which is in no list: put in the list as the
+// game does (0x11c220 for each closed prerequisite; the stage start's rebuild when that does not do it). Only when the pump could
+// run now. True when it is listed afterwards.
+bool list_quest(::Ctx* c, uint64_t words, uint64_t ql, uint32_t i, uint8_t state) {
+    State& s = st();
+    const uint32_t id = i + 1;
+    if (guest::call(c, base() + kStoryBusy, 0) & 1) return false;
+    if (state == kListed) {
+        const uint16_t* pre = prereqs_of(c, i);
+        unsigned called = 0;
+        for (unsigned k = 0; k < kPrereqs; ++k) {
+            if (!quest_id(pre[k]) || state_at(words, pre[k] - 1u) != kClosed) continue;
+            guest::call(c, base() + kUnlockFollowUps, ql, pre[k]);
+            ++called;
+        }
+        if (listed(ql, id, state)) {
+            NXLOG_I(kTag, "Co-op story: quest %u listed here through its %u closed prerequisites (0x11c220)", id, called);
+            return true;
+        }
+    }
+    const double now = qpc::seconds();
+    if (now - s.rebuilt_at < kRebuildGap || s.rebuilt_for[i] == state || !stage_listing_open(c)) return false;
+    s.rebuilt_at = now;
+    s.rebuilt_for[i] = state;
+    uint8_t saved[kListsSize];
+    std::memcpy(saved, reinterpret_cast<const void*>(ql), sizeof saved);
+    const uint32_t before = list_counts(ql);
+    guest::call(c, base() + kClearLists, ql);
+    guest::call(c, base() + kListStage, ql, area_stage());
+    if (before && !list_counts(ql)) {   // 0x119640 listed nothing after all: the lists as they were
+        std::memcpy(reinterpret_cast<void*>(ql), saved, sizeof saved);
+        NXLOG_W(kTag, "Co-op story: the quest list rebuild for quest %u listed nothing; the lists were put back", id);
+        return false;
+    }
+    // 0x119640 starts every quest it puts in A with timer 0: a quest that was in A already keeps the timer it had (the catch-up runs
+    // on the host too, so every started quest's wait would start over otherwise).
+    uint32_t old_a = 0;
+    std::memcpy(&old_a, saved + kListA, sizeof old_a);
+    old_a = std::min(old_a, kListCap);
+    const uint32_t new_a = std::min(guest::rd<uint32_t>(ql + kListA), kListCap);
+    unsigned kept = 0;
+    for (uint32_t k = 0; k < new_a; ++k) {
+        const uint64_t entry = ql + kListAEntries + k * kListAEntry;
+        const uint16_t quest = static_cast<uint16_t>(guest::rd<uint32_t>(entry));
+        for (uint32_t j = 0; j < old_a; ++j) {
+            uint32_t old_id = 0;
+            float timer = 0.0f;
+            std::memcpy(&old_id, saved + kListAEntries + j * kListAEntry, sizeof old_id);
+            if (static_cast<uint16_t>(old_id) != quest) continue;
+            std::memcpy(&timer, saved + kListAEntries + j * kListAEntry + kListATimer, sizeof timer);
+            guest::wr<float>(entry + kListATimer, timer);
+            ++kept;
+            break;
+        }
+    }
+    const bool ok = listed(ql, id, state);
+    if (kept) NXLOG_I(kTag, "Co-op story: %u started quests kept their timers through the rebuild", kept);
+    NXLOG_W(kTag, "Co-op story: this area's quest lists rebuilt as at a stage start, for quest %u at state %u: %s", id, state,
+            ok ? "listed now" : "still not listed");
+    return ok;
+}
+
+uint8_t closed_prereqs(::Ctx* c, uint64_t words, uint32_t i) {
+    const uint16_t* pre = prereqs_of(c, i);
+    uint8_t closed = 0;
+    for (unsigned k = 0; k < kPrereqs; ++k)
+        if (quest_id(pre[k]) && state_at(words, pre[k] - 1u) == kClosed) ++closed;
+    return closed;
+}
+
+// A quest passed over after a stall is tried again at once when one of its prerequisites closed here since it stalled.
+void retry_on_prereq_close(::Ctx* c, uint64_t words, double now) {
+    State& s = st();
+    for (uint32_t i = 0; i < kQuestMax; ++i) {
+        if (!s.target[i] || s.stall_until[i] <= now) continue;
+        if (closed_prereqs(c, words, i) <= s.closed_prereqs[i]) continue;
+        s.stall_until[i] = 0.0;
+        s.stalls[i] = 0;
+        NXLOG_I(kTag, "Co-op story: a prerequisite of quest %u closed here; it is tried again", i + 1);
+    }
+}
+
 // Moves the lowest quest that is behind another member's state one pump step on (its flag set in this process's own state), and
 // waits for the pump to make that step before it flags another.
 void catch_up(::Ctx* c) {
@@ -262,18 +506,33 @@ void catch_up(::Ctx* c) {
     const uint64_t words = quest_words(), story_obj = story();
     if (!words || !story_obj || !story_shared_here()) return;
     const double now = qpc::seconds();
-    for (uint32_t i = 0; i < kQuestMax; ++i) {
-        if (!s.target[i] || now < s.stall_until[i]) continue;
+    retry_on_prereq_close(c, words, now);
+    for (uint32_t q = 0; q < kQuestMax; ++q) {
+        if (!s.target[q] || now < s.stall_until[q]) continue;
+        if (state_at(words, q) >= s.target[q]) continue;
+        // Its prerequisites first: a quest is listed only once they are closed here. i is the quest moved on now.
+        uint32_t i = q;
+        if (const uint32_t first = prereq_to_step(c, words, q, now)) i = first - 1;
         const uint8_t state = state_at(words, i);
-        if (state >= s.target[i]) continue;
         const uint32_t id = i + 1;
         if (s.stepping != id || s.stepping_state != state) {   // a new quest, or the pump made the last step
             s.stepping = id;
             s.stepping_state = state;
             s.stepping_since = now;
+            if (i != q) NXLOG_I(kTag, "Co-op story: quest %u waits for its prerequisite %u here; that one is moved on first", q + 1, id);
         } else if (now - s.stepping_since > kStall) {
+            if (const uint64_t ql = quest_lists()) {
+                uint16_t open = 0;
+                const Why why = why_not(c, words, ql, i, state, &open);
+                log_why(c, i, state, why, open, words);
+                if (why == Why::Unlisted && list_quest(c, words, ql, i, state)) {
+                    s.stepping_since = now;   // listed now: the pump gets its frames again
+                    return;
+                }
+            }
             const double skip = std::min(kStallSkipMax, kStallSkip * static_cast<double>(1u << std::min<unsigned>(s.stalls[i], 5)));
             s.stall_until[i] = now + skip;
+            s.closed_prereqs[i] = closed_prereqs(c, words, i);   // one more closing here ends the skip (retry_on_prereq_close)
             s.stepping = 0;
             if (s.stalls[i]++ == 0)
                 NXLOG_W(kTag, "Co-op story: quest %u stays at state %u here (the pump does not step it yet; %u wanted); passed over for now",
@@ -803,6 +1062,9 @@ void on_session_change() {
     std::memset(s.resent, 0, sizeof s.resent);
     std::fill(std::begin(s.stall_until), std::end(s.stall_until), 0.0);
     std::memset(s.stalls, 0, sizeof s.stalls);
+    std::memset(s.closed_prereqs, 0, sizeof s.closed_prereqs);
+    std::memset(s.why, 0, sizeof s.why);
+    std::memset(s.rebuilt_for, 0, sizeof s.rebuilt_for);
     s.stepping = 0;
     s.digest_at = 0.0;
     s.send_all = true;
