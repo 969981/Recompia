@@ -242,6 +242,11 @@ fn run_job(app: &AppHandle, root: &Path, l: &Latest) -> Result<(), String> {
     #[cfg(windows)]
     {
         if !dir.join(zonith::WINDOWS_ROOT).join(zonith::WINDOWS_EXE).is_file() {
+            // the setup folder is replaced below; a game the player installed inside it stays
+            let setup = dir.join(zonith::WINDOWS_ROOT);
+            if zonith::holds_install(&setup) {
+                return Err(format!("{} holds a game Zonith installed. Move the game out of that folder, then try again.", fwd(&setup)));
+            }
             let _ = std::fs::remove_dir_all(dir.join("unpacked"));
             crate::update::extract(&dir, &l.asset, "unpacked", &S.cancel)
                 .map_err(|e| if e == crate::update::CANCELLED { CANCELLED.to_string() } else { e.replace("the update", "the Zonith setup") })?;
