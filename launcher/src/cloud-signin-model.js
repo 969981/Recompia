@@ -3,6 +3,7 @@
 // method?, phase?: { phase: starting | browser | phone | finishing, url?, user_code?, qr_svg?, fingerprint?, expires_in? }, error? }.
 // Pure: no DOM and no Tauri (icons come in as a function, pictures as URLs), so node scripts/test-cloud-signin-model.mjs runs it.
 import { t } from './i18n.js';
+import { fromBackend } from './backend-text.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -55,7 +56,7 @@ const btn = (act, label, cls = '', iconHtml = '', attrs = '') => `<button class=
 
 const busy = (icon, text) => `<p class="signin-busy">${icon('loader-circle', 'spin')}<span>${esc(text)}</span></p>`;
 const keyLine = (fp) => (fp ? `<p class="signin-key">${esc(t('Device key {fingerprint}', { fingerprint: fp }))}</p>` : '');
-const error = (e) => (e ? `<p class="form-error" role="alert">${esc(e)}</p>` : '');
+const error = (e) => (e ? `<p class="form-error" role="alert">${esc(fromBackend(e))}</p>` : '');   // cloud_signin.rs sends English (backend-text.js)
 
 /** Waiting on a phone: the QR code beside the steps, the short code, the countdown (#signin-left) and the device key; the link for a
  *  phone without a camera under them. */
