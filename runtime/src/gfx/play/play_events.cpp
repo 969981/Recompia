@@ -102,7 +102,7 @@ void handle_event(const input::Event& e, uint64_t now) {
             break;
         case EventType::KeyDown:
             if ((e.u.key.scancode == SDL_SCANCODE_RETURN || e.u.key.scancode == SDL_SCANCODE_KP_ENTER) && (e.mods & SDL_KMOD_ALT)) {
-                if (!(e.flags & input::kFlagRepeat)) toggle_fullscreen();
+                if (!(e.flags & input::kFlagRepeat)) toggle_fullscreen();   // (nothing in split screen: the window keeps its half)
                 return;
             }
             if (!(e.flags & input::kFlagRepeat)) mm::pointer().on_other_input();
@@ -158,7 +158,7 @@ void handle_event(const input::Event& e, uint64_t now) {
             }
             break;
         case EventType::WindowFocusLost:
-            audio::set_muted(st.window && st.settings.audio.mute_unfocused);
+            apply_window_mute();
             st.engine->release_all(now);
             key_state::clear();
             st.mouse1 = false;
@@ -167,7 +167,7 @@ void handle_event(const input::Event& e, uint64_t now) {
             perf::note_focus(false);
             break;
         case EventType::WindowFocusGained:
-            audio::set_muted(false);
+            apply_window_mute();
             st.limiter.reset_schedule();
             perf::note_focus(true);
             break;
@@ -190,12 +190,13 @@ void handle_event(const input::Event& e, uint64_t now) {
 // Shortest gap between two rumble writes to the pads (30 per second).
 constexpr uint64_t kRumbleMinGapNs = 1000000000ull / 30;
 
-// Reads every open pad, merges them (buttons OR, the stick with the larger deflection wins) and publishes the result to the source.
+// Reads every pad this window plays (own_pads: all the open ones, or in split screen its one), merges them (buttons OR, the stick with the
+// larger deflection wins) and publishes the result to the source.
 void poll_pads(uint64_t now) {
     G& st = g();
     PadFrame pf;
     input::GamepadInfo infos[8];
-    const size_t n = input::gamepad_list(infos, 8);
+    const size_t n = own_pads(infos, 8);
     bool have_six = false;
     uint16_t lo = 0, hi = 0;
     {
@@ -224,8 +225,9 @@ void poll_pads(uint64_t now) {
         overlay_combo = 0;
     }
     for (size_t i = 0; i < n; ++i) {
-        // [pad] controller: the other pads are not read at all (no input, no quit combination, no rumble)
-        if (st.settings.pad.controller > 0 && infos[i].player + 1 != st.settings.pad.controller) continue;
+        // [pad] controller: the other pads are not read at all (no input, no quit combination, no rumble). Not in split screen: the
+        // window's one pad is [split] pad's (own_pads), and a number chosen for the whole PC would leave the other windows with none.
+        if (!split_active() && st.settings.pad.controller > 0 && infos[i].player + 1 != st.settings.pad.controller) continue;
         platform::GamepadRaw raw;
         if (!platform::gamepad_poll(infos[i].id, &raw)) continue;
         // the quit combination: every button of it held on this one pad (physical buttons, before [padmap])

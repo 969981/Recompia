@@ -94,9 +94,9 @@ public:
         s.prompt_now = prompts_effective_name();
         if (st.pi_calls.load() == 0) s.aim = "not in game";
         s.mouse_captured = st.window && platform::relative_mouse();
-        input::GamepadInfo infos[4];
-        s.pads = static_cast<int>(input::gamepad_count());
-        if (input::gamepad_list(infos, 4) > 0) {
+        input::GamepadInfo infos[8];
+        s.pads = static_cast<int>(own_pads(infos, 8));   // the ones this window plays, as poll_pads reads them (split screen: its one)
+        if (s.pads > 0) {
             s.pad_name = infos[0].name;
             s.pad_gyro = infos[0].gyro;
             s.pad_rumble = infos[0].rumble;

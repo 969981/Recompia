@@ -37,6 +37,10 @@ struct DisplayConfig {
     int fps_cap = 60;                       // 0 = unlimited
     bool keep_aspect = true;
     gfx::PresentMode present_mode = gfx::PresentMode::Immediate;   // what the vsync setting asks for (the renderer falls back to what the surface supports)
+    // Split screen (nxrt/split.h): play mode puts the window in its place itself (platform::InitOptions::place_windows), and every
+    // window but the first appears without taking the keyboard focus from the first (platform::WindowDesc::focusable).
+    bool places_window = false;
+    bool takes_focus = true;
 };
 DisplayConfig display();
 FrameLimiter* limiter();                    // owned by play mode; pass to nvn::BackendDesc::limiter
