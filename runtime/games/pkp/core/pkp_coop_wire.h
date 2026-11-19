@@ -17,6 +17,8 @@
 //   ReqUnique   +2 u8 count n, then n times: u8 unique request id (1..200), u8 its state on the origin (3..5)
 //   ReqOutcome  +2 u8 unique request id (1..200)            (a member finished it here; the authority applies its world part once)
 //   RecipeKnown +2 u16 count n, then n times: u16 recipe id (1..0x5db) the origin's player knows
+//   WildPop     +2 u16 habitat id (1..500), +4 u16 creature data id (1..0x3ff), +6 s16 delay in seconds, +8 u8 1 add / 0 remove
+//                                                            (a member's event script armed or cleared a wild creature's appearance)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -53,6 +55,7 @@ enum class Type : uint32_t {
     ReqUnique = 10,
     ReqOutcome = 11,
     RecipeKnown = 12,
+    WildPop = 13,
 };
 
 // Builds one payload: the header, then the fields in order.
