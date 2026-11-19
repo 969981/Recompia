@@ -42,7 +42,10 @@
 //   1 then, is never put in C until the next stage start. When such a quest stalls at state 1 with its stage here and every
 //   prerequisite closed, the catch-up calls 0x11c220(QL, p) for each prerequisite p, as the pump would have; a quest still not listed
 //   after that (none to call with, or at state 2 / 3 not in A / B) gets the stage start's own rebuild, 0x11933c + 0x119640, at most
-//   once per kRebuildGap. Both only at a moment the pump could run (not busy, 0x1186ec(0)), from the game thread between frames.
+//   once per kRebuildGap and once per quest and state. Both only at a moment the pump could run (not busy, 0x1186ec(0)), from the
+//   game thread between frames. 0x11933c clears whatever the gate is, but 0x119640 lists only behind its own gate (GM+0x8c bit 0,
+//   0x538750() clear, and not GM+0x98 with the player manager's +0x30 vt+0x148 true): the rebuild runs only when that gate is open,
+//   and the lists are put back as they were if it left all three empty.
 // - Why a stalled quest is not listed (its stage, a prerequisite, a full list) is logged once per reason.
 // The safety net (StoryDigest): every kDigestEvery seconds the authority sends every member its whole story (every quest's state and
 // the ability bits). A member behind it catches up as above; a member ahead of it sends each quest it is ahead on again, once per
@@ -132,6 +135,9 @@ constexpr uint64_t kClearLists = 0x11933c, kListStage = 0x119640, kStoryBusy = 0
 constexpr unsigned kPrereqs = 5;
 constexpr unsigned kPrereqDepth = 4;     // prerequisites of prerequisites looked through, at most
 constexpr double kRebuildGap = 60.0;     // the stage start's list rebuild, at most once per this many seconds
+constexpr uint64_t kListsSize = 0x258;   // QL + 0 .. : the four lists 0x11933c clears (their counts and entries)
+constexpr uint64_t kGmStory = 0x8c, kGmLinkWait = 0x98, kPlayerMgr = 0x3561928, kPmObject = 0x30, kPmBusySlot = 0x148;
+constexpr uint64_t kStoryOff = 0x538750;
 constexpr uint32_t kFirstTalk = 2;   // a new world: quest 1 closes on entering the first room, quest 2 at the first talk (run P0RE-2)
 
 constexpr uint8_t kEveryProcessEffects[] = {0x01, 0x02, 0x03, 0x19, 0x1e, 0x1f, 0x30,    // personal
@@ -179,6 +185,7 @@ struct State {
     uint8_t closed_prereqs[kQuestMax] = {};      // per quest: how many of its prerequisites were closed here at the last look
     uint8_t why[kQuestMax] = {};                 // per quest: the "not listed" reason last logged
     double rebuilt_at = -1e9;
+    uint8_t rebuilt_for[kQuestMax] = {};         // per quest: the state the rebuild was last made for (once per quest and state)
     uint32_t stepping = 0;                // the quest the catch-up flagged last (id), and its state then
     uint8_t stepping_state = 0;
     double stepping_since = 0.0;
@@ -286,7 +293,7 @@ bool story_shared_here() {
 
 uint64_t quest_lists() {
     const uint64_t gm = guest::rd<uint64_t>(base() + kGameMgr);
-    if (!guest::ok(gm, kGmQuestLists + kListBIds + kListCap * 2)) return 0;
+    if (!guest::ok(gm, kGmQuestLists + kListsSize)) return 0;
     const uint64_t ql = gm + kGmQuestLists;
     // The pump's own object (0xb80c0 passes GM+0x3b9328 to 0xba660); 0x118d44 keeps it in the global too.
     return guest::rd<uint64_t>(base() + kQuestListGlobal) == ql ? ql : 0;
@@ -390,6 +397,25 @@ void log_why(::Ctx* c, uint32_t i, uint8_t state, Why why, uint16_t prereq, uint
     }
 }
 
+uint32_t list_counts(uint64_t ql) {
+    return guest::rd<uint32_t>(ql + kListC) + guest::rd<uint32_t>(ql + kListA) + guest::rd<uint32_t>(ql + kListB);
+}
+
+// 0x119640's own gate: it lists nothing unless the story is on (GM+0x8c bit 0), 0x538750() is clear, and not (GM+0x98 set and the
+// player manager's object +0x30 answering true to its vt+0x148).
+bool stage_listing_open(::Ctx* c) {
+    const uint64_t gm = guest::rd<uint64_t>(base() + kGameMgr);
+    if (!guest::ok(gm, kGmLinkWait + 8) || !(guest::rd<uint8_t>(gm + kGmStory) & 1)) return false;
+    if (guest::call(c, base() + kStoryOff, 0) & 1) return false;
+    if (!guest::rd<uint64_t>(gm + kGmLinkWait)) return true;
+    const uint64_t pm = guest::rd<uint64_t>(base() + kPlayerMgr);
+    const uint64_t obj = pm && guest::ok(pm + kPmObject, 8) ? guest::rd<uint64_t>(pm + kPmObject) : 0;
+    if (!obj || !guest::ok(obj, 8)) return true;
+    const uint64_t vt = guest::rd<uint64_t>(obj);
+    if (!guest::ok(vt + kPmBusySlot, 8)) return false;
+    return !(guest::call(c, guest::rd<uint64_t>(vt + kPmBusySlot), obj) & 1);
+}
+
 // A stalled quest whose stage is this area's and whose prerequisites are all closed, but which is in no list: put in the list as the
 // game does (0x11c220 for each closed prerequisite; the stage start's rebuild when that does not do it). Only when the pump could
 // run now. True when it is listed afterwards.
@@ -411,10 +437,19 @@ bool list_quest(::Ctx* c, uint64_t words, uint64_t ql, uint32_t i, uint8_t state
         }
     }
     const double now = qpc::seconds();
-    if (now - s.rebuilt_at < kRebuildGap) return false;
+    if (now - s.rebuilt_at < kRebuildGap || s.rebuilt_for[i] == state || !stage_listing_open(c)) return false;
     s.rebuilt_at = now;
+    s.rebuilt_for[i] = state;
+    uint8_t saved[kListsSize];
+    std::memcpy(saved, reinterpret_cast<const void*>(ql), sizeof saved);
+    const uint32_t before = list_counts(ql);
     guest::call(c, base() + kClearLists, ql);
     guest::call(c, base() + kListStage, ql, area_stage());
+    if (before && !list_counts(ql)) {   // 0x119640 listed nothing after all: the lists as they were
+        std::memcpy(reinterpret_cast<void*>(ql), saved, sizeof saved);
+        NXLOG_W(kTag, "Co-op story: the quest list rebuild for quest %u listed nothing; the lists were put back", id);
+        return false;
+    }
     const bool ok = listed(ql, id, state);
     NXLOG_W(kTag, "Co-op story: this area's quest lists rebuilt as at a stage start, for quest %u at state %u: %s", id, state,
             ok ? "listed now" : "still not listed");
@@ -1006,6 +1041,7 @@ void on_session_change() {
     std::memset(s.stalls, 0, sizeof s.stalls);
     std::memset(s.closed_prereqs, 0, sizeof s.closed_prereqs);
     std::memset(s.why, 0, sizeof s.why);
+    std::memset(s.rebuilt_for, 0, sizeof s.rebuilt_for);
     s.stepping = 0;
     s.digest_at = 0.0;
     s.send_all = true;
