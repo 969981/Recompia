@@ -3,7 +3,7 @@
 // visited and the buildings it finished, unlocked for every member. The game keeps each of these first-time lists in the player's own
 // save and sets them on one process: a character's reward talk or an event's callback runs on the talker's process alone, an area
 // visit is recorded only when the player is not a Link Play visitor. So the others never learned the move or emote, and a member's
-// travel list never had the areas the group went to. Each process shares what grew in its lists (UnlockKnown), and every member gets
+// save never counted the areas the group went to. Each process shares what grew in its lists (UnlockKnown), and every member gets
 // the union (a member that is behind never takes one away).
 //
 // The game, 2.0.1 (modding-docs coop-v2/UNLOCK-LISTS-RE.md). R = save root, `*(main+0x3561930)`; one byte an entry, the bit named:
@@ -17,9 +17,10 @@
 //   areas     R + 0x6d7775 + stage * 0x34         m_stageHistoryVer2 +1 bit 4 (visited), stage 1..5 (the story areas). Written only
 //                                                inline by the area load (0x62f7e0), for the current stage and never on a visitor:
 //                                                the game has no setter for another stage, so the bit is set here directly. Nothing
-//                                                else hangs off it: the travel list is rebuilt at the next area load, the shop and
-//                                                building conditions read the bit live. In a session only the host records areas, so
-//                                                only the authority's areas are taken.
+//                                                else hangs off it: the shop and building conditions read the bit live, and the
+//                                                travel list is rebuilt from it at an area load outside a session (0x62f7e0 returns
+//                                                for a visitor before its rebuild). In a session only the host records areas, so only
+//                                                the authority's areas are taken.
 //   buildings R + 0x73b1d4 + id, id 0..0x7f       m_buildingHistory bit 0 (built once: the building list shows its picture).
 //                                                kBuildingSet(id, 1) sets it (0 would clear it); no popup.
 // The wheels (m_pokeSkillWheelHistory, m_communicationWheelHistory) are the player's own layout, filled by the learns above. The
@@ -208,7 +209,7 @@ void apply(::Ctx* c, uint64_t root) {
     for (size_t k = 0; k < kListCount; ++k) {
         const ListState& ls = s.lists[k];
         pending += ls.pending.count();
-        batching |= ls.quiet != 0;
+        batching |= kLists[k].loud && ls.quiet != 0;   // a quiet area or building does not silence a move
         for (uint32_t id = 0; id < kIds; ++id) {
             if (!ls.pending.test(id) || now - ls.at[id] < kSettle) continue;
             settled = true;
