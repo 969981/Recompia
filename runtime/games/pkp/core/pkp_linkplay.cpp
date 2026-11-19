@@ -13,6 +13,7 @@
 // host's Spectator setting, the session flag and the advertise data are not touched. Known gaps (the parent project): the visitor's join notice
 // and the host's settings row still say Spectator Mode; a visitor's bag goes home with it as in Palette Town.
 #include "core/pkp_linkplay.h"
+#include "core/pkp_coop.h"
 #include "core/pkp_settings.h"
 
 #include <atomic>
@@ -128,8 +129,11 @@ void install(const FeatureInstall& in) {
     s.changes.store(0);
     services::ldnapi::set_session_variant(0, kInteractName);
     // The co-op mods fingerprint (services ldnapi::set_coop_mods): the Modtopia gameplay mods that are on, "id@version" sorted
-    // (nxrt/mods.h; Modtopia HOST.md section 3, Link Play).
-    services::ldnapi::set_coop_mods(nxrt::mods::gameplay_mods());
+    // (nxrt/mods.h; Modtopia HOST.md section 3, Link Play). A co-op launch puts the co-op rules first (pkp_coop.h kCoopRules): a
+    // player on a build with other rules is refused at the join, as one with other mods.
+    std::vector<std::string> mods = nxrt::mods::gameplay_mods();
+    if (settings::get_bool(settings::Key::Coop)) mods.insert(mods.begin(), kCoopRules);
+    services::ldnapi::set_coop_mods(mods);
     if (!settings::get_bool(settings::Key::LinkInteractEverywhere)) {
         NXLOG_I(kTag, "Interact everywhere ([pkp] link_interact_everywhere): off, Link Play outside Palette Town keeps the game's Spectator Mode");
         return;

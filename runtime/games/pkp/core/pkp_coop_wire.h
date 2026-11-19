@@ -42,7 +42,9 @@
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
-// messages on); with an older build as a member, only that member misses it.
+// messages on); with an older build as a member, only that member misses it. A new type that the session cannot play without (a
+// member relies on the authority handling it, as QuestFlagAsk) raises the co-op rules instead (pkp_coop.h kCoopRules): those are
+// in the session's mods fingerprint, so builds with other rules are refused at the join.
 // Every payload's origin is checked against its real sender (pkp_coop_link.cpp deliver()): a member's message comes from its own
 // node, a shared message a member receives comes from the authority, and the authority-only types come from the authority alone.
 //   StoryStates states: 2 started, 3 complete, 4 closed; any other value is dropped. StoryDigest states: 0..4, a higher one is
