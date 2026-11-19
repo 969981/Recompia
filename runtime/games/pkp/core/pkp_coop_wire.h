@@ -23,6 +23,17 @@
 //   PurchaseAsk +2 u64 the purchase log this member knows (0: none), +10 u32 the last entry it applied
 //   PurchaseLog +2 u64 the authority's purchase log id, +10 u32 its last entry, +14 u16 count n, then n times: u32 entry number,
 //               u8[16] buyer's member key, u16 shop entry, u16 count     (new purchases, or the answer to a PurchaseAsk)
+//   DexKnown    +2 u16 count n, then n times: u16 Pokédex number (1..999), u8 its entry's bits on the origin (0..0xf)
+//   DexScene    +2 u32 actor id, +6 u16 creature id (1..0x3ff), +8 u16 its Pokédex number   (the origin's "registered" scene)
+//   HabitatKnown +2 u16 count n, then n times: u16 habitat id (1..500), u8 its bits on the origin (bit 0 found, bit 1 scene shown)
+//   HabitatScene +2 u16 habitat id (1..500), +4 u16 placed habitat (0..0x3ff), +6 u8 flag (0..1)   (the origin's "new habitat" scene)
+//   EventHistory +2 u16 n, n bytes: the origin's played-scene bits (byte i bit j = scene id i * 8 + j, ids 1..2998), then u16 m,
+//                m bytes: its conversation rows (row 0..m-1, bit 0 kept)   (whole, when either grew; a receiver takes the union)
+//   StoryLines   +2 u8 count n, then n times: u8 story line (1..0xfe), u8 the line's id, s16 its step, u16 its condition bits
+//                                                            (the lines that changed on the origin; a receiver takes the furthest)
+//   UnlockKnown +2 u8 list, +3 u16 count n, then n times: u8 entry id the origin's player has   (pkp_coop_unlocks.cpp)
+//               lists: 1 moves (id 1..0x3c), 2 emotes (1..0x64), 3 areas visited (stage 1..5), 4 buildings built (0..0x7f);
+//               a list this build does not know is skipped
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -63,6 +74,13 @@ enum class Type : uint32_t {
     Purchase = 14,
     PurchaseAsk = 15,
     PurchaseLog = 16,
+    DexKnown = 17,
+    DexScene = 18,
+    HabitatKnown = 19,
+    HabitatScene = 20,
+    EventHistory = 21,
+    StoryLines = 22,
+    UnlockKnown = 23,
 };
 
 // Builds one payload: the header, then the fields in order.

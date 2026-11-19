@@ -71,8 +71,14 @@ enum class Site : uintptr_t {
     // ---- the shops ----
     ShopGrant,        // a purchase's give on the buyer's process (the shop's buy, or a visitor's buy the host answered): logged for the
                       // group, so every member gets it too (pkp_coop_purchases.cpp)
+    VisitorSync,      // the visitor's "every Link Play request answered" test, from the event queue's ready test: a member's story events
+                      // are not held for counters that stopped meeting (pkp_coop_held.cpp)
     OfflineGoods,     // "this shop row is for offline play only" (the bag upgrades among them): no row is, in a session, so the shop
                       // lists them as it does offline (#780)
+    // ---- the discoveries ----
+    DexScene,         // the "registered in the Pokédex" scene is queued on the finder's process: sent, so every member registers
+                      // the creature and sees the same scene (pkp_coop_discovery.cpp)
+    HabitatScene,     // the "new habitat" scene is queued likewise: every member finds the habitat, with its scene
 };
 
 struct CoopSite {
@@ -113,6 +119,9 @@ constexpr CoopSite kSites[] = {
     {{0x5727c0, kPacibsp, true}, Site::JoinBagSync},
     {{0xe889f8, kPacibsp, true}, Site::ShopGrant},
     {{0xe87260, kPacibsp, true}, Site::OfflineGoods},
+    {{0x3b9060, kPacibsp, true}, Site::DexScene},
+    {{0x45f2a0, 0x12003c28u, true}, Site::HabitatScene},     // and w8, w1, #0xffff
+    {{0x313418, kPacibsp, true}, Site::VisitorSync},
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -152,6 +161,9 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::AreaMove: return coop::travel::on_area_move(c);
         case Site::ShopGrant: return coop::purchases::on_grant(c);
         case Site::OfflineGoods: return coop::purchases::on_offline_only(c);
+        case Site::DexScene: return coop::discovery::on_dex_scene(c);
+        case Site::HabitatScene: return coop::discovery::on_habitat_scene(c);
+        case Site::VisitorSync: return coop::held::on_visitor_sync(c);
         default: return 0;
     }
 }
@@ -216,6 +228,9 @@ void game_frame(::Ctx* c) {
     coop::requests::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::outcomes::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::recipes::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::events::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::discovery::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::unlocks::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::purchases::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::talk::tick();
     coop::travel::tick(c);
@@ -238,6 +253,9 @@ void remove() {   // the registry has removed the hooks
     coop::requests::reset();
     coop::outcomes::reset();
     coop::recipes::reset();
+    coop::events::reset();
+    coop::discovery::reset();
+    coop::unlocks::reset();
     coop::purchases::reset();
     coop::talk::reset();
     coop::travel::reset();
@@ -246,6 +264,7 @@ void remove() {   // the registry has removed the hooks
     coop::curtain::reset();
     coop::gate::reset();
     coop::trace::reset();
+    coop::held::reset();
     coop::session::reset();
 }
 

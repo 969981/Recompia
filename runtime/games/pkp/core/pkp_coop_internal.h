@@ -16,8 +16,13 @@
 //   pkp_coop_requests.cpp the creature requests a member took on or finished, listed in every member's requests app
 //   pkp_coop_outcomes.cpp what a finished request adds to the world (town goal, friendship), applied once for the group
 //   pkp_coop_recipes.cpp  the crafting recipes any member knows, learned by every member
+//   pkp_coop_unlocks.cpp  the moves and emotes any member learned, the areas visited and buildings built, unlocked for every member
 //   pkp_coop_purchases.cpp what any member buys in a shop, given to every member (and to later joiners) too
+//   pkp_coop_events.cpp   what an ended talk or scene leaves in the save (scenes played, conversations seen, story lines moved on)
+//                         kept by every member
+//   pkp_coop_held.cpp     the story events a member's game holds for Link Play's request counters: let through once they are stuck
 //   pkp_coop_travel.cpp   the group's trips: a move to another area runs only after the game's poll passed, and the host makes it for all
+//   pkp_coop_discovery.cpp the Pokédex entries and habitats any member found, found by every member, with the game's own scenes
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -140,6 +145,28 @@ void on_member_joined();    // another member joined: the whole list is sent aga
 void reset();
 }  // namespace recipes
 
+namespace events {
+// The messages (pkp_coop_link.cpp): kept until this player can take them.
+void on_history_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_lines_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Takes what other members' events left when this player can walk and talks to no one, reads this player's and shares what grew
+// (once a frame, after the channel's handlers).
+void tick(::Ctx* c, bool in_game);
+void on_session_change();   // this process joined or left: everything is read and sent again
+void on_member_joined();    // another member joined: everything is sent again
+void reset();
+}  // namespace events
+namespace unlocks {
+// The message (pkp_coop_link.cpp): kept until this player can take it.
+void on_known_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Sets what other members have when this player can walk and talks to no one, reads this player's unlock lists and shares what grew
+// (once a frame, after the channel's handlers).
+void tick(::Ctx* c, bool in_game);
+void on_session_change();   // this process joined or left: the lists are read again, all of them sent
+void on_member_joined();    // another member joined: all lists are sent again
+void reset();
+}  // namespace unlocks
+
 namespace purchases {
 // The hook site (pkp_coop.cpp): entry 0xe889f8, a purchase's give on the buyer's process; it is logged for the group.
 int on_grant(::Ctx* c);
@@ -157,6 +184,27 @@ void tick(::Ctx* c, bool in_game);
 void on_session_change();   // this process joined or left: what it lacks is asked again
 void reset();
 }  // namespace purchases
+
+namespace discovery {
+// The hook sites (pkp_coop.cpp): the scenes the game queues on the finder's process, sent to the group.
+int on_dex_scene(::Ctx* c);       // entry 0x3b9060: the "registered in the Pokédex" scene (slot, &actor id)
+int on_habitat_scene(::Ctx* c);   // entry 0x45f2a0: the "new habitat" scene (slot, habitat, placed habitat, flag)
+// The messages (pkp_coop_link.cpp).
+void on_dex_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_dex_scene_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_habitat_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_habitat_scene_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Plays another member's scene or sets its finds at a safe moment, reads this player's lists and shares what grew (once a frame).
+void tick(::Ctx* c, bool in_game);
+void on_session_change();   // this process joined or left: the lists are read again, the whole lists sent
+void on_member_joined();    // another member joined: the whole lists are sent again
+void reset();
+}  // namespace discovery
+namespace held {
+// The hook site (pkp_coop.cpp): entry 0x313418, the visitor's "requests answered" test, from the event queue's ready test only.
+int on_visitor_sync(::Ctx* c);
+void reset();
+}  // namespace held
 
 namespace travel {
 // The hook site (pkp_coop.cpp): entry 0xbda20, the area move by destination index. In a session it runs only after the group's poll
