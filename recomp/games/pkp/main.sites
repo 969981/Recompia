@@ -262,6 +262,9 @@ entryhook 0x710011b214
 entryhook 0x71001240dc
 entryhook 0x710043d3e0
 entryhook 0x710012c734
+#   Seamless co-op, the story lines (pkp_coop_story.cpp): step action 6 0x710010c270 (the town register and house arrival; no direct
+#   callers, row 6 of the step-action table 0x710322d658 that 0x710010afc0 calls through)
+entryhook 0x710010c270
 #   Seamless co-op, the requests (pkp_coop_requests.cpp): the bind gate of the unique request manager ("can this creature have requests
 #   here", the only caller 0x710061d068), which refuses every visitor
 entryhook 0x710011435c

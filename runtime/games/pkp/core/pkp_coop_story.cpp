@@ -377,6 +377,25 @@ int on_quest_effect(::Ctx* c) {
     return 1;   // x0 is still the command, as on the game's own "nothing to do" return
 }
 
+int on_town_action(::Ctx* c) {
+    // Step action 6 of a story line (0x10afc0 calls it through table 0x322d658 row 6 and ANDs the returns): the twin of quest effect
+    // 0x26. It writes the town record (R+0x4a27cc + idx bit 0, target R+0x4a32e0 + idx = 0); when bit 0 turned on, the character's
+    // home stage decides: the current stage runs the house arrival 0x9bdf50 (which refuses on a visitor, so a member gets nothing),
+    // another stage sets bit 4 (pending move), which on a member no reader acts on or clears. A member in the host's world leaves it to
+    // the authority, as the world effects (the game's own session bits); the authority runs it when it applies the line
+    // (pkp_coop_events.cpp apply_lines). Single player and the authority run the game's own code.
+    const bool member = role() == CoopRole::Visit && (session_bits() & layout::kSessionVisitor);
+    if (!member) return 0;
+    if (guest::ok(c->x[1], 0x10)) {
+        const uint64_t node = guest::rd<uint64_t>(c->x[1] + 8);
+        if (node && guest::ok(node, 8))
+            NXLOG_I(kTag, "Co-op story: story-line town register of index %u (on %u) left to the authority",
+                    guest::rd<uint16_t>(node + 4), guest::rd<uint16_t>(node + 6));
+    }
+    c->x[0] = 1;   // the game's own return (every path returns 1): the line steps on as before
+    return 1;
+}
+
 int on_wild_pop(::Ctx* c) {
     // A member in the host's world (the game's own session bits, as the world effects' skip): the authority's world is the group's.
     const bool member = role() == CoopRole::Visit && (session_bits() & layout::kSessionVisitor);

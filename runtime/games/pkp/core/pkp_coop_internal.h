@@ -86,6 +86,7 @@ int on_quest_state(::Ctx* c);    // entry 0x5d865c
 int on_quest_flag(::Ctx* c);     // entry 0x5d8774: logged only
 int on_quest_effect(::Ctx* c);   // entry 0x11b214: world effects run on the authority only
 int on_wild_pop(::Ctx* c);       // entry 0x1240dc: a member's wild-creature appearance is sent to the authority
+int on_town_action(::Ctx* c);    // entry 0x10c270: story-line step action 6 (town register) runs on the authority only
 // The messages (pkp_coop_link.cpp).
 void on_states_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_ability_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
