@@ -318,12 +318,6 @@ entryhook 0x7100313418
 #   object, x, y, z, dir; the placement 0x7100593120 calls it right after 0x7100594da0, which on a visitor only sends the placement to
 #   the host)
 entryhook 0x710013596c
-#   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): the talk handler
-#   0x71004c024c at `orr w8, w25, w0` (w0 = IsHost's answer); talk conditions 0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0`
-#   after IsOnline), and condition 0x22, the one instruction `b IsOnline`; the quest pump 0x710011b600 at `tbz w0, #0` after the flag read;
-#   the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item lying in the world; in the request handler 0x7100222a20, `bl
-#   0x71009cb680` and the end of its memory-piece branch
-midhook 0x71004c06d8
 #   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): talk conditions
 #   0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0` after IsOnline), and condition 0x22, the one instruction `b IsOnline`;
 #   the quest pump 0x710011b600 at `tbz w0, #0` after the flag read; the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item
