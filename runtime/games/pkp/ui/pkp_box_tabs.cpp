@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Storage box tabs (main 2.0.1a): each backing ID provides one native page for type 1 or three for type 2. The screen and
 // panel use that ID for transactions and painting. Teardown and removal retain the physical ID. The allocator skips unplaced
-// slices with items, so reusing a physical ID recovers its tabs. Switching requires inactive per-player staging.
+// slices with items, so reusing a physical ID recovers its tabs. A switch while an item is held carries it over (pkp_box_tabs_carry.h).
 // The pages show as the game's own page dots under the grid, one per page of the whole box (a standard box also gets the big box's
 // frame pose for them and its L / R icons); the panel's own page count and page stay native.
 #include "ui/pkp_box_tabs.h"
@@ -55,7 +55,8 @@ constexpr uint64_t kPanelPageSlide = 0xf8, kBagRange = 0x180;   // panel virtual
 constexpr uint64_t kPanelType = 0xc1, kPanelId = 0xd4, kPanelPageCount = 0xd8;
 constexpr uint64_t kSelectorCallback = 0x18, kSelectorScreen = 0x20, kSelectorAction = 0x94, kSelectorPage = 0x98, kSelectorPrevious = 0x9c;
 constexpr uint16_t kActionPrevious = 0x10, kActionNext = 0x11;   // the selector's L / R actions
-constexpr uint8_t kBoxType = 1, kBigBoxType = 2, kBoxPanel = 1, kBrowsing = 1;
+constexpr uint8_t kBoxType = 1, kBigBoxType = 2, kBoxPanel = 1, kBrowsing = 1, kPageSlide = 5;
+constexpr uint64_t kStateBefore = 0x164;   // screen: the state a page change's slide (state 5) returns to
 constexpr uint32_t kBoxSelector = 2;
 constexpr int kMaxPages = 12, kMaxBigTabs = 6;   // fixed for good: they set where every tab's items live (available_tabs)
 constexpr auto kReopenGap = std::chrono::milliseconds(300);
@@ -226,8 +227,11 @@ void show_dots(::Ctx* c, OpenBox& box, uint64_t panel, bool recount) {
     box.lit = lit;
 }
 
+// Browsing, or a page change's slide that started from browsing (state 5, the state before it at +0x164): presses that come in while a
+// page still slides cross into the next tab as the game's own presses page within one, without a stop every few pages.
 bool can_switch(::Ctx* c, uint64_t screen) {
-    if (rd<uint8_t>(screen + kState) != kBrowsing) return false;
+    const uint8_t state = rd<uint8_t>(screen + kState);
+    if (state != kBrowsing && !(state == kPageSlide && rd<uint8_t>(screen + kStateBefore) == kBrowsing)) return false;
     const auto player = static_cast<uint8_t>(call(c, g.base + kPlayerOf, screen + kPlayerHelper));
     return player != 0xff && rd<uint8_t>(g.base + layout::kItemTempFlag + player) == 0;
 }
@@ -401,7 +405,7 @@ int hook_page_request(::Ctx* c, uint64_t, void*) {
     if (target < 0 || tabs.ids[target] == box.shown) return 0;
     if (!can_switch(c, box.screen)) {
         // An item held: carried over in the frame hook (the copies are written back and taken again there, on the screen's own frame).
-        // The page still sliding: stay on this page. Either way the game must not wrap back to the tab's first page.
+        // Anything else (an item held while a page still slides, a dialog): stay on this page. The game must not wrap back to the first.
         if (box_carry::holding(c, g.base, box.screen)) box.pending = direction;
         c->x[0] = 0;
         return 1;
