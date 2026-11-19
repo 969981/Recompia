@@ -42,6 +42,7 @@
 - Added a new look: a rail of games on the left, a Home with one big Play button for each game, and Recompia: Co-op with its own Home
 - Added Zonith: the launcher downloads, updates and starts it, with its own What's New
 - Added controller support in the launcher on Linux and the Steam Deck (LT/RT switch games, Start plays)
+- Added a bigger Mesa shader cache on Linux: the launcher gives the game 4 GB when `MESA_SHADER_CACHE_MAX_SIZE` is not set, because Mesa's 1 GB default filled up with the game's shaders and it kept compiling some of them again (#815)
 - Fixed a Zonith update or reinstall deleting the game when the player had installed it into the launcher's Zonith folder (Zonith's setup starts in that folder, so its folder picker can open there): an update now removes only the launcher's own older setup folders, and never one that holds a Zonith install, and a reinstall no longer replaces a setup folder that holds one. On Linux, Open folder now opens the folder with Zonith's setup instead of an empty one.
 - Fixed mods' HTTPS requests (Community Achievements', for one) never getting an answer on Linux when the game was started from the launcher AppImage: the game inherited the AppImage's `LD_LIBRARY_PATH`, so the system's libcurl loaded the AppImage's older libnghttp2 and failed (#819)
 

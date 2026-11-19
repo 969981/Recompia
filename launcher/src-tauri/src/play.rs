@@ -223,6 +223,12 @@ fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverri
     if without_mods {
         leave_mods_out(&mut cmd);
     }
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(size) = mesa_shader_cache_size(std::env::var_os(MESA_SHADER_CACHE_VAR).as_deref()) {
+            cmd.env(MESA_SHADER_CACHE_VAR, size);
+        }
+    }
     crate::coop_launch::apply(&mut cmd, coop);
     #[cfg(windows)]
     {
@@ -236,6 +242,16 @@ fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverri
 /// the mods folder are not touched and the next start has its mods again.
 fn leave_mods_out(cmd: &mut std::process::Command) {
     cmd.env("NXRT_MODS_OFF", "1");
+}
+
+/// Mesa keeps compiled shaders in a disk cache of 1 GB unless MESA_SHADER_CACHE_MAX_SIZE says otherwise. The game's ~99,000
+/// translated shaders fill it, and Mesa then evicts and compiles them again (#815). The game gets 4 GB unless the player has
+/// set a size; drivers other than Mesa's ignore the variable.
+#[cfg(any(target_os = "linux", test))]
+const MESA_SHADER_CACHE_VAR: &str = "MESA_SHADER_CACHE_MAX_SIZE";
+#[cfg(any(target_os = "linux", test))]
+fn mesa_shader_cache_size(players: Option<&std::ffi::OsStr>) -> Option<&'static str> {
+    players.is_none().then_some("4G")
 }
 
 /// Waits for the game, stopping it if the machine runs out of memory. macOS: the world load needs ~9 GB on a 16 GB host, and
@@ -279,4 +295,9 @@ mod tests {
         assert_eq!(off, Some(std::ffi::OsStr::new("1")));
     }
 
+    #[test]
+    fn mesa_cache_size_only_when_the_player_set_none() {
+        assert_eq!(mesa_shader_cache_size(None), Some("4G"));
+        assert_eq!(mesa_shader_cache_size(Some(std::ffi::OsStr::new("8G"))), None);
+    }
 }
