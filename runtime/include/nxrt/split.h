@@ -2,7 +2,7 @@
 // Split screen: the game runs once per player on one PC (two to four), each process a window in its part of the screen. Whoever starts
 // the group (the launcher) tells each process which window it is and how the processes meet (for the game: as the members of one co-op
 // save); play mode keeps the window in its part and gives it one controller (src/gfx/play/play_split.cpp).
-// After pokopia-native's split screen (MIT, windows/docs/split-screen.md): the same design, on this runtime's own window and input code.
+// After the parent project's split screen (MIT, windows/docs/split-screen.md): the same design, on this runtime's own window and input code.
 //
 // Configuration ([split], environment NXRT_SPLIT_<KEY>, read once; docs/CONFIG.md):
 //   window = 0          1: the first window (it hosts), 2 to 4: another one (it visits); 0: no split screen
