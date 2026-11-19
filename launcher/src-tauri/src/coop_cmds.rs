@@ -221,8 +221,8 @@ mod tests {
         assert_eq!(v["profile"]["relay"], "");
         assert_eq!(v["profile"]["members"].as_array().unwrap().len(), 2);
         assert_eq!(v["profile"]["me"], split.me.as_str());
-        assert_eq!(v["host"]["host"], second.as_str());
-        assert_eq!(v["host"]["role"], "visit");
+        assert_eq!(v["host"]["host"], split.members[0].id.as_str(), "player 1 hosts a split save, a newer copy or not");
+        assert_eq!(v["host"]["role"], "host");
         assert_eq!(v["creator"], true);
         let f = serde_json::to_value(crate::coop_diag::Finding { mismatch: crate::coop_diag::Mismatch::Mods, own_mods: String::new() }).unwrap();
         assert_eq!(f["mismatch"], "mods");

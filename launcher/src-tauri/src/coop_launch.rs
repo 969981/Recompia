@@ -7,7 +7,8 @@
 //!
 //!   NXRT_PKP_COOP=1              co-op mode (`[pkp] coop`: set only by the launcher, per start, no in-game row)
 //!   NXRT_PKP_COOP_ROLE=host|visit    what this member does this session (`[pkp] coop_role`): the newest copy hosts (coop_save::choose_host)
-//!                                     unless an online player picked Host or Join for this start (coop_save::StartAs)
+//!                                     unless an online player picked Host or Join for this start (coop_save::StartAs); in a split
+//!                                     screen save window 1 always hosts (coop_save::split_host)
 //!   NXRT_PKP_COOP_GROUP=<id>     the co-op save's id, also the name of its folder (`[pkp] coop_group`); equals `group` in coop.marker
 //!   NXRT_PKP_COOP_MEMBER=<id>    this window's member, as in coop.json (`[pkp] coop_member`); the same 32 hex digits are [net] uid
 //!   NXRT_PKP_COOP_MEMBERS=<n>    how many members the group has (`[pkp] coop_members`); the session waits for all of them
@@ -386,19 +387,19 @@ mod tests {
     }
 
     #[test]
-    fn a_four_window_split_can_host_in_another_window_and_use_keyboard_and_sound() {
+    fn a_four_window_split_hosts_in_window_one_and_uses_the_chosen_pads_and_sound() {
         let (p, root, sp) = split_setup(4);
         coop_save::ensure_split_folders(&root, &p).unwrap();
         let newest = coop_save::split_folder_of(&root, &p.id, &p.members[2].id);
         fs::write(newest.join(coop_save::STAMP), r#"{"seq":7,"saved_at":10}"#).unwrap();
         let opts = serde_json::from_str(r#"{"side":true,"pads":[0,1,2,3],"sound":true}"#).unwrap();
         let (group, choice) = build_split(&p, &root, &sp, &opts).unwrap();
-        assert_eq!(choice.host, p.members[2].id);
-        assert_eq!(choice.role, Role::Visit);
+        assert_eq!(choice.host, p.members[0].id, "player 1 hosts even when another copy is newer");
+        assert_eq!(choice.role, Role::Host);
         assert_eq!(group.others.len(), 3);
         for (i, launch) in std::iter::once(&group.first).chain(&group.others).enumerate() {
             let window = i + 1;
-            let (role, mode) = if window == 3 { ("host", "auto:47620") } else { ("visit", "join:127.0.0.1:47620") };
+            let (role, mode) = if window == 1 { ("host", "auto:47620") } else { ("visit", "join:127.0.0.1:47620") };
             let dir = if window == 1 { coop_save::folder_of(&root, &p.id) } else { coop_save::split_folder_of(&root, &p.id, &p.members[i].id) };
             assert_eq!(launch.get("NXRT_PKP_COOP_ROLE"), Some(role));
             assert_eq!(launch.get("NXRT_PKP_COOP_MEMBER"), Some(p.members[i].id.as_str()));

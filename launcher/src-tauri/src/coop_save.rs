@@ -21,7 +21,7 @@
 //!
 //! The newest copy hosts: the greatest `(seq, saved_at)`, ties to the member who comes first in the member list (the creator first), so
 //! every launcher that knows the same stamps picks the same host. A copy without `stamp.json` is stamped from its newest file time
-//! with `seq` 0; no save at all is `(0, 0)`.
+//! with `seq` 0; no save at all is `(0, 0)`. A split screen save is the exception: player 1 (window 1) always hosts (split_host).
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -193,20 +193,17 @@ pub fn choose_host(members: &[String], me: &str, own: Stamp, peers: &HashMap<Str
     HostChoice { role: if host == me { Role::Host } else { Role::Visit }, host, own, peers_known }
 }
 
-/// Every split member's stamp is known directly, in member order. An empty copy has the default stamp.
-pub fn choose_host_split(members: &[String], stamps: &[Stamp]) -> HostChoice {
-    let me = members.first().map_or("", String::as_str);
-    let own = stamps.first().copied().unwrap_or_default();
-    let peers = members.iter().cloned().zip(stamps.iter().copied()).skip(1).collect();
-    choose_host(members, me, own, &peers)
+/// A split screen save's host: always player 1 (window 1), whose copy, the save folder itself, is the group's world. The other
+/// players' copies are visitors' copies, so none of them hosts whatever its files' times say. `own`: player 1's stamp.
+pub fn split_host(members: &[String], own: Stamp) -> HostChoice {
+    HostChoice { host: members.first().cloned().unwrap_or_default(), role: Role::Host, own, peers_known: false }
 }
 
 /// The next host of a save as it stands on disk.
 pub fn host_of(root: &Path, p: &Profile) -> HostChoice {
     let members = p.member_ids();
     if p.split {
-        let stamps: Vec<_> = split_folders(root, p).map(|dir| own_stamp(&dir)).collect();
-        choose_host_split(&members, &stamps)
+        split_host(&members, own_stamp(&folder_of(root, &p.id)))
     } else {
         let dir = folder_of(root, &p.id);
         choose_host(&members, &p.me, own_stamp(&dir), &peer_stamps(&dir))
@@ -357,16 +354,15 @@ mod tests {
     }
 
     #[test]
-    fn split_uses_the_local_stamps_and_breaks_ties_in_member_order() {
-        let members = ids(&["a", "b", "c"]);
-        let empty = Stamp::default();
-        let earlier = Stamp { seq: 2, saved_at: 10 };
-        let newest = Stamp { seq: 2, saved_at: 20 };
-        let first = choose_host_split(&members, &[empty; 3]);
-        assert_eq!((first.host.as_str(), first.role, first.peers_known), ("a", Role::Host, true));
-        let other = choose_host_split(&members, &[earlier, newest, newest]);
-        assert_eq!((other.host.as_str(), other.role, other.own), ("b", Role::Visit, earlier));
-        assert_eq!(choose_host_split(&members, &[newest, earlier, newest]).host, "a");
+    fn player_one_always_hosts_a_split_save() {
+        let root = tmp("split-host");
+        let p = crate::coop::create_split(&root, "Island", &ids(&["Alpha", "Beta", "Gamma"])).unwrap();
+        ensure_split_folders(&root, &p).unwrap();
+        // another player's copy is newer: player 1 still hosts
+        fs::write(split_folder_of(&root, &p.id, &p.members[2].id).join(STAMP), r#"{"seq":9,"saved_at":99}"#).unwrap();
+        fs::write(folder_of(&root, &p.id).join(STAMP), r#"{"seq":2,"saved_at":10}"#).unwrap();
+        let c = host_of(&root, &p);
+        assert_eq!((c.host.as_str(), c.role, c.own), (p.members[0].id.as_str(), Role::Host, Stamp { seq: 2, saved_at: 10 }));
     }
 
     #[test]
