@@ -48,7 +48,7 @@ export function chip(st, icon) {
   return `<button class="chip on-art ${cls}" id="account-chip" title="${esc(t('Online account'))}">${icon(name, st.state === 'waiting' ? 'spin' : '')}${esc(label)}</button>`;
 }
 
-const btn = (act, label, cls = '', iconHtml = '') => `<button class="btn ${cls}" data-signin="${act}">${iconHtml}${esc(label)}</button>`;
+const btn = (act, label, cls = '', iconHtml = '', attrs = '') => `<button class="btn ${cls}" data-signin="${act}"${attrs}>${iconHtml}${esc(label)}</button>`;
 
 const busy = (icon, text) => `<p class="signin-busy">${icon('loader-circle', 'spin')}<span>${esc(text)}</span></p>`;
 const keyLine = (fp) => (fp ? `<p class="signin-key">${esc(t('Device key {fingerprint}', { fingerprint: fp }))}</p>` : '');
@@ -85,11 +85,11 @@ const browserBlock = (icon, ph, device) =>
  * account (signed in, from the chip: who, Sign out, the account page), off (no portal: straight on to Home). The way out is on every
  * step but done. `mark`: the picture for the middle of the QR code (Recompia's mark). Buttons carry data-signin: browser | phone
  * (start that way), back (stop waiting, choose again), skip (on to Home, remembered), leave (Back to Home), sign-out, account (the
- * account page).
+ * account page). The way out (skip or leave) is also marked data-pad-back: a controller's B presses it, as Esc does (gamepad-nav.js).
  */
 export function welcome(st, icon, mark = '', { chip = false, note = '' } = {}) {
   const device = st?.device_name || t('this device');
-  const out = chip ? btn('leave', t('Back'), 'welcome-skip') : btn('skip', t('Skip'), 'welcome-skip');
+  const out = chip ? btn('leave', t('Back'), 'welcome-skip', '', ' data-pad-back') : btn('skip', t('Skip'), 'welcome-skip', '', ' data-pad-back');
   // at start Back steps back to the choice and Skip leaves; from the chip the way out is Back itself (leaving stops the wait), so
   // one Back, not two
   const back = chip ? '' : btn('back', t('Back'), 'quiet welcome-back', icon('arrow-left'));

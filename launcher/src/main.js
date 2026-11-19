@@ -283,6 +283,7 @@ async function go(page, opts = {}) {
   current = page;
   document.body.dataset.shell = (page === 'setup' && opts.firstRun) || page === 'welcome' ? 'full' : '';
   document.body.dataset.art = PAGES[page].art || 'soft';
+  sayBack(page, opts);
   drawChrome();
 
   const host = document.createElement('div');
@@ -346,11 +347,18 @@ function drawWindowButtons() {
   syncMax();
 }
 
-/** What the pad's buttons do, along the bottom while a pad is in use. The Start button is the shown Home's main button. */
+/** What the pad's buttons do, along the bottom while a pad is in use. The Start button is the shown Home's main button. A full-window
+ *  screen (data-shell full) shows no Page or Play hint (layout.css); B's word follows the page (sayBack). */
 function drawPadBar() {
-  const hint = (buttons, label) => `<span class="pad-hint">${buttons.map(([b, cls]) => padGlyph(b, cls)).join('')}${esc(label)}</span>`;
-  document.getElementById('padbar').innerHTML = hint([['LT'], ['RT']], t('Game')) + hint([['LB'], ['RB']], t('Page'))
-    + hint([['Start']], t('Play')) + hint([['B', 'round b']], t('Back')) + hint([['A', 'round a']], t('Select'));
+  const hint = (key, buttons, label) => `<span class="pad-hint" data-hint="${key}">${buttons.map(([b, cls]) => padGlyph(b, cls)).join('')}<span class="pad-say">${esc(label)}</span></span>`;
+  document.getElementById('padbar').innerHTML = hint('game', [['LT'], ['RT']], t('Game')) + hint('page', [['LB'], ['RB']], t('Page'))
+    + hint('play', [['Start']], t('Play')) + hint('back', [['B', 'round b']], t('Back')) + hint('select', [['A', 'round a']], t('Select'));
+}
+
+/** B's hint: Skip on the sign-in screen at start (B presses its Skip, gamepad-nav.js data-pad-back), else Back. */
+function sayBack(page, opts) {
+  const say = document.querySelector('#padbar [data-hint="back"] .pad-say');
+  if (say) say.textContent = page === 'welcome' && opts.from !== 'chip' ? t('Skip') : t('Back');
 }
 
 async function start() {

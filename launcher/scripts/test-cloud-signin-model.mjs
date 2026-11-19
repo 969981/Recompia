@@ -46,6 +46,7 @@ const wDeck = welcome({ ...base, default_method: 'phone', state: 'signed_out' },
 check(/data-signin="phone">.*data-signin="browser">/s.test(wDeck.body) && wDeck.body.includes('btn primary" data-signin="phone"'), 'welcome elsewhere: my phone first and primary');
 check(wPc.body.includes('One account for your islands and everything online.') && wPc.body.includes('Optional: everything plays without it.'), 'welcome: what it is for, optional');
 check(wPc.actions.includes('data-signin="skip"') && wPc.actions.includes('>Skip<'), 'welcome: Skip');
+check(/data-signin="skip" data-pad-back>/.test(wPc.actions) && (wPc.actions.match(/data-pad-back/g) || []).length === 1, "welcome: the pad's B is Skip, as Esc");
 check(welcome({ ...base, state: 'expired' }, icon).body.includes('expired') && welcome({ ...base, state: 'signed_out', error: 'declined' }, icon).body.includes('form-error'), 'welcome: expired, an error');
 const wPhone = welcome({ ...base, state: 'waiting', method: 'phone', phase: { phase: 'phone', url: 'http://localhost:8790/link?ticket=x', user_code: 'ABCD-EFGH', qr_svg: qr, fingerprint: '0123 4567 89AB CDEF', expires_in: 299 } }, icon);
 check(wPhone.step === 'phone' && wPhone.body.includes(qr) && wPhone.body.includes('ABCD-EFGH') && wPhone.body.includes('0123 4567 89AB CDEF'), 'welcome phone: QR, code, key');
@@ -61,6 +62,7 @@ check(welcome({ ...base, state: 'off' }, icon).step === 'off' && welcome(null, i
 // opened from Home's chip: the same screen, its way out is Back (data-signin leave), never Skip, on every step
 const ways = (v) => [...v.actions.matchAll(/data-signin="(\w[\w-]*)"/g)].map((m) => m[1]).join(' ');
 const cOut = welcome({ ...base, state: 'signed_out' }, icon, '', { chip: true });
+check(/data-signin="leave" data-pad-back>/.test(cOut.actions) && (cOut.actions.match(/data-pad-back/g) || []).length === 1, "chip: the pad's B is Back, as Esc");
 check(cOut.step === 'choose' && cOut.body === wPc.body && ways(cOut) === 'leave' && cOut.actions.includes('>Back<') && !cOut.actions.includes('Skip'), 'chip: the same choice, Back instead of Skip');
 check(ways(welcome(phoneSt, icon, '', { chip: true })) === 'browser leave', 'chip phone: this PC, Back (one Back: leaving stops the wait)');
 check(ways(welcome({ ...base, state: 'waiting', phase: { phase: 'browser' } }, icon, '', { chip: true })) === 'phone leave', 'chip browser: my phone, Back');

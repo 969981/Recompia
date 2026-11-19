@@ -51,9 +51,12 @@ export const hero = (size = '') =>
 
 /**
  * Follows a sign-in for the sign-in screen: hands every state to `take`, reading it again about once a second while it
- * waits and every 5 s otherwise. run(what): does `what` (start, stop, sign out), takes its answer, reads again. stop(): no more.
+ * waits and every 5 s otherwise. run(what): does `what` (start, stop, sign out), takes its answer, reads again. stop(): no more, and
+ * a sign-in that waits is stopped (the screen is gone, by its own buttons or by the rail, a tab or the pad), also one whose start
+ * answers only after that.
  */
 export function follow(take) {
+  const cancel = () => api.cloudSigninCancel().catch((e) => console.warn('cloud_signin_cancel', e));
   let timer = 0;
   let on = true;
   let last = null;
@@ -74,7 +77,9 @@ export function follow(take) {
     poll,
     async run(what) {
       try {
-        got(await what());
+        const st = await what();
+        if (!on && st?.state === 'waiting') cancel();
+        got(st);
       } catch (e) {
         toast(errText(e), 'error');
       }
@@ -83,6 +88,7 @@ export function follow(take) {
     stop() {
       on = false;
       clearTimeout(timer);
+      if (last?.state === 'waiting') cancel();
     },
     get state() {
       return last;
