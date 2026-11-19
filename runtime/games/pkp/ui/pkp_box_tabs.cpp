@@ -51,6 +51,7 @@ constexpr uint32_t kCarousel = 0x11e, kCarouselClass = 0x1f, kIconL = 0xf4, kIco
 constexpr int kMaxDots = 20;
 constexpr uint64_t kPlayerHelper = 0x30, kSelectors = 0x80, kOpenState = 0x90, kPhysicalPayload = 0xc8;
 constexpr uint64_t kType = 0x148, kId = 0x154, kState = 0x160, kKind = 0x168;
+constexpr uint64_t kPanelPageSlide = 0xf8, kBagRange = 0x180;   // panel virtual: the page change's slide; screen: list 0's bag range
 constexpr uint64_t kPanelType = 0xc1, kPanelId = 0xd4, kPanelPageCount = 0xd8;
 constexpr uint64_t kSelectorCallback = 0x18, kSelectorScreen = 0x20, kSelectorAction = 0x94, kSelectorPage = 0x98, kSelectorPrevious = 0x9c;
 constexpr uint16_t kActionPrevious = 0x10, kActionNext = 0x11;   // the selector's L / R actions
@@ -251,7 +252,7 @@ void set_tab_id(OpenBox& box, uint64_t panel, uint16_t target) {
     if (g.log) NXLOG_I(kTag, "storage box tabs: box %u, showing container %u", box.physical, box.shown);
 }
 
-bool switch_in_frame(::Ctx* c, OpenBox& box, uint16_t target) {
+bool switch_in_frame(::Ctx* c, OpenBox& box, uint16_t target, int direction) {
     const uint64_t panel = ready_panel(c, box);
     if (!panel) return false;
     if (box.type == kBigBoxType) {
@@ -264,6 +265,12 @@ bool switch_in_frame(::Ctx* c, OpenBox& box, uint16_t target) {
         call(c, g.base + kRebuildGrid, box.screen, 1);
     } else {
         set_tab_id(box, panel, target);
+        // The page change's slide over the grid, as the panel's own page change runs it (panel virtual +0xf8: next, list 0, the bag
+        // range start, 0), so a one-page box turns its pages like a big box.
+        const uint64_t selectors = rd<uint64_t>(box.screen + kSelectors);
+        const uint64_t list0 = ok(selectors, 0x18) ? call(c, g.base + kSelectorOf, selectors, 0) : 0;
+        const uint64_t slide = rd<uint64_t>(rd<uint64_t>(panel) + kPanelPageSlide);
+        if (list0 && slide) call(c, slide, panel, direction > 0 ? 1 : 0, list0, rd<uint32_t>(box.screen + kBagRange), 0);
     }
     call(c, g.base + kRefresh, box.screen);
     return true;
@@ -355,7 +362,7 @@ int hook_screen_frame(::Ctx* c, uint64_t, void*) {
     const Tabs tabs = online ? Tabs{{box.physical}} : available_tabs(box);
     const int target = box.restore_physical ? 0 : adjacent_tab(tabs, id, direction, true);
     if (tabs.ids[target] == id) return 0;
-    if (!(carry ? carry_to(c, box, tabs.ids[target], direction) : switch_in_frame(c, box, tabs.ids[target]))) return 0;
+    if (!(carry ? carry_to(c, box, tabs.ids[target], direction) : switch_in_frame(c, box, tabs.ids[target], direction))) return 0;
     box.restore_physical = false;
     box.tabs = tabs;
     if (box.active && tabs.count > 1)
@@ -400,9 +407,11 @@ int hook_page_request(::Ctx* c, uint64_t, void*) {
         return 1;
     }
     set_tab_id(box, panel, tabs.ids[target]);
-    wr<uint32_t>(selector + kSelectorPage, direction > 0 ? 0 : last_page);
-    // The selector dispatcher sees a changed index and runs the native panel, grid and cursor update (the frame hook relights the dots).
     box.tabs = tabs;
+    // A press: the game's own wrap at the end (last page -> first, first -> last) now runs on the new id, with its slide and sound, and
+    // its page change repaints the grid. A held repeat does not wrap: the page is set here and the dispatcher sees the change.
+    if (c->x[2] & 1) return 0;
+    wr<uint32_t>(selector + kSelectorPage, direction > 0 ? 0 : last_page);
     c->x[0] = 1;
     return 1;
 }
