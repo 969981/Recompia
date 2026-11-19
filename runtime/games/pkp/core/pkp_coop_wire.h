@@ -19,6 +19,10 @@
 //   RecipeKnown +2 u16 count n, then n times: u16 recipe id (1..0x5db) the origin's player knows
 //   WildPop     +2 u16 habitat id (1..500), +4 u16 creature data id (1..0x3ff), +6 s16 delay in seconds, +8 u8 1 add / 0 remove
 //                                                            (a member's event script armed or cleared a wild creature's appearance)
+//   Purchase    +2 u16 shop entry (1..0x7ff), +4 u16 count (1..999), +6 u8[16] the buyer's member key   (a member bought it)
+//   PurchaseAsk +2 u64 the purchase log this member knows (0: none), +10 u32 the last entry it applied
+//   PurchaseLog +2 u64 the authority's purchase log id, +10 u32 its last entry, +14 u16 count n, then n times: u32 entry number,
+//               u8[16] buyer's member key, u16 shop entry, u16 count     (new purchases, or the answer to a PurchaseAsk)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -56,6 +60,9 @@ enum class Type : uint32_t {
     ReqOutcome = 11,
     RecipeKnown = 12,
     WildPop = 13,
+    Purchase = 14,
+    PurchaseAsk = 15,
+    PurchaseLog = 16,
 };
 
 // Builds one payload: the header, then the fields in order.
