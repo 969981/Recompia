@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Co-op: when one player finishes a talk or a scene, every player's game now remembers it too: the same conversations are not offered again to the others, and the story lines that wait for that scene move on in the group's save on the host, also for players who join later.
 - Launcher: a new look with a rail of games on the left, a Home with one big Play button for each game, and Recompia: Co-op with its own Home. It also downloads, updates and starts Zonith, with its own What's New, and on Linux and the Steam Deck it reads the controller itself (LT/RT switch games, Start plays).
 
 ## 0.15.1 (build S: Sloth Hotfix a1)
