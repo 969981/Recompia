@@ -34,7 +34,7 @@ constexpr HookSite kSites[] = {
 };
 constexpr uint64_t kScreenVtable = 0x333ba70;
 constexpr uint64_t kPanelOf = 0xfed634, kRefresh = 0xff12e8, kPlayerOf = 0xa6fd58;
-constexpr uint64_t kActivePane = 0xfef30c, kSetPanelPage = 0xfe5310, kRebuildGrid = 0xfee7d4;
+constexpr uint64_t kSetPanelPage = 0xfe5310, kRebuildGrid = 0xfee7d4;
 constexpr uint64_t kSelectorOf = 0xa86c5c, kPageCallback = 0xff19bc;
 // The page dots (carousel, 20 dots, one layout state per count) and the L / R icons of the container frame:
 constexpr uint64_t kWidgetOf = 0xa6f92c;     // (panel + 0x48, element id, u16* class) -> widget
@@ -353,13 +353,18 @@ int hook_page_request(::Ctx* c, uint64_t, void*) {
     if (page_count < 2) return 0;
     const uint32_t last_page = page_count - 1;
     if (rd<uint32_t>(selector + kSelectorPage) != (direction > 0 ? last_page : 0)) return 0;
-    if ((call(c, g.base + layout::kIsOnline, 0) & 1) || !can_switch(c, box.screen) ||
-        call(c, g.base + kActivePane, box.screen) != kBoxPanel)
-        return 0;
+    if (call(c, g.base + layout::kIsOnline, 0) & 1) return 0;
 
+    // Whichever panel the cursor or the menu pointer is on: L / R page the container either way, so they cross into the next tab
+    // either way (a check of the active panel let the game wrap back to page 1 while the pointer was over the bag).
     const Tabs tabs = available_tabs(box);
     const int target = adjacent_tab(tabs, box.shown, direction, (c->x[2] & 1) != 0);
     if (target < 0 || tabs.ids[target] == box.shown) return 0;
+    if (!can_switch(c, box.screen)) {
+        // An item held or the page still sliding: stay on this page rather than let the game wrap back to the tab's first page.
+        c->x[0] = 0;
+        return 1;
+    }
     set_tab_id(box, panel, tabs.ids[target]);
     wr<uint32_t>(selector + kSelectorPage, direction > 0 ? 0 : last_page);
     // The selector dispatcher sees a changed index and runs the native panel, grid and cursor update (the frame hook relights the dots).
