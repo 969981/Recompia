@@ -12,8 +12,10 @@
 //     first free slot, before the widget reads the set. Only pause sets get it, so it never has to be taken out again.
 //   * the part is filled: the icon is the first of kButtons no other prompt of the set uses (Y, then R; click only when both are taken),
 //     the text is "Save" in the game's language, and the part's layout goes to the menu pointer.
-//   * a click or button on the prompt, or the Save binding in play, asks for the save. The game thread then queues it with the game's
-//     own request, the one its Save and Quit dialog makes (0x241324, kind 2, pkp_layout.h), and says so with a notice.
+//   * a click or button on the prompt, or the Save binding in play, asks for the save. The game thread then saves the way the game's
+//     own Save and Quit does: it asks the game's autosave to save now (pkp_layout.h). The autosave copies the game's state first and
+//     writes the player's file, the island file and the screenshot; a visitor in Link Play writes no island file, as the game decides
+//     for its autosave. A notice says when the save has been written.
 #include "ui/pkp_save_now.h"
 #include "ui/pkp_key_guide.h"
 #include "core/pkp_guest.h"
@@ -22,7 +24,6 @@
 
 #include <array>
 #include <atomic>
-#include <cstring>
 
 #include "nxrt/input_source.h"
 #include "nxrt/log.h"
@@ -70,8 +71,9 @@ struct State {
     uint64_t save_activations = 0;      // main thread: the last Save activation seen
     bool logged_fill = false;
     bool logged_full = false;
-    int tries = 0;                      // game frames spent waiting for the save manager
-    int pending = 0;                    // game frames until the save manager is asked whether it finished
+    int tries = 0;                      // game frames spent waiting for the autosave to be idle and on
+    int watch = 0;                      // game frames left to watch the asked-for save, 0 = none
+    bool writing = false;               // the asked-for save reached the write step
 };
 
 State g;
@@ -193,7 +195,8 @@ void remove() {
     g.logged_fill = false;
     g.logged_full = false;
     g.tries = 0;
-    g.pending = 0;
+    g.watch = 0;
+    g.writing = false;
 }
 
 // Main thread, once per frame: the shortcut in play or the prompt's button on any pad asks for the same save.
@@ -214,43 +217,50 @@ void frame(bool in_game, double, play::GameFrame*) {
     g.prev_buttons = up ? buttons : ~uint64_t{0};   // a button held from before the menu opened does not count
 }
 
-// The game thread, once a frame: queue the game's own save request.
+// The game thread, once a frame: ask the game's autosave to save now and say when it has written the save.
 void game_frame(::Ctx* c) {
     if (!g.base) return;
-    if (g.pending > 0 && --g.pending == 0) {
-        const uint64_t manager = rd<uint64_t>(g.base + layout::kSaveManager);
-        if (manager && (guest::call(c, g.base + layout::kSaveDone, manager, 0) & 1)) {
-            notices::post("pkp.save_now", "Saved", 2.0);
-            NXLOG_I(kTag, "save now: the save manager finished");
-        } else {
-            g.pending = 30;   // still writing: ask again in half a second
+    const uint64_t game = rd<uint64_t>(g.base + layout::kGameState);
+    if (!guest::ok(game, layout::kStateAutosaveFlags + 4)) return;
+    const uint32_t step = rd<uint32_t>(game + layout::kStateAutosave);
+    const uint32_t flags = rd<uint32_t>(game + layout::kStateAutosaveFlags);
+    if (g.watch > 0) {
+        g.writing |= step == 2;
+        if (step == 0 && !(flags & 4)) {   // the asked-for save has run
+            g.watch = 0;
+            if (g.writing) {
+                notices::post("pkp.save_now", "Saved", 2.0);
+                NXLOG_I(kTag, "save now: the game's autosave has written the save");
+            } else {
+                notices::post("pkp.save_now", "Not saved", 3.0);
+                NXLOG_W(kTag, "save now: the game's autosave stopped before writing (the game allows no save here)");
+            }
+        } else if (--g.watch == 0) {
+            notices::post("pkp.save_now", "The game saves as soon as it can", 3.0);
+            NXLOG_W(kTag, "save now: the game's autosave has not started after a minute; it saves when the game allows it");
         }
     }
     if (!g.save.load(std::memory_order_acquire)) return;
-    if (++g.tries > 600) {
-        g.save.store(false, std::memory_order_release);
-        g.tries = 0;
-        NXLOG_W(kTag, "save now: the save manager stayed busy, the save was not requested");
+    if (step != 0 || !(flags & 1)) {   // the autosave is working, or the game has it off (title, loading)
+        if (++g.tries > 600) {
+            g.save.store(false, std::memory_order_release);
+            g.tries = 0;
+            notices::post("pkp.save_now", "Can't save right now", 3.0);
+            NXLOG_W(kTag, "save now: the game's autosave stayed busy or off, the save was not asked for");
+        }
         return;
     }
-    const uint64_t game = rd<uint64_t>(g.base + layout::kGameState);
-    const uint64_t manager = rd<uint64_t>(g.base + layout::kSaveManager);
-    const uint64_t root = rd<uint64_t>(g.base + layout::kSaveRoot);
-    if (!guest::ok(game, layout::kStateAutosave + 4) || !guest::ok(manager, 0x40) || !guest::ok(root, layout::kSaveRootHome + 1)) return;
-    if (rd<uint32_t>(game + layout::kStateAutosave) - 1 < 4) return;   // the autosave is writing
-    const uint64_t event = rd<uint64_t>(game + layout::kStateEvent);
-    if (event && guest::ok(event, layout::kEventBusy + 1) && rd<uint8_t>(event + layout::kEventBusy)) return;   // the game is busy
-    uint8_t request[12] = {};
-    const uint32_t type = 5, kind = 2;   // kind 2: the player's own file, what Save and Quit writes (0x241324, pkp_layout.h)
-    std::memcpy(request, &type, 4);
-    request[5] = rd<uint8_t>(root + layout::kSaveRootHome);
-    std::memcpy(request + 8, &kind, 4);
-    if (!(guest::call(c, g.base + layout::kSaveRequest, manager, reinterpret_cast<uint64_t>(request), 0, 0) & 1)) return;
     g.save.store(false, std::memory_order_release);
     g.tries = 0;
-    g.pending = 30;
+    guest::call(c, g.base + layout::kAutosaveNow, game + layout::kStateAutosaveObj, 1, 0);
+    if (!(rd<uint32_t>(game + layout::kStateAutosaveFlags) & 4)) {
+        NXLOG_W(kTag, "save now: the game's autosave did not take the request");
+        return;
+    }
+    g.watch = 3600;   // game frames: a minute at 60
+    g.writing = false;
     notices::post("pkp.save_now", "Saving...", 30.0);
-    NXLOG_I(kTag, "save now: the game's own save request is queued (kind 2)");
+    NXLOG_I(kTag, "save now: the game's autosave was asked to save now, as its Save and Quit does");
 }
 
 }  // namespace

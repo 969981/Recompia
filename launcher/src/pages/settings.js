@@ -22,6 +22,7 @@ import { createRepairActions } from './settings/repair-actions.js';
 import { createUpdateActions } from './settings/updates.js';
 import { createGameActions } from './settings/game.js';
 import { loadPromptIcons } from './settings/prompt-icons.js';
+import { loadPicker, onPicker, onPickerChange } from './version-picker.js';
 
 export async function render(el, ctx) {
   const [dump, cfg, dlss, overview, promptIcons] = await Promise.all([
@@ -72,6 +73,7 @@ export async function render(el, ctx) {
       return;
     }
     if (t.id === 'language') return setLanguage(t.value);   // reloads: every string is read once at start
+    if (onPickerChange(t)) return;   // the channel and version dropdowns save (and install) by themselves
     controls.onChange(t);
   });
   el.addEventListener('input', (e) => controls.onInput(e.target));
@@ -98,8 +100,11 @@ export async function render(el, ctx) {
 
   h.draw(true);
   modules.forEach((m) => m.load?.());
+  const offPicker = onPicker(() => h.draw());
+  loadPicker();
 
   return () => {
+    offPicker();
     drawer.dispose();
     writer.dispose();
   };

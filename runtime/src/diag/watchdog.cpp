@@ -110,8 +110,9 @@ void collect_threads(std::vector<ThreadDump>& out) {
         }
         if (h == nullptr || SuspendThread(h) == static_cast<DWORD>(-1)) {
             d.status = Status::NoSuspend;
-            // POSIX has no SuspendThread (docs/macos-port.md D8): no host stack, but the guest Ctx the thread registered is
-            // readable, and a thread blocked in an SVC left its registers there, which is where it is waiting.
+            // Not suspendable (no handle, a POSIX target without SuspendThread, or a Linux thread that did not stop in time,
+            // os_posix_suspend.cpp): no host stack, but the guest Ctx the thread registered is readable, and a thread
+            // blocked in an SVC left its registers there, which is where it is waiting.
             if (d.rec.ctx) {
                 d.guest_lr = lr(d.rec.ctx);
                 d.guest_sp = sp(d.rec.ctx);

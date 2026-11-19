@@ -56,6 +56,17 @@ int closesocket(SOCKET s) {
 }
 
 int ioctlsocket(SOCKET s, long cmd, unsigned long* arg) {
+    if (cmd == FIONREAD && arg) {   // bytes waiting to be read
+        int n = 0;
+#if defined(__APPLE__)
+        socklen_t len = sizeof n;   // the header's FIONREAD is Linux's number; Darwin answers the same through SO_NREAD
+        if (::getsockopt(s, SOL_SOCKET, SO_NREAD, &n, &len) != 0) return SOCKET_ERROR;
+#else
+        if (::ioctl(s, FIONREAD, &n) != 0) return SOCKET_ERROR;
+#endif
+        *arg = static_cast<unsigned long>(n);
+        return 0;
+    }
     if (cmd != FIONBIO || !arg) {
         errno = EINVAL;
         return SOCKET_ERROR;
@@ -82,6 +93,24 @@ int WSAIoctl(SOCKET s, DWORD code, void* in, DWORD in_len, void* out, DWORD out_
     }
     errno = EINVAL;
     return SOCKET_ERROR;
+}
+
+// WSAPoll(): poll() with the same pollfd layout and bits. Winsock never fails a wait with EINTR, so a signal restarts
+// the wait for the time that is left.
+int WSAPoll(WSAPOLLFD* fds, ULONG count, INT timeout) {
+    timespec start{};
+    if (timeout > 0) clock_gettime(CLOCK_MONOTONIC, &start);
+    for (;;) {
+        int left = timeout;
+        if (timeout > 0) {
+            timespec now{};
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            const long long gone = (now.tv_sec - start.tv_sec) * 1000LL + (now.tv_nsec - start.tv_nsec) / 1000000;
+            left = gone >= timeout ? 0 : static_cast<int>(timeout - gone);
+        }
+        const int n = ::poll(fds, static_cast<nfds_t>(count), left);
+        if (n >= 0 || errno != EINTR) return n;
+    }
 }
 
 // select(): the callers pass nfds = 0 (Winsock ignores it), so the descriptor set is what decides. poll() takes the

@@ -31,6 +31,8 @@ body {
 body[data-art="sharp"] .art-soft,
 body[data-art="sharp"] .scrim-soft { opacity: 0; }
 body[data-art="sharp"] .scrim-hero { opacity: 1; }
+body[data-art="clear"] .art-soft,
+body[data-art="clear"] .scrim-soft { opacity: 0; }
 /* switching games fades the new art in (main.js sets data-swapping for one slow beat) */
 body[data-swapping] .art { opacity: 0.35; }
 
@@ -41,7 +43,8 @@ body[data-swapping] .art { opacity: 0.35; }
   grid-template-columns: var(--rail-w) minmax(0, 1fr);
   height: 100%;
 }
-/* first-run setup: the rail stays (a player here for Zonith goes straight to it), the page tabs go until Recompia is set up */
+/* first-run setup and the sign-in screen (pages/welcome.js): the rail stays (a player here for Zonith goes straight to it), the page tabs
+   go until Recompia is set up or the screen is left */
 body[data-shell="full"] #nav,
 body[data-shell="full"] #tools { display: none; }
 
@@ -130,6 +133,8 @@ body.pad-nav #toast { bottom: calc(var(--padbar-h) + var(--space-3)); }
 body.pad-nav #padbar { display: flex; }
 :root[data-sidebar="hide"] #padbar { left: 0; }
 body.pad-nav .page { padding-bottom: calc(var(--padbar-h) + var(--space-5)); }
+/* no tabs to switch (LB and RB do nothing, gamepad-nav.js) and no Play on a full-window screen */
+body[data-shell="full"] #padbar :is([data-hint="page"], [data-hint="play"]) { display: none; }
 
 .stack { display: flex; flex-direction: column; gap: var(--space-3); }
 .cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }

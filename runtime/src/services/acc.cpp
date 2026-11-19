@@ -40,10 +40,15 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <unistd.h>
+#include <uuid/uuid.h>
 #endif
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <mutex>
 #include <string>
 #include <set>
@@ -54,6 +59,7 @@
 #include "nxrt/services.h"
 #include "nxrt/services_api.h"
 #include "services_internal.h"
+#include "network_cloud.h"
 
 namespace nxrt::services {
 
@@ -108,6 +114,27 @@ std::string machine_guid() {
     if (RegGetValueA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Cryptography", "MachineGuid", RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, nullptr,
                      buf, &n) == ERROR_SUCCESS)
         return std::string(buf, strnlen(buf, sizeof buf));
+#elif defined(__APPLE__)
+    // macOS: the host UUID.
+    uuid_t id;
+    const struct timespec wait = {5, 0};
+    if (gethostuuid(id, &wait) == 0) {
+        char text[40] = {};
+        for (int i = 0; i < 16; ++i) std::snprintf(text + i * 2, 3, "%02x", static_cast<unsigned>(id[i]));
+        return text;
+    }
+#else
+    // Linux: /etc/machine-id (systemd), the D-Bus copy as a fallback. Only ever used hashed together with the uid (hash_id), never
+    // sent or logged as it is. Without it every player on the default uid gets the same network service account id, which a Cloud
+    // Islands server takes for one user.
+    for (const char* path : {"/etc/machine-id", "/var/lib/dbus/machine-id"}) {
+        std::ifstream f(path);
+        std::string line;
+        if (f && std::getline(f, line)) {
+            while (!line.empty() && (line.back() == '\n' || line.back() == '\r' || line.back() == ' ')) line.pop_back();
+            if (line.size() >= 16) return line;
+        }
+    }
 #endif
     return {};
 }
@@ -160,10 +187,10 @@ uint64_t network_account_id(const Uid& u) {
         const std::string guid = machine_guid();
         if (!guid.empty()) {
             id = hash_id(guid, u);
-            from = "hash of MachineGuid and uid";
+            from = "hash of the machine id and uid";
         } else {
             id = u.hi ^ u.lo;
-            from = "uid hi ^ lo (MachineGuid not readable)";
+            from = "uid hi ^ lo (no machine id readable)";
         }
     }
     st.nsa_id = id;
@@ -255,9 +282,11 @@ std::shared_ptr<ipc::Service> make_async_context(uint32_t result) {
 // nn::account::AsyncNetworkServiceLicenseInfoContext::GetNetworkServiceLicenseKind aborts when cmd 100 fails (sdk 0x750018c634), so it
 // answers 0 (no licence) even though GetResult has already failed.
 std::shared_ptr<ipc::Service> make_license_async_context() {
-    std::shared_ptr<ipc::Service> s = make_async_context(res(110, 300));
-    s->add_cmd(100, "GetNetworkServiceLicenseKind", [](ipc::Request&, ipc::Response& rsp) -> uint32_t {
-        rsp.push<uint32_t>(0);
+    // Cloud Island proof of concept ([net] cloud_server): the licence check succeeds with kind 1 (a subscriber).
+    const bool cloud_on = netsvc::cloud::enabled();
+    std::shared_ptr<ipc::Service> s = make_async_context(cloud_on ? 0 : res(110, 300));
+    s->add_cmd(100, "GetNetworkServiceLicenseKind", [cloud_on](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+        rsp.push<uint32_t>(cloud_on ? 1 : 0);
         return 0;
     });
     return s;
@@ -295,8 +324,34 @@ std::shared_ptr<ipc::Service> make_manager(const Uid& u) {
         // the buffer. It used to be 124-200 NetworkServiceAccountRegistrationRequired.
         for (uint32_t id : {3u, 4u}) {
             const char* name = id == 3 ? "LoadIdTokenCacheDeprecated" : "LoadIdTokenCache";
-            s.add_cmd(id, name, [id, name](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
+            s.add_cmd(id, name, [id, name, u](ipc::Request& req, ipc::Response& rsp) -> uint32_t {
                 const ipc::Buffer out = req.out_buf(0);
+                if (netsvc::cloud::enabled()) {
+                    // an unsigned token (alg none) whose subject is this PC's network service account id: a private server that
+                    // accepts emulator identities takes the account from it. Not a Nintendo credential.
+                    static const char* b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+                    auto enc = [](const std::string& in) {
+                        std::string o;
+                        for (size_t i = 0; i < in.size(); i += 3) {
+                            const uint32_t v = (static_cast<uint8_t>(in[i]) << 16) | (i + 1 < in.size() ? static_cast<uint8_t>(in[i + 1]) << 8 : 0) |
+                                               (i + 2 < in.size() ? static_cast<uint8_t>(in[i + 2]) : 0);
+                            o.push_back(b64[v >> 18]);
+                            o.push_back(b64[(v >> 12) & 63]);
+                            if (i + 1 < in.size()) o.push_back(b64[(v >> 6) & 63]);
+                            if (i + 2 < in.size()) o.push_back(b64[v & 63]);
+                        }
+                        return o;
+                    };
+                    char sub[32];
+                    std::snprintf(sub, sizeof sub, "%016llx", static_cast<unsigned long long>(network_account_id(u)));
+                    const std::string tok = enc("{\"alg\":\"none\",\"typ\":\"JWT\"}") + "." + enc(std::string("{\"sub\":\"") + sub + "\"}") + ".";
+                    const uint64_t tn = out.addr ? std::min<uint64_t>(out.size, tok.size()) : 0;
+                    if (tn) buf_write(out, tok.data(), tn);
+                    if (first_use(kMgrKey + id + 0x100))
+                        NXLOG_I("acc", "IManagerForApplication cmd %u %s -> unsigned token for account %s (cloud, first use)", id, name, sub);
+                    rsp.push<uint32_t>(static_cast<uint32_t>(tn));
+                    return 0;
+                }
                 const uint64_t n = out.addr ? std::min<uint64_t>(out.size, kIdTokenBytes) : 0;
                 if (n) {
                     const std::vector<uint8_t> zeros(static_cast<size_t>(n), 0);

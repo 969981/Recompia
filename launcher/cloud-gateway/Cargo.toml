@@ -1,0 +1,37 @@
+[package]
+name = "recompia-cloud-gateway"
+version = "0.2.0"
+description = "Cloud Islands online account for the Recompia PC port: signing a device in, and the local gateway that presents its certificate (inside the launcher, and a standalone program)"
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "recompia_cloud_gateway"
+path = "src/lib.rs"
+
+[[bin]]
+name = "recompia-cloud-gateway"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["rt", "net", "io-util", "time", "sync", "macros"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring"] }
+ring = "0.17"
+time = "0.3"
+pkcs8 = { version = "0.10", features = ["encryption", "pem", "std"] }
+serde_json = "1"
+base64 = "0.22"
+ureq = { version = "2", default-features = false, features = ["tls"] }
+qrcodegen = "1.8"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

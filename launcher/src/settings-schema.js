@@ -304,6 +304,7 @@ const WINDOW_SIZE = {
 // launcher only names them here (label, the options of a number, notes that follow a row). A gameplay key without an entry here throws,
 // so a new mod cannot ship without its row (scripts/test-settings-schema.mjs runs this).
 const isOn = (id) => (v) => v[id] === true || v[id] === '1';
+const integerOptions = (k) => Array.from({ length: k.max - k.min + 1 }, (_, n) => n + k.min).map((n) => ({ value: String(n), label: num(n) }));
 const GAMEPLAY = {
   jump_momentum: { label: t('Running jump keeps speed') },
   camera_aim: {
@@ -313,6 +314,13 @@ const GAMEPLAY = {
   camera_aim_reach: { label: t('Extra reach in blocks'), options: (k) => Array.from({ length: k.max - k.min + 1 }, (_, n) => n + k.min).map((n) => ({ value: String(n), label: n === 0 ? t('Off') : num(n) })) },
   inventory_sort: { label: t('Sort button in the bag and containers') },
   inventory_autosort: { label: t('Sort each time the bag opens') },
+  box_tabs: { label: t('Storage box tabs') },
+  box_tab_pages: { label: t('Pages per storage box'), options: integerOptions },
+  big_box_tabs: {
+    label: t('Tabs per big storage box'),
+    options: integerOptions,
+    after: [{ id: 'big_box_tabs_note', type: 'note', when: isOn('box_tabs'), note: () => ({ text: t('Each tab has 3 pages (60 slots) and uses one of the island\'s 256 big box spots. At 6 tabs (360 slots), about the first 42 big boxes placed get every tab. Later boxes get fewer or none. At 1, only the box itself is enabled. Tabs with items stay available if you lower the limit. Extra tabs are off during Link Play. Items stay saved.') }) }],
+  },
   craft_search: { label: t('Search in the crafting screen') },
   save_now: { label: t('Save button in the pause menu') },
   item_editor: {
@@ -323,7 +331,7 @@ const GAMEPLAY = {
     label: t('More creatures in town'),
     after: [{ id: 'pokemon_cap_note', type: 'note', when: isOn('pokemon_cap_50'), note: () => ({ text: t('Experimental. Visitors and temporary spawns share the game\'s 50 slots with your residents, so a high number leaves them less room.') }) }],
   },
-  pokemon_cap_limit: { label: t('Creatures in town'), options: (k) => Array.from({ length: k.max - k.min + 1 }, (_, n) => n + k.min).map((n) => ({ value: String(n), label: num(n) })) },
+  pokemon_cap_limit: { label: t('Creatures in town'), options: integerOptions },
 };
 
 const gameplaySchema = () => SCHEMAS.pkp.sections.find((s) => s.name === 'pkp').keys.filter((k) => k.group === 'gameplay');
@@ -646,6 +654,15 @@ export const SECTIONS = [
             id: 'online_events_note', type: 'note',
             note: () => ({ text: t('Tells the game it has an internet connection, so events that need one the first time can start. Nothing is sent. Takes effect the next time the game starts.') }),
           },
+          // launcher.json cloud_islands: Cloud Islands with an online account (cloud_account.rs: the game is pointed at the server and the
+          // account gateway runs with it; cloud_signin.rs, cloud-signin.js: Home's account chip and the sign-in screen). Off unless the player
+          // switches it on; switched on, the sign-in screen opens at once (controls.js, guard 'signin'). Switching it off keeps the sign-in.
+          // A test server: pkp.ini [net] cloud_server / cloud_portal (docs/cloud-island/README.md).
+          { id: 'cloud_islands', label: t('Cloud Islands'), badge: t('Experimental'), type: 'toggle', at: config('cloud_islands'), def: false, guard: 'signin' },
+          {
+            id: 'cloud_islands_note', type: 'note',
+            note: () => ({ text: t('Online islands, with an optional account. It may break; turn it off to get the plain launcher.') }),
+          },
         ],
       },
       {
@@ -754,26 +771,20 @@ export const SECTIONS = [
         title: '',
         rows: [
           { id: 'version', label: t('Version'), type: 'info', value: (env) => env.version, selectable: true },
+          // the channel and version picker (pages/version-picker.js): the same two dropdowns as next to Play. launcher.json `channel` and
+          // `picked_version` are saved by the picker itself (a pick can start an install), so the row has no `at`
+          { id: 'version_pick', games: SINGLEPLAYER, label: t('Update channel'), type: 'version' },
           {
-            id: 'channel', games: SINGLEPLAYER, label: t('Update channel'), type: 'select', at: config('channel'), def: 'stable', guard: 'testing',
-            lock: (env) => env.updating || env.gameBusy,
-            options: [{ value: 'stable', label: t('Stable') }, { value: 'testing', label: t('Testing') }],
+            id: 'version_note', games: SINGLEPLAYER, type: 'note', when: (v, env) => !!env.pickerNote,
+            note: (env) => ({ text: env.pickerNote }),
           },
           {
-            id: 'channel_note', games: SINGLEPLAYER, type: 'note', when: (v) => v.channel === 'testing',
-            note: () => ({ text: t('Testing builds come first and may have bugs. Testing does not update by itself: pick each build with Choose a version below. As a tester you are expected to tell us what you find and share pkp.log: use Report a problem below. Your saves and settings are kept. To go back to Stable, wait until Stable has a newer version than the one you have, or install it from the releases page.') }),
-          },
-          {
-            id: 'testing_help', games: SINGLEPLAYER, label: t('Testing help'), type: 'info', when: (v) => v.channel === 'testing',
-            value: t('What to test is listed with each Testing build in What\'s New.'),
+            id: 'testing_help', games: SINGLEPLAYER, label: t('Experimental help'), type: 'info', when: (v, env) => env.channel === 'experimental',
+            value: t('What to test is listed with each Experimental build in What\'s New.'),
             actions: () => [
               { act: 'open-url', arg: `${REPO_URL}/issues/new?template=bug_report.yml`, label: t('Report a problem'), icon: 'external-link' },
               { act: 'open-log', label: t('Show pkp.log'), icon: 'file-text' },
             ],
-          },
-          {
-            id: 'builds', games: SINGLEPLAYER, label: t('Versions'), type: 'info', value: (env) => t('You have {version}', { version: env.version }),
-            actions: (env) => [{ act: 'builds-open', label: t('Choose a version'), icon: 'download', disabled: env.gameBusy || env.updating || env.taskBusy }],
           },
           {
             id: 'updates', games: SINGLEPLAYER, label: t('Updates'), type: 'info', value: (env) => env.updateText,

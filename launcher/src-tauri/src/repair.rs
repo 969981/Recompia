@@ -59,7 +59,7 @@ fn check_groups(groups: &[String]) -> Result<(), String> {
 /// Rebuilt by the game on its next start (the first run may stutter once).
 const CACHE_FILES: [&str; 4] = ["pipeline_cache.bin", "pipeline_keys.bin", "shader_order.txt", "pkp_freeze.txt"];
 /// launcher.json keeps the places the launcher needs; everything else is a preference and goes back to its default.
-const LAUNCHER_KEEP: [&str; 3] = ["dump_dir", "game_dir", "channel"];
+const LAUNCHER_KEEP: [&str; 4] = ["dump_dir", "game_dir", "channel", "picked_version"];
 /// Files whose old copies updates set aside (`pkp_rt.dll.0.7.6`); the file with the plain name is the current one and is never listed.
 const VERSIONED: [&str; 7] = ["pkp_rt.dll", "libpkp_rt.so", "libpkp_rt.dylib", "PokopiaLauncher.AppImage", "pkp.exe", "pkp", "PokopiaLauncher.exe"];
 /// Never a target of any action (a unit test checks that no plan names one).
@@ -339,7 +339,7 @@ fn describe(step: &Step) -> String {
         "game_settings" if !step.groups.is_empty() => "The chosen game settings (pkp.ini) are back to their defaults; the other settings, your game files, profile and paths are kept".to_string(),
         "game_settings" => "Game settings (pkp.ini) are back to their defaults; your game files, profile and paths are kept".to_string(),
         "controls" => "Controls (controls.ini) removed; the game creates it again with its default bindings".to_string(),
-        "launcher_prefs" => "Launcher settings are back to their defaults; the game folder, dump folder and update channel are kept".to_string(),
+        "launcher_prefs" => "Launcher settings are back to their defaults; the game folder, dump folder, update channel and picked version are kept".to_string(),
         "caches" => format!("Cache file {} removed; the game builds it again", step.rel),
         _ => format!("Old copy {} removed", step.rel),
     }
@@ -504,8 +504,8 @@ mod tests {
 
     #[test]
     fn the_launcher_reset_keeps_the_places_and_survives_a_damaged_file() {
-        let kept: serde_json::Value = serde_json::from_str(&reset_launcher_text(r#"{"dump_dir":"D:/d","game_dir":"C:/g","channel":"testing","gentle_build":true,"mods_auto_update":true,"window":{"x":1}}"#)).unwrap();
-        assert_eq!(kept, serde_json::json!({"dump_dir":"D:/d","game_dir":"C:/g","channel":"testing"}));
+        let kept: serde_json::Value = serde_json::from_str(&reset_launcher_text(r#"{"dump_dir":"D:/d","game_dir":"C:/g","channel":"experimental","picked_version":"v0.16.0-beta.1","gentle_build":true,"mods_auto_update":true,"window":{"x":1}}"#)).unwrap();
+        assert_eq!(kept, serde_json::json!({"dump_dir":"D:/d","game_dir":"C:/g","channel":"experimental","picked_version":"v0.16.0-beta.1"}));
         let bad: serde_json::Value = serde_json::from_str(&reset_launcher_text("{ this is not json")).unwrap();
         assert_eq!(bad, serde_json::json!({}));
         let wrong_type: serde_json::Value = serde_json::from_str(&reset_launcher_text(r#"{"dump_dir":5}"#)).unwrap();

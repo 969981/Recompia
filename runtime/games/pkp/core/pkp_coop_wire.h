@@ -6,9 +6,10 @@
 // Then, by type (offsets from the start of the payload; a payload shorter than its layout is dropped):
 //   StoryStates +2 u16 count n, then n times: u16 quest id (1..1000), u8 that quest's state on the origin (2..4)
 //   Ability     +2 u8[0x14] the ability effect command as the quest effect gave it (+0 its type, 0x01 or 0x19)
-//   TalkAsk     +2 u32 character id                          (a member asks the authority for the talk lock)
-//   TalkDone    +2 u32 character id                          (the holder gives the lock back)
-//   TalkHolder  +2 u32 character id, +6 u8 holder node (kNobody: free)   (the authority tells every member who holds it)
+//   TalkAsk     +2 u32 character key                         (a member asks the authority for the talk lock)
+//   TalkDone    +2 u32 character key                         (the holder gives the lock back)
+//   TalkHolder  +2 u32 character key, +6 u8 holder node (kNobody: free)   (the authority tells every member who holds it)
+//               the key is one character, not its species: (data id << 16) | idx of a resident (pkp_coop_talk.cpp)
 //   NamePrompt  nothing more                                 (the talker entered their name in the game's name entry)
 //   Items       +2 u16 item id, +4 u8 count (1..255)         (the talker's event script gave items)
 //   StoryDigest +2 u16 count n (kQuestCount), n u8 quest states (id 1 first), then u8[kAbilityBytes] the ability bits
@@ -23,10 +24,27 @@
 //   PurchaseAsk +2 u64 the purchase log this member knows (0: none), +10 u32 the last entry it applied
 //   PurchaseLog +2 u64 the authority's purchase log id, +10 u32 its last entry, +14 u16 count n, then n times: u32 entry number,
 //               u8[16] buyer's member key, u16 shop entry, u16 count     (new purchases, or the answer to a PurchaseAsk)
+//   DexKnown    +2 u16 count n, then n times: u16 Pokédex number (1..999), u8 its entry's bits on the origin (0..0xf)
+//   DexScene    +2 u32 actor id, +6 u16 creature id (1..0x3ff), +8 u16 its Pokédex number   (the origin's "registered" scene)
+//   HabitatKnown +2 u16 count n, then n times: u16 habitat id (1..500), u8 its bits on the origin (bit 0 found, bit 1 scene shown)
+//   HabitatScene +2 u16 habitat id (1..500), +4 u16 placed habitat (0..0x3ff), +6 u8 flag (0..1)   (the origin's "new habitat" scene)
+//   EventHistory +2 u16 n, n bytes: the origin's played-scene bits (byte i bit j = scene id i * 8 + j, ids 1..2998), then u16 m,
+//                m bytes: its conversation rows (row 0..m-1, bit 0 kept)   (whole, when either grew; a receiver takes the union)
+//   StoryLines   +2 u8 count n, then n times: u8 story line (1..0xfe), u8 the line's id, s16 its step, u16 its condition bits
+//                                                            (the lines that changed on the origin; a receiver takes the furthest)
+//   QuestFlagAsk +2 u16 quest id (1..1000), +4 u8 its state on the origin (1..3)   (a member's player made that state's next step
+//               happen: the authority sets the quest's flag when its own state is the same; pkp_coop_quests.cpp)
+//   UnlockKnown +2 u8 list, +3 u16 count n, then n times: u8 entry id the origin's player has   (pkp_coop_unlocks.cpp)
+//               lists: 1 moves (id 1..0x3c), 2 emotes (1..0x64), 3 areas visited (stage 1..5), 4 buildings built (0..0x7f);
+//               a list this build does not know is skipped
+//   AbilityCleared +2 u16 count n, then n u8 ability ids (1..0xf9) a step took away on the origin (pkp_coop_story.cpp): every
+//               receiver clears them and never gives them back in this co-op run
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
-// messages on); with an older build as a member, only that member misses it.
+// messages on); with an older build as a member, only that member misses it. A new type that the session cannot play without (a
+// member relies on the authority handling it, as QuestFlagAsk) raises the co-op rules instead (pkp_coop.h kCoopRules): those are
+// in the session's mods fingerprint, so builds with other rules are refused at the join.
 // Every payload's origin is checked against its real sender (pkp_coop_link.cpp deliver()): a member's message comes from its own
 // node, a shared message a member receives comes from the authority, and the authority-only types come from the authority alone.
 //   StoryStates states: 2 started, 3 complete, 4 closed; any other value is dropped. StoryDigest states: 0..4, a higher one is
@@ -63,6 +81,15 @@ enum class Type : uint32_t {
     Purchase = 14,
     PurchaseAsk = 15,
     PurchaseLog = 16,
+    DexKnown = 17,
+    DexScene = 18,
+    HabitatKnown = 19,
+    HabitatScene = 20,
+    EventHistory = 21,
+    StoryLines = 22,
+    QuestFlagAsk = 24,   // with the story's types (pkp_coop_quests.cpp)
+    UnlockKnown = 23,
+    AbilityCleared = 25,
 };
 
 // Builds one payload: the header, then the fields in order.

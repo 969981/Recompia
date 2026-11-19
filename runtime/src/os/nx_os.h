@@ -490,6 +490,14 @@ void GetNativeSystemInfo(LPSYSTEM_INFO si);
 BOOL GlobalMemoryStatusEx(LPMEMORYSTATUSEX ms);
 BOOL FlushInstructionCache(HANDLE proc, LPCVOID addr, SIZE_T size);
 
+// <malloc.h>'s aligned allocation. posix_memalign wants a power of two that is at least a pointer.
+NX_OS_INLINE void* _aligned_malloc(size_t size, size_t alignment) {
+    void* p = NULL;
+    if (alignment < sizeof(void*)) alignment = sizeof(void*);
+    return posix_memalign(&p, alignment, size) == 0 ? p : NULL;
+}
+NX_OS_INLINE void _aligned_free(void* p) { free(p); }
+
 // Section objects (memory.cpp: the guest heap is a SEC_RESERVE pagefile section with views at fixed addresses).
 HANDLE CreateFileMappingW(HANDLE file, void* sa, DWORD protect, DWORD hi, DWORD lo, LPCWSTR name);
 HANDLE CreateFileMappingA(HANDLE file, void* sa, DWORD protect, DWORD hi, DWORD lo, LPCSTR name);
@@ -639,6 +647,17 @@ DWORD WaitForMultipleObjectsEx(DWORD count, const HANDLE* handles, BOOL all, DWO
 #define WAIT_ABANDONED_0 0x00000080
 #define WAIT_TIMEOUT 0x00000102
 #define WAIT_FAILED 0xFFFFFFFF
+
+// ---- fibers (os_posix_fiber.cpp, over ucontext) ------------------------------------------------------------------
+// The calls services/network_cloud.cpp makes. A fiber runs on whichever thread switches to it, and thread-local
+// storage stays that thread's, as with Windows fibers.
+#define ERROR_ALREADY_FIBER 1280L
+typedef void (*LPFIBER_START_ROUTINE)(LPVOID param);
+LPVOID ConvertThreadToFiber(LPVOID param);
+LPVOID CreateFiberEx(SIZE_T commit, SIZE_T reserve, DWORD flags, LPFIBER_START_ROUTINE start, LPVOID param);
+void SwitchToFiber(LPVOID fiber);
+BOOL IsThreadAFiber(void);
+LPVOID GetCurrentFiber(void);
 
 // ---- synchronisation primitives ----------------------------------------------------------------------------------
 // SRWLOCK and CONDITION_VARIABLE are one pointer each: static storage zeroed by the loader must be a valid unlocked

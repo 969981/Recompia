@@ -2,9 +2,10 @@
 //! Zonith's commands: its releases, downloading its setup app (and replacing an older one), and starting it. Zonith's setup app does
 //! the rest (setting the game up from the player's files, and playing it). The pure part is zonith.rs.
 //!
-//! `<app local data>/zonith/`: `<tag>/` holds a release's setup (Windows: the zip and its unpacked TotK-Setup-windows/, Linux: the
-//! AppImage, which also stays because an install records `$APPIMAGE --rebuild` to rebuild the game), `current.json` names the one in
-//! use, `releases.json` is the last release list (shown offline).
+//! `<app local data>/zonith/`: `<tag>/` holds a release's setup (Windows: the zip and its unpacked TotK-Setup-windows/; Linux: the
+//! AppImage while it downloads, which then moves to the Zonith folder's top and stays there, because an install records
+//! `$APPIMAGE --rebuild` to rebuild the game), `current.json` names the one in use, `releases.json` is the last release list (shown
+//! offline). A game the player installed in here is never deleted by an update (zonith::remove_old).
 //! Events: `zonith-progress` (zonith::ZonithProgress) while a download runs, `zonith-game` { state: running | exited, code }.
 
 use serde::Serialize;
@@ -78,7 +79,11 @@ fn fetch(app: &AppHandle) -> Result<Vec<u8>, String> {
         .timeout(Duration::from_secs(15))
         .user_agent(&crate::releases::user_agent(&app.package_info().version.to_string()))
         .build();
+    // The test hook module is built only in debug builds (main.rs), so a release build takes the real list.
+    #[cfg(debug_assertions)]
     let url = crate::testhook::zonith_releases_url().unwrap_or_else(|| zonith::RELEASES_URL.into());
+    #[cfg(not(debug_assertions))]
+    let url: String = zonith::RELEASES_URL.into();
     match agent.get(&url).set("Accept", "application/vnd.github+json").call() {
         Ok(r) => {
             let mut body = Vec::new();
@@ -140,8 +145,9 @@ pub async fn zonith_status(app: AppHandle, refresh: Option<bool>) -> ZonithStatu
 fn installed(app: &AppHandle) -> Option<(Current, PathBuf)> {
     let dir = zonith_dir(app).ok()?;
     let c = zonith::read_current(&dir)?;
-    let tag_dir = dir.join(zonith::safe_tag(&c.tag));
-    Some((c, tag_dir))
+    // the folder the setup app is in: Windows its release's; Linux the Zonith folder, as run_job moves the AppImage out of `<tag>/`
+    let setup_dir = if cfg!(windows) { dir.join(zonith::safe_tag(&c.tag)) } else { dir };
+    Some((c, setup_dir))
 }
 
 fn status(app: &AppHandle, refresh: bool) -> ZonithStatus {
@@ -236,6 +242,11 @@ fn run_job(app: &AppHandle, root: &Path, l: &Latest) -> Result<(), String> {
     #[cfg(windows)]
     {
         if !dir.join(zonith::WINDOWS_ROOT).join(zonith::WINDOWS_EXE).is_file() {
+            // the setup folder is replaced below; a game the player installed inside it stays
+            let setup = dir.join(zonith::WINDOWS_ROOT);
+            if zonith::holds_install(&setup) {
+                return Err(format!("{} holds a game Zonith installed. Move the game out of that folder, then try again.", fwd(&setup)));
+            }
             let _ = std::fs::remove_dir_all(dir.join("unpacked"));
             crate::update::extract(&dir, &l.asset, "unpacked", &S.cancel)
                 .map_err(|e| if e == crate::update::CANCELLED { CANCELLED.to_string() } else { e.replace("the update", "the Zonith setup") })?;

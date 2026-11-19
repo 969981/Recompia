@@ -24,6 +24,14 @@ struct CoopLaunch {
     int members = 0;      // how many members the group has (coop_members); 0 or 1: the session does not wait for anyone
 };
 
+// The co-op rules this build plays a session by, as an entry of the session's mods fingerprint (services ldnapi::set_coop_mods,
+// pkp_linkplay.cpp): a co-op launch adds it, so the session's own join check (the co-op module compares the fingerprint on every scan,
+// WELCOME and join) refuses a player whose build plays by other rules, and the launcher says so (coop_diag.rs). Raised whenever two
+// builds would play one session by different rules; the message layouts have wire::kVersion, but a mismatch there joins and only
+// drops messages. 2: the authority alone moves the quests on and a member asks it (pkp_coop_quests.cpp, QuestFlagAsk); a build
+// before it sends no entry. The launcher knows the "Recompia co-op rules" prefix.
+inline constexpr const char* kCoopRules = "Recompia co-op rules 2";
+
 // Pure: the launch's co-op facts from the settings' text. False when a value is missing or malformed, with the reason in *why.
 bool coop_launch_parse(const std::string& role, const std::string& group, const std::string& member, CoopLaunch* out, const char** why);
 

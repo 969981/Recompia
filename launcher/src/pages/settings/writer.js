@@ -2,7 +2,6 @@
 // and put back from the files if the write fails. Text and slider edits wait a moment (later) so typing is not a write per key.
 import { api } from '../../api.js';
 import { errText, icon, toast } from '../../ui.js';
-import { t } from '../../i18n.js';
 import { store } from '../../store.js';
 import { applyEdits, makeSource, splitEdits, writeField } from '../../settings-schema.js';
 
@@ -42,20 +41,8 @@ export function createWriter(el, st, draw) {
     const { ini, config } = splitEdits(edits);
     if (ini.length) await api.writeSettings({ edits: ini });
     if (config) await api.saveConfig({ config: { ...(await api.getConfig()), ...config } });
-    if (config && 'channel' in config) await store.refreshNews(true);   // another channel, another list of releases
-    if (config && 'channel' in config) await applyLook();   // the Testing channel has its own icons
     if (reloads) await store.refresh();
     saved();
-  }
-
-  /** The channel's icon (Stable or Testing) in this window and in the exes and Steam art. The channel is saved either way: a place that
-   *  could not be changed yet (the game exe while the game runs) is changed at the next Play or launcher start. */
-  async function applyLook() {
-    try {
-      await api.applyBranding();
-    } catch (e) {
-      toast(t('The new icon is not everywhere yet: {error}', { error: errText(e) }), 'error');
-    }
   }
 
   /** Gives field f this value: on screen at once, in the files through the queue, back as it was if that fails. */

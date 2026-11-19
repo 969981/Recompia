@@ -22,6 +22,14 @@ pub struct Config {
     /// The first Play after online presence came asked once whether to switch it on (home.js); never asked again. The switch itself is
     /// pkp.ini [pkp] online_presence (online.rs), shared with the game's own Settings screen.
     pub online_asked: bool,
+    /// Cloud Islands with an online account (experimental; Settings > Game > Online). On: the game is pointed at the Cloud Islands
+    /// server, Home has the account chip and the sign-in screen, and the account gateway runs with the game (cloud_account.rs,
+    /// cloud_signin.rs). Off unless the player switches it on; off, the launcher is as it was without them. Switching it off keeps
+    /// the sign-in (the device folder).
+    pub cloud_islands: bool,
+    /// The player pressed Skip on the sign-in screen the launcher starts on while this device is signed out (pages/welcome.js,
+    /// cloud-signin.js): it is not opened by itself again until the next sign-in or sign-out clears this.
+    pub signin_skipped: bool,
     /// The name online.rs sends; empty (the default): anonymous. The profile's nickname is never sent.
     pub online_name: String,
     /// Random, made the first time online presence starts; with the profile uid it makes the online ID (online.rs token_of). Only
@@ -34,8 +42,14 @@ pub struct Config {
     pub loose_shaders: bool,
     /// Where the window was last time, on a desktop screen (logical pixels); none: the default size, centred
     pub window: Option<WindowPlace>,
-    /// Which releases the launcher offers: "stable" (the default) or "testing" (prereleases built from the testing branch). releases.rs Channel.
+    /// Which releases the launcher offers: "stable" (the default) or "experimental" (the prereleases, each a feature test). releases.rs
+    /// Channel. The retired "testing" reads as "stable" (`migrate`).
     pub channel: String,
+    /// The version the player picked next to Play (a release tag, "v0.15.1"). On Stable, empty is Latest: the Update button offers the
+    /// newest release; a picked version is kept and no update is offered. On Experimental it is the prerelease the player picked; empty
+    /// until they pick one, and Experimental never offers an update either way. Written by the page, before the install it starts; it
+    /// counts only while it names the running version (update_cmds.rs follows_latest), so an install that never finished leaves Latest.
+    pub picked_version: String,
     /// Once per launcher start, update the installed mods from the mod hub (mods_update.rs). Off unless the player switches it on.
     pub mods_auto_update: bool,
     /// The player unlocked the Community Achievements mod (mods_lock.rs): it may be switched off or removed, and the launcher no longer
@@ -70,11 +84,22 @@ pub fn game_dir(app: &AppHandle) -> PathBuf {
 }
 
 pub fn load_config(app: &AppHandle) -> Config {
-    config_path(app)
+    let cfg: Config = config_path(app)
         .ok()
         .and_then(|p| fs::read_to_string(p).ok())
         .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    migrate(cfg)
+}
+
+/// What an older launcher.json means today. The Testing channel is retired: its players are on Stable with Latest (the newest release,
+/// updated as before), and pick a prerelease themselves if they want Experimental. The file is rewritten at the next save.
+pub fn migrate(mut cfg: Config) -> Config {
+    if cfg.channel.trim().eq_ignore_ascii_case("testing") {
+        cfg.channel = "stable".into();   // releases.rs Channel::Stable (config.rs is also built into the examples, without releases.rs)
+        cfg.picked_version.clear();
+    }
+    cfg
 }
 
 #[tauri::command]
@@ -114,5 +139,22 @@ mod tests {
     fn an_old_launcher_json_with_retired_keys_still_loads() {
         let cfg: Config = serde_json::from_str(r#"{"channel":"testing","logo":"classic","icon":"classic"}"#).unwrap();
         assert_eq!(cfg.channel, "testing");
+        assert_eq!(cfg.picked_version, "", "no version picked: Latest");
+        assert!(!cfg.signin_skipped, "a launcher.json from before the sign-in offer has not skipped it");
+        assert!(!cfg.cloud_islands, "Cloud Islands are off unless the player switches them on");
+    }
+
+    #[test]
+    fn the_testing_channel_becomes_stable_latest() {
+        let read = |t: &str| migrate(serde_json::from_str::<Config>(t).unwrap());
+        for t in [r#"{"channel":"testing"}"#, r#"{"channel":" Testing "}"#, r#"{"channel":"testing","picked_version":"v0.16.0-beta.2"}"#] {
+            let cfg = read(t);
+            assert_eq!((cfg.channel.as_str(), cfg.picked_version.as_str()), ("stable", ""), "{t}");
+        }
+        let cfg = read(r#"{"channel":"experimental","picked_version":"v0.16.0-beta.2"}"#);
+        assert_eq!((cfg.channel.as_str(), cfg.picked_version.as_str()), ("experimental", "v0.16.0-beta.2"));
+        let cfg = read(r#"{"channel":"stable","picked_version":"v0.15.0"}"#);
+        assert_eq!((cfg.channel.as_str(), cfg.picked_version.as_str()), ("stable", "v0.15.0"), "a pinned Stable version is kept");
+        assert_eq!(read("{}").channel, "", "no channel: Stable, as before");
     }
 }
