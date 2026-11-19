@@ -256,6 +256,9 @@ midhook 0x71000b0f74
 entryhook 0x71003180e0
 midhook 0x71003181cc
 entryhook 0x710047bd00
+#   the talk handler 0x71004c024c at `orr w8, w25, w0` (w0 = IsHost's answer): a member takes the host's path, not the visitor's stub
+#   (pkp_coop_talk.cpp; lifted since the retired Story co-op, so no new lift)
+midhook 0x71004c06d8
 entryhook 0x71005d865c
 entryhook 0x71005d8774
 entryhook 0x710011b214
@@ -321,6 +324,10 @@ entryhook 0x710013596c
 #   the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item lying in the world; in the request handler 0x7100222a20, `bl
 #   0x71009cb680` and the end of its memory-piece branch
 midhook 0x71004c06d8
+#   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): talk conditions
+#   0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0` after IsOnline), and condition 0x22, the one instruction `b IsOnline`;
+#   the quest pump 0x710011b600 at `tbz w0, #0` after the flag read; the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item
+#   lying in the world; in the request handler 0x7100222a20, `bl 0x71009cb680` and the end of its memory-piece branch
 midhook 0x71004cfe20
 midhook 0x71004d4860
 entryhook 0x71004d04fc

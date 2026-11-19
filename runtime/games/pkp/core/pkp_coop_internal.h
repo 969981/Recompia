@@ -234,6 +234,7 @@ namespace talk {
 int on_talk_start(::Ctx* c);   // entry 0x3180e0: the lock is asked; refused, the busy line and no talk
 int on_no_talk(::Ctx* c);      // midhook 0x3181cc: no talk started after all
 int on_talk_end(::Ctx* c);     // entry 0x47bd00: a slot's event chain ended
+int on_talk_kind(::Ctx* c);    // midhook 0x4c06d8: a member's talk takes the host's path in the talk handler
 // This process's player holds a character's talk and the talk runs.
 bool talking();
 // The messages and member events (pkp_coop_link.cpp).
