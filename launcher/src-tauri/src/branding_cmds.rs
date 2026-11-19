@@ -6,7 +6,7 @@ use tauri::AppHandle;
 use crate::branding;
 use crate::config::load_config;
 
-/// Puts the saved channel's icon in place (this window, the exes, the Steam art). The page calls it after saving `channel` (the Testing
+/// Puts the saved channel's icon in place (this window, the exes, the Steam art). The page calls it after saving `channel` (the Experimental
 /// icons).
 #[tauri::command]
 pub async fn apply_branding(app: AppHandle) -> Result<(), String> {

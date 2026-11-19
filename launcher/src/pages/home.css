@@ -182,3 +182,20 @@
 .hero-progress { width: min(100%, 420px); height: 6px; overflow: hidden; border-radius: var(--radius-pill); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); }
 .hero-progress-fill { display: block; height: 100%; border-radius: inherit; background: var(--color-accent); box-shadow: 0 0 12px var(--color-accent); transition: width var(--dur) var(--ease); }
 .zonith-logo { width: min(clamp(300px, 24vw, 480px), 100%); margin-bottom: calc(var(--space-2) * -1); }
+
+/* the channel and version dropdowns beside Play and Update (version-picker.js): as tall as the buttons, on the art */
+.hero-version { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.hero-version .select.on-art select {
+  height: var(--hero-play-h);
+  min-width: 140px;
+  max-width: 240px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(var(--surface-2), var(--surface-2)), var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-highlight), var(--shadow-md);
+}
+.hero-version .select.on-art select:hover:not(:disabled) { background: linear-gradient(var(--surface-3), var(--surface-3)), var(--glass-tint); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .hero-version .select.on-art select { background: var(--color-solid-raised); }
+}

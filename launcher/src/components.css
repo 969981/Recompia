@@ -72,7 +72,7 @@ body.pad-nav .slider input:focus::-webkit-slider-thumb { outline: 3px solid var(
 #rail { background: var(--rail-bg); border-right: 1px solid var(--line); }
 .rail-brand { display: grid; place-items: center; width: 100%; height: 14px; margin-bottom: var(--space-1); }
 .rail-brand .brand-tag { display: none; padding: 0 5px; border-radius: var(--radius-pill); background: var(--color-warn); color: #2a1700; font-size: 9px; font-weight: var(--weight-bold); letter-spacing: .06em; text-transform: uppercase; }
-:root[data-channel="testing"] .rail-brand .brand-tag { display: block; }
+:root[data-channel="experimental"] .rail-brand .brand-tag { display: block; max-width: 100%; overflow: hidden; font-size: 8px; letter-spacing: .02em; text-overflow: ellipsis; white-space: nowrap; }
 .rail-group { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); width: 100%; }
 .rail-sep { width: 36px; height: 1px; margin: var(--space-2) 0; background: var(--line-strong); }
 .rail-game {

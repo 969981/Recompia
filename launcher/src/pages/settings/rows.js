@@ -4,6 +4,7 @@ import { esc, field, group, icon, row, segmented, select, slider, toggle } from 
 import { store } from '../../store.js';
 import { AUTO, LANGUAGES, savedLanguage, t } from '../../i18n.js';
 import { fromBackend } from '../../backend-text.js';
+import { pickerHtml } from '../version-picker.js';
 import { sectionsIn, customStart, isAvailable, isEnabled, optionsFor, readAll, rowsOf, shownChoice } from '../../settings-schema.js';
 
 const numberField = (id, value, min, max, label, disabled) =>
@@ -94,6 +95,7 @@ function rowOf(st, r, values, e) {
   if (r.type === 'glyphs') return rowHtml(r, 'set-glyphrow', r.label, glyphsControl(r, values, e));
   if (r.type === 'language') return rowHtml(r, '', r.label, languageSelect());
   if (r.type === 'keycap') return rowHtml(r, '', r.label, `<kbd class="set-key">${esc(r.key)}</kbd>`);
+  if (r.type === 'version') return rowHtml(r, 'set-version', r.label, pickerHtml());
   if (r.type === 'info') return rowHtml(r, 'set-info', r.label, infoControl(r, e));
   const off = !isEnabled(r, st.src, e);
   return rowHtml(r, r.type === 'path' ? 'set-pathrow' : '', r.label, CONTROL[r.type](st, r, values[r.id], e, off));

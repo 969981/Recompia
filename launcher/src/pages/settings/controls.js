@@ -1,8 +1,7 @@
 // What the player does to a row's own control (type, drag, pick, Browse, Real time): turns it into a value for h.commit. Number fields
-// are checked against the schema's bounds first; selects that need a question (DLSS download, joining Testing) ask it before committing.
+// are checked against the schema's bounds first; selects that need a question (DLSS download) ask it before committing. The channel and
+// version dropdowns are the version picker's (pages/version-picker.js), not schema fields.
 import { api } from '../../api.js';
-import { askTesting } from '../testing-notice.js';
-import { chooseBuild } from '../builds.js';
 import { customStart, fitNumber, readField, FIELDS } from '../../settings-schema.js';
 
 const SLIDER_WAIT_MS = 250;
@@ -63,14 +62,6 @@ export function createControls(h, dlss) {
       st.customOpen.delete(f.id);
     }
     if (f.guard === 'dlss' && ['dlss', 'dlaa'].includes(value) && !st.dlss?.present) return dlss.pick(f, value);
-    // joining Testing is a question first: what it means, and that a tester is expected to share findings and logs. Cancel keeps Stable.
-    if (f.guard === 'testing' && value === 'testing' && readField(f, st.src) !== 'testing') {
-      return askTesting().then(async (yes) => {
-        if (!yes) return h.draw(true);
-        await h.commit(f, value);
-        await chooseBuild('testing', true);   // the Testing builds, right away: install one now or stay and update later
-      });
-    }
     if (f.replaces) st.customOpen.clear();
     return h.commit(f, value);
   }

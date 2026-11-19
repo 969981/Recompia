@@ -47,7 +47,7 @@ export function overviewEntry(releases) {
   return {
     tag: OVERVIEW_TAG,
     virtual: true,
-    name: t('All Testing changes'),
+    name: t('All Experimental changes'),
     date: builds[0].date,
     prerelease: true,
     body: overviewNote(builds),
@@ -67,7 +67,7 @@ export function groups(releases) {
   const tags = new Set(builds.map((r) => r.tag));
   const overview = overviewEntry(list);
   return [
-    { id: 'testing', label: t('Testing'), items: [...(overview ? [overview] : []), ...builds] },
+    { id: 'testing', label: t('Experimental'), items: [...(overview ? [overview] : []), ...builds] },
     { id: 'releases', label: t('Releases'), items: list.filter((r) => !tags.has(r.tag)) },
   ];
 }

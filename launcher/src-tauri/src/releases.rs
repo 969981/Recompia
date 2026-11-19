@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Releases: the list GitHub publishes and what the launcher offers from it.
 //!
-//! `load_releases`: one GET of the GitHub releases list per session (plus one per refresh), the raw answer kept in the app config
-//! folder and served when the network fails. Every failure is silent (one line on stderr, at worst an empty list).
-//! Versions and channels (Stable, Testing) decide which release the Update button offers (`target_here`) and which builds Choose a
-//! version lists (`builds_here`), with what going back to an older one means (`downgrade_risk`, `check_pick`). update.rs installs
-//! the `Target` picked here.
+//! `load_releases`: the whole GitHub releases list once per session (plus once per refresh), page after page (`fetch_all`), kept in the
+//! app config folder as one JSON array and served when the network fails. Every failure is silent (one line on stderr, at worst an
+//! empty list).
+//! Versions and channels (Stable, Experimental) decide which release the Update button offers (`target_here`) and which builds the
+//! version picker lists (`builds_here` of `pickable`), with what going back to an older one means (`downgrade_risk`, `check_pick`).
+//! update.rs installs the `Target` picked here.
 
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -18,12 +19,16 @@ use std::time::Duration;
 use crate::release_names::Suffixes;
 
 const REPO: &str = "featureJosh/pokopia-recomp";
-/// The releases list: small, so a whole-call limit, generous for a slow link.
-const API_TIMEOUT: Duration = Duration::from_secs(15);
+/// One page of the releases list (about 1 MB for a hundred releases): a whole-call limit, generous for a slow link.
+const API_TIMEOUT: Duration = Duration::from_secs(30);
 /// Builds from a checkout carry these (0.0.0 = untagged build, 0.1.1 = the Cargo.toml default); a tagged release stamps its own.
 const DEV_VERSIONS: [&str; 2] = ["0.0.0", "0.1.1"];
-/// Twenty releases with long notes and their asset lists; a cut JSON fails to parse and the cache is served.
-const LIST_LIMIT: u64 = 8 << 20;
+/// One page: a hundred releases with long notes and their asset lists; a cut JSON fails to parse and the cache is served.
+const LIST_LIMIT: u64 = 32 << 20;
+/// Releases per page of the list (GitHub's maximum).
+const PER_PAGE: usize = 100;
+/// Pages read at most (a thousand releases): a list that never ends cannot keep the launcher asking.
+const MAX_PAGES: usize = 10;
 const SUMS_ASSET: &str = "SHA256SUMS.txt";
 
 const ASSET_SUFFIX: Suffixes = Suffixes::HERE;
@@ -37,7 +42,7 @@ pub struct Release {
     /// the release notes, markdown
     pub body: String,
     pub url: String,
-    /// a Testing build (a GitHub prerelease): shown only on the Testing channel
+    /// an Experimental build (a GitHub prerelease): offered only on the Experimental channel
     pub prerelease: bool,
 }
 
@@ -182,29 +187,24 @@ fn github(url: &str) -> bool {
     url.starts_with("https://github.com/") && !url.chars().any(char::is_whitespace)
 }
 
-/// Which releases the player follows. Stable (the default) is what the launcher has always offered: published releases, no prereleases.
-/// Testing also lists every prerelease, from every test line (`-beta.N` Testing, `-alpha.N` side lines such as Mods Alpha), for the
-/// player to pick by hand in Choose a version. Testing offers no update at all (`offers_updates`).
+/// Which releases the player follows. Stable (the default) is what the launcher has always offered: published releases, no
+/// prereleases; "Latest" follows the newest one, a version the player picked stays put (config.rs `picked_version`). Experimental
+/// lists every prerelease (each one a feature test of its own: `-beta.N`, `-alpha.N` side lines such as Mods Alpha) for the player to
+/// pick one by hand. Experimental has no "latest" and offers no update at all (`offers_updates`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Channel {
     Stable,
-    Testing,
+    Experimental,
 }
 
 impl Channel {
-    /// launcher.json's `channel`; anything but "testing" (empty, a typo, a value from a newer launcher) is Stable.
+    /// launcher.json's `channel`. "experimental" is Experimental; anything else is Stable: the retired "testing" (its players move to
+    /// Stable and Latest, config.rs `migrate`), empty, a typo, a value from a newer launcher.
     pub fn parse(s: &str) -> Channel {
-        if s.trim().eq_ignore_ascii_case("testing") { Channel::Testing } else { Channel::Stable }
+        if s.trim().eq_ignore_ascii_case("experimental") { Channel::Experimental } else { Channel::Stable }
     }
-    /// How many releases to ask GitHub for. Testing lists every prerelease, so it asks for a full page (GitHub's maximum).
-    pub fn list_size(self) -> u32 {
-        match self {
-            Channel::Stable => 20,
-            Channel::Testing => 100,
-        }
-    }
-    /// Whether the Update button follows this channel. Testing runs several test lines side by side (Testing betas, alpha side lines),
-    /// so "the newest newer build" would move a tester off their line onto another one: a tester picks each build by hand.
+    /// Whether the Update button follows this channel. Experimental runs several feature tests side by side, so "the newest newer
+    /// build" would move a player off the test they picked onto another one: an Experimental player picks each build by hand.
     pub fn offers_updates(self) -> bool {
         self == Channel::Stable
     }
@@ -217,12 +217,19 @@ pub fn parse_releases(body: &[u8]) -> Result<Vec<GhRelease>, String> {
     Ok(all.into_iter().filter(|r| !r.draft && !r.tag_name.is_empty() && github(&r.html_url)).collect())
 }
 
-/// The releases a channel sees. Stable drops prereleases, so for a Stable player nothing differs from before channels existed.
+/// The releases a channel sees (What's New, the update). Stable drops prereleases, so for a Stable player nothing differs from before
+/// channels existed; Experimental sees both.
 pub fn for_channel(list: Vec<GhRelease>, channel: Channel) -> Vec<GhRelease> {
     match channel {
         Channel::Stable => list.into_iter().filter(|r| !r.prerelease).collect(),
-        Channel::Testing => list,
+        Channel::Experimental => list,
     }
+}
+
+/// The releases a channel's version picker offers: on Stable the releases, on Experimental the prereleases (every one of them).
+pub fn pickable(list: Vec<GhRelease>, channel: Channel) -> Vec<GhRelease> {
+    let experimental = channel == Channel::Experimental;
+    list.into_iter().filter(|r| r.prerelease == experimental).collect()
 }
 
 /// This platform's package of a release: the new scheme's when the release has one (release_names.rs), else the first that ends in
@@ -268,10 +275,44 @@ pub fn view_here(list: &[GhRelease], current: Option<&str>) -> Releases {
 }
 
 pub fn get(agent: &ureq::Agent, url: &str, limit: u64) -> Result<Vec<u8>, String> {
+    get_page(agent, url, limit).map(|(body, _)| body)
+}
+
+/// The body and the `rel="next"` address of GitHub's Link header, when there is one.
+fn get_page(agent: &ureq::Agent, url: &str, limit: u64) -> Result<(Vec<u8>, Option<String>), String> {
     let resp = agent.get(url).set("Accept", "application/vnd.github+json").call().map_err(|e| e.to_string())?;
+    let next = resp.header("link").and_then(next_link);
     let mut body = Vec::new();
     resp.into_reader().take(limit).read_to_end(&mut body).map_err(|e| e.to_string())?;
-    Ok(body)
+    Ok((body, next))
+}
+
+/// The `rel="next"` address of a Link header (`<https://api.github.com/...&page=2>; rel="next", <...>; rel="last"`). Only an address
+/// of GitHub's API is followed.
+pub fn next_link(header: &str) -> Option<String> {
+    header.split(',').find_map(|part| {
+        let (url, rest) = part.trim().strip_prefix('<')?.split_once('>')?;
+        let next = rest.split(';').any(|p| p.trim().eq_ignore_ascii_case(r#"rel="next""#));
+        (next && url.starts_with("https://api.github.com/") && !url.chars().any(char::is_whitespace)).then(|| url.to_string())
+    })
+}
+
+/// Every page of the releases list from `first` on, as one JSON array. `page` gets one page: its body and the next page's address.
+/// A page shorter than PER_PAGE, or one without a next address, is the last; at most MAX_PAGES are read. A page that fails fails the
+/// whole list, so the cache (a whole list) is served rather than half of one.
+pub fn fetch_all(first: &str, mut page: impl FnMut(&str) -> Result<(Vec<u8>, Option<String>), String>) -> Result<Vec<u8>, String> {
+    let mut all: Vec<serde_json::Value> = Vec::new();
+    let mut url = Some(first.to_string());
+    for _ in 0..MAX_PAGES {
+        let Some(u) = url.take() else { break };
+        let (body, next) = page(&u)?;
+        let items: Vec<serde_json::Value> = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
+        if items.len() >= PER_PAGE {
+            url = next;
+        }
+        all.extend(items);
+    }
+    serde_json::to_vec(&all).map_err(|e| e.to_string())
 }
 
 pub fn user_agent(version: &str) -> String {
@@ -282,16 +323,17 @@ pub fn user_agent(version: &str) -> String {
 #[derive(Default)]
 pub struct ReleaseStore(Mutex<Option<Vec<GhRelease>>>);
 
-/// The releases: this session's copy unless `refresh`, else one GET, then the file `cache` on failure, else nothing. The lock is
-/// held over the GET, so the pages' calls at start make one request between them.
+/// The releases: this session's copy unless `refresh`, else the whole list (`fetch_all`: one request while there are fewer than a
+/// hundred releases), then the file `cache` on failure, else nothing. The list is the same for every channel and filtered after, so a
+/// channel switch asks GitHub nothing. The lock is held over the requests, so the pages' calls at start make one fetch between them.
 pub fn load_releases(store: &ReleaseStore, cache: &Path, version: &str, refresh: bool, channel: Channel) -> Vec<GhRelease> {
     let mut mem = store.0.lock().unwrap();
     if let (Some(list), false) = (mem.as_ref(), refresh) {
         return for_channel(list.clone(), channel);
     }
     let agent = ureq::AgentBuilder::new().timeout(API_TIMEOUT).user_agent(&user_agent(version)).build();
-    let url = format!("https://api.github.com/repos/{}/releases?per_page={}", REPO, channel.list_size());
-    let fetched = get(&agent, &url, LIST_LIMIT).and_then(|body| parse_releases(&body).map(|list| (body, list)));
+    let url = format!("https://api.github.com/repos/{}/releases?per_page={}", REPO, PER_PAGE);
+    let fetched = fetch_all(&url, |u| get_page(&agent, u, LIST_LIMIT)).and_then(|body| parse_releases(&body).map(|list| (body, list)));
     let list = match fetched {
         Ok((body, list)) => {
             if let Err(e) = crate::settings::write_atomic(cache, &String::from_utf8_lossy(&body)) {
@@ -463,13 +505,64 @@ mod channel_tests {
 
     #[test]
     fn channel_names() {
-        assert_eq!(Channel::parse("testing"), Channel::Testing);
-        assert_eq!(Channel::parse(" Testing "), Channel::Testing);
-        for s in ["", "stable", "beta", "TESTINGS", "alpha"] {
+        assert_eq!(Channel::parse("experimental"), Channel::Experimental);
+        assert_eq!(Channel::parse(" Experimental "), Channel::Experimental);
+        for s in ["", "stable", "testing", "Testing", "beta", "alpha", "experimentals"] {
             assert_eq!(Channel::parse(s), Channel::Stable, "{s:?}");
         }
-        assert_eq!(Channel::Stable.list_size(), 20);
-        assert!(Channel::Testing.list_size() > 20);
+        let migrated = crate::config::migrate(serde_json::from_str(r#"{"channel":"testing"}"#).unwrap());
+        assert_eq!((migrated.channel.as_str(), Channel::parse(&migrated.channel)), ("stable", Channel::Stable), "config.rs migrate: Testing is Stable");
+    }
+
+    /// A page of `n` releases v0.<first>.0, v0.<first+1>.0, ...
+    fn page_of(first: usize, n: usize) -> Vec<u8> {
+        format!("[{}]", (first..first + n).map(|i| rel(&format!("v0.{i}.0"), false)).collect::<Vec<_>>().join(",")).into_bytes()
+    }
+
+    #[test]
+    fn the_whole_list_is_read_page_after_page() {
+        let mut asked = Vec::new();
+        let body = fetch_all("https://api.github.com/x?page=1", |u| {
+            asked.push(u.to_string());
+            Ok(match u {
+                "https://api.github.com/x?page=1" => (page_of(0, PER_PAGE), Some("https://api.github.com/x?page=2".into())),
+                "https://api.github.com/x?page=2" => (page_of(PER_PAGE, PER_PAGE), Some("https://api.github.com/x?page=3".into())),
+                _ => (page_of(2 * PER_PAGE, 7), None),
+            })
+        })
+        .unwrap();
+        assert_eq!(asked.len(), 3);
+        assert_eq!(parse_releases(&body).unwrap().len(), 2 * PER_PAGE + 7);
+        // a short page is the last, whatever its Link header says
+        let mut n = 0;
+        let body = fetch_all("https://api.github.com/x", |_| { n += 1; Ok((page_of(0, 3), Some("https://api.github.com/x?page=2".into()))) }).unwrap();
+        assert_eq!((n, parse_releases(&body).unwrap().len()), (1, 3));
+        // a list that never ends stops at MAX_PAGES
+        let mut n = 0;
+        fetch_all("https://api.github.com/x", |_| { n += 1; Ok((page_of(0, PER_PAGE), Some("https://api.github.com/x".into()))) }).unwrap();
+        assert_eq!(n, MAX_PAGES);
+        // one failed page fails the whole list (the cache is served instead)
+        let mut n = 0;
+        let r = fetch_all("https://api.github.com/x", |_| { n += 1; if n == 1 { Ok((page_of(0, PER_PAGE), Some("https://api.github.com/x?page=2".into()))) } else { Err("down".into()) } });
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn the_next_page_comes_from_githubs_link_header() {
+        let h = r#"<https://api.github.com/repositories/1/releases?per_page=100&page=2>; rel="next", <https://api.github.com/repositories/1/releases?per_page=100&page=5>; rel="last""#;
+        assert_eq!(next_link(h).as_deref(), Some("https://api.github.com/repositories/1/releases?per_page=100&page=2"));
+        let h = r#"<https://api.github.com/repositories/1/releases?page=1>; rel="prev", <https://api.github.com/repositories/1/releases?page=1>; rel="first""#;
+        assert_eq!(next_link(h), None);
+        assert_eq!(next_link(r#"<https://example.com/releases?page=2>; rel="next""#), None, "only GitHub's API is followed");
+        assert_eq!(next_link(""), None);
+    }
+
+    #[test]
+    fn the_version_picker_lists_releases_on_stable_and_every_prerelease_on_experimental() {
+        let all = list_of(&[("v0.12.0-beta.1", true), ("v0.12.0-alpha.1", true), ("v0.11.1", false), ("v0.10.4-alpha.1", true), ("v0.11.0", false)]);
+        let tags = |c| pickable(all.clone(), c).into_iter().map(|r| r.tag_name).collect::<Vec<_>>();
+        assert_eq!(tags(Channel::Stable), ["v0.11.1", "v0.11.0"]);
+        assert_eq!(tags(Channel::Experimental), ["v0.12.0-beta.1", "v0.12.0-alpha.1", "v0.10.4-alpha.1"], "older feature tests too");
     }
 
     #[test]
@@ -478,7 +571,7 @@ mod channel_tests {
         assert!(!is_newer("v0.8.1-beta.1", "0.8.1"), "a release is newer than its own prerelease");
         assert!(is_newer("v0.8.1", "0.8.1-beta.9"));
         assert!(is_newer("v0.8.1-beta.10", "0.8.1-beta.2"));
-        assert!(!is_newer("v0.8.0", "0.8.1-beta.1"), "no downgrade from Testing back to an older stable");
+        assert!(!is_newer("v0.8.0", "0.8.1-beta.1"), "no downgrade from Experimental back to an older stable");
     }
 
     #[test]
@@ -489,16 +582,16 @@ mod channel_tests {
     }
 
     #[test]
-    fn testing_sees_everything_that_is_not_a_draft() {
+    fn experimental_sees_everything_that_is_not_a_draft() {
         let mut body = format!("[{}]", [rel("v0.8.1-beta.1", true), rel("v0.8.0", false)].join(","));
         body = body.replacen(r#""draft":false,"prerelease":true"#, r#""draft":true,"prerelease":true"#, 1);
         let all = parse_releases(body.as_bytes()).unwrap();
         assert_eq!(all.len(), 1, "a draft never shows");
         let body = format!("[{}]", [rel("v0.9.0-alpha.1", true), rel("v0.8.1-beta.1", true)].join(","));
         let all = parse_releases(body.as_bytes()).unwrap();
-        assert_eq!(all.len(), 2, "an alpha is a prerelease like any other: Testing lists it");
+        assert_eq!(all.len(), 2, "an alpha is a prerelease like any other: Experimental lists it");
         let all = list_of(&[("v0.8.1-beta.2", true), ("v0.8.1-beta.1", true), ("v0.8.0", false)]);
-        assert_eq!(for_channel(all, Channel::Testing).len(), 3);
+        assert_eq!(for_channel(all, Channel::Experimental).len(), 3);
     }
 
     #[test]
@@ -506,17 +599,17 @@ mod channel_tests {
         let all = list_of(&[("v0.8.1-beta.2", true), ("v0.8.1-beta.1", true), ("v0.8.0", false)]);
         let stable = for_channel(all.clone(), Channel::Stable);
         assert!(pick_update(&stable, "0.8.0", Suffixes::LINUX_X64).is_none(), "Stable never offers a prerelease");
-        let testing = for_channel(all, Channel::Testing);
-        let v = view(&testing, Some("0.8.0"), Suffixes::LINUX_X64);
+        let experimental = for_channel(all, Channel::Experimental);
+        let v = view(&experimental, Some("0.8.0"), Suffixes::LINUX_X64);
         assert!(v.releases.iter().any(|r| r.prerelease) && v.releases.iter().any(|r| !r.prerelease));
     }
 
     #[test]
-    fn testing_lists_every_test_line_and_offers_no_update() {
-        assert!(Channel::Stable.offers_updates() && !Channel::Testing.offers_updates());
+    fn experimental_lists_every_test_line_and_offers_no_update() {
+        assert!(Channel::Stable.offers_updates() && !Channel::Experimental.offers_updates());
         let all = list_of(&[("v0.12.0-beta.1", true), ("v0.12.0-alpha.1", true), ("v0.11.1", false), ("v0.10.4-alpha.1", true)]);
-        let testing = for_channel(all, Channel::Testing);
-        assert_eq!(builds(&testing, "0.11.1", Suffixes::LINUX_X64).iter().filter(|b| b.prerelease).count(), 3, "every prerelease is listed, older test lines too");
+        let experimental = pickable(all, Channel::Experimental);
+        assert_eq!(builds(&experimental, "0.11.1", Suffixes::LINUX_X64).iter().filter(|b| b.prerelease).count(), 3, "every prerelease is listed, older test lines too");
     }
 
     #[test]
@@ -570,7 +663,7 @@ mod channel_tests {
         assert!(target_for_tag(&all, "v9.9.9", Suffixes::LINUX_X64).is_none());
         assert!(target_for_tag(&all, "nonsense", Suffixes::LINUX_X64).is_none());
         let stable = for_channel(all.clone(), Channel::Stable);
-        assert!(target_for_tag(&stable, "v0.8.1-beta.6", Suffixes::LINUX_X64).is_none(), "a Stable list never offers a Testing build");
+        assert!(target_for_tag(&stable, "v0.8.1-beta.6", Suffixes::LINUX_X64).is_none(), "a Stable list never offers an Experimental build");
         assert!(builds(&stable, "0.8.0", Suffixes::LINUX_X64).iter().all(|b| !b.prerelease));
         assert!(target_for_tag(&all, "v0.8.1-beta.6", Suffixes::LINUX_X64).is_some());
     }

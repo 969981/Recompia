@@ -15,13 +15,13 @@ function item(r, s) {
   if (r.virtual) {
     return `<button class="note-item" data-tag="${esc(r.tag)}">
     <span class="note-item-title clip"><strong>${esc(r.name)}</strong></span>
-    <span class="note-item-sub">${esc(r.count === 1 ? t('1 Testing build') : t('{count} Testing builds', { count: r.count }))}<span class="note-mark">${esc(t('Testing'))}</span></span>
+    <span class="note-item-sub">${esc(r.count === 1 ? t('1 Experimental build') : t('{count} Experimental builds', { count: r.count }))}<span class="note-mark">${esc(t('Experimental'))}</span></span>
   </button>`;
   }
   const { version, build } = parseReleaseName(r.name, r.tag);
   const date = formatDate(r.date);
   const mark = s.news.update?.tag === r.tag ? `<span class="note-mark new">${esc(t('Update'))}</span>`
-    : version === s.app?.version ? `<span class="note-mark">${esc(t('Installed'))}</span>` : r.prerelease ? `<span class="note-mark">${esc(t('Testing'))}</span>` : '';
+    : version === s.app?.version ? `<span class="note-mark">${esc(t('Installed'))}</span>` : r.prerelease ? `<span class="note-mark">${esc(t('Experimental'))}</span>` : '';
   return `<button class="note-item" data-tag="${esc(r.tag)}">
     <span class="note-item-title clip"><strong>${esc(version)}</strong>${build ? ` ${esc(build)}` : ''}</span>
     <span class="note-item-sub">${date ? `<time>${esc(date)}</time>` : ''}${mark}</span>
@@ -32,7 +32,7 @@ function noteHead(r, s, install) {
   if (r.virtual) {
     return `<div class="grow">
       <h1>${esc(r.name)}</h1>
-      <time>${esc(t('Every Testing build since the last stable release, newest first'))}</time>
+      <time>${esc(t('Every Experimental build since the last stable release, newest first'))}</time>
     </div>`;
   }
   const { version, build } = parseReleaseName(r.name, r.tag);
@@ -52,9 +52,9 @@ function noteHead(r, s, install) {
     ${open}${action}`;
 }
 
-const BANNER = () => t('A Testing build: less tested than the stable releases. You are on Testing: please tell us what you find and attach pkp.log (Settings > About > Report a problem).');
+const BANNER = () => t('An Experimental build: it tests new features and is less tested than the stable releases. If you try it, please tell us what you find and attach pkp.log (Settings > About > Report a problem).');
 
-/** A note's body. Testing notes (and the overview) get their regressions as a highlighted block at the top, and a banner. */
+/** A note's body. Experimental notes (and the overview) get their regressions as a highlighted block at the top, and a banner. */
 function noteBody(r) {
   const { version } = parseReleaseName(r.name, r.tag);
   if (r.virtual) return renderNote(r.body, { warn: true });

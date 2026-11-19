@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Launcher: the Testing channel is now **Experimental**, and the channel and version are picked next to the Play button (and in Settings > About) instead of with Choose a version. On **Stable**, **Latest** updates as before, or pick any stable release to stay on it with no updates. On **Experimental**, pick one of all the prereleases, each testing its own features; nothing updates by itself there. Players who were on Testing are moved to Stable with Latest.
 - Co-op: the DLC quests are shared between players like the main story quests: when one player moves a DLC quest on, every player's quest moves on too.
 - Co-op: when a story scene a teammate plays moves a Pokémon into its house, only the host's world registers the move; the teammate's game no longer marks that Pokémon as still waiting to move in. Press **Set up again** after updating (a new game hook point).
 - Co-op: when a teammate hands in a one-off Pokémon request, it now counts toward the town's "hand in requests" goal right away, for the area they are in, instead of waiting until the host meets that Pokémon. The rest of what the request changes in the host's world is kept in the host's save until then, so it is no longer lost when the session ends first.

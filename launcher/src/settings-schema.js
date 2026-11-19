@@ -763,26 +763,20 @@ export const SECTIONS = [
         title: '',
         rows: [
           { id: 'version', label: t('Version'), type: 'info', value: (env) => env.version, selectable: true },
+          // the channel and version picker (pages/version-picker.js): the same two dropdowns as next to Play. launcher.json `channel` and
+          // `picked_version` are saved by the picker itself (a pick can start an install), so the row has no `at`
+          { id: 'version_pick', games: SINGLEPLAYER, label: t('Update channel'), type: 'version' },
           {
-            id: 'channel', games: SINGLEPLAYER, label: t('Update channel'), type: 'select', at: config('channel'), def: 'stable', guard: 'testing',
-            lock: (env) => env.updating || env.gameBusy,
-            options: [{ value: 'stable', label: t('Stable') }, { value: 'testing', label: t('Testing') }],
+            id: 'version_note', games: SINGLEPLAYER, type: 'note', when: (v, env) => !!env.pickerNote,
+            note: (env) => ({ text: env.pickerNote }),
           },
           {
-            id: 'channel_note', games: SINGLEPLAYER, type: 'note', when: (v) => v.channel === 'testing',
-            note: () => ({ text: t('Testing builds come first and may have bugs. Testing does not update by itself: pick each build with Choose a version below. As a tester you are expected to tell us what you find and share pkp.log: use Report a problem below. Your saves and settings are kept. To go back to Stable, wait until Stable has a newer version than the one you have, or install it from the releases page.') }),
-          },
-          {
-            id: 'testing_help', games: SINGLEPLAYER, label: t('Testing help'), type: 'info', when: (v) => v.channel === 'testing',
-            value: t('What to test is listed with each Testing build in What\'s New.'),
+            id: 'testing_help', games: SINGLEPLAYER, label: t('Experimental help'), type: 'info', when: (v, env) => env.channel === 'experimental',
+            value: t('What to test is listed with each Experimental build in What\'s New.'),
             actions: () => [
               { act: 'open-url', arg: `${REPO_URL}/issues/new?template=bug_report.yml`, label: t('Report a problem'), icon: 'external-link' },
               { act: 'open-log', label: t('Show pkp.log'), icon: 'file-text' },
             ],
-          },
-          {
-            id: 'builds', games: SINGLEPLAYER, label: t('Versions'), type: 'info', value: (env) => t('You have {version}', { version: env.version }),
-            actions: (env) => [{ act: 'builds-open', label: t('Choose a version'), icon: 'download', disabled: env.gameBusy || env.updating || env.taskBusy }],
           },
           {
             id: 'updates', games: SINGLEPLAYER, label: t('Updates'), type: 'info', value: (env) => env.updateText,
