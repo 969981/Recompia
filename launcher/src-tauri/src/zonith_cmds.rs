@@ -78,7 +78,10 @@ fn fetch(app: &AppHandle) -> Result<Vec<u8>, String> {
         .timeout(Duration::from_secs(15))
         .user_agent(&crate::releases::user_agent(&app.package_info().version.to_string()))
         .build();
+    #[cfg(debug_assertions)]
     let url = crate::testhook::zonith_releases_url().unwrap_or_else(|| zonith::RELEASES_URL.into());
+    #[cfg(not(debug_assertions))]
+    let url = String::from(zonith::RELEASES_URL);   // the test hook (main.rs mod testhook) is in debug builds only
     match agent.get(&url).set("Accept", "application/vnd.github+json").call() {
         Ok(r) => {
             let mut body = Vec::new();
