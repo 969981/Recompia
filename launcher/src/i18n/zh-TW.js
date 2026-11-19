@@ -335,7 +335,7 @@ export default {
   'Sort each time the bag opens': '每次開啟背包時整理',
   'Storage box tabs': '收納箱分頁',
   'Tabs per big storage box': '每個大型收納箱的分頁數',
-  'Each tab has 3 pages (60 slots) and uses one of the island\'s 256 big box spots. At 8 tabs (480 slots), about the first 32 big boxes placed get every tab. Later boxes get fewer or none. At 1, only the box itself is enabled. Tabs with items stay available if you lower the limit. Extra tabs are off during Link Play. Items stay saved.': '每個分頁有 3 頁（60 格），會使用島上 256 個大型收納箱位置之一。設為 8 個分頁（480 格）時，最先放置的大約 32 個大型收納箱可使用全部分頁。之後放置的箱子可用的額外分頁會變少，甚至沒有。設為 1 時只啟用箱子本身。調低上限後，存有物品的分頁仍可使用。連線遊玩期間會停用額外分頁，物品仍會保存在存檔中。',
+  'Each tab has 3 pages (60 slots) and uses one of the island\'s 256 big box spots. At 6 tabs (360 slots), about the first 42 big boxes placed get every tab. Later boxes get fewer or none. At 1, only the box itself is enabled. Tabs with items stay available if you lower the limit. Extra tabs are off during Link Play. Items stay saved.': '每個分頁有 3 頁（60 格），會使用島上 256 個大型收納箱位置之一。設為 6 個分頁（360 格）時，最先放置的大約 42 個大型收納箱可使用全部分頁。之後放置的箱子可用的額外分頁會變少，甚至沒有。設為 1 時只啟用箱子本身。調低上限後，存有物品的分頁仍可使用。連線遊玩期間會停用額外分頁，物品仍會保存在存檔中。',
   'Pages per storage box': '每個收納箱的頁數',
   'Search in the crafting screen': '製作畫面中的搜尋',
   'Save button in the pause menu': '暫停選單中的儲存按鈕',

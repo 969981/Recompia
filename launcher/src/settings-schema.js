@@ -319,7 +319,7 @@ const GAMEPLAY = {
   big_box_tabs: {
     label: t('Tabs per big storage box'),
     options: integerOptions,
-    after: [{ id: 'big_box_tabs_note', type: 'note', when: isOn('box_tabs'), note: () => ({ text: t('Each tab has 3 pages (60 slots) and uses one of the island\'s 256 big box spots. At 8 tabs (480 slots), about the first 32 big boxes placed get every tab. Later boxes get fewer or none. At 1, only the box itself is enabled. Tabs with items stay available if you lower the limit. Extra tabs are off during Link Play. Items stay saved.') }) }],
+    after: [{ id: 'big_box_tabs_note', type: 'note', when: isOn('box_tabs'), note: () => ({ text: t('Each tab has 3 pages (60 slots) and uses one of the island\'s 256 big box spots. At 6 tabs (360 slots), about the first 42 big boxes placed get every tab. Later boxes get fewer or none. At 1, only the box itself is enabled. Tabs with items stay available if you lower the limit. Extra tabs are off during Link Play. Items stay saved.') }) }],
   },
   craft_search: { label: t('Search in the crafting screen') },
   save_now: { label: t('Save button in the pause menu') },

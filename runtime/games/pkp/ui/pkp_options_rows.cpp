@@ -291,9 +291,9 @@ constexpr Row kGameplay[] = {
 constexpr Row kInventory[] = {
     key_row("Sort button in the bag and containers", "Click Hold to Sort in the bag and storage boxes to sort at once.", Key::InventorySort),
     key_row("Sort each time the bag opens", "Sorts the bag each time the bag or a container screen opens.", Key::InventoryAutosort),
-    key_row("Storage box tabs", "Extra pages in storage boxes; L or R switches them. About the first 22 boxes (big boxes: 32) get every page. Off in Link Play.", Key::BoxTabs),
+    key_row("Storage box tabs", "Extra pages in storage boxes; L or R switches them. About the first 22 boxes (big boxes: 42) get every page. Off in Link Play.", Key::BoxTabs),
     key_row("Pages per storage box", "Pages per storage box, 2 to 12 (20 slots each). A page that holds items stays shown if you lower this.", Key::BoxTabPages, 1, "%.0f"),
-    key_row("Tabs per big storage box", "Tabs of 60 slots per big storage box, 1 to 8 (8: 480 slots). A tab that holds items stays shown if you lower this.", Key::BigBoxTabs, 1, "%.0f"),
+    key_row("Tabs per big storage box", "Tabs of 60 slots per big storage box, 1 to 6 (6: 360 slots). A tab that holds items stays shown if you lower this.", Key::BigBoxTabs, 1, "%.0f"),
 };
 // clang-format on
 

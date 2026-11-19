@@ -2,6 +2,8 @@
 // Storage box tabs (main 2.0.1a): each backing ID provides one native page for type 1 or three for type 2. The screen and
 // panel use that ID for transactions and painting. Teardown and removal retain the physical ID. The allocator skips unplaced
 // slices with items, so reusing a physical ID recovers its tabs. Switching requires inactive per-player staging.
+// The pages show as the game's own page dots under the grid, one per page of the whole box (a standard box also gets the big box's
+// frame pose for them and its L / R icons); the panel's own page count and page stay native.
 #include "ui/pkp_box_tabs.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_items.h"
@@ -9,6 +11,7 @@
 #include "core/pkp_settings.h"
 #include "core/pkp_site_check.h"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -33,13 +36,25 @@ constexpr uint64_t kScreenVtable = 0x333ba70;
 constexpr uint64_t kPanelOf = 0xfed634, kRefresh = 0xff12e8, kPlayerOf = 0xa6fd58;
 constexpr uint64_t kActivePane = 0xfef30c, kSetPanelPage = 0xfe5310, kRebuildGrid = 0xfee7d4;
 constexpr uint64_t kSelectorOf = 0xa86c5c, kPageCallback = 0xff19bc;
+// The page dots (carousel, 20 dots, one layout state per count) and the L / R icons of the container frame:
+constexpr uint64_t kWidgetOf = 0xa6f92c;     // (panel + 0x48, element id, u16* class) -> widget
+constexpr uint64_t kStopAnims = 0xa68240;    // (widget + 8)
+constexpr uint64_t kPlayState = 0xa67df4;    // (widget + 8, state): the carousel's state count - 1 shows count dots
+constexpr uint64_t kLightDot = 0xebef3c;     // (widget, dot): the lit dot, 0-based
+constexpr uint64_t kShowElement = 0xa7b894;  // (panel + 0x30, element id, visible)
+constexpr uint64_t kShowSlot = 0xa7b720;     // (panel + 0x30, holder slot, visible)
+constexpr uint64_t kFramePose = 0xa67f64;    // (panel + 8, pose): the frame's end pose, 5 type_normal (standard box), 6 type_large (big box)
+constexpr uint32_t kLargePose = 6;
+constexpr uint64_t kPanelHolder = 0x30, kPanelChildren = 0x48, kPanelCarouselId = 0xc6, kPanelPage = 0xd9;
+constexpr uint32_t kCarousel = 0x11e, kCarouselClass = 0x1f, kIconL = 0xf4, kIconR = 0xf5, kLargeParts = 0x36;
+constexpr int kMaxDots = 20;
 constexpr uint64_t kPlayerHelper = 0x30, kSelectors = 0x80, kOpenState = 0x90, kPhysicalPayload = 0xc8;
 constexpr uint64_t kType = 0x148, kId = 0x154, kState = 0x160, kKind = 0x168;
 constexpr uint64_t kPanelType = 0xc1, kPanelId = 0xd4, kPanelPageCount = 0xd8;
 constexpr uint64_t kSelectorCallback = 0x18, kSelectorScreen = 0x20, kSelectorPage = 0x98;
 constexpr uint8_t kBoxType = 1, kBigBoxType = 2, kBoxPanel = 1, kBrowsing = 1;
 constexpr uint32_t kBoxSelector = 2;
-constexpr int kMaxPages = 12, kMaxBigTabs = 8;   // fixed for good: they set where every tab's items live (available_tabs)
+constexpr int kMaxPages = 12, kMaxBigTabs = 6;   // fixed for good: they set where every tab's items live (available_tabs)
 constexpr auto kReopenGap = std::chrono::milliseconds(300);
 
 using guest::call;
@@ -47,6 +62,11 @@ using guest::ok;
 using guest::rd;
 using guest::wr;
 
+struct Tabs {
+    std::array<uint16_t, kMaxPages> ids{};
+    int count = 1;
+    int taken = 0;   // requested units whose ID is unavailable
+};
 struct OpenBox {
     uint64_t screen = 0;
     std::chrono::steady_clock::time_point last_frame{};
@@ -56,6 +76,9 @@ struct OpenBox {
     bool restore_physical = false;
     int pending = 0;
     uint64_t prev_buttons = ~uint64_t{0};   // L / R as last seen (all set at open: a button held from before does not count)
+    Tabs tabs;                              // the pages / tabs at open or at the last switch
+    int frames = 0;                         // screen frames since the open
+    int dots = 0, lit = -1;                 // the page dots as last set (0: the game's own)
 };
 struct State {
     uint64_t base = 0;
@@ -117,11 +140,6 @@ bool showing_tab(uint64_t screen, uint16_t id) {
            rd<uint16_t>(screen + kPhysicalPayload) == box.physical;
 }
 
-struct Tabs {
-    std::array<uint16_t, kMaxPages> ids{};
-    int count = 1;
-    int taken = 0;   // requested units whose ID is unavailable
-};
 Tabs available_tabs(const OpenBox& box) {
     Tabs tabs{{box.physical}};
     const BoxStorage storage = box_storage(box.type);
@@ -158,23 +176,51 @@ int adjacent_tab(const Tabs& tabs, uint16_t shown, int direction, bool wrap) {
     return 0;   // The displayed ID stopped being available. Go back to the physical box.
 }
 
-void notice(uint8_t type, int tab, int count, bool opening = false, int taken = 0, bool online = false) {
-    if (opening && count + taken < 2) return;
+// At open, only when there is something to explain: pages that are not free, or Link Play. The page itself shows as the game's own dots.
+void notice(uint8_t type, int count, int taken, bool online) {
+    if (!taken && !online) return;
+    if (online && count + taken < 2) return;
     const bool big = type == kBigBoxType;
     const char* name = big ? "Big storage box" : "Storage box";
     const char* unit = big ? "tab" : "page";
-    const char* hint = opening ? (big ? " (L / R past the last page)" : " (L / R)") : "";
     char text[192];
-    if (online) {
+    if (online)
         std::snprintf(text, sizeof(text), "%s: extra %ss are off during Link Play (their items stay saved)", name, unit);
-    } else if (taken) {
-        std::snprintf(text, sizeof(text), "%s: %s 1 of %d%s. %d more %s%s not free: the island's %s slots are in use",
-                      name, unit, count, hint, taken, unit, taken == 1 ? " is" : "s are",
-                      big ? "big storage box" : "storage box");
-    } else {
-        std::snprintf(text, sizeof(text), "%s: %s %d of %d%s", name, unit, tab + 1, count, hint);
+    else
+        std::snprintf(text, sizeof(text), "%s: %d more %s%s not free: the island's %s slots are in use", name, taken, unit,
+                      taken == 1 ? " is" : "s are", big ? "big storage box" : "storage box");
+    notices::post(kNotice, text, 4.0);
+}
+
+// The page dots for the whole box: one per page (a big box: its native pages times its tabs, at most kMaxDots), the shown one lit; a
+// standard box also gets the frame's L / R icons. Presentation only: the panel's own page count (+0xd8) and page (+0xd9) stay native.
+void show_dots(::Ctx* c, OpenBox& box, uint64_t panel, bool recount) {
+    int at = 0;
+    while (at < box.tabs.count && box.tabs.ids[at] != box.shown) ++at;
+    if (at == box.tabs.count) return;
+    const int per = box.type == kBigBoxType ? std::max<int>(1, rd<uint8_t>(panel + kPanelPageCount)) : 1;
+    const int count = std::min(box.tabs.count * per, kMaxDots);
+    const int lit = std::min(at * per + (box.type == kBigBoxType ? rd<uint8_t>(panel + kPanelPage) : 0), count - 1);
+    if (!recount && count == box.dots && lit == box.lit) return;
+    const uint64_t out = (c->x[31] - 0x40) & ~uint64_t{0xf};
+    wr<uint16_t>(out, 0);
+    const uint64_t widget = call(c, g.base + kWidgetOf, panel + kPanelChildren, rd<uint16_t>(panel + kPanelCarouselId), out, 0, 0, out - 0x10);
+    if (!ok(widget, 0x40) || rd<uint16_t>(out) != kCarouselClass) return;
+    const uint64_t holder = panel + kPanelHolder;
+    if (box.type == kBoxType) {
+        if (recount) call(c, g.base + kFramePose, panel + 8, kLargePose);   // the big box's frame: room for the dots and the L / R icons
+        call(c, g.base + kShowSlot, holder, kLargeParts, 1);
+        call(c, g.base + kShowElement, holder, kIconL, 1);
+        call(c, g.base + kShowElement, holder, kIconR, 1);
     }
-    notices::post(kNotice, text, taken || online ? 4.0 : 2.0);
+    call(c, g.base + kShowElement, holder, kCarousel, 1);
+    if (recount || count != box.dots) {
+        call(c, g.base + kStopAnims, widget + 8);
+        call(c, g.base + kPlayState, widget + 8, static_cast<uint64_t>(count - 1));
+    }
+    call(c, g.base + kLightDot, widget, static_cast<uint64_t>(lit));
+    box.dots = count;
+    box.lit = lit;
 }
 
 bool can_switch(::Ctx* c, uint64_t screen) {
@@ -239,14 +285,20 @@ int hook_screen_frame(::Ctx* c, uint64_t, void*) {
     if (opening && !tab_shown) {
         const bool online = call(c, g.base + layout::kIsOnline, 0) & 1;
         box = {.screen = screen, .last_frame = now, .physical = id, .shown = id, .type = type, .active = !online};
-        const Tabs tabs = available_tabs(box);
-        notice(type, 0, tabs.count, true, tabs.taken, online);
+        box.tabs = available_tabs(box);
+        notice(type, box.tabs.count, box.tabs.taken, online);
         if (g.log)
-            NXLOG_I(kTag, "storage box tabs: opened type %u id %u, %d pages (%d taken)%s", type, id, tabs.count, tabs.taken, online ? ", online" : "");
+            NXLOG_I(kTag, "storage box tabs: opened type %u id %u, %d pages (%d taken)%s", type, id, box.tabs.count, box.tabs.taken,
+                    online ? ", online" : "");
         return 0;
     }
 
     box.last_frame = now;
+    ++box.frames;
+    // The dots once the panel's own open setup is done (it sets them for its native pages), again a little later in case the setup
+    // ran late, and whenever the shown page changes (a big box's native page change lights its own dot).
+    if (box.active && box.tabs.count > 1 && box.frames >= 2)
+        if (const uint64_t panel = ready_panel(c, box)) show_dots(c, box, panel, box.frames == 2 || box.frames == 15);
     if (box.type == kBoxType && box.active) {
         // A one-page box's page selector takes no input (0xe980c0 is never asked), so L / R are read here, from the pad state the game
         // reads too (keyboard and pad bindings included).
@@ -272,8 +324,10 @@ int hook_screen_frame(::Ctx* c, uint64_t, void*) {
     const Tabs tabs = online ? Tabs{{box.physical}} : available_tabs(box);
     const int target = box.restore_physical ? 0 : adjacent_tab(tabs, id, direction, true);
     if (tabs.ids[target] == id || !switch_in_frame(c, box, tabs.ids[target])) return 0;
-    const bool reopened = std::exchange(box.restore_physical, false) && type == kBoxType && !online && tabs.count > 1;
-    notice(type, target, tabs.count, reopened);
+    box.restore_physical = false;
+    box.tabs = tabs;
+    if (box.active && tabs.count > 1)
+        if (const uint64_t panel = ready_panel(c, box)) show_dots(c, box, panel, false);
     return 0;
 }
 
@@ -308,9 +362,9 @@ int hook_page_request(::Ctx* c, uint64_t, void*) {
     if (target < 0 || tabs.ids[target] == box.shown) return 0;
     set_tab_id(box, panel, tabs.ids[target]);
     wr<uint32_t>(selector + kSelectorPage, direction > 0 ? 0 : last_page);
-    // The selector dispatcher sees a changed index and runs the native panel, grid and cursor update.
+    // The selector dispatcher sees a changed index and runs the native panel, grid and cursor update (the frame hook relights the dots).
+    box.tabs = tabs;
     c->x[0] = 1;
-    notice(box.type, target, tabs.count);
     return 1;
 }
 
