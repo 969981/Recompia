@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Gameplay
+- Fixed the quick save (**F5**, and **Save** in the pause menu) saving only your bag and not your island: it now saves the same way as the game's own Save and Quit, so items you put into a storage box, things you placed and items on the ground are still there after loading
+
 ## 0.15.2 (build S: Sloth Hotfix a2)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (co-op gets new game hook points; saves and shaders are kept).

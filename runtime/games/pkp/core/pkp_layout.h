@@ -90,12 +90,11 @@ constexpr uint64_t kItemTempFlag = 0x36bbfd8;    // u8 per player: the bag / con
 // ---- movement component ----
 constexpr uint64_t kController = 0xbc0;          // the movement controller (embedded)
 
-// ---- the save manager (ui/pkp_save_now.cpp) ----
-constexpr uint64_t kSaveManager = 0x35619d0;      // main: -> the save manager
-constexpr uint64_t kSaveRequest = 0x241324;       // (manager, request, mode, flag) -> 1 when queued
-constexpr uint64_t kSaveDone = 0x2412b0;          // (manager) -> 1 when the save manager is idle (its last request finished)
-constexpr uint64_t kSaveRootHome = 0xa4;          // save root: u8, the request's second byte
-constexpr uint64_t kStateAutosave = 0x3bb5e0;     // game state: u32, 1..4 while the autosave works
+// ---- the autosave (ui/pkp_save_now.cpp): the game's own Save and Quit saves through it ----
+constexpr uint64_t kStateAutosaveObj = 0x3b9590;  // game state + this: the autosave machine
+constexpr uint64_t kAutosaveNow = 0x4577e4;       // (autosave, now, backup): asks it to save; does nothing unless it is on and idle
+constexpr uint64_t kStateAutosave = 0x3bb5e0;     // game state: u32, the autosave's step: 0 idle, 1 snapshot, 2 writing, 3..5 finishing
+constexpr uint64_t kStateAutosaveFlags = 0x3bb5e8;   // game state: u32, bit 0 the autosave is on, bit 2 a save was asked for now
 constexpr uint64_t kStateEvent = 0xd0, kEventBusy = 0x6ea;   // game state: the event bus, its busy byte
 
 // ---- the main loop ----
