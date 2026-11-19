@@ -30,8 +30,12 @@ constexpr size_t kPaneName = 176, kPaneParent = 208, kPaneWorld = 224, kPaneName
 // kPaneWorld and kPaneLocal point to the pane's two 4x4 float matrices (X axis at [0], Y axis at [4], position at [12]); the update
 // before the draw builds them from the animation every frame, world = local x the parent's world.
 constexpr size_t kPaneLocal = 232;
-// A picture pane's texture record: the four corner UVs of its sprite (8 floats), not animated.
+// A picture pane's texture record: the four corner UVs of its sprite (8 floats: u, v of top left, top right, bottom left, bottom right),
+// not animated. The record is the pane's own: setting a sprite (0xa7c05c) copies the sprite's UVs into it.
 constexpr size_t kPaneTexture = 0x1b0, kTextureUv = 8;
+// u8, the pane's kind: 2 a text box; 1 and 3 the kinds 0xa7bba0 sets a sprite on (the tab cells' icons are 1).
+constexpr size_t kPaneKind = 0x112;
+constexpr uint8_t kTextPane = 2;
 
 // ---- the quad builder (0x7101f98aa4): one quad of a pane into the vertex buffer, in the pane's own units ----
 // mid: just before the vertices are written: s0 and s1 are the quad's half width and half height, s2 and s3 its centre. Every frame,
