@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Co-op: when one player finishes a talk or a scene, every player's game now remembers it too: the same conversations are not offered again to the others, and the story lines that wait for that scene move on in the group's save on the host, also for players who join later.
+- Co-op: Pokédex entries and habitats are shared. When a teammate meets a new Pokémon or finds a new habitat, every player gets it in their own Pokédex and habitat list too, with the game's own "registered" or "new habitat" scene (or a line in the message log when that Pokémon is not near them). Anyone who joins later gets the group's finds. Needs **Set up again** (new hook points), and every player on the same build
 - Launcher: a new look with a rail of games on the left, a Home with one big Play button for each game, and Recompia: Co-op with its own Home. It also downloads, updates and starts Zonith, with its own What's New, and on Linux and the Steam Deck it reads the controller itself (LT/RT switch games, Start plays).
 
 ## 0.15.1 (build S: Sloth Hotfix a1)

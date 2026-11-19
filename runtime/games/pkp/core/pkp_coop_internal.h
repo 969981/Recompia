@@ -20,6 +20,7 @@
 //   pkp_coop_events.cpp   what an ended talk or scene leaves in the save (scenes played, conversations seen, story lines moved on)
 //                         kept by every member
 //   pkp_coop_travel.cpp   the group's trips: a move to another area runs only after the game's poll passed, and the host makes it for all
+//   pkp_coop_discovery.cpp the Pokédex entries and habitats any member found, found by every member, with the game's own scenes
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -171,6 +172,22 @@ void tick(::Ctx* c, bool in_game);
 void on_session_change();   // this process joined or left: what it lacks is asked again
 void reset();
 }  // namespace purchases
+
+namespace discovery {
+// The hook sites (pkp_coop.cpp): the scenes the game queues on the finder's process, sent to the group.
+int on_dex_scene(::Ctx* c);       // entry 0x3b9060: the "registered in the Pokédex" scene (slot, &actor id)
+int on_habitat_scene(::Ctx* c);   // entry 0x45f2a0: the "new habitat" scene (slot, habitat, placed habitat, flag)
+// The messages (pkp_coop_link.cpp).
+void on_dex_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_dex_scene_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_habitat_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_habitat_scene_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Plays another member's scene or sets its finds at a safe moment, reads this player's lists and shares what grew (once a frame).
+void tick(::Ctx* c, bool in_game);
+void on_session_change();   // this process joined or left: the lists are read again, the whole lists sent
+void on_member_joined();    // another member joined: the whole lists are sent again
+void reset();
+}  // namespace discovery
 
 namespace travel {
 // The hook site (pkp_coop.cpp): entry 0xbda20, the area move by destination index. In a session it runs only after the group's poll
