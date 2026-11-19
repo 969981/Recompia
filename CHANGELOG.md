@@ -2,26 +2,50 @@
 
 ## Unreleased
 
-- Launcher: the Testing channel is now **Experimental**, and the channel and version are picked next to the Play button (and in Settings > About) instead of with Choose a version. On **Stable**, **Latest** updates as before, or pick any stable release to stay on it with no updates. On **Experimental**, pick one of all the prereleases, each testing its own features; nothing updates by itself there. Players who were on Testing are moved to Stable with Latest.
-- Co-op: when a teammate does a quest step the host's game cannot take yet (a talk or a scene for a quest the host has not put on its list), the host now keeps it for the whole session and makes the step as soon as it can, instead of giving up after 30 seconds and leaving the talk done but the quest stuck.
-- Co-op: teammates hear a quest step's music and see the time-skip fade again now that the host's game moves the quests on: the step that brings a teammate to the group's current state plays them, and only older steps a teammate is catching up on stay silent.
-- Co-op: every player in a co-op session now needs the same version of Recompia. A teammate whose version plays co-op by other rules (for example, one from before the host decided the quests) is refused when joining, and the Co-op page says that the host runs another version of Recompia, instead of the two playing on with quests that never move.
-- Co-op: the DLC quests are shared between players like the main story quests: when one player moves a DLC quest on, every player's quest moves on too.
-- Co-op: when a story scene a teammate plays moves a Pokémon into its house, only the host's world registers the move; the teammate's game no longer marks that Pokémon as still waiting to move in. Press **Set up again** after updating (a new game hook point).
-- Co-op: when a teammate hands in a one-off Pokémon request, it now counts toward the town's "hand in requests" goal right away, for the area they are in, instead of waiting until the host meets that Pokémon. The rest of what the request changes in the host's world is kept in the host's save until then, so it is no longer lost when the session ends first.
-- Co-op: a daily (general) Pokémon request handed in by any player now counts once toward the town's "hand in requests" goal, instead of once more for every player in the session. Press **Set up again** after updating (a new game hook point).
-- Co-op: a teammate who places the campfire next to Tangrowth no longer hears "It's a tad far away...": the game now checks the distance once the host has put the campfire in that teammate's world, so the scene plays and the quest moves on. Press **Set up again** after updating (a new game hook point).
-- Co-op: a teammate who talks to a Pokémon now gets that Pokémon's own conversation, story and quest talks included, as the host does, instead of the short visitor reply. One player at a time still talks to a Pokémon. Press **Set up again** after updating, and every player on the same build.
-- Co-op: an ability the story takes away (for example after quest 664) now stays away for every player, instead of coming back from a teammate who still had it. Press **Set up again** after updating (new game hook points).
-- Co-op: teammates now hear the music a quest step starts, and see the screen fade when a quest skips the time of day (the clock itself still follows the host).
-- Co-op: a teammate whose game fell behind on a quest (for example the campfire quest) now catches up in seconds: the quests it waits on are moved on first, and a quest the game had not put on its list yet is listed the way the game does it.
-- Co-op: the host's game now decides when the group's quests move on. A teammate's game no longer finishes or starts a quest by itself (so a teammate whose own world was further along can no longer jump the group ahead); when a teammate does a quest step themselves (a talk, a scene, walking to the spot, bringing an item), their game asks the host's game to make that step for everyone. Playing alone is unchanged. Every player needs the same build.
-- Co-op: when one player finishes a talk or a scene, every player's game now remembers it too: the same conversations are not offered again to the others, and the story lines that wait for that scene move on in the group's save on the host, also for players who join later.
-- Co-op: Pokédex entries and habitats are shared. When a teammate meets a new Pokémon or finds a new habitat, every player gets it in their own Pokédex and habitat list too, with the game's own "registered" or "new habitat" scene (or a line in the message log when that Pokémon is not near them). Anyone who joins later gets the group's finds. Needs **Set up again** (new hook points), and every player on the same build
-- Co-op: moves, emotes, areas and buildings are shared. When a teammate learns a new move or emote, every player learns it too, with the game's own scene. The areas the group has been to count as visited for every player (in their own save too), and the buildings anyone has built are in everyone's building list. Anyone who joins later gets the group's unlocks, with one line in the message log.
-- Co-op: story events that a teammate's game held back for an unanswered online request (they played all at once when the teammate dropped home) are now let through after 5 seconds. The co-op trace also logs every story event a teammate's game still holds back, to find the rest of the missing quest text. Press **Set up again** after updating (a new game hook point).
-- Launcher: a new look with a rail of games on the left, a Home with one big Play button for each game, and Recompia: Co-op with its own Home. It also downloads, updates and starts Zonith, with its own What's New, and on Linux and the Steam Deck it reads the controller itself (LT/RT switch games, Start plays).
-- Co-op: two Pokémon of the same kind (two Peakychu, say) no longer block each other's talks: while a teammate talks to one, you can talk to the other. Every player needs the same build.
+## 0.15.2 (build S: Sloth Hotfix a2)
+
+**Update:** press **Update** in the launcher, then **Set up again** once (co-op gets new game hook points; saves and shaders are kept).
+
+### Highlights
+- **Co-op: the host's game now runs the group's quests.** A teammate's quest steps (talks, scenes, walking to the spot, bringing an item) are made by the host for everyone, so quests no longer stall, skip ahead or fire only when a teammate goes home
+- **Co-op: Pokédex, habitats, moves, emotes, areas and buildings are shared**, also with anyone who joins later
+- **Launcher: Stable and Experimental channels, with a version picker next to Play**
+
+### Known issues
+- Co-op is still experimental: some quest text or events may still show up late on a teammate. Please send **pkp.log** (Settings > About) after such a session
+- A player on an older Recompia trying to join a 0.15.2 host is refused, but their older launcher says "different mods" instead of "another version". Update both games to 0.15.2
+
+### Co-op
+- Every player in a co-op session now needs the same version of Recompia. A teammate on another version is refused when joining, and the Co-op page says the host runs another version of Recompia
+- Changed who moves quests on: the host's game decides when the group's quests move on. A teammate's game asks the host's game to make each quest step for everyone, and a teammate whose own world was further along can no longer jump the group ahead. Playing alone is unchanged
+  - A step the host cannot take yet is kept for the whole session and made as soon as it can
+- Fixed a teammate who fell behind on a quest (for example the campfire quest) waiting a long time: they now catch up in seconds
+- Fixed teammates getting the short visitor reply: a teammate who talks to a Pokémon now gets its own conversation, story and quest talks, as the host does. One player at a time still talks to a Pokémon
+- Fixed two Pokémon of the same kind (two Peakychu, say) blocking each other's talks
+- Fixed the Tangrowth campfire: a teammate who places it no longer hears "It's a tad far away...", so the scene plays and the quest moves on
+- Fixed quest text and story events on a teammate waiting until they went home: events held back for an unanswered online request now go through after 5 seconds
+- Added shared talks and scenes: when one player finishes a talk or a scene, every player's game remembers it, and the story lines waiting for it move on, also for players who join later
+- Added the DLC quests to the shared quests
+- Added quest music and the time-skip fade for teammates (the clock still follows the host)
+- Added shared Pokédex entries and habitats, with the game's own "registered" or "new habitat" scene, or a line in the message log when the Pokémon is not near
+- Added shared moves, emotes, areas and buildings: what one player learns, visits or builds, every player gets
+- Fixed an ability the story takes away (for example after quest 664) coming back from a teammate who still had it
+- Fixed a one-off Pokémon request handed in by a teammate not counting toward the town's "hand in requests" goal until the host met that Pokémon
+- Fixed a daily Pokémon request counting toward that goal once for every player in the session instead of once
+- Fixed a Pokémon a teammate's scene moves into its house staying marked as still waiting to move in on that teammate
+
+### Launcher
+- Changed the Testing channel to **Experimental**, and moved the channel and version choice next to the Play button (and in **Settings > About**), replacing **Choose a version**
+  - **Stable:** **Latest** updates as before, or pick any stable release to stay on it with no updates
+  - **Experimental:** pick one of all the prereleases, each testing its own features. Nothing updates by itself there
+  - Players who were on Testing are moved to Stable with Latest
+- Added a new look: a rail of games on the left, a Home with one big Play button for each game, and Recompia: Co-op with its own Home
+- Added Zonith: the launcher downloads, updates and starts it, with its own What's New
+- Added controller support in the launcher on Linux and the Steam Deck (LT/RT switch games, Start plays)
+
+### For developers
+- Co-op v2: `pkp_coop_quests.cpp` (host-authoritative quests, wire type 24 QuestFlagAsk), `pkp_coop_held.cpp` (held-event guard), `pkp_coop_trace.cpp` (held-event trace); the co-op rules version is part of the session's mods fingerprint (`kCoopRules`)
+- The quest system RE is in modding-docs `coop-v2/quests/`
 
 ## 0.15.1 (build S: Sloth Hotfix a1)
 
