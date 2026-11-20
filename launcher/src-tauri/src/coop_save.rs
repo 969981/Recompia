@@ -16,16 +16,20 @@
 //!                                   Written by the game side at the end of a session; absent before the first one
 //!     incoming/                     a copy being received; the game side moves it over `account/` and then writes `stamp.json`. The launcher
 //!                                   never reads it, so a copy cut short is never played
+//!     split/<member id>/            in a split screen save, each member after the first has a separate save folder here, with the same
+//!                                   group marker and its own account/, stamp.json, peers.json and incoming/. The first uses <coop folder>/.
 //!
 //! The newest copy hosts: the greatest `(seq, saved_at)`, ties to the member who comes first in the member list (the creator first), so
 //! every launcher that knows the same stamps picks the same host. A copy without `stamp.json` is stamped from its newest file time
-//! with `seq` 0; no save at all is `(0, 0)`.
+//! with `seq` 0; no save at all is `(0, 0)`. A split screen save is the exception: player 1 (window 1) always hosts (split_host).
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
+
+use crate::coop::Profile;
 
 pub const MARKER: &str = "coop.marker";
 pub const STAMP: &str = "stamp.json";
@@ -165,10 +169,10 @@ impl Role {
 pub struct HostChoice {
     /// The member whose copy is the newest.
     pub host: String,
-    /// What this PC's member does.
+    /// What this PC's member does (window 1 for split screen).
     pub role: Role,
     pub own: Stamp,
-    /// True when a stamp of another member was known (peers.json); false: only this PC's copy was looked at.
+    /// True when a stamp of another member was known, from peers.json online or from the other copy on this PC in split screen.
     pub peers_known: bool,
 }
 
@@ -187,6 +191,23 @@ pub fn choose_host(members: &[String], me: &str, own: Stamp, peers: &HashMap<Str
     .unwrap_or_else(|| me.to_string());
     let peers_known = members.iter().any(|id| id != me && peers.contains_key(id));
     HostChoice { role: if host == me { Role::Host } else { Role::Visit }, host, own, peers_known }
+}
+
+/// A split screen save's host: always player 1 (window 1), whose copy, the save folder itself, is the group's world. The other
+/// players' copies are visitors' copies, so none of them hosts whatever its files' times say. `own`: player 1's stamp.
+pub fn split_host(members: &[String], own: Stamp) -> HostChoice {
+    HostChoice { host: members.first().cloned().unwrap_or_default(), role: Role::Host, own, peers_known: false }
+}
+
+/// The next host of a save as it stands on disk.
+pub fn host_of(root: &Path, p: &Profile) -> HostChoice {
+    let members = p.member_ids();
+    if p.split {
+        split_host(&members, own_stamp(&folder_of(root, &p.id)))
+    } else {
+        let dir = folder_of(root, &p.id);
+        choose_host(&members, &p.me, own_stamp(&dir), &peer_stamps(&dir))
+    }
 }
 
 /// How the player starts this session: as the launcher decides (`Auto`, choose_host), or as host or visitor because they said so. The choice
@@ -212,6 +233,25 @@ pub fn role_for(choice: &HostChoice, start_as: StartAs) -> Role {
 /// The folder of group `id` under `root`.
 pub fn folder_of(root: &Path, id: &str) -> PathBuf {
     root.join(id)
+}
+
+/// The private copy of a split screen member after the first.
+pub fn split_folder_of(root: &Path, id: &str, member: &str) -> PathBuf {
+    folder_of(root, id).join("split").join(member)
+}
+
+pub fn split_folders<'a>(root: &'a Path, p: &'a Profile) -> impl Iterator<Item = PathBuf> + 'a {
+    std::iter::once(folder_of(root, &p.id)).chain(p.members.iter().skip(1).map(|m| split_folder_of(root, &p.id, &m.id)))
+}
+
+/// Marks each new split copy; an existing marked copy keeps its files.
+pub fn ensure_split_folders(root: &Path, p: &Profile) -> Result<(), String> {
+    for dir in split_folders(root, p).skip(1) {
+        if marker_group(&dir).as_deref() != Some(p.id.as_str()) {
+            make_coop_folder(&dir, &p.id)?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -311,6 +351,41 @@ mod tests {
         peers.insert("a".to_string(), Stamp { seq: 4, saved_at: 60 });
         let c = choose_host(&m, "c", Stamp { seq: 5, saved_at: 60 }, &peers);
         assert_eq!((c.host.as_str(), c.role), ("c", Role::Host));
+    }
+
+    #[test]
+    fn player_one_always_hosts_a_split_save() {
+        let root = tmp("split-host");
+        let p = crate::coop::create_split(&root, "Island", &ids(&["Alpha", "Beta", "Gamma"])).unwrap();
+        ensure_split_folders(&root, &p).unwrap();
+        // another player's copy is newer: player 1 still hosts
+        fs::write(split_folder_of(&root, &p.id, &p.members[2].id).join(STAMP), r#"{"seq":9,"saved_at":99}"#).unwrap();
+        fs::write(folder_of(&root, &p.id).join(STAMP), r#"{"seq":2,"saved_at":10}"#).unwrap();
+        let c = host_of(&root, &p);
+        assert_eq!((c.host.as_str(), c.role, c.own), (p.members[0].id.as_str(), Role::Host, Stamp { seq: 2, saved_at: 10 }));
+    }
+
+    #[test]
+    fn each_split_copy_is_marked_and_keeps_its_files() {
+        let root = tmp("split-folders");
+        let p = crate::coop::create_split(&root, "Island", &ids(&["Alpha", "Beta", "Gamma"])).unwrap();
+        let first = folder_of(&root, &p.id);
+        let second = first.join("split").join(&p.members[1].id);
+        let third = first.join("split").join(&p.members[2].id);
+        assert_eq!(split_folder_of(&root, &p.id, &p.members[1].id), second);
+        assert!(!second.exists());
+        ensure_split_folders(&root, &p).unwrap();
+        for dir in [&first, &second, &third] {
+            assert_eq!(marker_group(dir).as_deref(), Some(p.id.as_str()));
+            assert!(refuse_as_singleplayer(dir).is_err());
+        }
+        fs::write(second.join(STAMP), r#"{"seq":3,"saved_at":9}"#).unwrap();
+        ensure_split_folders(&root, &p).unwrap();
+        assert_eq!(own_stamp(&second), Stamp { seq: 3, saved_at: 9 });
+        assert!(!split_folder_of(&root, &p.id, &p.me).exists());
+        write_marker(&third, "other-group").unwrap();
+        assert!(ensure_split_folders(&root, &p).is_err());
+        assert_eq!(marker_group(&third).as_deref(), Some("other-group"));
     }
 
     #[test]

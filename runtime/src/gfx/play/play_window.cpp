@@ -17,7 +17,7 @@ const char* window_mode_name(platform::FullscreenMode m) {
 
 void set_window_mode(const std::string& mode) {
     G& st = g();
-    if (!st.window) return;
+    if (!st.window || split_active()) return;   // a split screen window is in its half, without a mode of its own
     const platform::FullscreenMode want = mode == "borderless" ? platform::FullscreenMode::Borderless
                                          : mode == "exclusive" ? platform::FullscreenMode::Exclusive
                                                                : platform::FullscreenMode::Windowed;
@@ -36,7 +36,7 @@ void set_window_mode(const std::string& mode) {
 
 void toggle_fullscreen() {
     G& st = g();
-    if (!st.window) return;
+    if (!st.window || split_active()) return;
     std::string target;
     if (platform::fullscreen_mode() == platform::FullscreenMode::Windowed)
         target = st.settings.display.window_mode == "exclusive" ? "exclusive" : "borderless";

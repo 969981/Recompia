@@ -8,9 +8,10 @@
 //!
 //! Members are a stable id (32 hex digits, the member's Link Play uid too) and a display name. The first member is the creator, who
 //! hosts the first session. One shared account uid names the account folder in every member's copy, so the copies are interchangeable.
-//! The private room is the room code of the profile on its relay: only members have the code (they get it with the invite). The creator
-//! adds each player by name, then sends the invite; a player joins as the name the creator gave them, so every PC lists the same members.
-//! Only the creator changes the member list. A newer invite pasted on a PC that already has the save brings its list up to date there.
+//! An online save has a private room on its relay. The creator adds each player by name and sends the invite with the room code.
+//! A player joins as the name the creator gave them; a newer invite brings an existing copy's member list up to date.
+//! A split screen save starts with all its players on the creator's PC, each with their own copy. It has no relay or invite.
+//! Only the creator changes the member list in either mode.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -45,12 +46,15 @@ pub struct Profile {
     pub account_uid: String,
     /// The private room's code on the relay: `XXXX-XXXX-XXXX-XXXX`. A secret of the members.
     pub room_code: String,
-    /// `IPv4[:port]` of the relay that holds the room.
+    /// `IPv4[:port]` of the relay that holds the room; empty for split screen.
     pub relay: String,
     /// Creator first.
     pub members: Vec<Member>,
-    /// The member who plays on this PC.
+    /// The member who plays on this PC (window 1 for split screen).
     pub me: String,
+    /// All members play on this PC.
+    #[serde(default)]
+    pub split: bool,
 }
 
 impl Profile {
@@ -83,7 +87,19 @@ pub fn root_of(game_dir: &Path) -> PathBuf {
 fn read(dir: &Path) -> Option<Profile> {
     let p: Profile = serde_json::from_str(&fs::read_to_string(dir.join(FILE)).ok()?).ok()?;
     // the marker decides what the folder is: a coop.json in a folder without it is not a profile
-    (coop_save::marker_group(dir).as_deref() == Some(p.id.as_str()) && !p.members.is_empty() && p.member(&p.me).is_some()).then_some(p)
+    if coop_save::marker_group(dir).as_deref() != Some(p.id.as_str()) || p.member(&p.me).is_none() {
+        return None;
+    }
+    // Split member ids are also folder names, including on case-insensitive filesystems.
+    if p.split {
+        let valid_members = p.members.iter().enumerate().all(|(i, m)| {
+            is_hex_id(&m.id, 32) && !p.members[..i].iter().any(|other| m.id.eq_ignore_ascii_case(&other.id))
+        });
+        if !is_hex_id(&p.id, 16) || !p.is_creator() || p.members.len() > MAX_MEMBERS || !valid_members {
+            return None;
+        }
+    }
+    Some(p)
 }
 
 fn write(root: &Path, p: &Profile) -> Result<(), String> {
@@ -135,26 +151,60 @@ fn name_of_member(raw: &str) -> Result<String, String> {
     clean_name(raw).map_err(|_| "Type a name for the player (1 to 24 characters).".to_string())
 }
 
+fn name_of_save(raw: &str) -> Result<String, String> {
+    clean_name(raw).map_err(|_| "Type a name for the co-op save (1 to 24 characters).".to_string())
+}
+
+fn new_member(name: String, members: &[Member]) -> Result<Member, String> {
+    if members.iter().any(|m| m.name.eq_ignore_ascii_case(&name)) {
+        return Err(format!("There is already a player called {}.", name));
+    }
+    let taken: Vec<&str> = members.iter().map(|m| m.id.as_str()).collect();
+    Ok(Member { id: new_uid(&taken)?, name })
+}
+
 /// A new co-op save with its creator as the first member, in a new folder.
 pub fn create(root: &Path, name: &str, my_name: &str, relay: &str) -> Result<Profile, String> {
-    let name = clean_name(name).map_err(|_| "Type a name for the co-op save (1 to 24 characters).".to_string())?;
+    let name = name_of_save(name)?;
     let my_name = name_of_member(my_name)?;
     if !relay_ok(relay) {
         return Err("The relay needs an address like 192.0.2.10 or 192.0.2.10:47610.".into());
     }
+    create_profile(root, name, vec![my_name], relay.trim().to_string(), false)
+}
+
+pub const SPLIT_PLAYER_COUNT: &str = "A split screen save needs 2 to 4 players.";
+
+/// A new split screen save with all local players in window order.
+pub fn create_split(root: &Path, name: &str, players: &[String]) -> Result<Profile, String> {
+    let name = name_of_save(name)?;
+    if !(2..=MAX_MEMBERS).contains(&players.len()) {
+        return Err(SPLIT_PLAYER_COUNT.into());
+    }
+    let names = players.iter().map(|raw| name_of_member(raw)).collect::<Result<Vec<_>, _>>()?;
+    create_profile(root, name, names, String::new(), true)
+}
+
+fn create_profile(root: &Path, name: String, names: Vec<String>, relay: String, split: bool) -> Result<Profile, String> {
     if list(root).iter().any(|p| p.name.eq_ignore_ascii_case(&name)) {
         return Err(format!("There is already a co-op save called {}.", name));
     }
-    let me = new_uid(&[])?;
+    let mut members = Vec::with_capacity(names.len());
+    for name in names {
+        members.push(new_member(name, &members)?);
+    }
+    let me = members[0].id.clone();
+    let taken: Vec<&str> = members.iter().map(|m| m.id.as_str()).collect();
     let p = Profile {
         version: VERSION,
-        id: new_uid(&[me.as_str()])?[..16].to_string(),
+        id: new_uid(&taken)?[..16].to_string(),
         name,
-        account_uid: new_uid(&[me.as_str()])?,
+        account_uid: new_uid(&taken)?,
         room_code: new_room_code()?,
-        relay: relay.trim().to_string(),
-        members: vec![Member { id: me.clone(), name: my_name }],
+        relay,
+        members,
         me,
+        split,
     };
     coop_save::make_coop_folder(&coop_save::folder_of(root, &p.id), &p.id)?;
     write(root, &p)?;
@@ -173,12 +223,7 @@ pub fn add_member(root: &Path, id: &str, name: &str) -> Result<Profile, String> 
     if p.members.len() >= MAX_MEMBERS {
         return Err(format!("A co-op save has at most {} players.", MAX_MEMBERS));
     }
-    if p.members.iter().any(|m| m.name.eq_ignore_ascii_case(&name)) {
-        return Err(format!("There is already a player called {}.", name));
-    }
-    let taken: Vec<&str> = p.members.iter().map(|m| m.id.as_str()).collect();
-    let mid = new_uid(&taken)?;
-    p.members.push(Member { id: mid, name });
+    p.members.push(new_member(name, &p.members)?);
     write(root, &p)?;
     Ok(p)
 }
@@ -213,13 +258,22 @@ struct Invite {
     members: Vec<Member>,
 }
 
+const SPLIT_NO_INVITE: &str = "A split screen save is played on this PC only: it has no invite.";
+
 /// The text the creator hands to the others. It carries the room code, so it goes to members only.
 pub fn invite(root: &Path, id: &str) -> Result<String, String> {
     use base64::Engine;
     let p = get(root, id)?;
+    if p.split {
+        return Err(SPLIT_NO_INVITE.into());
+    }
     let inv = Invite { id: p.id, name: p.name, account_uid: p.account_uid, room_code: p.room_code, relay: p.relay, members: p.members };
     let json = serde_json::to_vec(&inv).map_err(|e| e.to_string())?;
     Ok(format!("{}{}", INVITE_PREFIX, base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json)))
+}
+
+fn is_hex_id(s: &str, n: usize) -> bool {
+    s.len() == n && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 fn parse_invite(text: &str) -> Result<Invite, String> {
@@ -228,14 +282,13 @@ fn parse_invite(text: &str) -> Result<Invite, String> {
     let body = text.trim().strip_prefix(INVITE_PREFIX).ok_or_else(bad)?;
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(body).map_err(|_| bad())?;
     let inv: Invite = serde_json::from_slice(&bytes).map_err(|_| bad())?;
-    let hex = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_hexdigit());
-    let ok = hex(&inv.id, 16)
-        && hex(&inv.account_uid, 32)
+    let ok = is_hex_id(&inv.id, 16)
+        && is_hex_id(&inv.account_uid, 32)
         && room_code_ok(&inv.room_code)
         && relay_ok(&inv.relay)
         && !inv.members.is_empty()
         && inv.members.len() <= MAX_MEMBERS
-        && inv.members.iter().all(|m| hex(&m.id, 32) && clean_name(&m.name).is_ok());
+        && inv.members.iter().all(|m| is_hex_id(&m.id, 32) && clean_name(&m.name).is_ok());
     ok.then_some(inv).ok_or_else(bad)
 }
 
@@ -245,6 +298,9 @@ fn parse_invite(text: &str) -> Result<Invite, String> {
 pub fn accept(root: &Path, text: &str, member: &str) -> Result<Profile, String> {
     let inv = parse_invite(text)?;
     if let Some(mut have) = read(&coop_save::folder_of(root, &inv.id)) {
+        if have.split {
+            return Err(SPLIT_NO_INVITE.into());
+        }
         if have.account_uid != inv.account_uid || have.room_code != inv.room_code {
             return Err("This invite does not match the co-op save you have.".into());
         }
@@ -263,7 +319,7 @@ pub fn accept(root: &Path, text: &str, member: &str) -> Result<Profile, String> 
     if inv.members.first().is_some_and(|m| m.id == member) || !inv.members.iter().any(|m| m.id == member) {
         return Err("That player is not in the invite.".into());
     }
-    let p = Profile { version: VERSION, id: inv.id, name: inv.name, account_uid: inv.account_uid, room_code: inv.room_code, relay: inv.relay, members: inv.members, me: member.to_string() };
+    let p = Profile { version: VERSION, id: inv.id, name: inv.name, account_uid: inv.account_uid, room_code: inv.room_code, relay: inv.relay, members: inv.members, me: member.to_string(), split: false };
     coop_save::make_coop_folder(&coop_save::folder_of(root, &p.id), &p.id)?;
     write(root, &p)?;
     Ok(p)
@@ -332,6 +388,44 @@ mod tests {
     }
 
     #[test]
+    fn a_split_save_starts_with_all_local_players_and_has_no_invite() {
+        let root = tmp("split");
+        let p = create_split(&root, "  Island  ", &["  Alpha  ".into(), "Beta".into()]).unwrap();
+        assert!(p.split && p.is_creator() && p.relay.is_empty());
+        assert_eq!(p.name, "Island");
+        assert_eq!(p.members.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(), ["Alpha", "Beta"]);
+        assert_ne!(p.members[0].id, p.members[1].id);
+        assert_eq!(get(&root, &p.id).unwrap(), p);
+        assert_eq!(invite(&root, &p.id).unwrap_err(), SPLIT_NO_INVITE);
+        let added = add_member(&root, &p.id, "Gamma").unwrap();
+        assert_eq!(added.members.len(), 3);
+        assert_eq!(remove_member(&root, &p.id, &added.members[2].id).unwrap(), p);
+    }
+
+    #[test]
+    fn invalid_split_players_leave_no_save() {
+        let root = tmp("split-invalid");
+        for names in [vec![], vec!["Alpha"], vec!["A", "B", "C", "D", "E"], vec!["Alpha", " alpha "], vec!["Alpha", ""], vec!["Alpha", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]] {
+            let players = names.into_iter().map(String::from).collect::<Vec<_>>();
+            assert!(create_split(&root, "Island", &players).is_err());
+        }
+        assert!(list(&root).is_empty());
+        assert!(fs::read_dir(root).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn existing_profiles_without_the_split_field_stay_online() {
+        let root = tmp("old-profile");
+        let p = create(&root, "Island", "Alpha", "192.0.2.10").unwrap();
+        let path = coop_save::folder_of(&root, &p.id).join(FILE);
+        let mut json: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        json.as_object_mut().unwrap().remove("split");
+        fs::write(path, json.to_string()).unwrap();
+        assert_eq!(get(&root, &p.id).unwrap(), p);
+        assert!(!p.split);
+    }
+
+    #[test]
     fn members_are_added_and_removed_with_limits() {
         let root = tmp("members");
         let p = create(&root, "Island", "Ash", "192.0.2.10").unwrap();
@@ -357,6 +451,7 @@ mod tests {
         assert_eq!(invite_members(&text).unwrap(), p.members);
         let misty = p.members[1].id.clone();
         let q = accept(&b, &text, &misty).unwrap();
+        assert!(!q.split);
         assert_eq!((&q.id, &q.room_code, &q.account_uid, &q.relay, &q.members), (&p.id, &p.room_code, &p.account_uid, &p.relay, &p.members));
         assert_eq!(q.me, misty);
         assert_eq!(q.members[0], p.members[0], "the creator is first on every PC");

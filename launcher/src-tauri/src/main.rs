@@ -220,6 +220,7 @@ fn main() {
             profile_cmds::profile_select,
             coop_cmds::coop_list,
             coop_cmds::coop_create,
+            coop_cmds::coop_create_split,
             coop_cmds::coop_add_member,
             coop_cmds::coop_remove_member,
             coop_cmds::coop_invite,

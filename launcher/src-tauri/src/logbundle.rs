@@ -6,7 +6,7 @@
 //!   logs/setup.log                        the launcher's setup log
 //!   settings/pkp.ini                      the game's settings, private values blanked (SECRET_KEYS, commented-out lines too)
 //!   coop-saves.json                       per co-op save: a hash of its group id, its name, the players as Player 1..4 with their slots,
-//!                                         the host choice, and whether it plays on the public relay or a custom one
+//!                                         the host choice, and whether it plays on the public relay, a custom relay, or without one
 //!   system.txt                            launcher version, OS, CPU, RAM, GPUs
 //!
 //! Never in it: save data, launcher.json (the online salt), profiles.json, coop.json. The logs, the ini, system.txt and the save names
@@ -74,6 +74,12 @@ impl Private {
             for m in &s.members {
                 uid(&mut p, &m.id);
                 p.words.push((m.name.clone(), PLAYER.into()));
+                if s.split {
+                    let nickname = profiles::nickname_of(&m.name);
+                    if nickname != m.name {
+                        p.words.push((nickname, PLAYER.into()));
+                    }
+                }
             }
         }
         for prof in profiles::load(game_dir).profiles {
@@ -300,14 +306,14 @@ fn relay_kind(relay: &str, public_relay: &str) -> &'static str {
 /// One co-op save as coop-saves.json shows it. Its name is the one free text, redacted on its own (not the whole file: a name like `true`
 /// or `name` would rewrite its JSON).
 fn save_card(root: &Path, p: &Profile, public_relay: &str, private: &Private) -> Value {
-    let dir = coop_save::folder_of(root, &p.id);
-    let host = coop_save::choose_host(&p.member_ids(), &p.me, coop_save::own_stamp(&dir), &coop_save::peer_stamps(&dir));
+    let host = coop_save::host_of(root, p);
     let slot_of = |id: &str| p.members.iter().position(|m| m.id == id).map(|i| i + 1);
+    // In split screen, this_pc_role and own_copy describe window 1.
     json!({
         "group": group_tag(&p.id),
         "name": redact(&p.name, private),
-        "relay": relay_kind(&p.relay, public_relay),
-        "players": p.members.iter().enumerate().map(|(i, m)| json!({ "slot": i + 1, "name": format!("Player {}", i + 1), "creator": i == 0, "this_pc": m.id == p.me })).collect::<Vec<_>>(),
+        "relay": if p.split { "none" } else { relay_kind(&p.relay, public_relay) },
+        "players": p.members.iter().enumerate().map(|(i, m)| json!({ "slot": i + 1, "name": format!("Player {}", i + 1), "creator": i == 0, "this_pc": p.split || m.id == p.me })).collect::<Vec<_>>(),
         "host_choice": { "host_slot": slot_of(&host.host), "this_pc_role": host.role.word(), "peers_known": host.peers_known },
         "own_copy": { "seq": host.own.seq, "saved_at": host.own.saved_at },
     })
@@ -443,6 +449,29 @@ mod tests {
         assert_eq!(card(&p.id)["relay"], "public");
         assert_eq!(card(&q.id)["relay"], "custom");
         assert_eq!(card(&p.id)["players"][0]["name"], "Player 1");
+        let _ = (fs::remove_dir_all(&game), fs::remove_dir_all(&root));
+    }
+
+    #[test]
+    fn a_split_save_card_reports_local_players_and_the_host_slot() {
+        let game = temp("split-game");
+        let root = temp("split-root");
+        let p = coop::create_split(&root, "Local world", &["Alpha".into(), "Beta".into()]).unwrap();
+        coop_save::ensure_split_folders(&root, &p).unwrap();
+        let second = &p.members[1].id;
+        let copy = coop_save::split_folder_of(&root, &p.id, second);
+        fs::write(copy.join(coop_save::STAMP), r#"{"seq":2,"saved_at":42}"#).unwrap();
+        let private = Private::of(&game, &root);
+        let cards = coop_cards(&root, "192.0.2.10", &private);
+        let card = &cards[0];
+        assert_eq!(card["relay"], "none");
+        assert_eq!(card["host_choice"]["host_slot"], 1, "player 1 hosts a split save, a newer copy or not");
+        assert_eq!(card["players"][0]["this_pc"], true);
+        assert_eq!(card["players"][1]["this_pc"], true);
+        for secret in [&p.room_code, &p.account_uid, &p.id, second, &p.members[0].name, &p.members[1].name] {
+            assert!(!card.to_string().contains(secret));
+            assert!(!redact(secret, &private).contains(secret));
+        }
         let _ = (fs::remove_dir_all(&game), fs::remove_dir_all(&root));
     }
 

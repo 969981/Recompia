@@ -8,11 +8,12 @@ use tauri::AppHandle;
 
 use crate::config::game_dir;
 use crate::coop::{self, Profile};
+use crate::coop_launch::{self, SplitOptions};
 use crate::coop_save::{self, HostChoice, StartAs};
 use crate::error::{self, CmdError};
 use crate::guard::{ensure_idle, Need};
 use crate::states::States;
-use crate::{coop_code, coop_launch, launch, play, saveimport};
+use crate::{coop_code, launch, play, saveimport};
 
 /// A co-op save as the page shows it: the profile, who would host if it started now, and where it lives.
 #[derive(Serialize)]
@@ -20,9 +21,9 @@ pub struct CoopView {
     pub profile: Profile,
     pub host: HostChoice,
     pub folder: String,
-    /// This PC plays the creator, who adds and removes players and sends the invite.
+    /// This PC plays the creator, who changes the member list and sends online invites.
     pub creator: bool,
-    /// Unix seconds of this PC's copy of the world (its stamp, else its newest file); 0: never played here.
+    /// Unix seconds of this PC's copy (window 1 in split screen), 0 before it has a save.
     pub saved_at: u64,
     /// Unix seconds the save was made or joined on this PC (its marker's time); 0 when unknown.
     pub created: u64,
@@ -34,7 +35,7 @@ fn file_time(path: &Path) -> u64 {
 
 fn view(root: &Path, p: Profile) -> CoopView {
     let dir = coop_save::folder_of(root, &p.id);
-    let host = coop_save::choose_host(&p.member_ids(), &p.me, coop_save::own_stamp(&dir), &coop_save::peer_stamps(&dir));
+    let host = coop_save::host_of(root, &p);
     CoopView { folder: crate::dump::fwd(&dir), creator: p.is_creator(), saved_at: host.own.saved_at, created: file_time(&dir.join(coop_save::MARKER)), profile: p, host }
 }
 
@@ -57,6 +58,13 @@ pub fn coop_list(app: AppHandle) -> Vec<CoopView> {
 pub fn coop_create(app: AppHandle, name: String, my_name: String, relay: String) -> Result<Vec<CoopView>, String> {
     let root = guarded_root(&app)?;
     coop::create(&root, &name, &my_name, &relay)?;
+    Ok(views(&root))
+}
+
+#[tauri::command]
+pub fn coop_create_split(app: AppHandle, name: String, players: Vec<String>) -> Result<Vec<CoopView>, String> {
+    let root = guarded_root(&app)?;
+    coop::create_split(&root, &name, &players)?;
     Ok(views(&root))
 }
 
@@ -151,18 +159,31 @@ pub fn coop_last_run(app: AppHandle, since: u64) -> Option<crate::coop_diag::Fin
     crate::coop_diag::last_run(&game_dir(&app), since)
 }
 
-/// Starts the game as a member of co-op save `id`: its own folder as the save folder, the private room, and who hosts. `start_as`:
-/// "auto" (the default), "host" or "visit", for this start only.
+/// Online saves start this PC's member in the private room, with role `start_as` (auto, host or visit). Split saves start every
+/// member in its own window and use the automatic host choice.
 #[tauri::command]
-pub fn coop_play(app: AppHandle, id: String, start_as: Option<StartAs>) -> Result<(), String> {
+pub fn coop_play(app: AppHandle, id: String, start_as: Option<StartAs>, split: Option<SplitOptions>) -> Result<(), String> {
     let updates = app.updates();
     let _swap = updates.hold_swap();
     let (dir, cfg) = launch::prepare(&app)?;
-    let root = coop::root_of(&dir);
+    let (singleplayer, _) = saveimport::locate(&dir);
+    let root = coop::root_beside(&singleplayer);
     let p = coop::get(&root, &id)?;
+    if p.split {
+        ensure_idle(&app, &[Need::Game("The game is already running.")])?;
+    }
     // the group's own mod set is the layer of its account (mods_scope.rs); the game picks it from NXRT_ACCOUNT_UID
     crate::mods::ensure_points_built(&dir, &crate::mods::Scope::Coop(p.id.clone()))?;
-    let (go, _) = coop_launch::build(&p, &coop_save::folder_of(&root, &p.id), &saveimport::locate(&dir).0, start_as.unwrap_or_default())?;
+    let save = coop_save::folder_of(&root, &p.id);
+    let (go, _) = if p.split {
+        coop_save::ensure_playable(&save, &p.id, &singleplayer)?;
+        coop_save::ensure_split_folders(&root, &p)?;
+        let start = coop_launch::build_split(&p, &root, &singleplayer, &split.unwrap_or_default())?;
+        coop_launch::prepare_windows(&dir, p.members.len())?;
+        start
+    } else {
+        coop_launch::build(&p, &save, &singleplayer, start_as.unwrap_or_default())?
+    };
     play::start(&app, &dir, &cfg, false, Some(go))
 }
 
@@ -186,9 +207,23 @@ mod tests {
         assert_eq!(v["host"]["role"], "host");
         assert_eq!(v["creator"], true);
         assert_eq!(v["saved_at"], 0);
-        for k in ["id", "name", "members", "me", "room_code", "relay"] {
+        for k in ["id", "name", "members", "me", "room_code", "relay", "split"] {
             assert!(v["profile"].get(k).is_some(), "profile.{}", k);
         }
+        assert_eq!(v["profile"]["split"], false);
+        let split = coop::create_split(&root, "Local world", &["Alpha".into(), "Beta".into()]).unwrap();
+        coop_save::ensure_split_folders(&root, &split).unwrap();
+        let second = &split.members[1].id;
+        let copy = coop_save::split_folder_of(&root, &split.id, second);
+        std::fs::write(copy.join(coop_save::STAMP), r#"{"seq":2,"saved_at":42}"#).unwrap();
+        let v = serde_json::to_value(view(&root, split.clone())).unwrap();
+        assert_eq!(v["profile"]["split"], true);
+        assert_eq!(v["profile"]["relay"], "");
+        assert_eq!(v["profile"]["members"].as_array().unwrap().len(), 2);
+        assert_eq!(v["profile"]["me"], split.me.as_str());
+        assert_eq!(v["host"]["host"], split.members[0].id.as_str(), "player 1 hosts a split save, a newer copy or not");
+        assert_eq!(v["host"]["role"], "host");
+        assert_eq!(v["creator"], true);
         let f = serde_json::to_value(crate::coop_diag::Finding { mismatch: crate::coop_diag::Mismatch::Mods, own_mods: String::new() }).unwrap();
         assert_eq!(f["mismatch"], "mods");
     }

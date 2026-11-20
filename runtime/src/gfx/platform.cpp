@@ -407,7 +407,8 @@ bool init(const InitOptions& opt) {
     // it can through X11 (XWayland) but not on a native Wayland surface; SDL 3 picks Wayland first on a compositor such as
     // KDE Plasma 6, and the pad goes silent. Steam sets SteamGameId
     // for its own games and non-Steam shortcuts alike. A hint only: SDL_VIDEO_DRIVER from the player still wins.
-    if (std::getenv("SteamGameId") || std::getenv("SteamAppId")) SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11,wayland");
+    // The same order for a caller that places its window (place_window): Wayland has no protocol for a window to set its position.
+    if (opt.place_windows || std::getenv("SteamGameId") || std::getenv("SteamAppId")) SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11,wayland");
 #endif
     // Hints must be set before SDL_Init. Raw, unaccelerated relative mouse; gamepads keep reporting when the window is
     // in the background.
@@ -464,6 +465,7 @@ bool create_window(const WindowDesc& desc) {
     SDL_WindowFlags flags = SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (desc.resizable) flags |= SDL_WINDOW_RESIZABLE;
     if (desc.hidden || config_get_bool("gfx", "hidden", false)) flags |= SDL_WINDOW_HIDDEN;
+    if (!desc.focusable) flags |= SDL_WINDOW_NOT_FOCUSABLE;
 
     g_window = SDL_CreateWindow(desc.title ? desc.title : "nxrt", desc.width, desc.height, flags);
     if (!g_window) {

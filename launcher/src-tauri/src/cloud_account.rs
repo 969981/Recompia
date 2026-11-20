@@ -130,6 +130,15 @@ impl Watch {
     }
 
     /// The game has ended: closes the listeners and every connection.
+    /// Points another process of the same run (split screen's other windows) as `start` pointed the first: the same server and,
+    /// in account mode, the same gateway, which serves every connection of the run.
+    pub fn point_also(&self, game_dir: &Path, on: bool, cmd: &mut std::process::Command) {
+        point(cmd, on, &crate::settings::read_pkp(game_dir));
+        if let Some(g) = &self.gateway {
+            apply(cmd, g);
+        }
+    }
+
     pub fn finish(self) {
         if let Some(g) = self.gateway {
             g.stop();
