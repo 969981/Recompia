@@ -503,8 +503,22 @@ def popen(cmd, **kw):
                             creationflags=flags, **kw)
 
 
+def kill_tree(p):
+    """Ends p and, on Windows, every process it started. zig.exe runs its compiles and the link in child zig.exe processes, and
+    killing only the parent left them running after a pause until the launcher closed (its job object): the next Set up then
+    linked in a zig-cache they still held and wrote to (rmtree(ignore_errors) keeps what is open), next to a link they still ran
+    (#841). taskkill walks the tree from p, so it runs while p is still alive."""
+    if os.name == 'nt':
+        subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
+    try:
+        p.kill()
+    except OSError:
+        pass
+
+
 class Runner:
-    """Runs tool processes; kills them all when the cancel file appears."""
+    """Runs tool processes; kills them all, with what they started, when the cancel file appears."""
 
     def __init__(self, cancel_file):
         self.cancel_file = cancel_file
@@ -519,10 +533,7 @@ class Runner:
                 self.cancelled = True
                 with self.lock:
                     for p in list(self.procs):
-                        try:
-                            p.kill()
-                        except OSError:
-                            pass
+                        kill_tree(p)
             time.sleep(0.3)
 
     def check(self):
