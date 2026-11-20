@@ -327,9 +327,13 @@ void reset();
 }  // namespace contents
 
 namespace travel {
-// The hook site (pkp_coop.cpp): entry 0xbda20, the area move by destination index. In a session it runs only after the group's poll
-// passed; a member's never runs (the host's move brings it).
+// The hook sites (pkp_coop.cpp). Entry 0xbda20, the area move by destination index: in a session it runs only after the group's poll
+// passed; a member's never runs (the host's move brings it). Entry 0x7b0d80, an area gate's entry (its passage): in a session it
+// runs only after the group's poll for the gate's area passed, so the poll comes before anything fades.
 int on_area_move(::Ctx* c);
+int on_gate_entry(::Ctx* c);
+// The message (pkp_coop_link.cpp): the host opens the area poll a member asked for, in the member's name.
+void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // Watches the game's poll: a member's area poll that passed is carried out by the host; a held move of the host's runs (once a frame).
 void tick(::Ctx* c);
 void reset();
