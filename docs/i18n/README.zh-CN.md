@@ -112,8 +112,8 @@
 
 ## 快速开始
 
-1. 从[最新发布版本](https://github.com/Dittobyte/Recompia/releases/latest)下载 zip 文件，并解压到任意位置。
-2. 运行 `PokopiaLauncher.exe`。如果 SmartScreen 发出警告，请选择 **More info → Run anyway**。选择你的转储文件夹，然后按 **Set up**（设置）：程序会在你的电脑上编译游戏（约 7 分钟），再构建着色器缓存（1 至 2 小时，可以暂停并稍后继续）。
+1. 从[最新发布版本](https://github.com/Dittobyte/Recompia/releases/latest)下载 `Recompia-<version>-windows-x64.zip`，并解压到任意位置。
+2. 运行 `Recompia.exe`。如果 SmartScreen 发出警告，请选择 **More info → Run anyway**。选择你的转储文件夹，然后按 **Set up**（设置）：程序会在你的电脑上编译游戏（约 7 分钟），再构建着色器缓存（1 至 2 小时，可以暂停并稍后继续）。
 3. 按 **Play**（开始游戏）。
 
 在游戏中按 F1 打开设置。按鼠标中键可切换用于放置物品的 Joy-Con 2 鼠标模式。
@@ -121,13 +121,13 @@
 ### Linux、SteamOS 和 Steam Deck
 
 1. 在 Steam 中安装 **Proton Experimental**（库、工具；在 Steam Deck 上请先切换到桌面模式）。
-2. 从[最新发布版本](https://github.com/Dittobyte/Recompia/releases/latest)下载 `PokopiaRecomp-<version>-linux-x64.tar.gz`，并解压到任意位置，例如你的主目录。
-3. 运行该文件夹中的 `PokopiaLauncher.AppImage`（双击它，或在终端中运行 `./PokopiaLauncher.AppImage`）。选择你的转储文件夹，然后按 **Set up**：首次运行时会下载构建工具（Python 和 Zig，约 100 MB）、编译游戏，再通过 Proton 构建着色器缓存。你可以暂停并稍后继续。
+2. 从[最新发布版本](https://github.com/Dittobyte/Recompia/releases/latest)下载 `Recompia-<version>-linux-x86_64.tar.gz`，并解压到任意位置，例如你的主目录。
+3. 运行该文件夹中的 `Recompia.AppImage`（双击它，或在终端中运行 `./Recompia.AppImage`）。选择你的转储文件夹，然后按 **Set up**：首次运行时会下载构建工具（Python 和 Zig，约 100 MB）、编译游戏，再通过 Proton 构建着色器缓存。你可以暂停并稍后继续。
 4. 按 **Play**。游戏本身通过 Steam 的 Proton 运行。
 
-如果在没有 FUSE 的系统上 `PokopiaLauncher.AppImage` 无法启动，请运行 `./PokopiaLauncher.AppImage --appimage-extract-and-run`。
+如果在没有 FUSE 的系统上 `Recompia.AppImage` 无法启动，请运行 `./Recompia.AppImage --appimage-extract-and-run`。
 
-要从 Steam 启动（Deck 上的游戏模式）：把启动器添加到 Steam，可以在启动器的设置中（Steam，Add to Steam），也可以在桌面模式中用 **Add a Non-Steam Game** 选择 `PokopiaLauncher.AppImage`，并让启动选项留空。该快捷方式会打开启动器，由它检查更新；然后点击“开始游戏”。更多详情和测试情况请参阅 [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions)。
+要从 Steam 启动（Deck 上的游戏模式）：把启动器添加到 Steam，可以在启动器的设置中（Steam，Add to Steam），也可以在桌面模式中用 **Add a Non-Steam Game** 选择 `Recompia.AppImage`，并让启动选项留空。该快捷方式会打开启动器，由它检查更新；然后点击“开始游戏”。更多详情和测试情况请参阅 [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions)。
 
 ## 模组与翻译
 
@@ -159,7 +159,7 @@ MyMod/                       <- choose this folder in Settings > Game > Mods
 
 **从 0.7.5 开始：** 在 Home 页面按 **Update**（更新），或前往 Settings > About。启动器会下载新版本、进行检查、替换自身文件并重新启动。
 
-**从 0.7.0 或更早版本：** 从[最新发布版本](https://github.com/Dittobyte/Recompia/releases/latest)下载新的 zip（Windows）或 `PokopiaRecomp-<version>-linux-x64.tar.gz`（Linux），关闭游戏和启动器，然后解压到现有安装的同一文件夹中覆盖。包中不含存档、设置、着色器缓存或游戏文件，因此不会替换你的这些内容。
+**从 0.7.0 或更早版本：** 从[最新发布版本](https://github.com/Dittobyte/Recompia/releases/latest)下载新的 zip（Windows）或 `Recompia-<version>-linux-x86_64.tar.gz`（Linux），关闭游戏和启动器，然后解压到现有安装的同一文件夹中覆盖。包中不含存档、设置、着色器缓存或游戏文件，因此不会替换你的这些内容。
 
 **如果更新后 Home 显示 Finish update：** 该版本更改了游戏代码，因此启动器会根据你的游戏文件重新构建游戏程序 `pkp.exe`。如果你之前跳过了此类版本，之后更新时也会出现这一过程。通常只需等待约 7 分钟，掌机上会稍长一些，因为着色器和存档都会保留。这不是漫长的首次设置：只有发布说明要求时才会重新翻译着色器，而且只处理有变化的着色器。在新的 `pkp.exe` 准备就绪前，旧文件会保留。
 
@@ -191,7 +191,7 @@ Link Play 可让多名玩家来到同一座岛屿。与使用上游项目的玩�
 **通过互联网。** 每个人都选择 **Internet**，并通过中继服务器连接：
 - 主机选择 **I host**。页面会显示房间代码。将中继地址和代码发给访客。页面上有 **Copy** 和 **New code**。
 - 访客选择 **I visit**，然后输入中继地址和代码。
-- 若要自行运行中继服务器，请在主机的 Link Play 页面按 **Run a relay here**（启动器保持打开时可用），或在服务器上运行 `PokopiaLauncher --host`。任何上游项目 合作中继服务器也都可以使用。
+- 若要自行运行中继服务器，请在主机的 Link Play 页面按 **Run a relay here**（启动器保持打开时可用），或在服务器上运行 `Recompia --host`。任何上游项目 合作中继服务器也都可以使用。
 - 如果不使用中继，请在主机上将中继地址留空，并在路由器上转发 TCP 和 UDP **47600** 端口。访客通过 **Visit by address** 使用主机的公网地址。
 - 中继服务器会检查房间代码，但不会加密游戏流量。
 
@@ -229,7 +229,7 @@ Link Play 仍在测试中：加入游戏和一起走动已可用。长时间会�
 
 ## 存档、日志和设置的位置
 
-这些内容都位于游戏文件夹，即包含 `PokopiaLauncher.exe` 和 `pkp.exe` 的文件夹，除非你在 **Settings** 的 **Game folder** 中选择了其他位置。
+这些内容都位于游戏文件夹，即包含 `Recompia.exe` 和 `pkp.exe` 的文件夹，除非你在 **Settings** 的 **Game folder** 中选择了其他位置。
 
 | 内容 | 位置 |
 |---|---|

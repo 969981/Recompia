@@ -69,6 +69,7 @@ use pokopia_relay as relay;
 mod relay_cmds;
 mod release_names;
 mod releases;
+mod rename_migrate;
 mod repair;
 mod repair_cmds;
 mod rollback;
@@ -87,6 +88,8 @@ mod shader_archive;
 mod shaders;
 mod steam;
 mod steam_cmds;
+mod steam_dirs;
+mod steam_vdf;
 mod states;
 mod storage;
 #[cfg(debug_assertions)]
@@ -148,7 +151,8 @@ fn main() {
             if let Err(e) = settings::reset_link_play(&game_dir(app.handle())) {
                 eprintln!("Link Play reset: {e}");
             }
-            // what the last update left: its folder, the old launcher (still exiting after a restart), a cut-off swap
+            // what the last update left: its folder, the old launcher (still exiting after a restart), a cut-off swap; then the first
+            // start under the launcher's new file name
             if let Some(launcher) = launcher_path() {
                 let handle = app.handle().clone();
                 let st = app.updates().inner().clone();
@@ -156,6 +160,7 @@ fn main() {
                 std::thread::spawn(move || {
                     let (root, game) = (exe_dir(), game_dir(&handle));
                     update::clean_start(&root, &update::old_files(&launcher, &game));
+                    rename_migrate::on_start(&handle, &launcher);
                     st.set_cleaning(false);
                     branding::on_start(&load_config(&handle));
                 });

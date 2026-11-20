@@ -2,7 +2,9 @@
 # and publishes the version every other job reads; twelve build jobs then run at once — payload (the shader translator),
 # runtime (pkp_rt) and launcher (the Tauri app) for Windows, macOS, Linux x64 and Linux arm64 — each on its own runner with
 # only the toolchain it needs; four package jobs put a platform's three artifacts together; publish uploads every archive and
-# writes one SHA256SUMS.txt. The two Linux architectures are separate jobs on their own runners (ubuntu-22.04 and
+# writes one SHA256SUMS.txt. Each package job makes two archives of one tree (release_names.rs in the launcher): Recompia-<v>-<token>
+# with Recompia(.exe|.AppImage) and the starter under the old name, and the old-name copy PokopiaRecomp-<v>-<old token> with the full
+# launcher under the old name, the only archive a launcher from before the rename can match (shipped for three releases after it). The two Linux architectures are separate jobs on their own runners (ubuntu-22.04 and
 # ubuntu-22.04-arm): nothing is cross-compiled, so a native arm64 package is built by the same commands as the x64 one.
 # A tag v<x.y.z> does this; a manual run without release_tag only builds (artifacts).
 # Manual runs with release_tag = v<x.y.z> publish the same way and GitHub creates the tag on the commit that was built. No test
@@ -358,6 +360,12 @@ jobs:
           if ($LASTEXITCODE) { exit 1 }
           npm run tauri build
           if ($LASTEXITCODE) { exit 1 }
+          # the starter under the old file name (launcher/stub), after the icon copy above so a Testing build's has its icon too
+          cargo build --release --locked --manifest-path stub/Cargo.toml
+          if ($LASTEXITCODE) { exit 1 }
+          # one folder: an artifact of two paths would be rooted at their common parent
+          New-Item -ItemType Directory -Force ../work/win-launcher | Out-Null
+          Copy-Item src-tauri/target/release/recompia.exe, stub/target/release/recompia-stub.exe ../work/win-launcher/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -368,7 +376,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: win-launcher
-          path: launcher/src-tauri/target/release/pokopia-launcher.exe
+          path: work/win-launcher
           compression-level: 6
 
   # The Windows zip: the three artifacts around the base package (make-release.ps1), which carries the unchanged third-party
@@ -391,11 +399,11 @@ jobs:
           name: win-rt
           path: build/rtdll
 
-      - name: Launcher from windows-launcher
+      - name: Launcher and starter from windows-launcher
         uses: actions/download-artifact@v4
         with:
           name: win-launcher
-          path: launcher/src-tauri/target/release
+          path: build/launcher
 
       - name: Shader translator from windows-payload
         uses: actions/download-artifact@v4
@@ -419,13 +427,32 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download $env:BASE_RELEASE -R $env:BASE_REPO -p '*-win64.zip' -D build/base
+          # the base release's own zip by its exact name scheme, one file
+          gh release download $env:BASE_RELEASE -R $env:BASE_REPO -p 'PokopiaRecomp-*-win64.zip' -D build/base
           ./game-build/scripts/make-release.ps1 -Version $env:VERSION -Base (Get-Item build/base/*.zip).FullName -RtDir build/rtdll `
-              -Launcher launcher/src-tauri/target/release/pokopia-launcher.exe -Harness build/harness -PokoHex build/pokohex -Crates build/licenses/THIRD_PARTY_CRATES.txt -Out build/rel
+              -Launcher build/launcher/recompia.exe -Stub build/launcher/recompia-stub.exe -Harness build/harness -PokoHex build/pokohex `
+              -Crates build/licenses/THIRD_PARTY_CRATES.txt -Out build/rel
+
+      - name: Check the packages
+        run: |
+          # make-release.ps1 already compared each launcher file with the one built for it; here: the two layouts
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          function Names([string]$zip) { $a = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $zip).Path); try { $a.Entries.FullName } finally { $a.Dispose() } }
+          $new = Names "build/rel/Recompia-$env:VERSION-windows-x64.zip"
+          $old = Names "build/rel/PokopiaRecomp-$env:VERSION-win64.zip"
+          foreach ($f in 'Recompia.exe', 'PokopiaLauncher.exe', 'pkp_rt.dll', 'README.txt', 'tools/build/pkp_build.py') {
+            if ("Recompia-$env:VERSION/$f" -notin $new) { throw "missing $f in the Recompia zip" }
+          }
+          foreach ($f in 'PokopiaLauncher.exe', 'pkp_rt.dll', 'README.txt', 'tools/build/pkp_build.py') {
+            if ("PokopiaRecomp-$env:VERSION/$f" -notin $old) { throw "missing $f in the old-name zip" }
+          }
+          if ("PokopiaRecomp-$env:VERSION/Recompia.exe" -in $old) { throw 'the old-name zip carries Recompia.exe' }
+          if ($new.Count -ne $old.Count + 1) { throw "the two zips differ by more than the starter ($($new.Count) and $($old.Count) entries)" }
+          Get-ChildItem build/rel/*.zip | ForEach-Object { "{0}  {1:N0} MiB" -f $_.Name, ($_.Length / 1MB) }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PokopiaRecomp-${{ env.VERSION }}-win64
+          name: Recompia-${{ env.VERSION }}-windows-x64
           path: build/rel/*.zip
           compression-level: 0
 
@@ -695,16 +722,27 @@ jobs:
           mkdir -p build/rel
           sh launcher/scripts/make-linux.sh build/rel "$VERSION"
           # what the launcher and Set up look for: a missing one is a broken package, not a slow one
-          pkg="build/rel/PokopiaRecomp-$VERSION"
-          for f in PokopiaLauncher.AppImage libpkp_rt.so README.txt tools/build/pkp_build.py tools/build/dump_hashes.json \
-                   tools/build/sdk/libpkp_rt.so tools/build/sdk/pkp_stub.cpp tools/build/sdk/pkp_rt_api.h \
-                   tools/build/sdk/fonts/DejaVuSans.ttf tools/build/sdk/kbm_icons tools/build/recomp/nxrecomp/__main__.py \
-                   tools/harness/spirv_harness tools/pokohex/pokohex-extract tools/shaders/extract_corpus.py assets/prompts/prompt_icons.pak \
-                   LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt licenses/THIRD_PARTY_NOTICES.md \
-                   licenses/appimage/SOURCES.txt licenses/appimage/LIBRARIES.txt; do
-            test -e "$pkg/$f" || { echo "::error::missing $f in the package"; find "$pkg" -maxdepth 3 | head -40; exit 1; }
+          # both trees (make-linux.sh leaves them unpacked next to the archives)
+          new="build/rel/Recompia-$VERSION"
+          old="build/rel/PokopiaRecomp-$VERSION"
+          for pkg in "$new" "$old"; do
+            for f in PokopiaLauncher.AppImage libpkp_rt.so README.txt tools/build/pkp_build.py tools/build/dump_hashes.json \
+                     tools/build/sdk/libpkp_rt.so tools/build/sdk/pkp_stub.cpp tools/build/sdk/pkp_rt_api.h \
+                     tools/build/sdk/fonts/DejaVuSans.ttf tools/build/sdk/kbm_icons tools/build/recomp/nxrecomp/__main__.py \
+                     tools/harness/spirv_harness tools/pokohex/pokohex-extract tools/shaders/extract_corpus.py assets/prompts/prompt_icons.pak \
+                     LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt licenses/THIRD_PARTY_NOTICES.md \
+                     licenses/appimage/SOURCES.txt licenses/appimage/LIBRARIES.txt; do
+              test -e "$pkg/$f" || { echo "::error::missing $f in $pkg"; find "$pkg" -maxdepth 3 | head -40; exit 1; }
+            done
+            test -x "$pkg/tools/harness/spirv_harness"
+            test -x "$pkg/PokopiaLauncher.AppImage"
           done
-          test -x "$pkg/tools/harness/spirv_harness"
+          # the new tree: the AppImage under the new name, the starter script under the old one; the old-name copy: the AppImage
+          # under the old name and no starter
+          test -x "$new/Recompia.AppImage"
+          [ "$(head -c 2 "$new/PokopiaLauncher.AppImage")" = '#!' ] || { echo "::error::the starter is not a script"; exit 1; }
+          cmp -s "$new/Recompia.AppImage" "$old/PokopiaLauncher.AppImage" || { echo "::error::the old-name copy's launcher differs"; exit 1; }
+          test ! -e "$old/Recompia.AppImage" || { echo "::error::the old-name copy carries Recompia.AppImage"; exit 1; }
           ls -la build/rel
 
       - name: Smoke test (the AppImage starts and finds tools/)
@@ -715,14 +753,15 @@ jobs:
           # The host supplies the whole graphics/GL dispatch stack (glvnd + mesa), which is what a desktop has and this
           # runner does not: webkit's GL and ANGLE paths dlopen libEGL/libGL/libGLESv1_CM/libGLESv2/libGLX.
           sudo apt-get install -y -q --no-install-recommends xvfb libegl1 libgl1 libgles1 libgles2 libgl1-mesa-dri libvulkan1
-          cd "build/rel/PokopiaRecomp-$VERSION"
+          # through the starter: it execs Recompia.AppImage beside it, so this starts both the way an old shortcut does
+          cd "build/rel/Recompia-$VERSION"
           (APPIMAGE_EXTRACT_AND_RUN=1 timeout 20 xvfb-run -a ./PokopiaLauncher.AppImage > ../launch.log 2>&1; echo "exit $?" >> ../launch.log) || true
           cat ../launch.log
           grep -q "exit 124" ../launch.log || { echo "the launcher did not keep running"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PokopiaRecomp-${{ env.VERSION }}-linux-x64
+          name: Recompia-${{ env.VERSION }}-linux-x86_64
           path: build/rel/*.tar.gz
           compression-level: 0
 
@@ -988,34 +1027,47 @@ jobs:
       - name: Package
         run: |
           mkdir -p build/rel
-          # arm64: the third argument names the tarball (-linux-arm64.tar.gz, the suffix releases.rs looks for); make-linux.sh
-          # auto-detects only on a native run, and this job must not depend on what uname says.
+          # arm64: the third argument names the tarballs (-linux-aarch64.tar.gz and the old-name copy's -linux-arm64.tar.gz, the
+          # suffixes release_names.rs looks for); make-linux.sh auto-detects only on a native run, and this job must not depend on
+          # what uname says.
           sh launcher/scripts/make-linux.sh build/rel "$VERSION" arm64
-          pkg="build/rel/PokopiaRecomp-$VERSION"
           # what the launcher and Set up look for: a missing one is a broken package, not a slow one
-          for f in PokopiaLauncher.AppImage libpkp_rt.so README.txt tools/build/pkp_build.py tools/build/dump_hashes.json \
-                   tools/build/sdk/libpkp_rt.so tools/build/sdk/pkp_stub.cpp tools/build/sdk/pkp_rt_api.h \
-                   tools/build/sdk/fonts/DejaVuSans.ttf tools/build/sdk/kbm_icons tools/build/recomp/nxrecomp/__main__.py \
-                   tools/harness/spirv_harness tools/pokohex/pokohex-extract tools/shaders/extract_corpus.py assets/prompts/prompt_icons.pak \
-                   LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt licenses/THIRD_PARTY_NOTICES.md \
-                   licenses/appimage/SOURCES.txt licenses/appimage/LIBRARIES.txt; do
-            test -e "$pkg/$f" || { echo "::error::missing $f in the package"; find "$pkg" -maxdepth 3 | head -40; exit 1; }
+          # both trees (make-linux.sh leaves them unpacked next to the archives)
+          new="build/rel/Recompia-$VERSION"
+          old="build/rel/PokopiaRecomp-$VERSION"
+          for pkg in "$new" "$old"; do
+            for f in PokopiaLauncher.AppImage libpkp_rt.so README.txt tools/build/pkp_build.py tools/build/dump_hashes.json \
+                     tools/build/sdk/libpkp_rt.so tools/build/sdk/pkp_stub.cpp tools/build/sdk/pkp_rt_api.h \
+                     tools/build/sdk/fonts/DejaVuSans.ttf tools/build/sdk/kbm_icons tools/build/recomp/nxrecomp/__main__.py \
+                     tools/harness/spirv_harness tools/pokohex/pokohex-extract tools/shaders/extract_corpus.py assets/prompts/prompt_icons.pak \
+                     LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt licenses/THIRD_PARTY_NOTICES.md \
+                     licenses/appimage/SOURCES.txt licenses/appimage/LIBRARIES.txt; do
+              test -e "$pkg/$f" || { echo "::error::missing $f in $pkg"; find "$pkg" -maxdepth 3 | head -40; exit 1; }
+            done
+            test -x "$pkg/tools/harness/spirv_harness"
+            test -x "$pkg/PokopiaLauncher.AppImage"
           done
-          test -x "$pkg/tools/harness/spirv_harness"
+          # the new tree: the AppImage under the new name, the starter script under the old one; the old-name copy: the AppImage
+          # under the old name and no starter
+          test -x "$new/Recompia.AppImage"
+          [ "$(head -c 2 "$new/PokopiaLauncher.AppImage")" = '#!' ] || { echo "::error::the starter is not a script"; exit 1; }
+          cmp -s "$new/Recompia.AppImage" "$old/PokopiaLauncher.AppImage" || { echo "::error::the old-name copy's launcher differs"; exit 1; }
+          test ! -e "$old/Recompia.AppImage" || { echo "::error::the old-name copy carries Recompia.AppImage"; exit 1; }
           ls -la build/rel
 
       - name: Smoke test (the AppImage starts and finds tools/)
         run: |
           # the same reason as linux-package: the AppImage leaves libEGL/libGL to the host, and this runner has no desktop stack
           sudo apt-get install -y -q --no-install-recommends xvfb libegl1 libgl1 libgles1 libgles2 libgl1-mesa-dri libvulkan1
-          cd "build/rel/PokopiaRecomp-$VERSION"
+          # through the starter: it execs Recompia.AppImage beside it, so this starts both the way an old shortcut does
+          cd "build/rel/Recompia-$VERSION"
           (APPIMAGE_EXTRACT_AND_RUN=1 timeout 20 xvfb-run -a ./PokopiaLauncher.AppImage > ../launch.log 2>&1; echo "exit $?" >> ../launch.log) || true
           cat ../launch.log
           grep -q "exit 124" ../launch.log || { echo "the launcher did not keep running"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PokopiaRecomp-${{ env.VERSION }}-linux-arm64
+          name: Recompia-${{ env.VERSION }}-linux-aarch64
           path: build/rel/*.tar.gz
           compression-level: 0
 
@@ -1170,7 +1222,7 @@ jobs:
           npm ci --no-audit --no-fund
           npm run tauri build -- --no-bundle   # the release is a plain folder, not a .app: only the binary is needed
           mkdir -p ../work/play
-          cp src-tauri/target/release/pokopia-launcher ../work/play/PokopiaLauncher
+          cp src-tauri/target/release/recompia ../work/play/Recompia
 
       - uses: actions/upload-artifact@v4
         with:
@@ -1181,7 +1233,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: macos-launcher
-          path: work/play/PokopiaLauncher
+          path: work/play/Recompia
           compression-level: 6
 
   # The macOS zip: the payload the Linux job staged, the dylib and the launcher, in one folder — no .app, no signature.
@@ -1227,44 +1279,58 @@ jobs:
           path: work/licenses
 
       - name: Launcher is executable
-        run: chmod +x work/play/PokopiaLauncher work/payload/tools/pokohex/pokohex-extract
+        run: chmod +x work/play/Recompia work/payload/tools/pokohex/pokohex-extract
 
       - name: Package (zip)
         run: launcher/scripts/make-mac.sh work/play work/payload "$VERSION"
 
-      - name: Check the package
+      - name: Check the packages
         run: |
-          zip="work/play/Recompia-$VERSION-macos-arm64.zip"
-          test -s "$zip"
+          new_zip="work/play/Recompia-$VERSION-macos-aarch64.zip"
+          old_zip="work/play/PokopiaRecomp-$VERSION-macos-arm64.zip"
           rm -rf work/check && mkdir -p work/check
-          unzip -q "$zip" -d work/check
-          root="work/check/PokopiaRecomp-$VERSION"
-          test -x "$root/PokopiaLauncher"
-          file "$root/PokopiaLauncher" | grep -q arm64
-          for f in tools/build/sdk/libpkp_rt.dylib tools/build/sdk/libvulkan.1.dylib tools/build/sdk/kbm_icons \
-                   tools/build/sdk/fonts tools/build/pkp_build.py tools/pokohex/pokohex-extract \
-                   libpkp_rt.dylib "How to open Recompia.txt" LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt; do
-            test -e "$root/$f" || { echo "missing $f in the package"; ls -R "$root" | head -60; exit 1; }
+          for zip in "$new_zip" "$old_zip"; do
+            test -s "$zip"
+            unzip -q "$zip" -d work/check
+            # no .app and no signature: the zip is unpacked and the launcher started from there (the note explains Open Anyway)
+            if unzip -Z1 "$zip" | grep -q '\.app/'; then echo "$zip carries an app bundle"; exit 1; fi
+            du -h "$zip"
           done
-          # the launcher execs the apphost directly (host.rs), so presence is not enough
-          test -x "$root/tools/harness/spirv_harness" || { echo "the shader harness is not executable"; exit 1; }
-          # the in-place updater's package: update.rs takes PokopiaRecomp-<version>/ as the install root
-          unzip -Z1 "$zip" | grep -qx "PokopiaRecomp-$VERSION/tools/build/pkp_build.py" || { echo "the zip has no tools/build at the package root"; exit 1; }
-          # no .app and no signature: the zip is unpacked and the launcher started from there (the note explains Open Anyway)
-          if unzip -Z1 "$zip" | grep -q '\.app/'; then echo "the zip carries an app bundle"; exit 1; fi
-          du -h "$zip"
+          new="work/check/Recompia-$VERSION"
+          old="work/check/PokopiaRecomp-$VERSION"
+          # the in-place updater's package: update.rs takes the top folder as the install root
+          unzip -Z1 "$new_zip" | grep -qx "Recompia-$VERSION/tools/build/pkp_build.py" || { echo "the Recompia zip has no tools/build at its root"; exit 1; }
+          unzip -Z1 "$old_zip" | grep -qx "PokopiaRecomp-$VERSION/tools/build/pkp_build.py" || { echo "the old-name zip has no tools/build at its root"; exit 1; }
+          for root in "$new" "$old"; do
+            for f in tools/build/sdk/libpkp_rt.dylib tools/build/sdk/libvulkan.1.dylib tools/build/sdk/kbm_icons \
+                     tools/build/sdk/fonts tools/build/pkp_build.py tools/pokohex/pokohex-extract \
+                     libpkp_rt.dylib "How to open Recompia.txt" LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt; do
+              test -e "$root/$f" || { echo "missing $f in $root"; ls -R "$root" | head -60; exit 1; }
+            done
+            # the launcher execs the apphost directly (host.rs), so presence is not enough
+            test -x "$root/tools/harness/spirv_harness" || { echo "the shader harness in $root is not executable"; exit 1; }
+            test -x "$root/PokopiaLauncher"
+          done
+          # the new tree: the binary under the new name, the starter script under the old one; the old-name copy: the binary under
+          # the old name and no starter
+          test -x "$new/Recompia"
+          file "$new/Recompia" | grep -q arm64
+          [ "$(head -c 2 "$new/PokopiaLauncher")" = '#!' ] || { echo "the starter is not a script"; exit 1; }
+          cmp -s "$new/Recompia" "$old/PokopiaLauncher" || { echo "the old-name copy's launcher differs"; exit 1; }
+          test ! -e "$old/Recompia" || { echo "the old-name copy carries Recompia"; exit 1; }
 
       - name: Checksums
         run: |
           cd work/play
-          shasum -a 256 "Recompia-$VERSION-macos-arm64.zip" | sed -E 's/  / */' > macos.sha256
+          shasum -a 256 "Recompia-$VERSION-macos-aarch64.zip" "PokopiaRecomp-$VERSION-macos-arm64.zip" | sed -E 's/  / */' > macos.sha256
           cat macos.sha256
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PokopiaRecomp-${{ env.VERSION }}-macos-arm64
+          name: Recompia-${{ env.VERSION }}-macos-aarch64
           path: |
-            work/play/Recompia-${{ env.VERSION }}-macos-arm64.zip
+            work/play/Recompia-${{ env.VERSION }}-macos-aarch64.zip
+            work/play/PokopiaRecomp-${{ env.VERSION }}-macos-arm64.zip
             work/play/macos.sha256
           compression-level: 0
 
@@ -1318,12 +1384,12 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PokopiaRecomp-sources
+          name: Recompia-sources
           path: work/sources
           compression-level: 0
 
-  # The one place that writes into the release: it takes the archives the four package jobs produced, uploads them, and
-  # writes one SHA256SUMS.txt over all of them. A platform job that failed leaves its archive out instead of failing this one.
+  # The one place that writes into the release: it takes the archives the four package jobs produced (both names of each
+  # platform) and the sources, uploads them, and writes one SHA256SUMS.txt over all of them. A platform job that failed leaves its archive out instead of failing this one.
   publish:
     needs: [windows-package, linux-package, linux-arm64-package, macos-package, sources]
     if: always() && !cancelled() && (github.ref_type == 'tag' || inputs.release_tag != '')
@@ -1332,7 +1398,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: PokopiaRecomp-*
+          pattern: Recompia-*
           path: build/assets
           merge-multiple: true
 

@@ -16,7 +16,7 @@ pub fn run_headless(args: &[String]) -> i32 {
         Ok(a) => a,
         Err(e) => {
             eprintln!("{}", e);
-            eprintln!("Usage: PokopiaLauncher --host {}", relay::cli::OPTIONS);
+            eprintln!("Usage: Recompia --host {}", relay::cli::OPTIONS);
             return 2;
         }
     };

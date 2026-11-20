@@ -370,7 +370,8 @@ pub struct Build {
 }
 
 /// Facts about what an older version does not know, by the version that introduced them: going back across one of them is a risk.
-const BOUNDARIES: [(&str, &str); 2] = [
+const BOUNDARIES: [(&str, &str); 3] = [
+    ("0.15.0", "The launcher's file was renamed Recompia.exe (Recompia.AppImage on Linux, Recompia on macOS) in 0.15.0. An older version goes back to the old file name, so Steam shortcuts that start the new name stop working: use Add to Steam again after going back."),
     ("0.8.0", "Profiles (a separate save and name for each player) arrived in 0.8.0. An older version ignores profiles.json and uses one save, so a second player's save may not be found."),
     ("0.7.5", "The one-click updater arrived in 0.7.5. An older launcher cannot update itself, so moving forward again would mean extracting a release by hand."),
 ];
@@ -629,6 +630,9 @@ mod channel_tests {
         assert!(reasons.iter().any(|x| x.contains("Profiles")) && reasons.iter().any(|x| x.contains("Set up again")), "{:?}", reasons);
         assert!(downgrade_risk("0.8.1", "v0.8.0").1.iter().any(|x| x.contains("Set up again")));
         assert!(downgrade_risk("0.8.1", "v0.9.0").1.is_empty(), "nothing to warn about going forward");
+        let (risk, reasons) = downgrade_risk("0.15.0", "v0.14.2");
+        assert_eq!(risk, "high", "back across the release rename");
+        assert!(reasons.iter().any(|x| x.contains("Add to Steam")), "{:?}", reasons);
     }
 
     #[test]

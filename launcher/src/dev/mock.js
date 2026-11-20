@@ -129,7 +129,7 @@ let setup = structuredClone(sc.setup);
 let readiness = sc.readiness;
 let dumpDir = sc.dump ? 'D:/Dumps/Game' : '';
 let relay = null;
-let mockSteam = { found: true, running: false, accounts: 1, game_added: 0, launcher_added: 0 };
+let mockSteam = { found: true, running: false, accounts: 1, game_added: 0, launcher_added: 0, game_other_name: 0, launcher_other_name: 0 };
 let mockChannel = 'stable';
 let mockPicked = '';
 let mockTheme = params.get('usertheme') || '';   // &usertheme=<pack>/<id> starts with one of the mock packs chosen
@@ -584,7 +584,7 @@ function handle(cmd, args) {
       return runUpdate();
     }
     case 'steam_status': return { ...mockSteam, game_name: mockChannel === 'experimental' ? 'Recompia (Testing)' : 'Recompia', launcher_name: mockChannel === 'experimental' ? 'Recompia Launcher (Testing)' : 'Recompia Launcher' };
-    case 'steam_add': mockSteam.launcher_added = 1; return `Added "Recompia Launcher" to Steam for 1 account. Start Steam again to see it, with its artwork.`;
+    case 'steam_add': mockSteam.launcher_added = 1; mockSteam.launcher_other_name = 0; return `Added "Recompia Launcher" to Steam for 1 account. Start Steam again to see it, with its artwork.`;
     case 'cloud_signin_state': return accountState();
     case 'cloud_signin_begin': mockSignin = { method: args.method || 'browser', at: Date.now() }; return accountState();
     case 'cloud_signin_cancel': mockSignin = null; return accountState();

@@ -219,6 +219,22 @@ function writeSensitivity(value) {
   return [edit(AT_YAW, rad), edit(AT_PITCH, rad)];
 }
 
+// The Steam rows ('game' or 'launcher', steam.rs Status). A shortcut that starts the launcher's old file name (made before the release
+// rename, still working through the small starter left under that name) is offered Update: Add to Steam points it here, keeping its app id.
+function steamValue(env, kind, none) {
+  const st = env.steam ?? {};
+  if (st[`${kind}_added`]) return t('In Steam as {name}', { name: st[`${kind}_name`] });
+  if (st[`${kind}_other_name`]) return t("In Steam as {name}, starting the launcher's old file name", { name: st[`${kind}_name`] });
+  return none;
+}
+
+function steamAction(env, kind) {
+  const disabled = env.steamBusy;   // Steam running: the back end answers with what to do (Close Steam first)
+  if (env.steam?.[`${kind}_added`]) return { act: `steam-remove-${kind}`, label: t('Remove'), icon: 'trash-2', disabled };
+  if (env.steam?.[`${kind}_other_name`]) return { act: `steam-add-${kind}`, label: t('Update'), icon: 'refresh-cw', disabled };
+  return { act: `steam-add-${kind}`, label: t('Add to Steam'), icon: 'plus', disabled };
+}
+
 // ---- the plain mapping of each type -------------------------------------------------------------------------------------------------
 
 const CLOCK_LIMIT_MIN = 10 * 366 * 24 * 60;
@@ -700,14 +716,12 @@ export const SECTIONS = [
           // would face dead buttons. steam.rs checks again on every press and answers "Close Steam first" while it runs.
           {
             id: 'steam_launcher', label: t('Launcher in Steam'), type: 'info', when: (v, env) => !!env.steam?.found,
-            value: (env) => (env.steam?.launcher_added ? t('In Steam as {name}', { name: env.steam.launcher_name }) : t('Not in Steam. Opens this window.')),
-            actions: (env) => [env.steam?.launcher_added
-              ? { act: 'steam-remove-launcher', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy }
-              : { act: 'steam-add-launcher', label: t('Add to Steam'), icon: 'plus', disabled: env.steamBusy }],
+            value: (env) => steamValue(env, 'launcher', t('Not in Steam. Opens this window.')),
+            actions: (env) => [steamAction(env, 'launcher')],
           },
           {
             // only for a shortcut an earlier launcher added: it started the game without the window, so updates were skipped. It is never added again.
-            id: 'steam_game', label: t('Old game shortcut'), type: 'info', when: (v, env) => !!env.steam?.found && !!env.steam.game_added,
+            id: 'steam_game', label: t('Old game shortcut'), type: 'info', when: (v, env) => !!env.steam?.found && !!(env.steam.game_added || env.steam.game_other_name),
             value: (env) => t('Still in Steam as {name}. This is an old shortcut: the launcher shortcut replaces it.', { name: env.steam.game_name }),
             actions: (env) => [{ act: 'steam-remove-game', label: t('Remove'), icon: 'trash-2', disabled: env.steamBusy }],
           },

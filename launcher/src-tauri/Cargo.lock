@@ -2510,29 +2510,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pokopia-launcher"
-version = "0.1.1"
-dependencies = [
- "base64 0.22.1",
- "cc",
- "chrono",
- "flate2",
- "gilrs",
- "libc",
- "pokopia-relay",
- "recompia-cloud-gateway",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "ureq",
- "windows",
- "zstd",
-]
-
-[[package]]
 name = "pokopia-relay"
 version = "0.1.1"
 dependencies = [
@@ -2702,6 +2679,29 @@ dependencies = [
  "rustls-pki-types",
  "time",
  "yasna",
+]
+
+[[package]]
+name = "recompia"
+version = "0.1.1"
+dependencies = [
+ "base64 0.22.1",
+ "cc",
+ "chrono",
+ "flate2",
+ "gilrs",
+ "libc",
+ "pokopia-relay",
+ "recompia-cloud-gateway",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "ureq",
+ "windows",
+ "zstd",
 ]
 
 [[package]]

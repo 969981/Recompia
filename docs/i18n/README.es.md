@@ -112,8 +112,8 @@ Pulsa **F1** en el juego para cambiar los gráficos, los controles y el sonido (
 
 ## Inicio rápido
 
-1. Descarga el zip de la [última versión](https://github.com/Dittobyte/Recompia/releases/latest) y extráelo donde quieras.
-2. Ejecuta `PokopiaLauncher.exe`. Si SmartScreen muestra una advertencia, elige **More info → Run anyway**. Selecciona la carpeta de tu volcado y pulsa **Set up**: el juego se compila en tu PC (unos 7 minutos) y después se genera la caché de sombreadores (entre 1 y 2 horas; puedes pausar y continuar más tarde).
+1. Descarga `Recompia-<version>-windows-x64.zip` de la [última versión](https://github.com/Dittobyte/Recompia/releases/latest) y extráelo donde quieras.
+2. Ejecuta `Recompia.exe`. Si SmartScreen muestra una advertencia, elige **More info → Run anyway**. Selecciona la carpeta de tu volcado y pulsa **Set up**: el juego se compila en tu PC (unos 7 minutos) y después se genera la caché de sombreadores (entre 1 y 2 horas; puedes pausar y continuar más tarde).
 3. Pulsa **Play**.
 
 F1 abre los ajustes dentro del juego. El botón central del ratón activa o desactiva el modo ratón de Joy-Con 2 para colocar objetos.
@@ -121,13 +121,13 @@ F1 abre los ajustes dentro del juego. El botón central del ratón activa o desa
 ### Linux, SteamOS y Steam Deck
 
 1. En Steam, instala **Proton Experimental** (Biblioteca, Herramientas; en Steam Deck, cambia primero al modo de escritorio).
-2. Descarga `PokopiaRecomp-<version>-linux-x64.tar.gz` de la [última versión](https://github.com/Dittobyte/Recompia/releases/latest) y extráelo donde quieras, por ejemplo en tu carpeta personal.
-3. Ejecuta `PokopiaLauncher.AppImage` en esa carpeta (haz doble clic o ejecuta `./PokopiaLauncher.AppImage` en una terminal). Selecciona la carpeta de tu volcado y pulsa **Set up**: la primera vez descarga sus herramientas de compilación (Python y Zig, unos 100 MB), compila el juego y genera la caché de sombreadores mediante Proton. Puedes pausar y continuar más tarde.
+2. Descarga `Recompia-<version>-linux-x86_64.tar.gz` de la [última versión](https://github.com/Dittobyte/Recompia/releases/latest) y extráelo donde quieras, por ejemplo en tu carpeta personal.
+3. Ejecuta `Recompia.AppImage` en esa carpeta (haz doble clic o ejecuta `./Recompia.AppImage` en una terminal). Selecciona la carpeta de tu volcado y pulsa **Set up**: la primera vez descarga sus herramientas de compilación (Python y Zig, unos 100 MB), compila el juego y genera la caché de sombreadores mediante Proton. Puedes pausar y continuar más tarde.
 4. Pulsa **Play**. El juego se ejecuta mediante Proton de Steam.
 
-Si `PokopiaLauncher.AppImage` no se inicia en un sistema sin FUSE, ejecuta `./PokopiaLauncher.AppImage --appimage-extract-and-run`.
+Si `Recompia.AppImage` no se inicia en un sistema sin FUSE, ejecuta `./Recompia.AppImage --appimage-extract-and-run`.
 
-Para iniciar desde Steam (modo Juego en Deck): añade el launcher a Steam, bien en los Ajustes del launcher (Steam, Add to Steam) o en el modo de escritorio con **Add a Non-Steam Game**, eligiendo `PokopiaLauncher.AppImage` y dejando vacías las opciones de lanzamiento. El acceso directo abre el launcher, que busca actualizaciones; después pulsa Jugar. Encontrarás más información y las pruebas realizadas en [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
+Para iniciar desde Steam (modo Juego en Deck): añade el launcher a Steam, bien en los Ajustes del launcher (Steam, Add to Steam) o en el modo de escritorio con **Add a Non-Steam Game**, eligiendo `Recompia.AppImage` y dejando vacías las opciones de lanzamiento. El acceso directo abre el launcher, que busca actualizaciones; después pulsa Jugar. Encontrarás más información y las pruebas realizadas en [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
 
 ## Mods y traducciones
 
@@ -159,7 +159,7 @@ Tus partidas guardadas, ajustes y sombreadores se conservan.
 
 **Desde 0.7.5 en adelante:** pulsa **Update** en Home o en Settings > About. El launcher descarga la nueva versión, la comprueba, sustituye sus propios archivos y se reinicia.
 
-**Desde 0.7.0 o una versión anterior:** descarga el nuevo zip (Windows) o `PokopiaRecomp-<version>-linux-x64.tar.gz` (Linux) de la [última versión](https://github.com/Dittobyte/Recompia/releases/latest), cierra el juego y el launcher, y extráelo sobre tu instalación, en la misma carpeta. No contiene partidas guardadas, ajustes, caché de sombreadores ni archivos del juego, por lo que no sustituye nada de lo tuyo.
+**Desde 0.7.0 o una versión anterior:** descarga el nuevo zip (Windows) o `Recompia-<version>-linux-x86_64.tar.gz` (Linux) de la [última versión](https://github.com/Dittobyte/Recompia/releases/latest), cierra el juego y el launcher, y extráelo sobre tu instalación, en la misma carpeta. No contiene partidas guardadas, ajustes, caché de sombreadores ni archivos del juego, por lo que no sustituye nada de lo tuyo.
 
 **Si Home muestra Finish update después de una actualización:** esa versión ha cambiado el código del juego, por lo que el launcher vuelve a compilar el programa del juego (`pkp.exe`) a partir de tus archivos del juego. También ocurre si antes omitiste una versión de este tipo y actualizas más tarde. La espera es corta, unos 7 minutos en la mayoría de los PC y algo más en un dispositivo portátil, porque se conservan los sombreadores y las partidas guardadas. No es la larga configuración inicial: los sombreadores solo se vuelven a traducir cuando lo indican las notas de la versión, y entonces solo los que han cambiado. El `pkp.exe` anterior se conserva hasta que el nuevo está listo.
 
@@ -191,7 +191,7 @@ Los cambios se aplican la próxima vez que se inicia el juego.
 **Por internet.** Todos eligen **Internet** y se conectan mediante un servidor de retransmisión:
 - El anfitrión elige **I host**. La página muestra un código de sala. Da a los visitantes la dirección del servidor y el código. **Copy** y **New code** están en la página.
 - El visitante elige **I visit** y escribe la dirección del servidor y el código.
-- Para ejecutar tu propio servidor, pulsa **Run a relay here** en la página Link Play del anfitrión (funciona mientras el launcher permanezca abierto), o ejecuta `PokopiaLauncher --host` en un servidor. También sirve cualquier servidor cooperativo del proyecto original.
+- Para ejecutar tu propio servidor, pulsa **Run a relay here** en la página Link Play del anfitrión (funciona mientras el launcher permanezca abierto), o ejecuta `Recompia --host` en un servidor. También sirve cualquier servidor cooperativo del proyecto original.
 - Si no utilizas un servidor de retransmisión, deja vacía su dirección en el anfitrión y redirige los puertos TCP y UDP **47600** en el router. Los visitantes usan **Visit by address** con la dirección pública del anfitrión.
 - El servidor comprueba el código de la sala, pero no cifra el tráfico del juego.
 
@@ -229,7 +229,7 @@ Si ninguno de estos casos describe tu problema, consulta [Informar de problemas]
 
 ## Dónde están tus partidas guardadas, registros y ajustes
 
-Todo esto está en la carpeta del juego: la carpeta con `PokopiaLauncher.exe` y `pkp.exe`, salvo que hayas elegido otra en **Settings**, **Game folder**.
+Todo esto está en la carpeta del juego: la carpeta con `Recompia.exe` y `pkp.exe`, salvo que hayas elegido otra en **Settings**, **Game folder**.
 
 | Contenido | Ubicación |
 |---|---|

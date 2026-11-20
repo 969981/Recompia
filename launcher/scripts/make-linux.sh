@@ -7,6 +7,13 @@
 #
 # Needs a production launcher build (npm run tauri build -- --bundles appimage), the runtime (PKP_RT_DLL=ON, see
 # docs/linux-port.md) and the linux shader harness (tools/shaders, dotnet publish -r linux-<arch>) in build/.
+#
+# Two archives of the same tree (release_names.rs in the launcher), both left unpacked in <out dir> as well:
+#   Recompia-<v>-linux-<x86_64|aarch64>.tar.gz   Recompia-<v>/ with Recompia.AppImage and the starter under the old name,
+#                                                PokopiaLauncher.AppImage (launcher/stub/old-name.sh)
+#   PokopiaRecomp-<v>-linux-<x64|arm64>.tar.gz   the old-name copy: PokopiaRecomp-<v>/ with the full AppImage as
+#                                                PokopiaLauncher.AppImage and no starter, the only one a launcher from before the
+#                                                rename can match and install. It ships for three releases after the rename.
 set -eu
 out=${1:?usage: make-linux.sh <out dir> [version] [arch]}
 repo=$(cd "$(dirname "$0")/../.." && pwd)
@@ -18,7 +25,14 @@ if [ -z "$arch" ]; then
         *) arch="x64" ;;
     esac
 fi
-pkg="$out/PokopiaRecomp-$version"
+case "$arch" in
+    arm64) token="aarch64" ;;
+    x64) token="x86_64" ;;
+    *) echo "unknown arch $arch (x64 or arm64)" >&2; exit 1 ;;
+esac
+name="Recompia-$version"
+old_name="PokopiaRecomp-$version"
+pkg="$out/$name"
 
 rt="$repo/build/rtdll/libpkp_rt.so"
 [ -f "$rt" ] || { echo "no runtime at $rt (cmake -DPKP_RT_DLL=ON, target pkp_rt)" >&2; exit 1; }
@@ -29,11 +43,12 @@ harness="$repo/build/harness"
 # made executable instead. A win-x64 publish has spirv_harness.exe and no spirv_harness, which this still catches.
 [ -f "$harness/spirv_harness" ] || { echo "no shader harness at $harness (dotnet publish -r linux-$arch)" >&2; exit 1; }
 
-rm -rf "$pkg"
+rm -rf "$pkg" "$out/$old_name"
 mkdir -p "$pkg/tools/build/sdk" "$pkg/tools/shaders" "$pkg/assets" "$pkg/licenses"
 
 # the programs
-install -m 755 "$appimage" "$pkg/PokopiaLauncher.AppImage"
+install -m 755 "$appimage" "$pkg/Recompia.AppImage"
+install -m 755 "$repo/launcher/stub/old-name.sh" "$pkg/PokopiaLauncher.AppImage"
 install -m 755 "$rt" "$pkg/libpkp_rt.so"
 install -m 755 "$rt" "$pkg/tools/build/sdk/libpkp_rt.so"
 
@@ -75,12 +90,28 @@ mkdir -p "$pkg/licenses/appimage"
 cp -R "$notices/." "$pkg/licenses/appimage/"
 cp "$repo/LICENSE" "$pkg/LICENSE.txt"
 cp "$repo/CHANGELOG.md" "$pkg/CHANGELOG.txt"
-sed "s/@VERSION@/$version/g" "$repo/game-build/release_b/README.linux.txt" > "$pkg/README.txt"
-for t in "$repo"/game-build/release_b/README.linux.*.txt; do
-    [ -f "$t" ] || continue
-    lang=${t##*/README.linux.}
-    sed "s/@VERSION@/$version/g" "$t" > "$pkg/README.${lang%.txt}.txt"
-done
+# the READMEs name the launcher file of their archive
+readmes() {
+    sed -e "s/@VERSION@/$version/g" -e "s/@LAUNCHER@/$2/g" "$repo/game-build/release_b/README.linux.txt" > "$1/README.txt"
+    for t in "$repo"/game-build/release_b/README.linux.*.txt; do
+        [ -f "$t" ] || continue
+        lang=${t##*/README.linux.}
+        sed -e "s/@VERSION@/$version/g" -e "s/@LAUNCHER@/$2/g" "$t" > "$1/README.${lang%.txt}.txt"
+    done
+}
+readmes "$pkg" Recompia.AppImage
 
-tar -C "$out" -czf "$out/PokopiaRecomp-$version-linux-$arch.tar.gz" "PokopiaRecomp-$version"
-echo "built $out/PokopiaRecomp-$version-linux-$arch.tar.gz"
+# each launcher file is the one built for it: the AppImage under the new name, the starter script under the old one
+cmp -s "$appimage" "$pkg/Recompia.AppImage" || { echo "Recompia.AppImage is not the AppImage just built" >&2; exit 1; }
+cmp -s "$repo/launcher/stub/old-name.sh" "$pkg/PokopiaLauncher.AppImage" || { echo "PokopiaLauncher.AppImage is not the starter" >&2; exit 1; }
+tar -C "$out" -czf "$out/$name-linux-$token.tar.gz" "$name"
+echo "built $out/$name-linux-$token.tar.gz"
+
+# the old-name copy: the same tree under the old folder, the full AppImage under the old name, no starter
+cp -a "$pkg" "$out/$old_name"
+rm -f "$out/$old_name/Recompia.AppImage"
+install -m 755 "$appimage" "$out/$old_name/PokopiaLauncher.AppImage"
+readmes "$out/$old_name" PokopiaLauncher.AppImage
+cmp -s "$appimage" "$out/$old_name/PokopiaLauncher.AppImage" || { echo "the old-name copy's PokopiaLauncher.AppImage is not the AppImage just built" >&2; exit 1; }
+tar -C "$out" -czf "$out/$old_name-linux-$arch.tar.gz" "$old_name"
+echo "built $out/$old_name-linux-$arch.tar.gz"
