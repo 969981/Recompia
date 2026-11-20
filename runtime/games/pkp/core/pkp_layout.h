@@ -22,6 +22,8 @@ constexpr uint64_t kTables = 0x35618f0;          // the data-table manager (the 
 constexpr uint64_t kUiMgr = 0x35aebf8;           // the UI manager (UI resource manager: holds the loaded sprite sheets and the layout pools)
 constexpr uint64_t kLanguage = 0x36ca680;        // -> u32 language 0..8
 constexpr uint64_t kWorld = 0x34efc98;           // the world ([GOT 0x3483b10] points here); +0x6000030 = chunk map u16[64*64], +0x6000018 = packed cells
+constexpr uint64_t kWorldRequests = 0x9218378;   // world: Link Play's request queue, u16 q[0..4] (visitor: q[0] sent, q[1] answers taken,
+                                                 // q[4] the strict kind in flight, 0xffff none)
 
 // ---- KTGL layouts and their panes ----
 // A layout's panes are a list: u16 count, the first node (node +8 the next one, +16 its pane), and the node that ends it (layout + 64).
