@@ -265,6 +265,9 @@ entryhook 0x710011b214
 entryhook 0x71001240dc
 entryhook 0x710043d3e0
 entryhook 0x710012c734
+#   Seamless co-op, catch-up (pkp_coop_catchup.cpp): the item of a character's reward list 0x71003bcbc0 (comp, &u16 item, &u16 count;
+#   only called through the reward command table 0x7103485400)
+entryhook 0x71003bcbc0
 #   Seamless co-op, the story lines (pkp_coop_story.cpp): step action 6 0x710010c270 (the town register and house arrival; no direct
 #   callers, row 6 of the step-action table 0x710322d658 that 0x710010afc0 calls through)
 entryhook 0x710010c270

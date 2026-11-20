@@ -54,6 +54,8 @@ enum class Site : uintptr_t {
     AbilityStep,      // the story-line step action that sets or clears an ability: a clear likewise
     NameEntry,        // event-script command 0x44, the name entry: after the talker's, every other member enters a name of their own
     ScriptItems,      // event-script command 0xbea, items given by a script: replayed for every member
+    RewardItem,       // the item of a character's reward list (its talk reward): replayed for every member likewise; a member's
+                      // reward talk runs the list on the host, so without this the member never got the item
     MaskStart,        // the permission-mask builder starts: its arguments are set so every stage type builds the full mask
     MaskPattern,      // the mask builder's online pattern: every member gets the full permissions with the story system on
     // ---- the requests ----
@@ -115,6 +117,7 @@ constexpr CoopSite kSites[] = {
     {{0x10c0d0, kPacibsp, true}, Site::AbilityStep},
     {{0x43d3e0, kPacibsp, true}, Site::NameEntry},
     {{0x12c734, 0x79400808u, true}, Site::ScriptItems},      // ldrh w8, [x0, #4]
+    {{0x3bcbc0, 0xaa0203e8u, true}, Site::RewardItem},       // mov x8, x2
     {{0xb0f74, 0xaa0003f3u, false}, Site::MaskStart},        // mov x19, x0
     {{0xb1030, 0xf2c0002du, false}, Site::MaskPattern},      // movk x13, #1, lsl #32
     {{0x11435c, kPacibsp, true}, Site::GiverCheck},
@@ -182,6 +185,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::TalkKind: return coop::talk::on_talk_kind(c);
         case Site::NameEntry: return coop::catchup::on_name_entry(c);
         case Site::ScriptItems: return coop::catchup::on_script_items(c);
+        case Site::RewardItem: return coop::catchup::on_reward_item(c);
         case Site::GiverCheck: return coop::requests::on_giver_check(c);
         case Site::GoalCount: return coop::outcomes::on_goal_count(c);
         case Site::Friendship: return coop::outcomes::on_friendship(c);

@@ -22,6 +22,12 @@
 // to every other member too (Items), through the same handler. Like the name it counts in any event, a talk the player holds or one a
 // character starts: an event runs on the process of the player it is with only (control is taken from that player alone), so a
 // give is never run on two processes and shared twice.
+// A character's reward list (0x3bbbe0: the next of up to 10 rewards in its species row; the progress byte is in the world's
+// character record) gives its item through 0x3bcbc0(comp, &u16 item, &u16 count): 0x3bcdc0(0, &actor id, item, count, 0xff, 0),
+// into this process's bag with the item-get scene. It runs where post-talk action 4 runs: a member's talk only writes the action
+// into the talk-end record (callback slot 69) and the host runs it (0x2197a0 @0x21c8f4), so the host's player got the member's
+// reward and the member nothing. Its item is shared like a script give; its moves, emotes and recipes are shared already
+// (pkp_coop_unlocks.cpp, pkp_coop_recipes.cpp). RE: modding-docs coop-v2/VISITOR-SERVICES-RE.md section 10.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -203,6 +209,20 @@ void tick_gives(::Ctx* c) {
     }
 }
 
+// A give that ran on this process for its own player (a script's, or a reward list's): every other member gets it too.
+void share_give(uint16_t item, uint32_t count) {
+    if (st().remote || purchases::replaying() || !link::in_session()) return;
+    if (item < 1 || item > kItemMax || !count) return;
+    if (count > kGiveMax) NXLOG_W(kTag, "Co-op catch-up: item %u x%u given here; shared as x%u", item, count, kGiveMax);
+    const uint32_t total = std::min(count, kGiveMax);
+    for (uint32_t left = total; left;) {
+        const uint32_t part = std::min(left, kItemsPerMessage);
+        link::share(wire::Type::Items, wire::Writer(link::self()).u16(item).u8(static_cast<uint8_t>(part)).take());
+        left -= part;
+    }
+    NXLOG_I(kTag, "Co-op catch-up: item %u x%u given here, shared", item, total);
+}
+
 }  // namespace
 
 int on_name_entry(::Ctx*) {
@@ -216,19 +236,14 @@ int on_name_entry(::Ctx*) {
 }
 
 int on_script_items(::Ctx* c) {
-    State& s = st();
-    if (s.remote || purchases::replaying() || !link::in_session() || !guest::ok(c->x[0], 0xc)) return 0;
-    const uint16_t item = guest::rd<uint16_t>(c->x[0] + 4);
-    const uint32_t count = guest::rd<uint32_t>(c->x[0] + 8);
-    if (item < 1 || item > kItemMax || !count) return 0;
-    if (count > kGiveMax) NXLOG_W(kTag, "Co-op catch-up: item %u x%u given here; shared as x%u", item, count, kGiveMax);
-    const uint32_t total = std::min(count, kGiveMax);
-    for (uint32_t left = total; left;) {
-        const uint32_t part = std::min(left, kItemsPerMessage);
-        link::share(wire::Type::Items, wire::Writer(link::self()).u16(item).u8(static_cast<uint8_t>(part)).take());
-        left -= part;
-    }
-    NXLOG_I(kTag, "Co-op catch-up: item %u x%u given here, shared", item, total);
+    if (!guest::ok(c->x[0], 0xc)) return 0;
+    share_give(guest::rd<uint16_t>(c->x[0] + 4), guest::rd<uint32_t>(c->x[0] + 8));
+    return 0;
+}
+
+int on_reward_item(::Ctx* c) {
+    if (!guest::ok(c->x[1], 2) || !guest::ok(c->x[2], 2)) return 0;
+    share_give(guest::rd<uint16_t>(c->x[1]), guest::rd<uint16_t>(c->x[2]));
     return 0;
 }
 

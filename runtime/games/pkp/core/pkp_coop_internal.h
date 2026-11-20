@@ -289,6 +289,7 @@ namespace catchup {
 // The hook sites (pkp_coop.cpp).
 int on_name_entry(::Ctx* c);     // entry 0x43d3e0: script command 0x44, the name entry
 int on_script_items(::Ctx* c);   // entry 0x12c734: script command 0xbea, items given
+int on_reward_item(::Ctx* c);    // entry 0x3bcbc0: the item of a character's reward list
 // The messages (pkp_coop_link.cpp).
 void on_name_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_items_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
