@@ -8,6 +8,7 @@
 //   pkp_coop_story.cpp    the shared story: full permissions on every process, quest flags and abilities shared
 //   pkp_coop_quests.cpp   the quest authority: in a session only the authority moves quests on; a member asks it for its player's steps
 //   pkp_coop_talk.cpp     the talk lock: one player at a time talks to a character
+//   pkp_coop_gimmicks.cpp a gimmick a member was using when it left: freed, so the others can use it again
 //   pkp_coop_catchup.cpp  what the talker's talk gives the talker alone (a name, items) given to every other member too
 //   pkp_coop_gate.cpp     the wait for every member: this player's input is held until the whole group is in the session
 //   pkp_coop_lock.cpp     the input lock the catch-up's name prompt and the gate share
@@ -311,6 +312,14 @@ void on_member(::Ctx* c, int node, bool joined, bool authority, bool self);
 void tick();
 void reset();
 }  // namespace talk
+
+namespace gimmicks {
+// A member left (pkp_coop_link.cpp): the next while, gimmicks still held by a member index with no character are freed.
+void on_member(int node, bool joined, bool self);
+// The sweep after a leave (once a frame; once a second while due).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace gimmicks
 
 namespace catchup {
 // The hook sites (pkp_coop.cpp).
