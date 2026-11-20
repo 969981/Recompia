@@ -27,6 +27,8 @@
 - Creature requests are shared: when one player hands a request in, it is done for the whole group. Its bubble goes away above the creature for everyone, nobody has to talk to the creature again, and the items it gives go to every player
 - Talking to a character now counts for the group's story when a teammate does it, not only when the host does: a story step that waits for someone to talk to a creature moves on for a teammate's talk too
 - Over the internet, a teammate whose connection drops large packets can talk to creatures again: the game's large packets now travel over the TCP link, so one lost packet no longer holds up everything the teammate sends after it
+- Co-op and Link Play now really check that every player has the same gameplay mods (Modtopia) on. Before, the mods were left out of the check, so players with different mods could join each other
+- When the host runs another Recompia version, the launcher now says so, instead of saying the host has different mods on
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five
