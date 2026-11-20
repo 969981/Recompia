@@ -317,6 +317,8 @@ midhook 0x71005728b4
 #   upgrades; its callers, the listing tests 0x7100e86494 / 0x7100e87424, hide such rows whenever the game is online)
 entryhook 0x7100e889f8
 entryhook 0x7100e87260
+#   and the PC menu's "a visitor may open the shop" test 0x7100e8d428 (only caller the PC menu's tile test 0x7100eff7a0, entry 0)
+entryhook 0x7100e8d428
 #   Seamless co-op, Life Coins (pkp_coop_money.cpp): the coins of a claimed challenge 0x7100637480 (CM, id); its callers are the PC's
 #   claim 0x7100645c90 (not on a visitor) and, on a visitor, the host's goal update 0x71006355c0
 entryhook 0x7100637480

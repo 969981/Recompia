@@ -204,6 +204,8 @@ namespace purchases {
 int on_grant(::Ctx* c);
 // The hook site (pkp_coop.cpp): entry 0xe87260, "this shop row is for offline play only"; in a session no row is.
 int on_offline_only(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0xe8d428, the PC menu's "a visitor may open the shop" test; a member in a session may.
+int on_shop_tile(::Ctx* c);
 // True while a teammate's purchase is given here, and shortly after a received upgrade (its scripted event may still give items):
 // those gives are not shared again (pkp_coop_catchup.cpp).
 bool replaying();

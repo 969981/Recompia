@@ -19,6 +19,10 @@
 //                                     28 more rows (issue #780: the host's shop lacked them in co-op). In a co-op session it answers 0,
 //                                     so the shop lists them as offline. A member's shop is the game's visitor shop (it lists what the
 //                                     host's shop publishes, and its buys go through the host); what the host buys reaches it below.
+//   kShopTile()                       0xe8d428, the PC menu's shop tile test for a visitor (only caller 0xeff7a0, tile 1, with entry
+//                                     0): 1 when mask bit 23 (the per-row visitor lock) is set, online, not Cloud Island, a visitor.
+//                                     The tile's other way in, 0xe88524, wants the host. A member's mask has bit 23 cleared
+//                                     (pkp_coop_story.cpp), so the tile was grey on members; in a session it answers 1.
 // Rules:
 //   - every purchase on a process in the session (the entry hook, not our own replays) goes to the log: the authority appends its
 //     own at once, a member sends it (Purchase) and the authority appends it. The log is the authority's, numbered from 1, kept in a
@@ -376,6 +380,13 @@ bool replaying() {
 int on_offline_only(::Ctx* c) {
     if (!(session_bits() & layout::kSessionOnline)) return 0;
     c->x[0] = 0;
+    return 1;   // the function returns x0
+}
+
+int on_shop_tile(::Ctx* c) {
+    constexpr uint8_t kMember = layout::kSessionOnline | layout::kSessionVisitor;
+    if ((session_bits() & kMember) != kMember) return 0;
+    c->x[0] = 1;
     return 1;   // the function returns x0
 }
 
