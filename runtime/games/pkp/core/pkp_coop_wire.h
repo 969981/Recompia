@@ -57,6 +57,12 @@
 //   BagRestore  +2 u8[16] member key, +18 u8 1 when the authority has a record for it (0: none, the rest is 0), +19 u64 sequence,
 //               +27 kBagRecordSlots x 16 bytes   (the authority's answer to a member's first BagRecord of a session, or to one older than
 //               its own copy; a member ignores one for another member's key)
+//   FriendAsk   +2 u8 kind, +3 u16 the creature's actor handle (kind 1; 0 for 2), +5 u32 its chara (< 0x41a), +9 s16 amount (kind 1,
+//               >= 1; 0 for 2), +11 u16 a record byte (kind 1: the caller's once-gate, 0 none / 0x175 / 0x177 / 0x17d; kind 2: 0x17a)
+//               (kind 1: a member's friendship gain with that creature; kind 2: a member set that friend record flag;
+//               pkp_coop_friendship.cpp)
+//   FriendState +2 u16 count n, then n times: u16 chara (< 0x41a), u16 friendship points (+0x2c), u16 meter (+0x2e), u8 the bytes
+//               +0x175, +0x177, +0x17a, +0x17d   (the authority's friend records that changed, or all set ones to a member that joins)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -118,6 +124,9 @@ enum class Type : uint32_t {
     StateReport = 31,
     BagRecord = 32,
     BagRestore = 33,
+    // ---- friendship (pkp_coop_friendship.cpp) ----
+    FriendAsk = 40,
+    FriendState = 41,
 };
 
 // Builds one payload: the header, then the fields in order.

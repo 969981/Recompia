@@ -38,6 +38,7 @@
 //                         saves into its per-user table, a refusal's bag reset), switched off
 //   pkp_coop_bags.cpp     every member's bag kept as a record of ours (a file per member key in the co-op save), written into the bag
 //                         the game selects and given back at every join; the host's copy of each visitor's bag fed from it
+//   pkp_coop_friendship.cpp a member's friendship gains with a creature made on the authority (the group's), its records shown to all
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -460,5 +461,20 @@ void on_report_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_session_change();
 void reset();
 }  // namespace digest
+
+// ---- friendship (pkp_coop_friendship.cpp): a member's friendship gains and flags made on the authority; its records shown to all ----
+namespace friendship {
+// The hook sites (pkp_coop.cpp).
+int on_add_points(::Ctx* c);   // entry 0x3a89fc: a member's gain is sent to the authority
+int on_flag_17a(::Ctx* c);     // midhook 0x4ab358: a member's friend record flag +0x17a is sent to the authority
+// The messages (pkp_coop_link.cpp).
+void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);     // the authority: a member's gain or flag
+void on_state_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: the authority's friend records
+// Another member joined (its node): the authority sends it every friend record it has.
+void on_member_joined(int node);
+// A member sends what waits; the authority sends the friend records that changed (once a frame).
+void tick(::Ctx* c);
+void reset();
+}  // namespace friendship
 
 }  // namespace nxrt::games::pkp::coop

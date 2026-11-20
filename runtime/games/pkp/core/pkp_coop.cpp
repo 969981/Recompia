@@ -114,6 +114,10 @@ enum class Site : uintptr_t {
     // ---- the unlocks ----
     AreaGateRecord,   // the area gate record's "a session is open" guard: the write goes through, so a gate opened in a session can be
                       // entered, and is shared with the group (pkp_coop_unlocks.cpp)
+    // ---- friendship (pkp_coop_friendship.cpp) ----
+    FriendGain,       // a friendship gain with a creature: a member's (outside Cloud Island) is made on the authority, whose record
+                      // is the group's
+    FriendFlag,       // script callback slot 175's friend record flag: a member's is set on the authority too
 };
 
 struct CoopSite {
@@ -183,6 +187,9 @@ constexpr CoopSite kSites[] = {
     {{0x13596c, 0x12003c29u, true}, Site::PlacedNotice},     // and w9, w1, #0xffff
     {{0x12b544, 0xb9400408u, true}, Site::PlayScene},        // ldr w8, [x0, #4]
     {{0x5c05c0, 0x37000140u, false}, Site::AreaGateRecord},  // tbnz w0, #0, 0x5c05e8 (w0 = IsOnline's answer)
+    // friendship
+    {{0x3a89fc, kPacibsp, true}, Site::FriendGain},
+    {{0x4ab358, 0x36000120u, false}, Site::FriendFlag},      // tbz w0, #0, 0x4ab37c (w0 = Cloud Island, w19 = the chara)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -247,6 +254,8 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::PlacedNotice: return coop::placement::on_placed_notice(c);
         case Site::PlayScene: return coop::contents::on_play_scene(c);
         case Site::AreaGateRecord: return coop::unlocks::on_area_gate_record(c);
+        case Site::FriendGain: return coop::friendship::on_add_points(c);
+        case Site::FriendFlag: return coop::friendship::on_flag_17a(c);
         default: return 0;
     }
 }
@@ -333,6 +342,7 @@ void game_frame(::Ctx* c) {
     coop::gate::tick(s.in_game.load(std::memory_order_relaxed));
     coop::trace::tick(s.in_game.load(std::memory_order_relaxed));
     coop::digest::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::friendship::tick(c);
 }
 
 void remove() {   // the registry has removed the hooks
@@ -370,6 +380,7 @@ void remove() {   // the registry has removed the hooks
     coop::linkqueue::reset();
     coop::placement::reset();
     coop::contents::reset();
+    coop::friendship::reset();
     coop::session::reset();
 }
 
