@@ -61,18 +61,9 @@ constexpr uint64_t kSlotPhases = 0x35650f8, kSlotPhaseSize = 0x2010, kSceneHolde
 // is in a phase below 5, unless it is slot 0's kind 0xf (0x92210).
 constexpr uint64_t kGameState = 0x3561710, kTripRequest = 0x3bb600;
 constexpr double kHeldEvery = 2.0, kHeldAfter = 10.0;
-// m_CraftRefine (save root +): the own records (a host, offline) or a visitor's copy of the host's; chara < layout::kCharaCount. Cloud
-// Island keeps a third set (+0xab3db8), not traced. Record: f32 timer +0x18, u16 recipe +0x1c (1..0x5db: a job), u8 count +0x1e, made
-// +0x1f, taken +0x20, dummy end approach +0x21, end +0x22, the user's 16-byte id +0x23.
-constexpr uint64_t kWorkOwn = 0x62820, kWorkMirror = 0x1525428, kWorkSize = 0x40;
-constexpr uint64_t kWorkTimer = 0x18, kWorkRecipe = 0x1c, kWorkCount = 0x1e, kWorkMade = 0x1f, kWorkTaken = 0x20, kWorkDummy = 0x21,
-                   kWorkEnd = 0x22, kWorkUser = 0x23;
-constexpr uint16_t kRecipeMax = 0x5db;
-// User ids (save root +): this process's own; the member table, 4 entries of 0xb8 with the id at +0x11. This player's index in the
-// table: u8 +0xb3381 of the object **(main + kIndexRef) (0x2cfc88 and 0x31d3a0 read it there: own id when it equals the player's).
-constexpr uint64_t kOwnUser = 0x13d3a89, kMemberTable = 0x14c2a48, kMemberSize = 0xb8, kMemberUser = 0x11;
-constexpr uint64_t kIndexRef = 0x3484d68, kOwnIndex = 0xb3381;
-constexpr int kMembers = 4, kWorkLinesMax = 12;
+// The work watch (layout: m_CraftRefine, user ids): Cloud Island's third set of records is not traced. All records are read with one
+// checked block copy a second (kCharaCount * kCraftWorkSize = 67200 bytes).
+constexpr int kWorkLinesMax = 12;
 constexpr double kWorkEvery = 1.0;
 
 struct Vec {
@@ -103,11 +94,12 @@ struct State {
         float timer = 0;
         uint16_t recipe = 0;
         uint8_t count = 0, made = 0, taken = 0, dummy = 0, end = 0;
-        uint8_t user[16] = {};
+        uint8_t user[layout::kUserIdSize] = {};
         double timer_since = 0;
         bool timer_logged = false;
     };
     std::vector<Work> work;   // per chara, the record as last seen
+    std::vector<uint8_t> work_block;   // this second's copy of all records
     uint64_t work_base = 0;   // the records it was read from (own or the host's copy); a change starts the listing again
     double work_at = 0;
 };
@@ -242,12 +234,12 @@ void watch_charas(State& s, double t, bool first) {
 }
 
 std::string hex16(const uint8_t* b) {
-    char out[33];
-    for (int i = 0; i < 16; ++i) std::snprintf(out + i * 2, 3, "%02x", b[i]);
+    char out[layout::kUserIdSize * 2 + 1];
+    for (size_t i = 0; i < layout::kUserIdSize; ++i) std::snprintf(out + i * 2, 3, "%02x", b[i]);
     return out;
 }
 
-bool has_job(const State::Work& w) { return static_cast<uint16_t>(w.recipe - 1) < kRecipeMax; }
+bool has_job(const State::Work& w) { return static_cast<uint16_t>(w.recipe - 1) < layout::kRecipeMax; }
 
 std::string work_line(uint32_t chara, const State::Work& w) {
     char line[200];
@@ -256,32 +248,34 @@ std::string work_line(uint32_t chara, const State::Work& w) {
     return line;
 }
 
+std::string user_id(uint64_t a) {
+    uint8_t id[layout::kUserIdSize];
+    return guest::read(a, id, sizeof id) ? hex16(id) : std::string("unreadable");
+}
+
 void log_users(uint64_t r) {
-    uint8_t id[16];
-    std::memcpy(id, reinterpret_cast<const void*>(r + kOwnUser), sizeof id);
-    const uint64_t ref = guest::rd<uint64_t>(base() + kIndexRef);
-    const uint64_t obj = guest::ok(ref, 8) ? guest::rd<uint64_t>(ref) : 0;
-    const int own = guest::ok(obj, kOwnIndex + 1) ? guest::rd<uint8_t>(obj + kOwnIndex) : -1;
+    const uint64_t obj = guest::deref(guest::deref(base() + layout::kOwnMemberIndexRef));
+    uint8_t own = 0;
+    const bool have_index = obj && guest::read(obj + layout::kOwnMemberIndex, own);
     char idx[40];
-    std::snprintf(idx, sizeof idx, ", own index %d; member table", own);
-    std::string line = "own " + hex16(id) + idx;
-    for (int m = 0; m < kMembers; ++m) {
-        std::memcpy(id, reinterpret_cast<const void*>(r + kMemberTable + m * kMemberSize + kMemberUser), sizeof id);
-        line += " " + std::to_string(m) + "=" + hex16(id);
-    }
+    std::snprintf(idx, sizeof idx, ", own index %d; member table", have_index ? static_cast<int>(own) : -1);
+    std::string line = "own " + user_id(r + layout::kOwnUserId) + idx;
+    for (uint32_t m = 0; m < layout::kMemberCount; ++m)
+        line += " " + std::to_string(m) + "=" + user_id(r + layout::kMemberTable + m * layout::kMemberSize + layout::kMemberUserId);
     NXLOG_I(kTag, "Co-op trace: user ids: %s", line.c_str());
 }
 
-State::Work read_work(uint64_t a) {
+// One record out of the block copy (rec points at its first byte, kCraftWorkSize bytes).
+State::Work parse_work(const uint8_t* rec) {
     State::Work w;
-    std::memcpy(&w.timer, reinterpret_cast<const void*>(a + kWorkTimer), sizeof w.timer);
-    w.recipe = guest::rd<uint16_t>(a + kWorkRecipe);
-    w.count = guest::rd<uint8_t>(a + kWorkCount);
-    w.made = guest::rd<uint8_t>(a + kWorkMade);
-    w.taken = guest::rd<uint8_t>(a + kWorkTaken);
-    w.dummy = guest::rd<uint8_t>(a + kWorkDummy);
-    w.end = guest::rd<uint8_t>(a + kWorkEnd);
-    std::memcpy(w.user, reinterpret_cast<const void*>(a + kWorkUser), sizeof w.user);
+    std::memcpy(&w.timer, rec + layout::kCraftWorkTimer, sizeof w.timer);
+    std::memcpy(&w.recipe, rec + layout::kCraftWorkRecipe, sizeof w.recipe);
+    w.count = rec[layout::kCraftWorkCount];
+    w.made = rec[layout::kCraftWorkMade];
+    w.taken = rec[layout::kCraftWorkTaken];
+    w.dummy = rec[layout::kCraftWorkDummyEnd];
+    w.end = rec[layout::kCraftWorkEnd];
+    std::memcpy(w.user, rec + layout::kCraftWorkUser, sizeof w.user);
     return w;
 }
 
@@ -293,11 +287,12 @@ bool same_job(const State::Work& a, const State::Work& b) {
 void watch_work(State& s, double t, bool session_start) {
     if (!session_start && t - s.work_at < kWorkEvery) return;
     s.work_at = t;
-    const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
-    if (!guest::ok(r, 8) || !guest::ok(r + kOwnUser, 16) || !guest::ok(r + kMemberTable, kMembers * kMemberSize)) return;
+    const uint64_t r = guest::deref(base() + layout::kSaveRoot);
+    if (!r) return;
     const bool visitor = (session_bits() & layout::kSessionVisitor) != 0;
-    const uint64_t recs = r + (visitor ? kWorkMirror : kWorkOwn);
-    if (!guest::ok(recs, uint64_t{layout::kCharaCount} * kWorkSize)) return;
+    const uint64_t recs = r + (visitor ? layout::kCraftWorkHostCopy : layout::kCraftWorkOwn);
+    s.work_block.resize(size_t{layout::kCharaCount} * layout::kCraftWorkSize);
+    if (!guest::read(recs, s.work_block.data(), s.work_block.size())) return;
     const char* whose = visitor ? "the host's copy" : "own records";
     const bool first = recs != s.work_base;   // the session's start, or the visitor bit changed: list again
     s.work_base = recs;
@@ -305,7 +300,7 @@ void watch_work(State& s, double t, bool session_start) {
     s.work.resize(layout::kCharaCount);
     int lines = 0, jobs = 0;
     for (uint32_t i = 0; i < layout::kCharaCount; ++i) {
-        State::Work now = read_work(recs + i * kWorkSize);
+        State::Work now = parse_work(s.work_block.data() + size_t{i} * layout::kCraftWorkSize);
         State::Work& was = s.work[i];
         if (first) {
             if (has_job(now) && ++jobs <= kWorkLinesMax)

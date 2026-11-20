@@ -154,4 +154,24 @@ constexpr uint64_t kCharaStatus = 0x835af0;      // + chara * kCharaStatusStride
 constexpr uint64_t kCharaStatusStride = 0x30;
 constexpr uint32_t kCharaCount = 1050;           // chara 0..1049 (the save's character arrays)
 
+// ---- m_CraftRefine: a character's item-making job, per chara (< kCharaCount), kCraftWorkSize bytes (VISITOR-SERVICES-RE) ----
+// Save root +: the own records (a host, offline), or a visitor's copy of the host's. Every reader selects on the visitor bit (and on
+// Cloud Island, a third set at +0xab3db8). A job is recipe 1..kRecipeMax.
+constexpr uint64_t kCraftWorkOwn = 0x62820, kCraftWorkHostCopy = 0x1525428, kCraftWorkSize = 0x40;
+constexpr uint64_t kCraftWorkTimer = 0x18;       // f32, seconds left (only the host ticks it, 0x3b38f0)
+constexpr uint64_t kCraftWorkRecipe = 0x1c;      // u16
+constexpr uint64_t kCraftWorkCount = 0x1e;       // u8, items asked for
+constexpr uint64_t kCraftWorkMade = 0x1f;        // u8, made so far
+constexpr uint64_t kCraftWorkTaken = 0x20;       // u8, taken so far
+constexpr uint64_t kCraftWorkDummyEnd = 0x21;    // u8, dummy end approach
+constexpr uint64_t kCraftWorkEnd = 0x22;         // u8, finished
+constexpr uint64_t kCraftWorkUser = 0x23;        // 16 bytes, the user id the job is for
+// ---- user ids (save root +): this process's own, and the session's member table (kMemberCount entries) ----
+constexpr uint64_t kOwnUserId = 0x13d3a89, kMemberTable = 0x14c2a48, kMemberSize = 0xb8, kMemberUserId = 0x11;
+constexpr uint32_t kMemberCount = 4;
+// This player's index in the member table: u8 at kOwnMemberIndex of **(main + kOwnMemberIndexRef) (0x2cfc88 / 0x31d3a0 use the own id
+// when it equals the player's index).
+constexpr uint64_t kOwnMemberIndexRef = 0x3484d68, kOwnMemberIndex = 0xb3381;
+constexpr size_t kUserIdSize = 16;
+
 }  // namespace nxrt::games::pkp::layout
