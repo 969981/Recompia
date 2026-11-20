@@ -31,10 +31,14 @@ namespace nxrt::kernel {
 namespace {
 // Short sleeps as real sleeps: on Linux, NtDelayExecution (not alertable) is a nanosleep on the host, good to tens of microseconds,
 // so a 100 us poll costs no processor time, but wakes ~50 us late (Linux timer slack). On Windows it rounds up to the timer's grid
-// (about half a millisecond or more). [kernel] short_sleep = auto | yield | sleep | wait (sleep and wait only on Linux; Windows always
-// yields). auto: wait on a handheld (host_is_handheld; sleep when ntdll has no address wait), yield elsewhere.
+// (about half a millisecond or more). [kernel] short_sleep = auto | yield | sleep | wait (sleep and wait only on a Linux kernel and on
+// macOS; Windows always yields). auto: wait wherever the host has the address wait; under Wine without it, sleep on a handheld and yield
+// elsewhere.
 // Measured in game with sleep against yield: on the PC, uncapped, yielding 231 fps on 4.1 cores and sleeping 198 fps on 3.8 cores; on a Steam Deck LCD, where the frame waits on the GPU anyway and CPU and GPU share one power budget,
-// sleeping 54 fps (1% lows ~30) against 52 yielding (lows ~27).
+// sleeping 54 fps (1% lows ~30) against 52 yielding (lows ~27). wait against yield on a Linux PC (native build, 16 threads, headless, in
+// the world): uncapped 314 fps against 198 (frame p99 5.3-5.6 ms against 6.7); at a 60 fps cap the same pacing (p99 17.6 ms) on 0.75
+// cores against 1.6, at 144 fps 1.65 against 2.3 cores. The wait's early wake ends a fence poll's sleep when the GPU completes, which
+// sleep cannot.
 // The game polls its GPU fences with ~80 us SleepThread calls on two threads, thousands a second: yielded through, each keeps a
 // processor core busy for as long as the GPU takes.
 //
@@ -59,14 +63,15 @@ const ShortCfg& short_cfg() {
 #endif
         const std::string m = config_get_str("kernel", "short_sleep", "auto");
 #if defined(_WIN32)
-        const bool hosted = linux_kernel && (m == "sleep" || m == "wait" || (m == "auto" && host_is_handheld()));   // not yielded through
+        // not yielded through. auto without the address wait falls back to NtDelayExecution only on a handheld: on a PC it was slower.
+        const bool hosted = linux_kernel && (m == "sleep" || m == "wait" || (m == "auto" && (detail::address_wait_available() || host_is_handheld())));
 #else
         // No ntdll on the POSIX hosts, so NtDelayExecution (short_sleep = sleep) has no meaning there and the address wait is the only
         // short sleep that is not a yield: the futex on Linux and the ulock on macOS, both in early_wake.cpp. auto uses it on every
         // host that has one: a 100 us poll costs a SwitchToThread syscall per round when it yields, and with forty guest threads
         // polling GPU fences the yields take the cores the render thread needs (45 fps before, 58 after on an M3). yield stays
         // available as an explicit choice.
-        const bool hosted = m == "wait" || (m == "auto" && host_is_handheld());
+        const bool hosted = m == "wait" || m == "auto";
 #endif
         if (hosted && m != "sleep" && detail::address_wait_available()) {
             c.mode = detail::ShortSleep::Wait;
@@ -78,7 +83,7 @@ const ShortCfg& short_cfg() {
 #if defined(_WIN32)
         const char* const host = !linux_kernel ? ", Windows" : m == "auto" ? (host_is_handheld() ? ", a handheld" : ", not a handheld") : "";
 #else
-        const char* const host = m == "auto" ? (host_is_handheld() ? ", a handheld" : ", not a handheld") : "";
+        const char* const host = "";
 #endif
         NXLOG_I("kernel", "short sleeps (up to %lld us): %s ([kernel] short_sleep = %s%s)", static_cast<long long>(c.max_ns / 1000),
                 c.mode == detail::ShortSleep::Wait ? "timed address wait, lateness corrected"
