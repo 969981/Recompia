@@ -187,6 +187,7 @@ void install(const FeatureInstall& in) {
     s.hooks->add_mid(base + kMmStyle, &hook_mm_style);
     s.hooks->add_mid(base + kMmOption, &hook_mm_option);
     s.hooks->add_mid(base + kMmStart, &hook_mm_start);
+    s.hooks->add_mid(base + kMmSprite, &hook_mm_sprite);
     s.installed = true;
     settings_changed(set);
     NXLOG_I(kTag, "frame-time fix %s (event hold %s, %llu ms), game's 60 Hz wait %s (fps limit %d, vsync %s), mouse camera %s, camera placement %s, grace %llu ms",

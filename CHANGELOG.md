@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher. Nothing is linked or translated again.
+**Update:** press **Update** in the launcher, then **Set up again** once (a new game hook point for the mouse mode pointer; saves and shaders are kept, no shader is translated again).
+
+### Game
+- Mouse mode: the game's pointer is drawn where the mouse really is at render sizes other than 1920x1080 (it drifted away from the mouse at 1440p and above) (#806)
 
 ### Launcher
 - Pausing Set up on Windows now stops all of the compiler's work. Before, part of it kept running until the launcher closed, and the next **Set up again** could sit at "Linking pkp.exe"

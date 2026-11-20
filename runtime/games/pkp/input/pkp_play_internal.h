@@ -105,6 +105,7 @@ struct State {
     bool mm_want = false;
     uint64_t mm_log_ns = 0;
     std::atomic<uint64_t> mm_dropped{0};
+    std::atomic<uint64_t> mm_space{0};       // the pointer space handed to hid (w << 32 | h), 0 = its pointer range (hook_mm_sprite)
     std::atomic<bool> mm_gate{false};        // the game's mouse mode is let through its "two Joy-Cons" check (hook_mm_style)
     uint64_t mm_gate_logs = 0;
     uint64_t mm_exit_ns = 0;                 // the key turned mouse mode off at this time while the game's flag was still on (0 = not leaving)
@@ -186,5 +187,7 @@ constexpr uint64_t kMmStart = 0x2fa8ec;       // mid: mouse mode turning on, at 
 int hook_mm_style(::Ctx* c, uint64_t, void*);
 int hook_mm_option(::Ctx* c, uint64_t, void*);
 int hook_mm_start(::Ctx* c, uint64_t, void*);
+constexpr uint64_t kMmSprite = 0xebf93c;      // mid: the pointer sprite's frame, after it converted the mouse x, y (s9, s8) to floats
+int hook_mm_sprite(::Ctx* c, uint64_t, void*);
 
 }  // namespace nxrt::games::pkp::play_detail
