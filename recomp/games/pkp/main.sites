@@ -364,6 +364,10 @@ midhook 0x71005c05c0
 #   Seamless co-op, contents scenes (pkp_coop_contents.cpp): a content record's "play scene" command 0x710012b544 (cmd; scene u16 at
 #   cmd +4), which queues the scene through 0x71002e6ce0 and does not see the queue refuse it
 entryhook 0x710012b544
+#   Seamless co-op, the role answers (pkp_coop_role.cpp): one midhook per row of runtime/games/pkp/core/pkp_coop_role_table.inc, at the
+#   instruction after a `bl` to IsVisitor 0x71000376c4 or IsHost 0x71000a40bc (the getters themselves are not hooked: a thousand and more
+#   call sites each, many every frame); the rows' addresses, ascending, as the table lists them
+#   ---- end of the role answers ----
 #   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): talk conditions
 #   0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0` after IsOnline), and condition 0x22, the one instruction `b IsOnline`;
 #   the quest pump 0x710011b600 at `tbz w0, #0` after the flag read; the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item

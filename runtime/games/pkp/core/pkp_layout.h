@@ -157,6 +157,9 @@ constexpr uint64_t kLayoutOf = 0x9132fc;         // (source) -> layout
 constexpr uint64_t kChildOf = 0xa6f92c;          // (children (screen + 0x48), element id, u16* class) -> child widget
 constexpr uint64_t kTextString = 0xf35f20;       // (widget, text slot, text id, const char*): a text id with a string argument
 constexpr uint32_t kStringText = 0xa8;           // text id "<string;0(lstr1)>"
+// The role getters as co-op's role answers name them (pkp_coop_role.cpp; kOnline above is IsVisitor under its older name).
+constexpr uint64_t kIsVisitor = 0x376c4;         // () -> GM+0x90 bit 2: a Link Play visitor (0 with no game state)
+constexpr uint64_t kIsHost = 0xa40bc;            // () -> GM+0x90 bit 1: the Link Play host (0 with no game state)
 // The key guide widget's functions, offsets and tables are in pkp_key_guide.cpp, its one user.
 
 // ---- story and characters (read by co-op and its test probe) ----
