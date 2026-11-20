@@ -319,6 +319,9 @@ entryhook 0x7100e889f8
 entryhook 0x7100e87260
 #   and the PC menu's "a visitor may open the shop" test 0x7100e8d428 (only caller the PC menu's tile test 0x7100eff7a0, entry 0)
 entryhook 0x7100e8d428
+#   Seamless co-op, Life Coins (pkp_coop_money.cpp): the coins of a claimed challenge 0x7100637480 (CM, id); its callers are the PC's
+#   claim 0x7100645c90 (not on a visitor) and, on a visitor, the host's goal update 0x71006355c0
+entryhook 0x7100637480
 #   Seamless co-op, the discoveries (pkp_coop_discovery.cpp): the "registered in the Pokédex" scene 0x71003b9060 (slot, &actor id; the
 #   talk-end registration 0x71003b88b4 calls it) and the "new habitat" scene 0x710045f2a0 (slot, habitat, placed habitat, flag; the
 #   habitat build 0x7100957588 and 0x71009598c0 call it)
