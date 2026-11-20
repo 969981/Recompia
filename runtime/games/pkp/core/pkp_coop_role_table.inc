@@ -17,5 +17,26 @@
 // The pkp_coop.cpp site table includes this file too (each row one Site::RoleAnswer midhook).
 
 // ---- TABLE rows ----
+PKP_ROLE_ROW(0x7596cc, IsVisitor, 0x37000300u, "effects", "this gimmick plays its type effect when it changes state (fx 0x25 / 0x27 / 0x3e)")
+PKP_ROLE_ROW(0x7fca2c, IsVisitor, 0x370005a0u, "effects", "the cell effect after a use of this gimmick plays")
+PKP_ROLE_ROW(0x7fd1ac, IsVisitor, 0x370005a0u, "effects", "this gimmick cell effect plays")
+PKP_ROLE_ROW(0x7fd6b0, IsVisitor, 0x36000060u, "effects", "this gimmick cell effect plays")
+PKP_ROLE_ROW(0x7fe00c, IsVisitor, 0x370005a0u, "effects", "the cell effect plays (the player cue already ran on both paths)")
+PKP_ROLE_ROW(0x7fe450, IsVisitor, 0x360000c0u, "effects", "the end effect plays")
+PKP_ROLE_ROW(0x81ce3c, IsVisitor, 0x36001160u, "effects", "the end-of-use effect plays (fx 0x18)")
+PKP_ROLE_ROW(0x81d584, IsVisitor, 0x370000c0u, "effects", "this gimmick cell effect plays (fx 0x18)")
+PKP_ROLE_ROW(0x81d608, IsVisitor, 0x36000200u, "effects", "this gimmick cell effect plays")
+PKP_ROLE_ROW(0x81d728, IsVisitor, 0x370000c0u, "effects", "this gimmick cell effect plays")
+PKP_ROLE_ROW(0x81d874, IsVisitor, 0x36000540u, "effects", "this gimmick cell effect plays")
+PKP_ROLE_ROW(0x81dce8, IsVisitor, 0x36000320u, "effects", "this gimmick cell effect plays")
+PKP_ROLE_ROW(0x81de30, IsVisitor, 0x36000320u, "effects", "this gimmick cell effect plays")
+PKP_ROLE_ROW(0x81f270, IsVisitor, 0x36000120u, "effects", "this gimmick effect plays (fx 0x19), first lookup path")
+PKP_ROLE_ROW(0x81f290, IsVisitor, 0x37000100u, "effects", "the same, second lookup path")
+PKP_ROLE_ROW(0xab5ad8, IsVisitor, 0x36000200u, "crafting", "with ability 77 off, recipes 0x9a, 0x9c, 0x133 and 0x2a5 can be crafted, not 'cannot craft'")
+PKP_ROLE_ROW(0xfa9e00, IsVisitor, 0x360000e0u, "requests app", "the tabs of every opened area, not only the current one (type-3 stage, not Cloud Island)")
+PKP_ROLE_ROW(0xfaa3d0, IsVisitor, 0xf9000bf3u, "requests app", "the list includes the normal missions and the unique / general requests (first of three inlined copies)")
+PKP_ROLE_ROW(0xfaa3e4, IsVisitor, 0xf9000bf3u, "requests app", "the same, second copy")
+PKP_ROLE_ROW(0xfaa3f8, IsVisitor, 0xf9000bf3u, "requests app", "the same, third copy")
+PKP_ROLE_ROW(0xfab940, IsVisitor, 0x360000e0u, "requests app", "the 'new' badge also scans the normal missions and unique requests")
 
-// ---- TABLE-AFTER-MIRROR rows (the mirror ships in the same build) ----
+// ---- TABLE-AFTER-MIRROR rows (the mirror ships in the same build): none in this slice ----

@@ -14,6 +14,9 @@
 - Teammates now get Life Coins: each challenge the host claims pays every teammate its coins into their own wallet, once, including the challenges claimed before they joined (a teammate's PC showed 0). Coins stay each player's own, as in the game's Link Play. Still not: a teammate's own claim at the PC does nothing; the host claims for the group. Use **Set up again** once after updating to relink the game. Your shaders are kept.
 - Area gates open for everyone in a co-op session, and the group can walk through: before, each press only played the opening again and nobody got in. A gate any player opens is open for the whole group, including players who join later
 - Each player's bag is now kept by the co-op save itself and given back at every join, so a rejoin, drop or crash no longer empties or swaps a bag. A teammate's bag is also no longer emptied at each area change, and no longer reset when the host turns down a request ("Your items have been reset.")
+- In the town, teammates see the Requests app as the host does: the tabs of every opened area, every mission and request in the list, and the "new" badge for them
+- Teammates can craft the four recipes that showed "cannot craft" for a visitor
+- Teammates now see the effects of gimmicks being used and changing state, as the host does
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five
