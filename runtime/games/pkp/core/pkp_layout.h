@@ -23,8 +23,6 @@ constexpr uint64_t kSaveAreaLevelMirror = 0x1718490;  // u8[32] the host's level
 constexpr uint64_t kSaveCloudLevel = 0xfd84a7;        // u8 Cloud Island's level
 constexpr uint8_t kCloudStage = 0x11;
 constexpr size_t kAreaStages = 32;
-constexpr uint64_t kSaveGateHistory = 0x73b1aa;       // u8[32] m_gateHistory by gate id 0..31 (CMNDAT; bit 0 = the gate was opened)
-constexpr uint64_t kSaveGateMirror = 0x1718470;       // u8[32] the gates a visitor reads (no writer found)
 constexpr size_t kGateHistoryBytes = 32;
 constexpr uint64_t kSaveLastGate = 0x13d3a59;         // u8 STGDAT m_lastGate (the current stage's)
 constexpr uint64_t kSaveSkitInGate = 0x7416d1;        // u8 m_playSkitInGateNum
