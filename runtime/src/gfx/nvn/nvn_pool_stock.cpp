@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// [nvn] pool_copy: where the shadows' buffers come from. A shadow needs a host-visible Vulkan buffer the size of its cells (16 MiB by
+// [nvn] pool_copy: where the shadows' buffers come from. A shadow needs a host-visible Vulkan buffer the size of its cells (2 MiB by
 // default). Making one inside a draw's bind is the largest part of the long frames of an area load on a Steam Deck (the render thread
 // spent up to 500 ms of one frame in pool.copy.alloc while the game streamed a new area in), and a shadow dropped by the idle rule or
 // by the cap was destroyed and made again at its next bind.
