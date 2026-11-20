@@ -56,21 +56,32 @@
 //
 // Effects. A quest step's effect commands go through 0x11b214(cmd), one command each (u8 kind at +0; kinds 1..0x39 act, any other
 // returns with nothing done). Every process runs them, since every process runs the pump. Personal kinds (the player's abilities,
-// bag, name, profile: 0x01 0x02 0x03 0x19 0x1e 0x1f 0x30), the quest music 0x07 and the story kinds (quest flags and states: 0x04
-// 0x14 0x15 0x27 0x29 0x2d) run on every process; every other kind changes the shared world, which the game's own
-// replication brings from the authority to the members, so on a member in the session it returns at once, as an unknown kind does.
+// bag, name, profile: 0x01 0x02 0x03 0x19 0x1e 0x1f 0x30), the quest music 0x07, the time of day (0x0a, and 0x09 for zone 0) and the
+// story kinds (quest flags and states: 0x04 0x14 0x15 0x27 0x29 0x2d) run on every process; every other kind changes the shared world,
+// which the game's own replication brings from the authority to the members, so on a member in the session it returns at once, as an
+// unknown kind does.
 // 0x07 (0x1222d4): +4 nonzero plays BGM +2 through the BGM player *(main+0x3561910)+0x10 (0xf9774, +6 its flag), 0 stops it
 // (0xf99e0); both only play locally and keep the stage's music id in this process's m_contentsBGM (save root +0x4a36e0 + stage).
-// 0x09 (0x1231f0, zone u8 +2): with no event running it fades the screen out (0xa9fcc4), marks save root +0x4a4402 = 1 and +0x4a4403
-// = the zone; the environment's frame (0x1f79b8 -> 0x1f9e68) waits for the fade (0xa9ff4c(0)), then makes the time change (0x1f8f9c /
-// 0x1f9140, the world's clock) and fades back in (0xa9fa34). On a member the world's clock is the authority's, so the member's 0x09
-// still returns before the handler; when the handler's own tests would fade, the member fades out the same way and, once the fade is
-// done, back in: the time skip's fade on every screen, the clock left to the authority.
-// Both only for a live step: a step the catch-up replays (a process behind runs every old step through its own pump) plays no music
-// and starts no fade, so a member several quests behind neither hears each old step's music nor is left with an old quest's. A member
-// makes every step through the catch-up now (it moves no quest by itself, pkp_coop_quests.cpp), so the step that reaches the group's
-// state of its quest (the target is the state the step leads to) counts as live and plays both; only a step with more of that
-// quest's steps after it is a replay.
+// 0x0a and 0x09 zone 0 write only this process's clock override, CMNDAT bytes at save root +0x4a4402 (phase), +0x4a4403 (zone),
+// +0x4a4404 (fast-forward state), +0x4a4408 (its target, s), +0x4a440c (its rate). The clock tick 0x1f79b8 reads them: a zone 1..7 or a
+// fast-forward state 3 (target reached) freezes the clock, and the tick then returns before 0x1fa1e0, the only place a visitor takes
+// the host's time (GameReplication kind 0x23: its reader 0x1fb6ec keeps it pending at clock +0x30..+0x3c until then; 0x1fa1e0 takes it
+// outright when far off, else runs the clock at 0.5..1.5x until they meet). 0x0a (0x1223a4) starts a fast forward to +2 h : +4 m
+// (quests 8 and 9: the opening's evening, 17:40 then 19:00, held there once reached). 0x09 (0x1231f0, zone u8 +2) ends any fast forward
+// and applies the zone; zone 0 (quest 17's close: the night is over) is the real clock again through 0x1f9140(clock, 5), which returns
+// at once on a visitor and on the authority sets the time and raises kind 0x23, with the game's own fade when no event runs. Zones 1..7
+// set a fixed time through 0x1f8f9c, whose tail 0x1fa9c0 ticks world timers: on a member they stay the authority's (no quest step uses
+// them; contents action 0x901 calls 0x1231f0 outside this hook). Before, a member skipped both: it never had the evening, and the
+// release never cleared an override its own save or contents actions (0x902 / 0x901, 0x12f690) had left, so its clock could stay frozen
+// with the host's time pending while the host's turned to day. Run here, a member has the same evening and the same release, and from
+// the release on the authority's time takes over (its kind 0x23 at the release, then from its resync once ability 18, granted by the
+// same step, lets it run). Replayed steps run them too: only quests 8, 9 and 17 have them, stepped in id order, so a member far behind
+// ends released, as the host is.
+// The music only for a live step: a step the catch-up replays (a process behind runs every old step through its own pump) plays no
+// music, so a member several quests behind neither hears each old step's music nor is left with an old quest's. A member makes every
+// step through the catch-up now (it moves no quest by itself, pkp_coop_quests.cpp), so the step that reaches the group's state of its
+// quest (the target is the state the step leads to) counts as live and plays; only a step with more of that quest's steps after it is
+// a replay.
 // The music a member is left with is the authority's, though: a muted step can be the one that ends an earlier step's music
 // (Kyogre's: quest 122's close plays track 117, quest 61's start plays 119, quest 110's start stops it), and a member that saved
 // while the wrong track played keeps it in its save (m_contentsBGM is CMNDAT, read when the area starts). So the authority sends
@@ -154,14 +165,9 @@ constexpr uint32_t kFirstTalk = 2;   // a new world: quest 1 closes on entering 
 
 constexpr uint8_t kEveryProcessEffects[] = {0x01, 0x02, 0x03, 0x19, 0x1e, 0x1f, 0x30,    // personal
                                             0x07,                                         // quest music (local)
+                                            0x0a,                                         // time of day (own clock override)
                                             0x04, 0x14, 0x15, 0x27, 0x29, 0x2d};   // story
-constexpr uint8_t kQuestMusicEffect = 0x07, kTimeFadeEffect = 0x09;
-constexpr uint8_t kTimeZoneMax = 7;                    // 0x1231f0 returns for a larger zone, before any fade
-constexpr uint64_t kEnvManager = 0x35616f8, kGameMgr = 0x3561710, kGmContents = 0xd8;   // 0x1231f0's first two tests
-constexpr uint64_t kScEvent = 0x119f60, kScEventOn = 0x119f74;   // contents scheduler + : the running event (**(+0x119f60))+0x30 bit 0
-constexpr uint64_t kFadeBlocker = 0x35650f8, kFadeBlockerTest = 0x2410b0, kFadeBlockerAsk = 0xaa01c8;   // 0x1231f0's second test
-constexpr uint64_t kFadeOut = 0xa9fcc4, kFadeBusy = 0xa9ff4c, kFadeIn = 0xa9fa34;
-constexpr double kFadeMax = 10.0;                      // a member's time fade is brought back in after this at the latest
+constexpr uint8_t kQuestMusicEffect = 0x07, kTimeZoneEffect = 0x09;   // 0x09 runs on a member for zone 0 (u8 +2) only
 constexpr uint64_t kAreaMusic = 0x4a36e0;              // save root + stage: m_contentsBGM, the area's quest music (0: none)
 constexpr uint64_t kBgmPlayer = 0x3561910, kBgmPlayerObj = 0x10;   // 0x1222d4's music player: *(main + kBgmPlayer) + kBgmPlayerObj
 constexpr uint64_t kBgmPlay = 0xf9774, kBgmStop = 0xf99e0;          // (player, track u8, flag) / (player), as 0x1222d4 calls them
@@ -222,8 +228,6 @@ struct State {
     uint8_t cleared[kAbilityBytes] = {};     // the abilities a step took away in this co-op run (bit per id): never given back
     std::vector<uint8_t> cleared_new;        // cleared here and not sent yet
     bool cleared_send_all = false;           // the next send is the whole set (joined, or another member joined)
-    bool fade_out = false;                   // a member's time-skip fade is out; brought back in once it is done
-    double fade_since = 0.0;
     double music_at = -1e9;                  // the last quest music step (0x07) seen here, run or muted
     uint8_t music_flag[256] = {};            // the authority: per area, the play flag of the last 0x07 seen there (+1; 0 = none)
     struct Music {                           // a member: the authority's area music, as its last AreaMusic said
@@ -771,7 +775,7 @@ int on_quest_flag(::Ctx* c) {
 
 namespace {
 
-// A pump step the catch-up replays here, for the quest music and the time fade: a quest whose flag is set and whose state is more
+// A pump step the catch-up replays here, for the quest music: a quest whose flag is set and whose state is more
 // than one step below another member's. The pump runs a step's effects before it writes the state and clears the flag (0x11bd3c,
 // and 0x11b600's close path), so while such a step runs the quest is still at the state the step starts from. A step to the group's
 // state of the quest (target == state + 1) is the group's latest: on a member it is the live step (members step only through the
@@ -792,55 +796,6 @@ bool catch_up_step(::Ctx* c) {
         if (s.target[i] > here + 1 && quest_flag(c, story_obj, i + 1)) return true;
     }
     return false;
-}
-
-// Calls a fade function as 0x1231f0 / 0x1f9e68 do: s0 = 1.0 and w0..w4; the caller's v0 is kept.
-void fade_call(::Ctx* c, uint64_t fn, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4) {
-    const V128 v0 = c->v[0];
-    c->v[0] = V128{};
-    c->v[0].f[0] = 1.0f;
-    guest::call(c, base() + fn, a0, a1, a2, a3, a4);
-    c->v[0] = v0;
-}
-
-// 0x1231f0's tests before it fades: the environment and the contents scheduler are there, no event runs (the scheduler's running
-// event, bit 0 of its +0x30) and the blocker *(main+0x35650f8) does not hold (0x2410b0(it, 0) and 0xaa01c8(0)).
-bool time_fade_would_run(::Ctx* c) {
-    if (!guest::rd<uint64_t>(base() + kEnvManager)) return false;
-    const uint64_t gm = guest::rd<uint64_t>(base() + kGameMgr);
-    if (!guest::ok(gm, kGmContents + 8)) return false;
-    const uint64_t sc = guest::rd<uint64_t>(gm + kGmContents);
-    if (!guest::ok(sc, kScEventOn + 4)) return false;
-    if (guest::rd<uint32_t>(sc + kScEventOn)) {
-        uint64_t p = guest::rd<uint64_t>(sc + kScEvent);
-        for (int k = 0; k < 2 && p; ++k) p = guest::ok(p, 8) ? guest::rd<uint64_t>(p) : 0;
-        if (p && guest::ok(p + 0x30, 4) && (guest::rd<uint32_t>(p + 0x30) & 1)) return false;
-    }
-    const uint64_t blocker = guest::rd<uint64_t>(base() + kFadeBlocker);
-    if (blocker && (guest::call(c, base() + kFadeBlockerTest, blocker, 0) & 1) && (guest::call(c, base() + kFadeBlockerAsk, 0) & 1))
-        return false;
-    return true;
-}
-
-// A member's time-skip fade, out now (as 0x1231f0: 0xa9fcc4(1.0, 0, 1, 3, 0, 0)); tick brings it back in.
-void member_time_fade(::Ctx* c, uint8_t zone) {
-    State& s = st();
-    if (zone > kTimeZoneMax || s.fade_out || !time_fade_would_run(c)) return;
-    fade_call(c, kFadeOut, 0, 1, 3, 0, 0);
-    s.fade_out = true;
-    s.fade_since = qpc::seconds();
-    NXLOG_I(kTag, "Co-op story: effect 0x09 (time zone %u): the fade only here, the clock is the authority's", zone);
-}
-
-// The fade back in (as 0x1f9e68: 0xa9fa34(1.0, 0, 1, 0, 0)) once the fade out is done (0xa9ff4c(0) clear), or after kFadeMax.
-void finish_time_fade(::Ctx* c) {
-    State& s = st();
-    if (!s.fade_out) return;
-    const bool late = qpc::seconds() - s.fade_since > kFadeMax;
-    if (!late && (guest::call(c, base() + kFadeBusy, 0) & 1)) return;
-    fade_call(c, kFadeIn, 0, 1, 0, 0, 0);
-    s.fade_out = false;
-    if (late) NXLOG_W(kTag, "Co-op story: the time fade here was still running after %.0f s; faded back in", kFadeMax);
 }
 
 }  // namespace
@@ -907,22 +862,16 @@ int on_quest_effect(::Ctx* c) {
     }
     bool every_process = false;
     for (uint8_t every : kEveryProcessEffects) every_process |= kind == every;
+    every_process |= kind == kTimeZoneEffect && guest::ok(c->x[0], 3) && guest::rd<uint8_t>(c->x[0] + 2) == 0;
     if (!member || every_process) {
         if (link::in_session()) {
             NXLOG_I(kTag, "Co-op story: effect 0x%02x run here", kind);
             journal::Rec(journal::Area::Quest, "effect-decision")
                 .in("kind=0x%02x member=%u", kind, member ? 1u : 0u)
-                .out("run here: %s", member ? "a personal, music or story kind (every process)" : "the authority runs every kind");
+                .out("run here: %s",
+                     member ? "a personal, music, time of day or story kind (every process)" : "the authority runs every kind");
         }
         return 0;
-    }
-    if (kind == kTimeFadeEffect && guest::ok(c->x[0], 3)) {
-        const bool replay = catch_up_step(c);
-        if (!replay) member_time_fade(c, guest::rd<uint8_t>(c->x[0] + 2));
-        journal::Rec(journal::Area::Quest, "effect-decision")
-            .in("kind=0x09 zone=%u", guest::rd<uint8_t>(c->x[0] + 2))
-            .out("%s", replay ? "skipped: a step the catch-up replays (no fade)" : "the clock left to the authority; the fade only here");
-        return 1;
     }
     NXLOG_I(kTag, "Co-op story: world effect 0x%02x left to the authority", kind);
     journal::Rec(journal::Area::Quest, "effect-decision").in("kind=0x%02x member=1", kind).out("skipped: a world effect, the authority's");
@@ -1181,7 +1130,6 @@ static void send_wild_pops() {
 }
 
 void tick(::Ctx* c) {
-    finish_time_fade(c);   // also out of a session: a fade started here is always brought back in
     take_music(c);
     send_wild_pops();
     send_cleared();
