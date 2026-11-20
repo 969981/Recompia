@@ -25,6 +25,7 @@
 //   pkp_coop_travel.cpp   the group's trips: a move to another area runs only after the game's poll passed, and the host makes it for all
 //   pkp_coop_discovery.cpp the Pokédex entries and habitats any member found, found by every member, with the game's own scenes
 //   pkp_coop_placement.cpp a member's "object placed" notice to the contents, raised once the host has put the object in its world
+//   pkp_coop_contents.cpp  a scene a content queued that the event queue refused: asked for again until it plays
 //   pkp_coop_bag.cpp      a member's bag stays its own at a join: the host's stored copy of it is never sent
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
@@ -247,6 +248,15 @@ int on_placed_notice(::Ctx* c);
 void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace placement
+
+namespace contents {
+// The hook site (pkp_coop.cpp): entry 0x12b544, a content's "play scene" command. A scene not played yet is remembered.
+int on_play_scene(::Ctx* c);
+// Asks the game again for a remembered scene at a safe moment until it plays (once a frame); on the authority, gives a quest a
+// scene it was waiting on that an older save lost.
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace contents
 
 namespace travel {
 // The hook site (pkp_coop.cpp): entry 0xbda20, the area move by destination index. In a session it runs only after the group's poll
