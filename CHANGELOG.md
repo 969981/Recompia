@@ -16,6 +16,7 @@
 - Each player's bag is now kept by the co-op save itself and given back at every join, so a rejoin, drop or crash no longer empties or swaps a bag. A teammate's bag is also no longer emptied at each area change, and no longer reset when the host turns down a request ("Your items have been reset.")
 - Teammates get every unlock the group has in the game's own checks too: the Environment Level panel on the PC menu, for one, was missing for a teammate when the group unlocked it after they joined
 - The host's town and story records (who lives in town, a character's current work, the weather and light the story set, a wild creature's visit) now reach every teammate's own save, so a teammate's world no longer lags behind the host's
+- One more creature request, one the story reads, is now closed for the whole group once anyone finishes it, as the story requests are
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

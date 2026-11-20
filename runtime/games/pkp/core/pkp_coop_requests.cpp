@@ -110,8 +110,10 @@ constexpr uint8_t kCloudStage = 0x11;                        // game state stage
 constexpr uint64_t kIsResident = 0x286de4;                   // (&u16 handle): bit 0, the handle is a resident creature's
 constexpr uint64_t kRecFlags = 3;                            // record + : u8 flags
 constexpr uint8_t kEventBit = 0x01;                          // flags: the event of an event-type request ran
-// Requests that are also a story step (LINKDATA #1209 +2 != 0): one completion closes them for the group.
-constexpr uint8_t kStoryIds[] = {2, 3, 7, 8, 9, 10, 11, 15, 17, 19, 20, 23, 28, 31, 54, 56, 65, 66, 76, 77, 79, 80};
+// Requests that are also a story step (LINKDATA #1209 +2 != 0): one completion closes them for the group. 73 is here by the repo
+// owner's rule, not the table: its state byte is read as story state (0x34b20, 0x4147c, 0x13aa20, 0x13aaf4 test 2..4 for the
+// creature that offers it), so a member must not stay at 4 after the group's 5 (STORY-RECORDS.md section 3).
+constexpr uint8_t kStoryIds[] = {2, 3, 7, 8, 9, 10, 11, 15, 17, 19, 20, 23, 28, 31, 54, 56, 65, 66, 73, 76, 77, 79, 80};
 // Requests the game binds to one player (#1557 +0x2c != 0): never shared.
 constexpr uint8_t kOwnIds[] = {94, 95};
 // Requests the checker meets by the record's event bit (#1557 +0x5d 7, 8, 9, 0x10, 0x1b, 0x26, 0x29, 0x2a: the bit alone; 0x25,
