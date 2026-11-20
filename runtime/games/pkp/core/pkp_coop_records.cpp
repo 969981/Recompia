@@ -11,7 +11,7 @@
 //   2 m_charaTownFlag (CMNDAT, R+0x4a27cc, 0x400) and 3 m_targetStageForEnableMoveStage (R+0x4a32e0, 0x400): quest effects 0x06 0x10
 //     0x26 0x2f 0x37 and story-line step action 6 (on_town_action leaves it to the authority).
 //   4 m_storyStageUniqueFlag (R+0x4a26cc, 8 bytes per stage): effects 0x22 / 0x38 (world kinds), step actions 0 / 10.
-//   5 m_PokemonHintOpenGroupFlag (R+0x7416bc, 0x10): effect 0x05 (a world kind); read by the wild spawn picker 0x1c2c60.
+//   5 the hint-group flags (R+0x7416bc, 0x10): effect 0x05 (a world kind); read by the wild spawn picker 0x1c2c60.
 // Nothing carries any of them, so a member's copy never was the group's: the host's town register, an NPC's specialty-work flag, the
 // stage-2 start's clear of chara 0x5d's +0xc (0xb4b60 clears it only on a visitor), request 73's slot clear (0x13a9b0) stayed apart.
 // Every field is copied: each is save data the game keeps per save, none a pointer or a handle of this process (the record's own
@@ -30,8 +30,9 @@
 // Known remaining hole (the member writes the authority never made; STORY-RECORDS.md section 4 holes 3, 4, 5, 7): the contents
 // actions of the member's own scheduler (0x866 0xdf2 0xdf6 0xe11 0xe6d 0xe70 0xe56 0xe57 0xc1e 0x122f 0x92e 0x933 0x960 0x11a8 0x119e
 // 0xe02 0x8fe 0x836 0x9c4 0x9ce 0xe51 0x1194 0xf..0x11; town bits 0xc85 0xe72 0xede 0xe60), script 0xbd6 (0x12c600, hint groups), a
-// member's own completion of request 73 (0x13a9b0) and its own step actions 0 / 10. When the authority's scheduler never ran the same
-// entry, the write is overwritten here and lost for the group; forwarding them to the authority (as WildPop does for 0xc1e) needs a
+// member's own completion of request 73 (0x13a9b0). When the authority's scheduler never ran the same entry, the write is overwritten
+// here and lost for the group (a member's own story-line steps, actions 0 / 10 into the stage flags, are not: the authority runs the
+// shared line's step, pkp_coop_events.cpp apply_lines, and the bits come back with the next record); forwarding them to the authority (as WildPop does for 0xc1e) needs a
 // runtime answer to which entries a member's scheduler runs (QUEST-SCRIPT-RE section 5).
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"

@@ -227,7 +227,7 @@ constexpr size_t kUserIdSize = 16;
 constexpr uint64_t kSaveEffectCommands = 0x972ba8;
 constexpr size_t kEffectCommandsBytes = 0x1e4;
 // CMNDAT m_story (R+0x4a26a0) +0x12c m_charaTownFlag and +0xc40 m_targetStageForEnableMoveStage (u8 per chara index, raw 0x400 each),
-// +0x2c m_storyStageUniqueFlag (8 bytes per stage 0..31); m_PokemonHintOpenGroupFlag (128 group bits).
+// +0x2c m_storyStageUniqueFlag (8 bytes per stage 0..31); the hint-group flags (128 group bits).
 constexpr uint64_t kSaveTownFlags = 0x4a27cc, kSaveTownTargets = 0x4a32e0;
 constexpr size_t kTownRecordBytes = 0x400;
 constexpr uint64_t kSaveStageFlags = 0x4a26cc;
