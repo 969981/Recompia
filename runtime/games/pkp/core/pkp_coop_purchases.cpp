@@ -78,7 +78,7 @@ constexpr uint32_t kRecordCount = 256;
 constexpr uint32_t kMarkMagicAt = 209, kMarkSeqAt = 210, kMarkLogAt = 211;   // 211..212: the log id
 constexpr uint32_t kMarkMagic = 0x706f6873;   // "shop"; the default element is 01 01 00 00
 
-constexpr size_t kKeyBytes = 16;
+constexpr size_t kKeyBytes = kMemberKeyBytes;
 constexpr size_t kEntryBytes = 4 + kKeyBytes + 2 + 2;   // seq, buyer, entry, count
 constexpr size_t kPerMessage = 32;                     // entries in one PurchaseLog
 constexpr char kFileMagic[8] = {'P', 'K', 'P', 'C', 'P', 'U', 'R', '1'};
@@ -94,8 +94,6 @@ struct Entry {
 
 struct State {
     int remote = 0;                    // > 0 while our own give runs: not logged again
-    bool have_key = false;
-    uint8_t key[kKeyBytes] = {};       // this player's member key
     // the authority
     bool log_loaded = false;
     uint64_t log_id = 0;
@@ -148,27 +146,8 @@ void set_applied(uint64_t id, uint32_t seq) {
     guest::wr<uint32_t>(recs + (kMarkLogAt + 1) * 4, static_cast<uint32_t>(id >> 32));
 }
 
-// ---- the member key ----
-
-bool parse_key(const std::string& hex, uint8_t* out) {
-    if (hex.size() != kKeyBytes * 2) return false;
-    auto nib = [](char ch) -> int {
-        if (ch >= '0' && ch <= '9') return ch - '0';
-        if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
-        if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
-        return -1;
-    };
-    for (size_t i = 0; i < kKeyBytes; ++i) {
-        const int hi = nib(hex[2 * i]), lo = nib(hex[2 * i + 1]);
-        if (hi < 0 || lo < 0) return false;
-        out[i] = static_cast<uint8_t>(hi << 4 | lo);
-    }
-    return true;
-}
-
 bool mine(const Entry& e) {
-    const State& s = st();
-    return s.have_key && std::memcmp(e.buyer, s.key, kKeyBytes) == 0;
+    return std::memcmp(e.buyer, member_key_bytes(), kKeyBytes) == 0;
 }
 
 // ---- the authority's log ----
@@ -392,12 +371,12 @@ int on_shop_tile(::Ctx* c) {
 
 int on_grant(::Ctx* c) {
     State& s = st();
-    if (s.remote || !link::in_session() || !s.have_key) return 0;
+    if (s.remote || !link::in_session()) return 0;
     const uint32_t entry = static_cast<uint32_t>(c->x[1]) & 0xffff;
     const uint32_t count = static_cast<uint32_t>(c->x[2]) & 0xffff;
     if (entry < 1 || entry > kEntryMax || count < 1 || count > kCountMax) return 0;
     Entry e;
-    std::memcpy(e.buyer, s.key, kKeyBytes);
+    std::memcpy(e.buyer, member_key_bytes(), kKeyBytes);
     e.entry = static_cast<uint16_t>(entry);
     e.count = static_cast<uint16_t>(count);
     s.unsent.push_back(e);
@@ -456,7 +435,6 @@ void on_log_message(::Ctx*, int, uint8_t, wire::Reader& r) {
 
 void tick(::Ctx* c, bool in_game) {
     State& s = st();
-    if (!s.have_key) s.have_key = parse_key(member_key(), s.key);
     if (!c || !link::in_session()) return;
     if (link::is_authority() && !s.known_log && records()) {   // the authority applies its own log as every member does
         load_log();

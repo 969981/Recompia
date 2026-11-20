@@ -312,6 +312,24 @@ entryhook 0x71005a8a34
 #   Seamless co-op, member bags (pkp_coop_bag.cpp): in the join sync's bag piece 0x71005727c0, the host's (writer's) `ldr x0, [x19, #8]`
 #   right before it writes the found flag [x29 + 0x1c]; cleared there, the joiner keeps its own bag
 midhook 0x71005728b4
+#   Seamless co-op, the bag records (pkp_coop_bags.cpp, pkp_coop_bag.cpp): the host's fill of a joining visitor's working copy of its
+#   bag from the host's per-user table 0x7100575644 (member index; only caller the join step 0x7100542994, state 3 -> 4), the stage
+#   load's clear of the online bag 0x71005afee0, the stage load's and the GameShare end's move of the bag into the PC 0x71005affe0 /
+#   0x71005b0d60 (common block), the host's Cloud Island bag from that table 0x71005b0a60 and its pre-save store into it 0x71005af6a0
+entryhook 0x7100575644
+entryhook 0x71005afee0
+entryhook 0x71005affe0
+entryhook 0x71005b0d60
+entryhook 0x71005b0a60
+entryhook 0x71005af6a0
+#   and in the member's handler of the host's request answers 0x7100226280, the `cbz x0` after the bag selector 0x71002ecc04 in the six
+#   refused-request bag resets (kinds 0xb, 0xf, 0x1a, 0x1d, 0x1e, 0x1f)
+midhook 0x71002288c4
+midhook 0x7100228f38
+midhook 0x710022a298
+midhook 0x71002267fc
+midhook 0x7100226684
+midhook 0x7100226868
 #   Seamless co-op, the shops (pkp_coop_purchases.cpp): a purchase's give 0x7100e889f8 (the shop's buy 0x7100e88868 tail-calls it; on a
 #   visitor the host's answer to its buy, 0x7100226280, calls it), and "this shop row is for offline play only" 0x7100e87260 (the bag
 #   upgrades; its callers, the listing tests 0x7100e86494 / 0x7100e87424, hide such rows whenever the game is online)

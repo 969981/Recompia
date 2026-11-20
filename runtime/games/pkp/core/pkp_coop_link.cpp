@@ -70,6 +70,8 @@ constexpr Route kRoutes[] = {
     {wire::Type::StateAsk, Path::ToAuthority, &digest::on_ask_message},
     {wire::Type::StateFull, Path::FromAuthority, &digest::on_full_message},
     {wire::Type::StateReport, Path::ToAuthority, &digest::on_report_message},
+    {wire::Type::BagRecord, Path::ToAuthority, &bags::on_record_message},
+    {wire::Type::BagRestore, Path::FromAuthority, &bags::on_restore_message},
 };
 
 struct State {
@@ -168,6 +170,7 @@ void on_member(const ch::MemberEvent& e) {
         discovery::on_member_joined();
         unlocks::on_member_joined();
         money::on_member_joined();
+        bags::on_member_joined(e.node);
     }
     NXLOG_I(kTag, "Co-op: node %d %s the session%s", e.node, e.joined ? "joined" : "left", e.authority ? " (the authority)" : "");
 }

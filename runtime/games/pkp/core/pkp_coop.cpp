@@ -78,8 +78,16 @@ enum class Site : uintptr_t {
     MemberScreen,     // the member screen: shut likewise
     // ---- the save ----
     SaveWrite,        // a member's own save write (three writers): held, the authority writes the co-op save
+    // ---- the bags: each member's is a record of ours (pkp_coop_bags.cpp); the game's writers that fight it are off (pkp_coop_bag.cpp) ----
     JoinBagSend,      // the host's side of a join's bag sync: it sends "no stored bag", so a member keeps its own bag instead of the
-                      // host's stale copy (pkp_coop_bag.cpp)
+                      // host's stale copy
+    MirrorFill,       // the host's fill of a joining visitor's mirror from its per-user table: the mirror gets the member's record
+    StageBagClear,    // the stage load's clear of the online bag (Cloud Island, a visitor in a session): skipped
+    BagToStorage,     // the stage load's step and the GameShare end that move the bag into the PC: skipped, the share bit cleared
+    HostBagStore,     // the host's moves between its per-user table and a bag (Cloud Island's own bag, the pre-save store): skipped
+    RefusalReset,     // a member's bag reset to the host's copy when the host refused a request: the reset is skipped
+    RefusalResetWait, // the same in kind 0xb's reply, whose skipped path also releases the request's wait (done by the hook)
+    BagScreen,        // the bag / container screen's frame: while it runs, an apply of the record waits
     // ---- the shops ----
     ShopGrant,        // a purchase's give on the buyer's process (the shop's buy, or a visitor's buy the host answered): logged for the
                       // group, so every member gets it too (pkp_coop_purchases.cpp)
@@ -150,6 +158,19 @@ constexpr CoopSite kSites[] = {
     {{0x245200, kPacibsp, true}, Site::SaveWrite},
     {{0x5a8a34, kPacibsp, true}, Site::SaveWrite},
     {{0x5728b4, 0xf9400660u, false}, Site::JoinBagSend},     // ldr x0, [x19, #8] (before the found flag is written)
+    {{0x575644, kPacibsp, true}, Site::MirrorFill},
+    {{0x5afee0, kPacibsp, true}, Site::StageBagClear},
+    {{0x5affe0, kPacibsp, true}, Site::BagToStorage},
+    {{0x5b0d60, kPacibsp, true}, Site::BagToStorage},
+    {{0x5b0a60, kPacibsp, true}, Site::HostBagStore},
+    {{0x5af6a0, kPacibsp, true}, Site::HostBagStore},
+    {{0x2288c4, 0xb40002a0u, false}, Site::RefusalResetWait}, // cbz x0 (x0 = the selected bag) in 0x226280's kind 0xb reply
+    {{0x228f38, 0xb4000620u, false}, Site::RefusalReset},     // the same, kind 0xf
+    {{0x22a298, 0xb40002c0u, false}, Site::RefusalReset},     // kind 0x1a
+    {{0x2267fc, 0xb4000660u, false}, Site::RefusalReset},     // kind 0x1d
+    {{0x226684, 0xb4001220u, false}, Site::RefusalReset},     // kind 0x1e
+    {{0x226868, 0xb4000300u, false}, Site::RefusalReset},     // kind 0x1f
+    {{0xfeee78, kPacibsp, true}, Site::BagScreen},
     {{0xe889f8, kPacibsp, true}, Site::ShopGrant},
     {{0xe87260, kPacibsp, true}, Site::OfflineGoods},
     {{0xe8d428, kPacibsp, true}, Site::ShopTile},
@@ -170,6 +191,7 @@ struct State {
     HookSet* hooks = nullptr;
     uint32_t ids[kSiteCount] = {};   // all 0: not coop mode, or not installed
     CoopLaunch launch;
+    uint8_t key[coop::kMemberKeyBytes] = {};   // launch.member as bytes (the hex pairs in order)
     std::atomic<bool> armed{false};
     std::atomic<bool> checked{false};
     std::atomic<bool> in_game{false};   // play mode's, from its frame (main thread) for the game-frame tick
@@ -210,6 +232,13 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::ShopTile: return coop::purchases::on_shop_tile(c);
         case Site::ChallengePay: return coop::money::on_pay(c);
         case Site::JoinBagSend: return coop::bag::on_join_bag_send(c);
+        case Site::MirrorFill: return coop::bags::on_mirror_fill(c);
+        case Site::StageBagClear: return coop::bag::on_stage_bag_clear(c);
+        case Site::BagToStorage: return coop::bag::on_bag_to_storage(c);
+        case Site::HostBagStore: return coop::bag::on_host_bag_store(c);
+        case Site::RefusalReset: return coop::bag::on_refusal_reset(c, false);
+        case Site::RefusalResetWait: return coop::bag::on_refusal_reset(c, true);
+        case Site::BagScreen: return coop::bags::on_bag_screen(c);
         case Site::DexScene: return coop::discovery::on_dex_scene(c);
         case Site::HabitatScene: return coop::discovery::on_habitat_scene(c);
         case Site::VisitorSync: return coop::held::on_visitor_sync(c);
@@ -241,6 +270,9 @@ void install(const FeatureInstall& in) {
     }
     launch.members = static_cast<int>(settings::get_int(settings::Key::CoopMembers));
     s.launch = launch;
+    auto nib = [](char ch) { return ch <= '9' ? ch - '0' : ch - 'a' + 10; };   // coop_launch_parse left lower-case hex digits only
+    for (size_t i = 0; i < coop::kMemberKeyBytes; ++i)
+        s.key[i] = static_cast<uint8_t>(nib(launch.member[2 * i]) << 4 | nib(launch.member[2 * i + 1]));
     s.base = in.base;
     coop::wirelog::install();
     s.hooks = &in.hooks;
@@ -289,6 +321,7 @@ void game_frame(::Ctx* c) {
     coop::unlocks::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::purchases::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::money::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::bags::tick(c);
     coop::talk::tick();
     coop::gimmicks::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::travel::tick(c);
@@ -309,7 +342,9 @@ void remove() {   // the registry has removed the hooks
     s.in_game.store(false);
     for (uint32_t& h : s.ids) h = 0;
     s.hooks = nullptr;
+    coop::bags::reset();   // first: it writes its records' files under this player's member key
     s.launch = {};
+    for (uint8_t& b : s.key) b = 0;
     coop::link::reset();
     coop::story::reset();
     coop::quests::reset();
@@ -346,6 +381,7 @@ uint64_t base() { return st().base; }
 CoopRole role() { return st().launch.role; }
 int members() { return st().launch.members; }
 const std::string& member_key() { return st().launch.member; }
+const uint8_t* member_key_bytes() { return st().key; }
 
 uint8_t session_bits() {
     const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);

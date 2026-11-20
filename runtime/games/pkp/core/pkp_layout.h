@@ -23,8 +23,6 @@ constexpr uint64_t kSaveAreaLevelMirror = 0x1718490;  // u8[32] the host's level
 constexpr uint64_t kSaveCloudLevel = 0xfd84a7;        // u8 Cloud Island's level
 constexpr uint8_t kCloudStage = 0x11;
 constexpr size_t kAreaStages = 32;
-constexpr uint64_t kSaveGateHistory = 0x73b1aa;       // u8[32] m_gateHistory by gate id 0..31 (CMNDAT; bit 0 = the gate was opened)
-constexpr uint64_t kSaveGateMirror = 0x1718470;       // u8[32] the gates a visitor reads (no writer found)
 constexpr size_t kGateHistoryBytes = 32;
 constexpr uint64_t kSaveLastGate = 0x13d3a59;         // u8 STGDAT m_lastGate (the current stage's)
 constexpr uint64_t kSaveSkitInGate = 0x7416d1;        // u8 m_playSkitInGateNum
@@ -32,6 +30,8 @@ constexpr uint64_t kSaveTrainerLevel = 0x4a4400;      // u8 m_trainerLevel (the 
 constexpr uint64_t kGameState = 0x3561710;       // the game state (stage, session)
 constexpr uint64_t kStateStage = 0x18;           // game state: u8, the stage the player is in
 constexpr uint64_t kStateSession = 0x90;         // game state: u8 Link Play session bits (kSession*); 0 offline
+constexpr uint64_t kStateOwnBag = 0x11;          // game state: u8, bit 0 set: the bag selectors 0x2ecc04 / 0x2e70e0 take the offline bag
+                                                 // even in a visit (coop-v2 P0-RE 0x2e70e0)
 constexpr uint8_t kSessionOnline = 0x01, kSessionHost = 0x02, kSessionVisitor = 0x04;
 constexpr uint64_t kInputMgr = 0x3561718;        // the input manager
 constexpr uint64_t kTables = 0x35618f0;          // the data-table manager (the sprite sheet lookups read it too)
@@ -100,6 +100,15 @@ constexpr uint64_t kSavePlayTime = 0x4a5418;     // double: the save's play time
 constexpr uint64_t kSaveCommon = 0x13d4920;      // the common block
 constexpr uint64_t kBagOffline = 0x830;          // common block: the bag's slots while offline (m_useItemInventoryOffline)
 constexpr uint32_t kBagSlots = 120;
+constexpr uint64_t kBagOnline = 0x10;           // common block: the bag's slots in a Link Play visit and on Cloud Island (R+0x13d4930)
+constexpr uint32_t kBagWholeSlots = 130;        // a whole bag: the 120 slots, then inventory kind 4's 10 (bag + 0x780); 0x820 bytes, as
+                                                // the game copies one (its per-user table, the host's visitor mirror)
+constexpr uint64_t kCommonFlags = 0xc074;       // common block: u8; bit 1 set while a second local player (GameShare) has the online bag
+constexpr uint8_t kCommonFlagShare = 2;
+// The host's working copy of each visitor's bag (save root +, kMemberCount whole bags by member table index; its getter 0x5bc840 has
+// none for the index at kOwnMirrorIndex): the host's request checks read and change it.
+constexpr uint64_t kBagMirror = 0x17154a8;
+constexpr uint64_t kOwnMirrorIndex = 0xb3380;   // u8 of **(main + kOwnMemberIndexRef): the member index 0x5bc840 has no mirror for
 constexpr uint64_t kStageContainerStore = 0x13ea9a8; // save root: stage item slots (pkp_items.h)
 constexpr uint64_t kCabinetRecords = 0xa0ee28;   // save root: stage cabinet records (m_gimmickSaveData)
 constexpr uint32_t kCabinetRecordCount = 0x610;
@@ -119,6 +128,10 @@ constexpr uint64_t kHeldItem = 0x3684310;        // per player (stride 0x18): th
 constexpr uint64_t kHeldItemSize = 0x18;
 constexpr uint64_t kStagedBag = 0x3684340;       // per player (stride 0x838): the bag's temp copy while an item is held {data, len, cap, slots}
 constexpr uint64_t kStagedBagSize = 0x838;
+constexpr uint64_t kBagScreenVtable = 0x333ba70; // the vtable pointer the bag / container screen object (UI class 0x8d) holds
+constexpr uint64_t kItemBarRefresh = 0xa8e724;   // (local player slot, 0, 0): the HUD's item bar reads the bag again
+constexpr uint64_t kResourceWaitEnd = 0x46aa6c;  // (): clears the two wait bytes of the object at main+0x35650f8 that a request kind 0xb
+                                                 // reply releases on either answer
 
 // ---- movement component ----
 constexpr uint64_t kController = 0xbc0;          // the movement controller (embedded)
