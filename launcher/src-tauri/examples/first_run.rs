@@ -31,6 +31,8 @@ mod host;
 #[allow(dead_code, clippy::all)]
 #[path = "../src/ini.rs"]
 mod ini;
+#[path = "../src/managed.rs"]
+mod managed;
 #[allow(dead_code, clippy::all)]
 #[path = "../src/paths.rs"]
 mod paths;

@@ -54,6 +54,11 @@ pub fn default_game_dir() -> PathBuf {
 }
 
 pub fn game_dir_of(cfg: &Config) -> PathBuf {
+    // An install RecompLauncher keeps is its own game folder (managed.rs). launcher.json is shared by every install on the machine,
+    // and an Install folder chosen in another one must not send this one's Set up and Play there.
+    if crate::managed::by_recomplauncher() {
+        return default_game_dir();
+    }
     let chosen = cfg.game_dir.trim();
     // A game folder inside an .app is never the real one: an earlier build offered exe_dir() (the bundle's Contents) as the
     // default, and saving the settings wrote it back. Ignore it, so the next save heals the file.

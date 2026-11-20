@@ -38,6 +38,7 @@
 ### Launcher
 - Pausing Set up on Windows now stops all of the compiler's work. Before, part of it kept running until the launcher closed, and the next **Set up again** could sit at "Linking pkp.exe"
 - Linux: the launcher finds its setup tools and game folder when its AppImage was unpacked into a plain folder, as RecompLauncher installs it. Before, Set up looked in the wrong folder
+- Installed through RecompLauncher, the launcher leaves updates to RecompLauncher and always uses its own install folder as the game folder, even when another copy on the PC has a different Install folder set
 
 ## 0.16.0 (build T: Tapir)
 

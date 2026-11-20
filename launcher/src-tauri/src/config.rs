@@ -115,8 +115,13 @@ pub fn get_config(app: AppHandle) -> Config {
 
 #[tauri::command]
 pub fn save_config(app: AppHandle, mut config: Config) -> Result<(), String> {
+    let stored = load_config(&app);
     // a page sends the copy it read when it opened: the chosen theme is set only by set_theme (themes_cmds.rs), so an older copy never undoes it
-    config.theme = load_config(&app).theme;
+    config.theme = stored.theme;
+    // an install RecompLauncher keeps has no Install folder of its own (paths.rs game_dir_of): the one the other installs use stays
+    if crate::managed::by_recomplauncher() {
+        config.game_dir = stored.game_dir;
+    }
     store_config(&app, &config)
 }
 
