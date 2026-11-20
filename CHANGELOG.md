@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+**Update:** press **Update** in the launcher. Nothing is linked or translated again.
+
+### Launcher
+- Pausing Set up on Windows now stops all of the compiler's work. Before, part of it kept running until the launcher closed, and the next **Set up again** could sit at "Linking pkp.exe"
+
 ## 0.16.0 (build T: Tapir)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (co-op gets a new game hook point and split screen a new window setup; saves and shaders are kept, no shader is translated again).
