@@ -141,6 +141,11 @@ fn id_ok(s: &str) -> bool {
     !s.is_empty() && s.len() <= 40 && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
+/// A saved theme: empty, or `<pack folder>/<theme id>`.
+pub fn key_ok(key: &str) -> bool {
+    key.is_empty() || key.split_once('/').is_some_and(|(pack, id)| id_ok(pack) && id_ok(id))
+}
+
 fn text_ok(s: &str, max: usize) -> bool {
     let t = s.trim();
     !t.is_empty() && t.chars().count() <= max && !t.chars().any(char::is_control)
@@ -749,6 +754,16 @@ mod tests {
         let m = check_pack(&example).unwrap();
         assert_eq!(slug(&m.name), "example-colours");
         assert_eq!(m.themes.len(), 2);
+    }
+
+    #[test]
+    fn a_saved_theme_is_empty_or_pack_slash_id() {
+        for ok in ["", "koi-s-camp/koi"] {
+            assert!(key_ok(ok), "{ok}");
+        }
+        for bad in ["koi", "a/b/c", "../x/y", "a/", "/b", "A/b", "a/b\\c"] {
+            assert!(!key_ok(bad), "{bad}");
+        }
     }
 
     #[test]

@@ -111,7 +111,9 @@ pub fn get_config(app: AppHandle) -> Config {
 }
 
 #[tauri::command]
-pub fn save_config(app: AppHandle, config: Config) -> Result<(), String> {
+pub fn save_config(app: AppHandle, mut config: Config) -> Result<(), String> {
+    // a page sends the copy it read when it opened: the chosen theme is set only by set_theme (themes_cmds.rs), so an older copy never undoes it
+    config.theme = load_config(&app).theme;
     store_config(&app, &config)
 }
 

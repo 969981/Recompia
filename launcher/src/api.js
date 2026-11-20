@@ -103,6 +103,7 @@ export const api = {
   applyBranding: () => invoke('apply_branding'),
   listThemes: () => invoke('list_themes'),   // { packs: [{ folder, name, version, themes: [...], error }] } (themes.rs)
   addTheme: (args) => invoke('add_theme', args),   // { path }: a pack folder or .zip; { name, themes }
+  setTheme: (args) => invoke('set_theme', args),   // { theme }: '<pack folder>/<id>', '' for the launcher's own looks (save_config never changes it)
   removeThemePack: (args) => invoke('remove_theme_pack', args),   // { pack }: the pack's folder name
   openThemesDir: () => invoke('open_themes_dir'),
   pickThemeFile: () => invoke('pick_theme_file'),   // a .zip; null when the dialog is closed

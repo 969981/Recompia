@@ -246,6 +246,7 @@ fn main() {
             themes_cmds::list_themes,
             themes_cmds::add_theme,
             themes_cmds::remove_theme_pack,
+            themes_cmds::set_theme,
             themes_cmds::open_themes_dir,
             dialogs::pick_theme_file,
             steam_cmds::steam_status,

@@ -34,6 +34,18 @@ pub async fn remove_theme_pack(app: AppHandle, pack: String) -> Result<(), Strin
     .map_err(|e| e.to_string())?
 }
 
+/// Saves the chosen theme (`<pack folder>/<id>`; empty: one of the launcher's own looks). A theme whose pack is not there is kept, so the
+/// choice is back when the pack is added again.
+#[tauri::command]
+pub fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
+    if !themes::key_ok(&theme) {
+        return Err("That is not a theme.".into());
+    }
+    let mut cfg = load_config(&app);
+    cfg.theme = theme;
+    store_config(&app, &cfg)
+}
+
 /// Opens the themes folder in the system's file manager.
 #[tauri::command]
 pub fn open_themes_dir() -> Result<(), String> {

@@ -140,10 +140,7 @@ export async function syncThemes() {
     const cached = readCache();
     if (found) { userKey = key; userName = found.theme.name; }
     if (found && !(cached && cached.key === key && cached.version === found.pack.version)) await paint(key);
-    else if (userKey || cached) {
-      uninstall();
-      if (key) await api.saveConfig({ config: { ...cfg, theme: '' } });
-    }
+    else if (userKey || cached) uninstall();   // its pack is not there (now): the saved choice stays, so adding the pack again brings it back
   } catch (e) {
     console.warn('themes', e);   // the launcher's own look stays
   }
@@ -171,15 +168,14 @@ export function chooseTheme(value) {
 }
 
 async function choose(value) {
-  const cfg = await api.getConfig();
   if (BUILTIN.includes(value)) {
     try { localStorage.setItem('theme', value); } catch { /* the choice lasts until the launcher closes */ }
     uninstall();
     document.documentElement.dataset.theme = value;
-    if (cfg.theme) await api.saveConfig({ config: { ...cfg, theme: '' } });
+    await api.setTheme({ theme: '' });
   } else {
     if (!(await paint(value))) return false;
-    await api.saveConfig({ config: { ...cfg, theme: value } });
+    await api.setTheme({ theme: value });
   }
   labelButton();
   try {

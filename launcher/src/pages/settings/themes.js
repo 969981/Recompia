@@ -24,6 +24,7 @@ export function createThemeActions(h) {
   async function add(path) {
     const added = await api.addTheme({ path });
     await reloadThemes();
+    await api.applyBranding().catch((e) => console.warn('branding', e));   // a pack that is the chosen theme again brings its icon and Steam pictures
     toast(t('Added the theme pack {name}.', { name: added.name }), 'ok');
   }
 
