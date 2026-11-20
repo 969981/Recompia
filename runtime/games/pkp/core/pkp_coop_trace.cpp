@@ -52,7 +52,6 @@ constexpr uint64_t kSlotSize = 0x20fa0, kNodes = 0x1c200, kNodeSize = 0x130, kNo
 constexpr int kRecords = 0x40, kSlots = 2;
 constexpr uint64_t kQueueLocks = 0x41f40;   // u8 x3 after both slots, tested by flag bits 14, 16 and 23
 constexpr uint64_t kModeWords = 0x35650e8, kModeWord = 0x140;   // u32 per slot: the game mode the queue matches against rec +0x6ec
-constexpr uint64_t kBlockMap = 0x34efc98, kRequestCounters = 0x9218378;
 constexpr uint64_t kEventRunnerRef = 0x3483e60, kRunnerHold = 0x4022;   // u8: set, the ready test passes only a few fixed ids
 // The dispatcher 0x479380 holds a whole slot (0 or 1) while the slot's load phases (u32 +8, +0xc of kSlotPhases + slot * 0x2010) are
 // not both above 8, and every slot while the scene holder (main+0x3485888 holds its address) has a scene at +0x32050.
@@ -345,9 +344,9 @@ bool record_started(uint64_t q, int slot, uint64_t rec) {
 
 // Link Play's request counters stand unequal and still: logged once per stall, even with no held record.
 void watch_requests(State& s, double t) {
-    const uint64_t bm = guest::rd<uint64_t>(base() + kBlockMap);
-    if (!guest::ok(bm, 8) || !guest::ok(bm + kRequestCounters, 4)) return;
-    const uint16_t sent = guest::rd<uint16_t>(bm + kRequestCounters), answered = guest::rd<uint16_t>(bm + kRequestCounters + 2);
+    const uint64_t bm = guest::rd<uint64_t>(base() + layout::kWorld);
+    if (!guest::ok(bm, 8) || !guest::ok(bm + layout::kWorldRequests, 4)) return;
+    const uint16_t sent = guest::rd<uint16_t>(bm + layout::kWorldRequests), answered = guest::rd<uint16_t>(bm + layout::kWorldRequests + 2);
     if (sent == answered) {
         if (s.rq_logged) NXLOG_I(kTag, "Co-op trace: Link Play's request counters met again (%u)", sent);
         s.rq_since = 0;
@@ -386,10 +385,10 @@ void watch_trip(State& s, double t) {
 
 std::string held_context(uint64_t q) {
     char line[256];
-    const uint64_t bm = guest::rd<uint64_t>(base() + kBlockMap);
+    const uint64_t bm = guest::rd<uint64_t>(base() + layout::kWorld);
     uint16_t rq[5] = {};
-    const bool have_rq = guest::ok(bm, 8) && guest::ok(bm + kRequestCounters, sizeof rq);
-    if (have_rq) std::memcpy(rq, reinterpret_cast<const void*>(bm + kRequestCounters), sizeof rq);
+    const bool have_rq = guest::ok(bm, 8) && guest::ok(bm + layout::kWorldRequests, sizeof rq);
+    if (have_rq) std::memcpy(rq, reinterpret_cast<const void*>(bm + layout::kWorldRequests), sizeof rq);
     const uint64_t mw = guest::rd<uint64_t>(base() + kModeWords);
     const unsigned mode = guest::ok(mw, kModeWord + 4) ? guest::rd<uint32_t>(mw + kModeWord) : 0xffffffffu;
     const uint64_t er_ref = guest::rd<uint64_t>(base() + kEventRunnerRef);

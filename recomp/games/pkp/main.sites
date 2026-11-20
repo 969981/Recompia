@@ -265,6 +265,9 @@ entryhook 0x710011b214
 entryhook 0x71001240dc
 entryhook 0x710043d3e0
 entryhook 0x710012c734
+#   Seamless co-op, catch-up (pkp_coop_catchup.cpp): the item of a character's reward list 0x71003bcbc0 (comp, &u16 item, &u16 count;
+#   only called through the reward command table 0x7103485400)
+entryhook 0x71003bcbc0
 #   Seamless co-op, the story lines (pkp_coop_story.cpp): step action 6 0x710010c270 (the town register and house arrival; no direct
 #   callers, row 6 of the step-action table 0x710322d658 that 0x710010afc0 calls through)
 entryhook 0x710010c270
@@ -320,6 +323,11 @@ entryhook 0x710045f2a0
 #   Seamless co-op, held story events (pkp_coop_held.cpp): the visitor's "every Link Play request answered" test 0x7100313418, which
 #   the event queue's ready test 0x7100479c60 asks for events with flag bit 22
 entryhook 0x7100313418
+#   Seamless co-op, Link Play's request queue (pkp_coop_linkqueue.cpp): the talk-end record's send 0x71002159c0 (q, record, entries; one
+#   caller, the talk-end walk 0x7100480b60) and the visitor's queue reset at session start 0x7100214954 (q = world +0x9218378; only
+#   caller 0x7100534c74)
+entryhook 0x71002159c0
+entryhook 0x7100214954
 #   Seamless co-op, the placement notice (pkp_coop_placement.cpp): the "object placed" notice to the contents 0x710013596c (scheduler,
 #   object, x, y, z, dir; the placement 0x7100593120 calls it right after 0x7100594da0, which on a visitor only sends the placement to
 #   the host)

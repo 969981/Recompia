@@ -20,7 +20,6 @@ namespace {
 
 constexpr const char* kTag = "pkp";
 constexpr uint64_t kReadyTestReturn = 0x479fec;   // 0x479c60's `bl 0x313418` returns here
-constexpr uint64_t kBlockMap = 0x34efc98, kRequestCounters = 0x9218378;
 constexpr double kStall = 5.0;
 
 struct State {
@@ -41,9 +40,9 @@ int on_visitor_sync(::Ctx* c) {
     if (c->x[30] - base() != kReadyTestReturn || role() == CoopRole::Host || !link::in_session()) return 0;
     if (!(session_bits() & layout::kSessionVisitor)) return 0;
     State& s = st();
-    const uint64_t bm = guest::rd<uint64_t>(base() + kBlockMap);
-    if (!guest::ok(bm, 8) || !guest::ok(bm + kRequestCounters, 4)) return 0;
-    const uint16_t sent = guest::rd<uint16_t>(bm + kRequestCounters), answered = guest::rd<uint16_t>(bm + kRequestCounters + 2);
+    const uint64_t bm = guest::rd<uint64_t>(base() + layout::kWorld);
+    if (!guest::ok(bm, 8) || !guest::ok(bm + layout::kWorldRequests, 4)) return 0;
+    const uint16_t sent = guest::rd<uint16_t>(bm + layout::kWorldRequests), answered = guest::rd<uint16_t>(bm + layout::kWorldRequests + 2);
     const double t = qpc::seconds();
     if (sent == answered) {
         if (s.passing)
