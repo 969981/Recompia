@@ -95,15 +95,21 @@ bool is_bl_to(uint32_t word, uint64_t at, uint64_t to) {
     const int64_t imm = static_cast<int64_t>(static_cast<int32_t>(word << 6) >> 6) * 4;   // imm26, sign-extended, in bytes
     return at + static_cast<uint64_t>(imm) == to;
 }
-// `ldrb wReg, [xN, #0x90]` (unsigned offset, any base register).
-bool is_session_load(uint32_t word, uint8_t reg) {
+// `ldrb wReg, [xN, #0x90]` (unsigned offset, any base register). The mask keeps size/opc (31..22), imm12 (21..10) and Rt (4..0)
+// and drops only Rn (9..5).
+constexpr bool is_session_load(uint32_t word, uint8_t reg) {
     constexpr uint32_t kLdrbImm = 0x39400000u, kOffset = static_cast<uint32_t>(layout::kStateSession) << 10;
-    return (word & 0xffc0001fu) == (kLdrbImm | kOffset | reg);
+    return (word & 0xfffffc1fu) == (kLdrbImm | kOffset | reg);
 }
-// `tbz / tbnz wReg, #bit, ...`.
-bool is_bit_test(uint32_t word, uint8_t reg, uint8_t bit) {
+// `tbz / tbnz wReg, #bit, ...`: the mask keeps b5 (31, 0 for a w register) and the 011011 opcode, drops op (24: tbz / tbnz).
+constexpr bool is_bit_test(uint32_t word, uint8_t reg, uint8_t bit) {
     return (word & 0xfe000000u) == 0x36000000u && ((word >> 19) & 0x1f) == bit && (word & 0x1f) == reg;
 }
+// main+0x4a110 / 0x4a114 (town flags): ldrb w8, [x8, #0x90] then tbnz w8, #2.
+static_assert(is_session_load(0x39424108u, 8) && is_session_load(0x39424008u, 8) && !is_session_load(0x39424108u, 9) &&
+              !is_session_load(0x39424508u, 8), "is_session_load: ldrb w8, [xN, #0x90] only");
+static_assert(is_bit_test(0x37100288u, 8, 2) && is_bit_test(0x36100288u, 8, 2) && !is_bit_test(0x37100288u, 8, 1) &&
+              !is_bit_test(0xb7100288u, 8, 2), "is_bit_test: tbz / tbnz w8, #2 only");
 
 enum : uint8_t { kUnchecked = 0, kGood = 1, kBad = 2 };
 
