@@ -19,6 +19,7 @@
 ### Performance
 - Linux PCs and laptops (native build and Proton), and macOS: the game no longer keeps processor cores busy while it waits for the graphics card. At a 60 fps cap it used about half the processor time (cooler, quieter, longer on battery), and without a cap it ran at about 314 instead of 198 fps on a test PC. The Steam Deck and other Linux handhelds already worked this way
 - Native Linux build (also on the Steam Deck): the game uses about 0.2 GB less memory. Large buffers the game clears at start are no longer filled in when they are empty already
+- Linux, Steam Deck and other handhelds: the game holds about 0.9 GB less graphics memory. Copies of the game's GPU buffers are now made in pieces of 2 MB instead of 16 MB, so far less of them sits unused
 
 ### For developers
 - Co-op trace: also logs creatures' item-making jobs (whose job, made, taken, end, a timer that stands still) and the player ids, to find why a teammate's job never finishes
