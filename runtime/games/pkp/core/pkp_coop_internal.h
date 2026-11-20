@@ -461,4 +461,11 @@ void on_session_change();
 void reset();
 }  // namespace digest
 
+// ---- the ability check (pkp_coop_story.cpp) ----
+namespace story {
+// The hook site (pkp_coop.cpp): midhook 0x1140e8 in the ability check 0x113f10, its "a visitor reads the host's record" branch; a
+// member in the session takes the own-bits branch instead.
+int on_ability_check(::Ctx* c);
+}  // namespace story
+
 }  // namespace nxrt::games::pkp::coop

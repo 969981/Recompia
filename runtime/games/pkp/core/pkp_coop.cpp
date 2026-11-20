@@ -114,6 +114,9 @@ enum class Site : uintptr_t {
     // ---- the unlocks ----
     AreaGateRecord,   // the area gate record's "a session is open" guard: the write goes through, so a gate opened in a session can be
                       // entered, and is shared with the group (pkp_coop_unlocks.cpp)
+    // ---- the ability check (pkp_coop_story.cpp) ----
+    AbilityCheck,     // the ability check's "a visitor reads the host's record" branch: a member reads its own bits, which hold the
+                      // group's abilities (the Environment Level panel on a teammate's PC menu)
 };
 
 struct CoopSite {
@@ -183,6 +186,8 @@ constexpr CoopSite kSites[] = {
     {{0x13596c, 0x12003c29u, true}, Site::PlacedNotice},     // and w9, w1, #0xffff
     {{0x12b544, 0xb9400408u, true}, Site::PlayScene},        // ldr w8, [x0, #4]
     {{0x5c05c0, 0x37000140u, false}, Site::AreaGateRecord},  // tbnz w0, #0, 0x5c05e8 (w0 = IsOnline's answer)
+    // the ability check (pkp_coop_story.cpp)
+    {{0x1140e8, 0x3617fb08u, false}, Site::AbilityCheck},    // tbz w8, #2, 0x114048 (w8 = GM+0x90, the session bits)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -247,6 +252,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::PlacedNotice: return coop::placement::on_placed_notice(c);
         case Site::PlayScene: return coop::contents::on_play_scene(c);
         case Site::AreaGateRecord: return coop::unlocks::on_area_gate_record(c);
+        case Site::AbilityCheck: return coop::story::on_ability_check(c);
         default: return 0;
     }
 }

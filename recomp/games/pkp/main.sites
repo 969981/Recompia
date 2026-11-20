@@ -583,3 +583,6 @@ entryhook 0x71003bcca8
 entryhook 0x71002f5860
 entryhook 0x71005c04d4
 # ---- end of journal services ----
+#   Seamless co-op, the ability check (pkp_coop_story.cpp): in 0x7100113f10(id, member), the `tbz w8, #2, 0x7100114048` (w8 = GM+0x90)
+#   of the member-0xff branch, where a visitor goes on to read the host's join-time member record (0x71000b19d8) instead of its own bits
+midhook 0x71001140e8

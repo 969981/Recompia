@@ -94,6 +94,8 @@
 // (the catch-up), so each takes the id out of its own set. A clear the catch-up replays (a process behind runs quest 664 long after
 // the others passed 680) is not kept or shared: only a live one is. The set lives in memory only and only for the session (emptied
 // when this process joins or leaves one); the event command 0x12c35c (value 2 clears) is not watched.
+// The game's ability check 0x113f10 makes a visitor read some abilities from the host's join-time record instead of these bits; on a
+// co-op member it reads its own (on_ability_check), so the group's abilities count there as they do offline.
 //
 // Wild appearances. A wild creature that comes to a habitat once (Bulbasaur to the first tall grass after Squirtle: quest 7 waits
 // for it to move in, then its close removes the entry with effect 0x33) is armed in m_sEventPopWildPokemon (stage data +0x972ba0,
@@ -206,6 +208,7 @@ struct State {
     double digest_at = 0.0, story_line_at = -1e9;
     std::string last_ability_line;
     bool logged_state = false;
+    bool logged_check = false;               // the ability check's first member answer was logged
     alignas(8) uint8_t command[0x20] = {};   // a received ability command, guest-readable
     uint8_t seen[kAbilityBytes] = {};        // the ability bits at the last look; a bit on now and off here turned on since
     bool have_seen = false;                  // false until the first look of a session (the baseline)
@@ -960,6 +963,26 @@ int on_ability_step(::Ctx* c) {
     if (!rec || !guest::ok(rec, 8)) return 0;
     if (guest::rd<int16_t>(rec + 6) == 0) note_clear(c, guest::rd<uint16_t>(rec + 4), "story step");
     else note_grant(guest::rd<uint16_t>(rec + 4), "story step");
+    return 0;
+}
+
+int on_ability_check(::Ctx* c) {
+    // The ability check 0x113f10(id, member) (121 callers, 0x377cc(id) = (id, 0xff) has 652 more): row flag bit 0 answers 1, offline
+    // (GM+0x90 bit 0 clear) or a visitor whose host index 0x27eae0() is above 3 reads this save's own bits (save root + 0x4a26a8),
+    // flag bit 1 on Cloud Island answers 1, an explicit member 0..3 reads that member's record (its own bits for this player's index).
+    // Member 0xff with flag bit 2 reaches this `tbz w8, #2, 0x114048` (w8 = GM+0x90): set, a visitor reads the host's member record
+    // R+0x14c2a40 + host index * 0xb8 + 0x51 + id / 8 (0xb19d8), a snapshot the host builds at session start and sends only at a join,
+    // so an ability the group got after the join stayed off there (a teammate's PC menu lacked the Environment Level panel, ability
+    // 133). A co-op member's own bits are the group's (the ability share and the digest's merge above): bit 2 cleared, the check takes
+    // the own-bits branch, as offline. w8 is reloaded at 0x114048, nothing else reads it. Every other case never reaches this site.
+    if (role() != CoopRole::Visit || !link::in_session() || !(c->x[8] & layout::kSessionVisitor)) return 0;
+    c->x[8] &= ~static_cast<uint64_t>(layout::kSessionVisitor);
+    State& s = st();
+    if (!s.logged_check) {
+        s.logged_check = true;
+        NXLOG_I(kTag, "Co-op story: the ability check (ability %u) answers from this member's own bits, not the host's join-time record",
+                static_cast<unsigned>(c->x[19] & 0xff));
+    }
     return 0;
 }
 
