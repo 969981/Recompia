@@ -9,7 +9,7 @@
 
 ### Co-op
 - A teammate who joins after a story step no longer keeps hearing an old step's music (Kyogre's music kept playing after Kyogre had left). The host's music for the area now reaches every teammate, which also fixes saves that kept the wrong music
-- Teammates now get Life Coins: each challenge the group claims pays every teammate its coins into their own wallet, once, including the challenges claimed before they joined (a teammate's PC showed 0). Coins stay each player's own, as in the game's Link Play. Use **Set up again** once after updating to relink the game. Your shaders are kept.
+- Teammates now get Life Coins: each challenge the host claims pays every teammate its coins into their own wallet, once, including the challenges claimed before they joined (a teammate's PC showed 0). Coins stay each player's own, as in the game's Link Play. Still not: a teammate's own claim at the PC does nothing; the host claims for the group. Use **Set up again** once after updating to relink the game. Your shaders are kept.
 
 ### Launcher
 - Pausing Set up on Windows now stops all of the compiler's work. Before, part of it kept running until the launcher closed, and the next **Set up again** could sit at "Linking pkp.exe"

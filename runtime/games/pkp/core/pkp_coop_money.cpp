@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Game layer: seamless co-op's Life Coins (pkp_coop_internal.h). The coins are each player's own, as in the game's Link Play: every
 // buy takes them from the buyer's own save (purchases: only the buyer pays). Coins come from the challenges (town goals) of the world,
-// and a challenge the group finishes in the authority's world pays every member its coins, once.
+// and a challenge claimed in the authority's save pays every member its coins, once.
 //
 // The game, 2.0.1 (modding-docs coop-v2/MONEY-RE.md):
 //   save root + kSaveMoney             the coins, u32 (CMNDAT): every reader and writer takes this process's own, visitor or not.
 //   save root + kSaveChallenges + id * 0xd8   the state of challenge id 1..0x4b0 (CMNDAT), the player's own: 3 done, 4 claimed. A
-//                                      visitor's game reads and writes the mirror of the host's (CM + id * 0x12 + 0xc) instead, so on a
-//                                      member the own record is ours: it is the member's ledger ("paid here"), saved with the coins.
+//                                      visitor's game reads and writes the mirror of the host's (CM + id * 0x12 + 0xc) instead: its
+//                                      three state writers (0x63732c, the open 0x637040, the goal update 0x6355c0) take the own record
+//                                      only when not a visitor. So on a member the own record is ours: it is the member's ledger
+//                                      ("paid here"), saved with the coins.
 //   kClaim 0x645c90(CM, id)            the PC's claim: state 4 (0x639440) and the coins (kPay) only when not a visitor (0x645d18), so a
 //                                      member's claim pays nothing.
 //   kPay 0x637480(CM, id)              the coins += kReward(CM, id) (capped at 999999), then the "claim N challenges" progress (0x6427a0,
 //                                      forwarded to the host on a visitor). Its only visitor caller is the host's goal update
 //                                      0x6355c0: when the host's state 4 arrives for a goal this member's mirror held at 3 and the
-//                                      update marks this member a participant (mirror +0x11 bit 0, 0x636ddc). In co-op that is rare
-//                                      (a member's progress mostly reaches the host as the host's own), so members stayed at 0.
+//                                      update marks this member a participant (mirror +0x11 bit 0, 0x636ddc); members showed 0 coins.
 //   kReward 0x645d40(CM, id)           the goal's coins (table row +0x28), with the goal's bonus on top (a visitor reads the mirror).
 // Rules:
 //   - the authority sends the ids of every challenge claimed in its own save (ChallengesClaimed) to every member: when the set grew,

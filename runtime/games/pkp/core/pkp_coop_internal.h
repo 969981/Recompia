@@ -19,7 +19,7 @@
 //   pkp_coop_recipes.cpp  the crafting recipes any member knows, learned by every member
 //   pkp_coop_unlocks.cpp  the moves and emotes any member learned, the areas visited and buildings built, unlocked for every member
 //   pkp_coop_purchases.cpp what any member buys in a shop, given to every member (and to later joiners) too
-//   pkp_coop_money.cpp    the Life Coins of a challenge the group claimed, paid once to every member's own coins
+//   pkp_coop_money.cpp    the Life Coins of a challenge the authority claimed, paid once to every member's own coins
 //   pkp_coop_events.cpp   what an ended talk or scene leaves in the save (scenes played, conversations seen, story lines moved on)
 //                         kept by every member
 //   pkp_coop_held.cpp     the story events a member's game holds for Link Play's request counters: let through once they are stuck
