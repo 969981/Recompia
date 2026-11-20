@@ -136,6 +136,8 @@ enum class Type : uint32_t {
     FriendState = 41,
     // the creature events (pkp_coop_feed.cpp); 37 is kept for its next kind of message
     CreatureEvent = 36,
+    // the group travel (pkp_coop_travel.cpp): u8 the member's player index in the session, u8 the stage
+    TravelAsk = 42,
 };
 
 // Builds one payload: the header, then the fields in order.
