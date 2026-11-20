@@ -128,6 +128,7 @@ void on_member(const ch::MemberEvent& e) {
     // Our own leave may be drained once the channel has no node for us any more.
     const bool self = e.node == ch::self() || ch::self() == ch::kNoNode;
     talk::on_member(st().ctx, e.node, e.joined, e.authority, self);
+    gimmicks::on_member(e.node, e.joined, self);
     if (self) {
         story::on_session_change();
         quests::on_session_change();
