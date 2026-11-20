@@ -29,6 +29,7 @@ if(TARGET nxrt_gfx)
     add_library(nxrt_game_pkp STATIC
         # core
         "${_pkp}/core/pkp_coop.cpp"
+        "${_pkp}/core/pkp_coop_bag.cpp"
         "${_pkp}/core/pkp_coop_catchup.cpp"
         "${_pkp}/core/pkp_coop_curtain.cpp"
         "${_pkp}/core/pkp_coop_events.cpp"

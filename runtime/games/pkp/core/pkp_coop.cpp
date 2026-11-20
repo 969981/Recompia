@@ -77,7 +77,8 @@ enum class Site : uintptr_t {
     MemberScreen,     // the member screen: shut likewise
     // ---- the save ----
     SaveWrite,        // a member's own save write (three writers): held, the authority writes the co-op save
-    JoinBagSync,      // the bag sync of a join: the authority's working copy never overwrites a member's own bag
+    JoinBagSend,      // the host's side of a join's bag sync: it sends "no stored bag", so a member keeps its own bag instead of the
+                      // host's stale copy (pkp_coop_bag.cpp)
     // ---- the shops ----
     ShopGrant,        // a purchase's give on the buyer's process (the shop's buy, or a visitor's buy the host answered): logged for the
                       // group, so every member gets it too (pkp_coop_purchases.cpp)
@@ -136,7 +137,7 @@ constexpr CoopSite kSites[] = {
     {{0x241324, kPacibsp, true}, Site::SaveWrite},
     {{0x245200, kPacibsp, true}, Site::SaveWrite},
     {{0x5a8a34, kPacibsp, true}, Site::SaveWrite},
-    {{0x5727c0, kPacibsp, true}, Site::JoinBagSync},
+    {{0x5728b4, 0xf9400660u, false}, Site::JoinBagSend},     // ldr x0, [x19, #8] (before the found flag is written)
     {{0xe889f8, kPacibsp, true}, Site::ShopGrant},
     {{0xe87260, kPacibsp, true}, Site::OfflineGoods},
     {{0x3b9060, kPacibsp, true}, Site::DexScene},
@@ -188,6 +189,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::AreaMove: return coop::travel::on_area_move(c);
         case Site::ShopGrant: return coop::purchases::on_grant(c);
         case Site::OfflineGoods: return coop::purchases::on_offline_only(c);
+        case Site::JoinBagSend: return coop::bag::on_join_bag_send(c);
         case Site::DexScene: return coop::discovery::on_dex_scene(c);
         case Site::HabitatScene: return coop::discovery::on_habitat_scene(c);
         case Site::VisitorSync: return coop::held::on_visitor_sync(c);
