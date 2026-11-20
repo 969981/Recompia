@@ -278,8 +278,21 @@ pub fn open_with_shell(path: &Path) -> Result<(), String> {
     crate::host::open(path.as_os_str())
 }
 
-/// Opens an http(s) link in the default browser (same route as open_with_shell).
+/// Opens an http(s) link in the default browser.
+///
+/// Windows: not through explorer.exe as open_with_shell does. explorer splits its argument at `=` and `,`, so a link with a
+/// query string (the sign-in link: `...?port=..&state=..`) is not taken as a link at all and the Documents folder opens
+/// instead. The URL protocol handler takes the link whole, with no shell in between.
 pub fn open_url(url: &str) -> Result<(), String> {
+    if cfg!(windows) {
+        let mut child = crate::host::command("rundll32.exe")
+            .arg("url.dll,FileProtocolHandler")
+            .arg(url)
+            .spawn()
+            .map_err(|e| format!("Could not open {url}: {e}"))?;
+        std::thread::spawn(move || child.wait());
+        return Ok(());
+    }
     crate::host::open(std::ffi::OsStr::new(url))
 }
 
