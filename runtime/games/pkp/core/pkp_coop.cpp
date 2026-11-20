@@ -118,6 +118,7 @@ enum class Site : uintptr_t {
     FriendGain,       // a friendship gain with a creature: a member's (outside Cloud Island) is made on the authority, whose record
                       // is the group's
     FriendFlag,       // script callback slot 175's friend record flag: a member's is set on the authority too
+    FriendTag,        // the name tag's friendship test: a member reads its copy of the host's records, as the host reads its own
 };
 
 struct CoopSite {
@@ -190,6 +191,7 @@ constexpr CoopSite kSites[] = {
     // friendship
     {{0x3a89fc, kPacibsp, true}, Site::FriendGain},
     {{0x4ab358, 0x36000120u, false}, Site::FriendFlag},      // tbz w0, #0, 0x4ab37c (w0 = Cloud Island, w19 = the chara)
+    {{0x3b7cd0, 0x36000540u, false}, Site::FriendTag},       // tbz w0, #0, 0x3b7d78 (w0 = Cloud Island, on a visitor)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -256,6 +258,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::AreaGateRecord: return coop::unlocks::on_area_gate_record(c);
         case Site::FriendGain: return coop::friendship::on_add_points(c);
         case Site::FriendFlag: return coop::friendship::on_flag_17a(c);
+        case Site::FriendTag: return coop::friendship::on_name_tag(c);
         default: return 0;
     }
 }

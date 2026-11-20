@@ -40,7 +40,9 @@
 // What the members see: the authority sends the records' friendship fields (FriendState: +0x2c, +0x2e, +0x175, +0x177, +0x17a,
 // +0x17d) to every member when they change (polled every kScanEvery seconds) and all of them to a member that joins; a member writes
 // them into its copy of the host's records (R + kFriendHostCopy), which its game reads for the creature (kind 0xb's reader 0x57e3d4
-// does not carry these fields; what the join copies into the records was not read).
+// does not carry these fields; what the join copies into the records was not read). The name tag's friendship test 0x3b7bd8 (caller 0xead130) answers false at once on a visitor outside Cloud
+// Island (0x3b7cd0) and reads the points from the own records (0x3b7d44, no visitor select): a member in the session takes the host's
+// path there with the copy's points instead (midhook 0x3b7cd0).
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -240,6 +242,15 @@ int on_flag_17a(::Ctx* c) {
     queue({kAskFlag, 0, chara, 0, static_cast<uint16_t>(layout::kFriendFlag17a)});
     NXLOG_I(kTag, "Co-op friendship: chara %u's flag +0x%x set here: sent to the authority", chara,
             static_cast<unsigned>(layout::kFriendFlag17a));
+    return 0;
+}
+
+int on_name_tag(::Ctx* c) {
+    // Midhook 0x3b7cd0 in 0x3b7bd8: `tbz w0, #0, 0x3b7d78` after 0x77ecb0 (reached on a visitor only; w0 bit 0 = Cloud Island, clear
+    // returns false). x22 = the save root, read once at 0x3b7d44 as x22 + (chara + 4) * 0x180 + 0x14c (= the own record's +0x2c).
+    if (!member_here() || (c->x[0] & 1)) return 0;
+    c->x[0] = 1;
+    c->x[22] += layout::kFriendHostCopy - layout::kFriendOwn;
     return 0;
 }
 

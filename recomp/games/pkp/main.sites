@@ -366,9 +366,11 @@ midhook 0x71005c05c0
 entryhook 0x710012b544
 #   Seamless co-op, friendship (pkp_coop_friendship.cpp): every friendship gain with a creature 0x71003a89fc (comp, amount, flag), in
 #   script callback slot 175 0x71004ab268 the `tbz w0, #0` after the Cloud Island test before its friend record flag +0x17a (w19 the
-#   chara)
+#   chara), and in the name tag's friendship test 0x71003b7bd8 the `tbz w0, #0` after the Cloud Island test that returns false on a
+#   visitor
 entryhook 0x71003a89fc
 midhook 0x71004ab358
+midhook 0x71003b7cd0
 #   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): talk conditions
 #   0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0` after IsOnline), and condition 0x22, the one instruction `b IsOnline`;
 #   the quest pump 0x710011b600 at `tbz w0, #0` after the flag read; the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item
