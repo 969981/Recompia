@@ -9,9 +9,11 @@
 // the same path through the channel's loopback. So every process applies the changes in the authority's order, and never its own
 // change twice. The other messages (the talk lock's) go to one node and are applied there.
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_journal.h"
 #include "core/pkp_layout.h"
 
 #include <cstddef>
+#include <string>
 
 #include "nxrt/coop_channel.h"
 #include "nxrt/log.h"
@@ -64,6 +66,10 @@ constexpr Route kRoutes[] = {
     {wire::Type::AbilityCleared, Path::Shared, &story::on_cleared_message},
     {wire::Type::AreaMusic, Path::FromAuthority, &story::on_music_message},
     {wire::Type::ChallengesClaimed, Path::FromAuthority, &money::on_claimed_message},
+    {wire::Type::StateDigest, Path::FromAuthority, &digest::on_digest_message},
+    {wire::Type::StateAsk, Path::ToAuthority, &digest::on_ask_message},
+    {wire::Type::StateFull, Path::FromAuthority, &digest::on_full_message},
+    {wire::Type::StateReport, Path::ToAuthority, &digest::on_report_message},
 };
 
 struct State {
@@ -100,6 +106,7 @@ void deliver(const Route& route, const ch::Message& m) {
     uint8_t origin = wire::kNobody;
     const uint32_t bit = 1u << (static_cast<uint32_t>(route.type) & 31);
     if (!r.header(&origin)) {
+        wirelog::dropped(m.type, m.from, m.data, m.size, "another wire version");
         if (!(s.bad_version & bit)) {
             s.bad_version |= bit;
             NXLOG_W(kTag, "Co-op: dropped message type %u from node %d: version %u, this build speaks %u", m.type, m.from,
@@ -108,6 +115,7 @@ void deliver(const Route& route, const ch::Message& m) {
         return;
     }
     if (!sender_ok(route.path, m.from, origin)) {
+        wirelog::dropped(m.type, m.from, m.data, m.size, "its sender may not send it with that origin");
         if (!(s.bad_sender & bit)) {
             s.bad_sender |= bit;
             NXLOG_W(kTag, "Co-op: dropped message type %u from node %d: origin %u, authority node %d; it may not send that", m.type,
@@ -116,11 +124,15 @@ void deliver(const Route& route, const ch::Message& m) {
         return;
     }
     if (route.path == Path::Shared && ch::is_authority()) {
+        wirelog::received(m.type, m.from, origin, m.data, m.size, origin != ch::self() ? "applying here, then passing on" : "this player's own (applied already), passing on");
         if (origin != ch::self()) route.apply(s.ctx, m.from, origin, r);
+        std::string to;
         for (int node : ch::members())
-            if (node != origin) ch::send(node, m.type, m.data, m.size);
+            if (node != origin) to += journal::fmt(" n%d%s", node, ch::send(node, m.type, m.data, m.size) ? "" : " (not taken)");
+        wirelog::forwarded(m.type, origin, m.data, m.size, to.c_str());
         return;
     }
+    wirelog::received(m.type, m.from, origin, m.data, m.size, "applying here");
     route.apply(s.ctx, m.from, origin, r);
 }
 
@@ -140,6 +152,7 @@ void on_member(const ch::MemberEvent& e) {
         unlocks::on_session_change();
         purchases::on_session_change();
         money::on_session_change();
+        digest::on_session_change();
         NXLOG_I(kTag, "Co-op: %s the session's channel as node %d%s", e.joined ? "in" : "out of", e.node, e.authority ? " (the authority)" : "");
         if (e.joined && e.authority != (role() == CoopRole::Host))
             NXLOG_W(kTag, "Co-op: this process is %s of the session, but its launch role is %s", e.authority ? "the authority" : "a member",
@@ -201,18 +214,22 @@ bool is_authority() { return in_session() && ch::is_authority(); }
 
 int authority() { return ch::authority(); }
 
-bool to_authority(wire::Type type, std::vector<uint8_t>&& payload) {
-    return in_session() && ch::send(ch::authority(), static_cast<uint32_t>(type), std::move(payload));
-}
+bool to_authority(wire::Type type, std::vector<uint8_t>&& payload) { return to_node(ch::authority(), type, std::move(payload)); }
 
 bool share(wire::Type type, std::vector<uint8_t>&& payload) { return to_authority(type, std::move(payload)); }
 
 bool to_node(int node, wire::Type type, std::vector<uint8_t>&& payload) {
-    return in_session() && ch::send(node, static_cast<uint32_t>(type), std::move(payload));
+    const auto t = static_cast<uint32_t>(type);
+    wirelog::Pending log = wirelog::sending(t, node, payload.data(), payload.size());
+    const bool queued = in_session() && ch::send(node, t, std::move(payload));
+    wirelog::sent(log, queued);
+    return queued;
 }
 
 void to_members(wire::Type type, const std::vector<uint8_t>& payload) {
-    if (in_session()) ch::send_all(static_cast<uint32_t>(type), payload.data(), payload.size());
+    if (!in_session()) return;
+    const int count = ch::send_all(static_cast<uint32_t>(type), payload.data(), payload.size());
+    wirelog::sent_all(static_cast<uint32_t>(type), payload.data(), payload.size(), count);
 }
 
 }  // namespace nxrt::games::pkp::coop::link

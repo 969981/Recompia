@@ -31,6 +31,8 @@
 //   pkp_coop_placement.cpp a member's "object placed" notice to the contents, raised once the host has put the object in its world
 //   pkp_coop_contents.cpp  a scene a content queued that the event queue refused: asked for again until it plays
 //   pkp_coop_bag.cpp      a member's bag stays its own at a join: the host's stored copy of it is never sent
+//   pkp_coop_wirelog.cpp  every message sent, received, passed on or dropped, in the journal (pkp_journal.h area Sync)
+//   pkp_coop_digest.cpp   the shared state's digests: the authority's, compared by every member; the entries that differ, logged on both
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -382,5 +384,52 @@ namespace trace {
 void tick(bool in_game);
 void reset();
 }  // namespace trace
+
+namespace wirelog {
+// The link's calls (pkp_coop_link.cpp): one journal line per message, equal periodic payloads counted instead of written.
+const char* type_name(uint32_t type);
+struct Pending {   // a send, taken before the payload moves into the channel
+    uint32_t type = 0;
+    int node = 0;
+    bool write = false;
+    uint32_t same = 0;
+    std::string payload;
+};
+Pending sending(uint32_t type, int node, const uint8_t* p, size_t n);
+void sent(const Pending& d, bool queued);
+void sent_all(uint32_t type, const uint8_t* p, size_t n, int count);
+void received(uint32_t type, int from, uint8_t origin, const uint8_t* p, size_t n, const char* outcome);
+void forwarded(uint32_t type, uint8_t origin, const uint8_t* p, size_t n, const char* to);   // to: " n1 n3", or ""
+void dropped(uint32_t type, int from, const uint8_t* p, size_t n, const char* why);
+void install();   // the journal's "who" (node and role)
+void reset();
+}  // namespace wirelog
+
+namespace digest {
+// One shared domain's entries as this process has them: (id, value) of every entry set, ids ascending.
+struct Entry {
+    uint32_t id, value;
+};
+using Entries = std::vector<Entry>;
+// The domains' readers (each in its part's file); 0 / false when the save is not there yet.
+bool quest_states(Entries& out);   // pkp_coop_story.cpp: quest id -> state word (low byte) past 0
+bool abilities(Entries& out);      // pkp_coop_story.cpp: ability id -> 1
+bool dex(Entries& out);            // pkp_coop_discovery.cpp: dex number -> entry bits
+bool habitats(Entries& out);       // pkp_coop_discovery.cpp: habitat id -> bits
+bool recipes(Entries& out);        // pkp_coop_recipes.cpp: recipe id -> 1
+bool unlocks(Entries& out);        // pkp_coop_unlocks.cpp: (list << 16) | entry id -> 1
+bool scenes(Entries& out);         // pkp_coop_events.cpp: played scene id -> 1
+bool area_levels(Entries& out);    // pkp_coop_digest.cpp: stage -> the level the game reads here
+bool gates(Entries& out);          // pkp_coop_digest.cpp: gate id -> the byte the gate getter reads here (non-zero)
+bool trainer_level(Entries& out);  // pkp_coop_digest.cpp: 0 -> m_trainerLevel
+// The authority sends its digest every few seconds; a member compares (once a frame, in a session).
+void tick(::Ctx* c, bool in_game);
+void on_digest_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_full_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_report_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_session_change();
+void reset();
+}  // namespace digest
 
 }  // namespace nxrt::games::pkp::coop

@@ -2,6 +2,7 @@
 // Game layer: the whole game module as one nxrt::game::Info (pkp_game.h). Play-mode hooks come here as they are found.
 #include "core/pkp_game.h"
 #include "core/pkp_coop.h"
+#include "core/pkp_journal_feature.h"
 #include "input/pkp_aim.h"
 #include "input/pkp_aim_debug.h"
 #include "ui/pkp_craft.h"
@@ -60,6 +61,8 @@ constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 // frame-rate hook at that site, as they did when that hook called them. Where the order matters:
 //   save_uuid           first: its install repairs the save before the game is loaded (pkp_save_uuid.h)
 //   linkplay            before play: its frame callback (the one-time check of main) runs first in play mode's frame
+//   journal             before coop: its watchers' hooks only read and return 0, and an entry hook of co-op's may end the chain (a
+//                       member's quest flag set), so the journal sees every call first (pkp_journal_watch.h)
 //   coop                after linkplay: both hook the permission mask's online pattern (main+0xb1030; both return 0, so both run), and
 //                       co-op's runs second, so its pattern is the one the builder keeps. Installs nothing unless this is a co-op launch
 //   coop_probe          a test tool (NXRT_TESTTOOLS only): after coop, so its game-frame state lines see the frame's co-op messages applied
@@ -77,7 +80,7 @@ constexpr uint64_t kFrameUpdate = 0x1fdcde4;
 //   item_edit           no hooks and no callbacks: the Options screen's Items tab calls it when it opens and commits (pkp_item_edit.h)
 //   loading_backdrop   after play: uses the canvas size set by its UI camera hook
 //   cross_guide        shares the quad builder's site with loading_backdrop (both hooks return 0, so both run); no order between them
-// No other two features hook the same address.
+// No other two features hook the same address, except the journal, which may watch any site (its hooks read and return 0).
 //
 // Each row says what the feature is to the player. mod(): a gameplay mod, named with its switches (the gameplay() rows of the [pkp]
 // table, pkp_settings_table.h), which the launcher shows in Settings > Gameplay on its own. port(): part of playing the game on a PC
@@ -92,7 +95,7 @@ constexpr Entry port(const Feature* f) { return {f, {settings::Key::Count, setti
 
 using enum settings::Key;
 constexpr Entry kEntries[] = {
-    port(&kSaveUuidFeature), port(&kLinkplayFeature), port(&kCoopFeature),
+    port(&kSaveUuidFeature), port(&kLinkplayFeature), port(&kJournalFeature), port(&kCoopFeature),
 #if NXRT_TESTTOOLS
     port(&kCoopProbeFeature),
 #endif

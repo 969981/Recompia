@@ -27,7 +27,6 @@ namespace {
 constexpr const char* kTag = "pkp";
 constexpr size_t kMemberDigits = 32;
 
-constexpr uint32_t kPacibsp = 0xd503237fu;   // the first instruction of most of the game's functions
 
 // What the game does at a site; the hook's user value.
 enum class Site : uintptr_t {
@@ -238,6 +237,7 @@ void install(const FeatureInstall& in) {
     launch.members = static_cast<int>(settings::get_int(settings::Key::CoopMembers));
     s.launch = launch;
     s.base = in.base;
+    coop::wirelog::install();
     s.hooks = &in.hooks;
     s.armed.store(false);
     s.checked.store(false);
@@ -294,6 +294,7 @@ void game_frame(::Ctx* c) {
     coop::contents::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::gate::tick(s.in_game.load(std::memory_order_relaxed));
     coop::trace::tick(s.in_game.load(std::memory_order_relaxed));
+    coop::digest::tick(c, s.in_game.load(std::memory_order_relaxed));
 }
 
 void remove() {   // the registry has removed the hooks
@@ -323,6 +324,8 @@ void remove() {   // the registry has removed the hooks
     coop::curtain::reset();
     coop::gate::reset();
     coop::trace::reset();
+    coop::digest::reset();
+    coop::wirelog::reset();
     coop::held::reset();
     coop::linkqueue::reset();
     coop::placement::reset();

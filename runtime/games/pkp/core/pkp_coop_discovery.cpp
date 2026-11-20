@@ -447,3 +447,24 @@ void on_member_joined() { st().send_all = true; }
 void reset() { st() = State{}; }
 
 }  // namespace nxrt::games::pkp::coop::discovery
+
+// The digests' readers (pkp_coop_digest.cpp): the entries as the save has them now.
+namespace nxrt::games::pkp::coop::digest {
+
+bool dex(Entries& out) {
+    const uint64_t root = coop::discovery::save_root();
+    if (!root) return false;
+    for (uint32_t no = 1; no <= coop::discovery::kDexMax; ++no)
+        if (const uint8_t b = coop::discovery::dex_bits(root, no)) out.push_back({no, b});
+    return true;
+}
+
+bool habitats(Entries& out) {
+    const uint64_t root = coop::discovery::save_root();
+    if (!root) return false;
+    for (uint32_t hab = 1; hab <= coop::discovery::kHabitatMax; ++hab)
+        if (const uint8_t b = coop::discovery::hab_bits(root, hab)) out.push_back({hab, b});
+    return true;
+}
+
+}  // namespace nxrt::games::pkp::coop::digest

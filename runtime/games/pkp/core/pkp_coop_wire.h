@@ -43,6 +43,13 @@
 //               of the quest step that set it (1 when not known)   (with every digest; pkp_coop_story.cpp)
 //   ChallengesClaimed +2 u16 count n, then n u16 challenge ids (1..0x4b0) claimed in the authority's save (pkp_coop_money.cpp): each
 //               member is paid their coins once
+//   StateDigest +2 u8 count n, then n times: u8 domain, u32 hash of the domain's entries, u16 how many entries are set
+//               (the authority's shared state, every kDigestEvery seconds; pkp_coop_digest.cpp: a member compares its own)
+//   StateAsk    +2 u8 domain                               (a member whose digest differed twice asks for the authority's entries)
+//   StateFull   +2 u8 domain, +3 u16 count n, then n times: u32 entry id, u32 its value   (the authority's set entries)
+//   StateReport +2 u8 domain, +3 u16 differing n, +5 u16 count m (m <= n), then m times: u32 entry id, u32 the authority's value,
+//               u32 the member's value                     (a member's differences, so the host's log shows them too)
+//               These four are logging only: a build without them drops them and plays on (no kVersion, no co-op rules change).
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -96,6 +103,10 @@ enum class Type : uint32_t {
     AbilityCleared = 25,
     AreaMusic = 26,
     ChallengesClaimed = 27,
+    StateDigest = 28,   // the shared-state digests (pkp_coop_digest.cpp), logging only
+    StateAsk = 29,
+    StateFull = 30,
+    StateReport = 31,
 };
 
 // Builds one payload: the header, then the fields in order.

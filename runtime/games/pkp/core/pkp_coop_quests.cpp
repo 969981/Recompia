@@ -45,6 +45,7 @@
 // session, run every set as the game does.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
+#include "core/pkp_journal.h"
 #include "core/pkp_layout.h"
 
 #include <cstddef>
@@ -167,6 +168,7 @@ bool apply(::Ctx* c, uint32_t id, uint8_t state, uint8_t origin) {
     if (guest::call(c, base() + kFlagOf, s, id) & 1) return true;   // set already: the pump steps it
     set_flag(c, s, id);
     NXLOG_I(kTag, "Co-op quests: quest %u at state %u moved on here for node %u (its ask)", id, state, origin);
+    journal::Rec(journal::Area::Quest, "ask-answer").in("node=%u id=%u state=%u", origin, id, state).out("flag set here, the pump steps it");
     return true;
 }
 
@@ -210,11 +212,15 @@ void run_pending(::Ctx* c) {
         const uint32_t id = i + 1;
         const uint8_t here = state_of(c, story_obj, id);
         bool done = here != want;   // stepped meanwhile (by its own pass, or another ask)
-        if (done)
+        if (done) {
             NXLOG_I(kTag, "Co-op quests: node %u's waiting ask for quest %u at state %u ends: it is at %u here", s.pending_origin[i], id,
                     want, here);
-        else
+            journal::Rec(journal::Area::Quest, "ask-answer")
+                .in("node=%u id=%u state=%u (waiting)", s.pending_origin[i], id, want)
+                .out("dropped: at state %u here (another way made that step)", here);
+        } else {
             done = apply(c, id, want, s.pending_origin[i]);
+        }
         if (!done) continue;
         s.pending[i] = 0;
         --s.pending_count;
@@ -251,15 +257,26 @@ int on_quest_flag(::Ctx* c) {
             s.logged_state[i] = state;
             NXLOG_I(kTag, "Co-op quests: quest %u's step at state %u (from main+0x%llx, condition type %u) left to the authority", id, state,
                     static_cast<unsigned long long>(from), type);
+            journal::Rec(journal::Area::Quest, "flag-decision")
+                .in("id=%u state=%u by=main+0x%llx condition type=0x%02x", id, state, static_cast<unsigned long long>(from), type)
+                .out("skipped: %s", from == kTimerPass ? "the list A timer is the authority's"
+                                    : from == kNewDay  ? "the new day is the authority's"
+                                                       : "the condition reads the shared world (or there is none): the authority's pass decides")
+                .note("logged once per state");
         }
         return 1;   // the set does not run: the pump steps this quest only on the authority's states
     }
     const double now = qpc::seconds();
     const bool again = s.asked_state[i] == state && now - s.asked_at[i] < kAskEvery;
     if (!again) {
-        if (s.asked_state[i] != state)
+        if (s.asked_state[i] != state) {
             NXLOG_I(kTag, "Co-op quests: quest %u's step at state %u made here (from main+0x%llx, condition type %u), asked of the authority",
                     id, state, static_cast<unsigned long long>(from), type);
+            journal::Rec(journal::Area::Quest, "flag-decision")
+                .in("id=%u state=%u by=main+0x%llx condition type=0x%02x", id, state, static_cast<unsigned long long>(from), type)
+                .out("asked of the authority (QuestFlagAsk), the set itself skipped here")
+                .note("logged once per state; asked again every %.0f s while it holds", kAskEvery);
+        }
         s.asked_at[i] = now;
         s.asked_state[i] = state;
         bool queued = false;   // one per quest: a quest not sent yet is asked once, at its latest state
@@ -285,6 +302,11 @@ void on_ask_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
             s.refused_state[id - 1] = static_cast<uint8_t>(state + 1);
             NXLOG_I(kTag, "Co-op quests: node %u asked for quest %u's step at state %u; it is at %u here, not applied", origin, id, state,
                     here);
+            journal::Rec(journal::Area::Quest, "ask-answer")
+                .in("node=%u id=%u state=%u", origin, id, state)
+                .out("state %u here", here)
+                .expect("state %u here", state)
+                .refused("the authority is %s that state", here > state ? "past" : "not yet at");
         }
         return;
     }
@@ -296,6 +318,9 @@ void on_ask_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
     s.pending_origin[id - 1] = origin;
     NXLOG_I(kTag, "Co-op quests: node %u's ask for quest %u at state %u waits: the quest is not listed here yet (kept for the session)",
             origin, id, state);
+    journal::Rec(journal::Area::Quest, "ask-answer")
+        .in("node=%u id=%u state=%u", origin, id, state)
+        .out("waits: not in the state's list here yet (retried each frame for the session)");
 }
 
 void tick(::Ctx* c) {

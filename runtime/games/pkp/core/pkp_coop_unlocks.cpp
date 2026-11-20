@@ -301,3 +301,17 @@ void on_member_joined() { st().send_all = true; }
 void reset() { st() = State{}; }
 
 }  // namespace nxrt::games::pkp::coop::unlocks
+
+// The digests' reader (pkp_coop_digest.cpp): every shared list's set ids, as (list << 16) | id.
+namespace nxrt::games::pkp::coop::digest {
+
+bool unlocks(Entries& out) {
+    const uint64_t root = coop::unlocks::save_root();
+    if (!root) return false;
+    for (const coop::unlocks::List& l : coop::unlocks::kLists)
+        for (uint32_t id = l.first; id <= l.last; ++id)
+            if (coop::unlocks::shared(l, id) && coop::unlocks::has(root, l, id)) out.push_back({static_cast<uint32_t>(l.wire_id) << 16 | id, 1});
+    return true;
+}
+
+}  // namespace nxrt::games::pkp::coop::digest

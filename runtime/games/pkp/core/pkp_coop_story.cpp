@@ -105,6 +105,7 @@
 // an appearance armed twice is armed once. The member's own call still runs, as before.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
+#include "core/pkp_journal.h"
 #include "core/pkp_layout.h"
 
 #include <algorithm>
@@ -742,6 +743,12 @@ int on_quest_state(::Ctx* c) {
         s.logged_state = true;
         NXLOG_W(kTag, "Co-op story: quest %u's state was written outside the quest pump (from main+0x%llx); it is not shared",
                 static_cast<unsigned>(c->x[1] & 0xffff), static_cast<unsigned long long>(from));
+        journal::Rec(journal::Area::Quest, "state-decision")
+            .in("id=%u state=%u by=main+0x%llx", static_cast<unsigned>(c->x[1] & 0xffff), static_cast<unsigned>(c->x[2] & 0xff),
+                static_cast<unsigned long long>(from))
+            .out("written, not shared: not one of the pump's steps")
+            .note("logged once per run")
+            .warn();
     }
     return 0;
 }
@@ -753,6 +760,9 @@ int on_quest_flag(::Ctx* c) {
     const uint32_t id = static_cast<uint32_t>(c->x[1]) & 0xffff;
     if (!story_obj || c->x[0] != story_obj || id - 1 >= kQuestMax || quest_flag(c, story_obj, id)) return 0;
     NXLOG_I(kTag, "Co-op story: quest %u flag set here (from main+0x%llx)", id, static_cast<unsigned long long>(c->x[30] - base()));
+    journal::Rec(journal::Area::Quest, "flag-decision")
+        .in("id=%u by=main+0x%llx", id, static_cast<unsigned long long>(c->x[30] - base()))
+        .out("set here: the pump steps it; the state it leads to is shared");
     return 0;
 }
 
@@ -889,19 +899,30 @@ int on_quest_effect(::Ctx* c) {
     }
     if (kind == kQuestMusicEffect && link::in_session() && catch_up_step(c)) {
         NXLOG_I(kTag, "Co-op story: effect 0x07 of a step the catch-up replays; its music not played here");
+        journal::Rec(journal::Area::Quest, "effect-decision").in("kind=0x07").out("skipped: a step the catch-up replays (old music)");
         return 1;
     }
     bool every_process = false;
     for (uint8_t every : kEveryProcessEffects) every_process |= kind == every;
     if (!member || every_process) {
-        if (link::in_session()) NXLOG_I(kTag, "Co-op story: effect 0x%02x run here", kind);
+        if (link::in_session()) {
+            NXLOG_I(kTag, "Co-op story: effect 0x%02x run here", kind);
+            journal::Rec(journal::Area::Quest, "effect-decision")
+                .in("kind=0x%02x member=%u", kind, member ? 1u : 0u)
+                .out("run here: %s", member ? "a personal, music or story kind (every process)" : "the authority runs every kind");
+        }
         return 0;
     }
     if (kind == kTimeFadeEffect && guest::ok(c->x[0], 3)) {
-        if (!catch_up_step(c)) member_time_fade(c, guest::rd<uint8_t>(c->x[0] + 2));
+        const bool replay = catch_up_step(c);
+        if (!replay) member_time_fade(c, guest::rd<uint8_t>(c->x[0] + 2));
+        journal::Rec(journal::Area::Quest, "effect-decision")
+            .in("kind=0x09 zone=%u", guest::rd<uint8_t>(c->x[0] + 2))
+            .out("%s", replay ? "skipped: a step the catch-up replays (no fade)" : "the clock left to the authority; the fade only here");
         return 1;
     }
     NXLOG_I(kTag, "Co-op story: world effect 0x%02x left to the authority", kind);
+    journal::Rec(journal::Area::Quest, "effect-decision").in("kind=0x%02x member=1", kind).out("skipped: a world effect, the authority's");
     return 1;   // x0 is still the command, as on the game's own "nothing to do" return
 }
 
@@ -1183,3 +1204,24 @@ bool world_started() {
 void reset() { st() = State{}; }
 
 }  // namespace nxrt::games::pkp::coop::story
+
+// The digests' readers (pkp_coop_digest.cpp): quest states and ability bits as the save has them now.
+namespace nxrt::games::pkp::coop::digest {
+
+bool quest_states(Entries& out) {
+    const uint64_t words = coop::story::quest_words();
+    if (!words) return false;
+    for (uint32_t i = 0; i < coop::story::kQuestMax; ++i)
+        if (const uint8_t v = coop::story::state_at(words, i)) out.push_back({i + 1, v});
+    return true;
+}
+
+bool abilities(Entries& out) {
+    const uint64_t root = coop::story::save_root();
+    if (!root) return false;
+    for (uint32_t id = 1; id < 0x100; ++id)
+        if (coop::story::ability_on(root, static_cast<uint16_t>(id))) out.push_back({id, 1});
+    return true;
+}
+
+}  // namespace nxrt::games::pkp::coop::digest
