@@ -216,7 +216,9 @@ int on_fed(::Ctx* c) {
     const uint16_t item = static_cast<uint16_t>(c->x[2]);
     if (static_cast<uint16_t>(item - 1) >= kItemMax) return 0;
     const uint16_t data = member_data_id(c, c->x[1]);
-    // x24: 0x597820's w24 (its params' [2], or [0] with fewer), callee-saved up to here; 0x333be0 got w2 = (w24 > 0).
+    // x24: 0x597820's w24 (its params' [2], or [0] with fewer; 0x333be0 got w2 = (w24 > 0), which 0x333fa0 clears from the
+    // eat record's item, 0x3341ac). Loaded at 0x597898; the lift writes it to the context at the next call (0x2e7efc at 0x5978a0)
+    // and the callees after it keep it (callee-saved), so the context holds it here although the call to 0x136548 spills only x0..x2.
     if (data) queue(kFedKind, data, static_cast<uint16_t>(item | (static_cast<int32_t>(c->x[24]) > 0 ? kFedFlag : 0)));
     return 0;   // the game's own code runs on and returns at its visitor test
 }
