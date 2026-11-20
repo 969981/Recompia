@@ -120,6 +120,8 @@ const char* type_name(uint32_t type) {
     case wire::Type::StateAsk: return "StateAsk";
     case wire::Type::StateFull: return "StateFull";
     case wire::Type::StateReport: return "StateReport";
+    case wire::Type::BagRecord: return "BagRecord";
+    case wire::Type::BagRestore: return "BagRestore";
     }
     return "?";
 }
