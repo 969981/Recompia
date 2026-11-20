@@ -422,3 +422,146 @@ entryhook 0x7100ead978
 # the set follows where the button sits on the player's pad
 inline 0x7100e77a30
 inline 0x7100e780c0
+
+# ==== the journal's watchers (runtime/games/pkp/core/pkp_journal_*.cpp): read-only hooks; each site is checked on its own ====
+
+# ---- journal events (pkp_journal_events.cpp) ----
+#   Also hooks co-op's 0x710012b544 (play scene) and 0x710047bd00 (chain end), declared above.
+# the event queue's enqueue (x0 queue, w1 slot, x2 record): every talk / scene / event offer, its refusal reason computed at entry
+entryhook 0x710045d5a0
+# a contents script record leaves its trigger list (x0 list, x1 record, w2): a one-shot record is gone for good
+entryhook 0x7100132f00
+# the contents notifier (x0 scheduler, x1 list, w2, w3): the notice kind at scheduler +0x11aae0 and its payload
+entryhook 0x71001353a0
+# event runner state 4 (x0 runner): the end writes of an event (played bit, rows, story bus, notices)
+entryhook 0x710047e140
+# ---- end of journal events ----
+
+# ---- journal talk (pkp_journal_talk.cpp) ----
+# 0x71003180e0, 0x71003181cc, 0x71004c06d8, 0x710047bd00 and the conditions 0x71004cfe20 / 0x71004d4860 / 0x71004d04fc are declared above
+# condition set of a candidate talk row (0x4c8ba0's candidates): entry (w1 slot, w2 set id, x3 &actor id)
+entryhook 0x71004cc1a8
+# its first ldrb w11, [x9, #0xc] (x9 the set record, w10 the key byte)
+midhook 0x71004cc280
+# its cmp w21, #0 after cond B (w21 cond A, w0 cond B)
+midhook 0x71004ccb7c
+# its cmp w21, #0 before the return (w21 the set's result)
+midhook 0x71004ccb88
+# condition set read by the selector stage 0x4be0a4: entry (w1 slot, w2 set id, x3 &actor id)
+entryhook 0x71004cd518
+# its first ldrb w11, [x9, #0x13] (x9 the set record, w10 the key byte)
+midhook 0x71004cd5f0
+# its cmp w21, #0 after cond B
+midhook 0x71004cdeec
+# its cmp w21, #0 before the return
+midhook 0x71004cdef8
+# talk selector stage 2: after each condition call (w19 the id - 1, w0 the result)
+midhook 0x71004c4820
+# ---- end of journal talk ----
+
+# ---- journal roles (pkp_journal_roles.cpp) ----
+# shop buy: `tbnz w0` on IsVisitor's answer, the bought bit skipped on a visitor
+midhook 0x7100e889ac
+# area-visit writer: returns at once on a visitor
+entryhook 0x710062f7e0
+# house arrival (w0 character): refused on a visitor
+entryhook 0x71009bdf50
+# create NPC: a visitor sends RequestCreateNPC instead
+entryhook 0x71002c2480
+# spawn character: a visitor sends a create message instead
+entryhook 0x71002c2e80
+# party NPC: a visitor sends RequestPartyNPC instead
+entryhook 0x7100659588
+# general progress type 3: returns on a visitor before counting
+entryhook 0x710062b3e0
+# general progress type 9: returns on a visitor before counting
+entryhook 0x710062b72c
+# general progress type 0x2d: returns on a visitor before counting
+entryhook 0x710062be5c
+# contents feed (GM+0xd8, &actor id): skipped on a visitor
+entryhook 0x71001355ec
+# ---- end of journal roles ----
+
+# ---- journal quests (pkp_journal_quests.cpp) ----
+#   also hooks 0x71005d865c, 0x71005d8774, 0x710011b214 (entry) and 0x710011b6a4 (mid), declared above for co-op
+#   a story line's step actions 0x710010afc0 (x0 the bus entry, +0 the line; callers 0x710010aaa8 line start, 0x710010b580 step advance)
+entryhook 0x710010afc0
+#   the story bus told a scene ended 0x710010d260 (bus GM+0xd0, w1 scene; caller runner state 4 0x710047e140)
+entryhook 0x710010d260
+#   a closed quest's follow-ups into list C 0x710011c220 (QL, w1 the closed quest; caller the pump 0x710011b600)
+entryhook 0x710011c220
+# ---- end of journal quests ----
+
+# ---- journal items (pkp_journal_items.cpp) ----
+#   No line of its own: every site it watches is declared above (no duplicate lines). The bag / container screen frame 0x7100feee78 and
+#   the cabinet allocator 0x7100776540 (box tabs), the world item pickup 0x71009cdba0 and removal 0x71009cb680 (the retired sites),
+#   the reward list give 0x71003bcbc0 and script give 0x710012c734 (co-op catch-up), the join bag piece midhook 0x71005728b4 (co-op bag)
+# ---- end of journal items ----
+
+# ---- journal interact (pkp_journal_interact.cpp) ----
+# the player's interaction claim: the call of the object's interaction handler (vtable slot 5, kind 4)
+midhook 0x7100313eb4
+# ---- end of journal interact ----
+
+# ---- journal travel (pkp_journal_travel.cpp) ----
+# area-move filer by stage
+entryhook 0x71000bd5a0
+# StageMove sender
+entryhook 0x71000bd84c
+# trip act step (fills the trip request)
+entryhook 0x71000bcde0
+# trip manager: submit a sequence
+entryhook 0x710113b460
+# trip manager: submit a sequence with a parameter
+entryhook 0x710113b490
+# stage loader sequence entry
+entryhook 0x7100241968
+# self-disconnect funnel
+entryhook 0x71005373b8
+# fade out
+entryhook 0x7100a9fcc4
+# fade in
+entryhook 0x7100a9fa34
+# map move end (event callback 0x7b)
+entryhook 0x71004b1b34
+# map poll result (event callback 0x7c)
+entryhook 0x71004a3f60
+# area gates (AREA-GATE-RE): door interact, open test, rank test, gate record, opening event, gate entry
+entryhook 0x71007b0420
+entryhook 0x71007b0f20
+entryhook 0x7100114970
+entryhook 0x71005c059c
+entryhook 0x7100463ae0
+entryhook 0x71007b0d80
+# ---- end of journal travel ----
+
+# ---- journal services (pkp_journal_services*.cpp) ----
+# Sites co-op already declares (0x2159c0, 0x61858c, 0x621be8, 0x619410, 0xe889f8, 0xe87260, 0x1240dc, 0x13596c) are watched without a line here.
+# Link Play's request queue: the receive-side sequence check (q, msg, &sender), the send (q, rec), the host's apply of a talk-end record (q, sender, rec)
+entryhook 0x71002148a0
+entryhook 0x7100214974
+entryhook 0x71002197a0
+# creature work: the talk-end walk (runner), service script callbacks 25 (offer) and 76 (start), the job start (comp, count, item, &user, flag)
+entryhook 0x7100480b60
+entryhook 0x710048fdac
+entryhook 0x71004984a0
+entryhook 0x710034dc64
+# general request state store in 0x628ec0 (`strb w21, [x8, #8]`): own / mirror copies, then the stage-0x11 copy
+midhook 0x7100629004
+midhook 0x71006290ac
+# the shop's stock: get (M, entry) and set (M, entry, n)
+entryhook 0x7100646864
+entryhook 0x7100646ae8
+# the dex setters (creature in w0): bits 0, 1, 2, 3; the habitat's found and scene-shown setters (hab in w0)
+entryhook 0x7100a982b0
+entryhook 0x7100a983d4
+entryhook 0x7100a984e4
+entryhook 0x7100a985c8
+entryhook 0x7100a96f5c
+entryhook 0x7100a9802c
+# recipe learn (player, id, quiet, ..), move learn (R+0x108, id, notice), emote learn (player, id, force, quiet, alt), building set (id, on)
+entryhook 0x71002e7240
+entryhook 0x71003bcca8
+entryhook 0x71002f5860
+entryhook 0x71005c04d4
+# ---- end of journal services ----

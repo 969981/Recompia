@@ -34,7 +34,7 @@ std::string g_path;          // path of the open file; empty when none
 bool g_to_stderr = true;
 bool g_stderr_all = false;
 unsigned g_since_flush = 0;
-long long g_t0 = 0;         // QueryPerformanceCounter at log_init
+std::atomic<long long> g_t0{0};   // QueryPerformanceCounter at log_init; atomic so log_elapsed never waits on a write under g_mu
 
 thread_local char t_name[64] = {};
 
@@ -59,7 +59,7 @@ struct Resolved {
     LogLevel level;
     bool to_stderr;
     bool stderr_all;
-    bool keep_previous;
+    int keep_launches;
 };
 
 // Final settings: env > [log] config keys > options. Reads config, so it must be called without g_mu held.
@@ -69,7 +69,7 @@ Resolved resolve(const LogOptions& opt) {
     r.level = opt.level;
     r.to_stderr = opt.to_stderr;
     r.stderr_all = opt.stderr_all;
-    r.keep_previous = opt.keep_previous;
+    r.keep_launches = opt.keep_launches < 1 ? 1 : (opt.keep_launches > kLogKeepMax ? kLogKeepMax : opt.keep_launches);
     if (const char* e = std::getenv("NXRT_LOG")) {
         r.path = e;
     } else if (config_has("log", "path")) {
@@ -84,14 +84,18 @@ Resolved resolve(const LogOptions& opt) {
     return r;
 }
 
-// Moves an existing file to <path>.prev, replacing any older .prev.
-void rotate_previous(const std::string& path) {
-    std::FILE* old = std::fopen(path.c_str(), "rb");
-    if (!old) return;
-    std::fclose(old);
-    std::string prev = path + ".prev";
-    std::remove(prev.c_str());
-    std::rename(path.c_str(), prev.c_str());
+// The log of the launch `age` launches back: 0 = <path>, 1 = <path>.prev, n = <path>.prev<n>.
+std::string launch_log(const std::string& path, int age) {
+    if (age == 0) return path;
+    if (age == 1) return path + ".prev";
+    return path + ".prev" + std::to_string(age);
+}
+
+// Keeps the logs of the last `keep` launches, this one included: every kept log moves one launch back (<path> -> .prev -> .prev2 ...)
+// and anything at or past `keep` launches back is deleted, up to kLogKeepMax (so a smaller keep cleans up after a larger one).
+void rotate_launches(const std::string& path, int keep) {
+    for (int age = keep - 1; age <= kLogKeepMax; ++age) std::remove(launch_log(path, age).c_str());
+    for (int age = keep - 2; age >= 0; --age) std::rename(launch_log(path, age).c_str(), launch_log(path, age + 1).c_str());
 }
 
 // Applies resolved settings: closes the old file, resets counters, opens the new file.
@@ -108,10 +112,10 @@ void apply(const Resolved& r, bool only_if_uninit) {
     g_stderr_all = r.stderr_all;
     g_since_flush = 0;
 
-    g_t0 = static_cast<long long>(qpc::ticks());
+    g_t0.store(static_cast<long long>(qpc::ticks()), std::memory_order_relaxed);
 
     if (!r.path.empty()) {
-        if (r.keep_previous) rotate_previous(r.path);
+        rotate_launches(r.path, r.keep_launches);
         if (std::FILE* f = std::fopen(r.path.c_str(), "w")) {
             g_file = f;
             g_path = r.path;
@@ -122,8 +126,9 @@ void apply(const Resolved& r, bool only_if_uninit) {
     g_inited.store(true, std::memory_order_release);
 }
 
-double seconds_since_init_locked() {
-    return static_cast<double>(static_cast<long long>(qpc::ticks()) - g_t0) / static_cast<double>(qpc::freq());
+double seconds_since_init() {
+    return static_cast<double>(static_cast<long long>(qpc::ticks()) - g_t0.load(std::memory_order_relaxed)) /
+           static_cast<double>(qpc::freq());
 }
 
 }  // namespace
@@ -152,6 +157,10 @@ void log_flush() {
 LogLevel log_level() { return static_cast<LogLevel>(g_level.load(std::memory_order_relaxed)); }
 
 bool log_enabled(LogLevel l) { return static_cast<int>(l) <= g_level.load(std::memory_order_relaxed); }
+
+double log_elapsed() {   // lock-free: the journal's hot hooks call it (a flush under g_mu must not stall the game thread)
+    return seconds_since_init();
+}
 
 const char* log_path() {
     std::lock_guard<std::recursive_mutex> g(g_mu);
@@ -223,7 +232,7 @@ void logv(LogLevel l, const char* tag, const char* fmt, va_list ap) {
 
     std::lock_guard<std::recursive_mutex> g(g_mu);
     char prefix[256];
-    std::snprintf(prefix, sizeof prefix, "[%10.6f %c t%lu %s] ", seconds_since_init_locked(), kLevelLetters[li],
+    std::snprintf(prefix, sizeof prefix, "[%10.6f %c t%lu %s] ", seconds_since_init(), kLevelLetters[li],
                   static_cast<unsigned long>(GetCurrentThreadId()), t_name[0] ? t_name : "-");
     std::string line = prefix;
     line += tag ? tag : "";

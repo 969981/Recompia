@@ -40,6 +40,7 @@
 // this player's own talk starts is handed to the notices.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
+#include "core/pkp_journal.h"
 
 #include <algorithm>
 #include <cstring>
@@ -82,6 +83,7 @@ struct Held {
     bool talking = false;   // false: granted, the talk has not started yet
     double since = 0.0;
     int idle = 0;
+    bool forced = false;   // the host-path line of this talk is written
 };
 
 struct State {
@@ -175,6 +177,9 @@ int on_talk_start(::Ctx* c) {
     const auto it = s.holders.find(chara);
     if (it != s.holders.end() && it->second != self) {
         notice::line(c, slot, kBusyLine);
+        journal::Rec(journal::Area::Talk, "lock").in("character=0x%08x (data id %u, idx %u) slot=%u", chara, chara >> 16 & 0x7fff,
+                                                     chara & 0xffff, slot)
+            .refused("held by n%u", it->second);
         c->x[0] = 0;
         return 1;
     }
@@ -196,6 +201,9 @@ int on_talk_start(::Ctx* c) {
         s.asked_at = now;
         link::to_authority(wire::Type::TalkAsk, wire::Writer(self).u32(chara).take());
         NXLOG_I(kTag, "Co-op talk: asking for character %u", chara);
+        journal::Rec(journal::Area::Talk, "lock").in("character=0x%08x (data id %u, idx %u) slot=%u", chara, chara >> 16 & 0x7fff,
+                                                     chara & 0xffff, slot)
+            .out("asked the authority; no talk on this press");
     }
     c->x[0] = 0;
     return 1;
@@ -210,7 +218,15 @@ int on_no_talk(::Ctx* c) {
 }
 
 int on_talk_kind(::Ctx* c) {
-    if (link::in_session() && !link::is_authority()) c->x[kIsHostReg] = 1;
+    if (!link::in_session() || link::is_authority()) return 0;
+    State& s = st();
+    if (s.held && s.held->talking && !s.held->forced) {   // once per talk: the selector's probes may come through here too
+        s.held->forced = true;
+        journal::Rec(journal::Area::Talk, "kind forced").in("character=0x%08x IsHost w0=%u", s.held->chara,
+                                                            static_cast<uint32_t>(c->x[kIsHostReg] & 1))
+            .out("host path");
+    }
+    c->x[kIsHostReg] = 1;
     return 0;
 }
 
@@ -257,6 +273,7 @@ void on_holder(::Ctx*, int, uint8_t, wire::Reader& r) {
             if (s.held) release("another character was granted");
             s.held = Held{chara, 0, false, qpc::seconds(), 0};
             NXLOG_I(kTag, "Co-op talk: character %u granted; the next press talks", chara);
+            journal::Rec(journal::Area::Talk, "lock").in("character=0x%08x", chara).out("granted; the next press talks");
         }
     } else if (holder == link::self() && !(s.held && s.held->chara == chara)) {   // a grant asked for before another press: not wanted
         link::to_authority(wire::Type::TalkDone, wire::Writer(link::self()).u32(chara).take());
@@ -295,7 +312,10 @@ void tick() {
     State& s = st();
     if (!s.held) return;
     if (!s.held->talking) {
-        if (qpc::seconds() - s.held->since > kLease) release("the grant was not used");
+        if (qpc::seconds() - s.held->since > kLease) {
+            journal::Rec(journal::Area::Talk, "lock").in("character=0x%08x", s.held->chara).out("lease expired after %.0f s", kLease);
+            release("the grant was not used");
+        }
         return;
     }
     s.held->idle = slot_idle(s.held->slot) ? s.held->idle + 1 : 0;

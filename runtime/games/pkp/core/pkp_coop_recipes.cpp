@@ -198,3 +198,16 @@ void on_member_joined() { st().send_all = true; }
 void reset() { st() = State{}; }
 
 }  // namespace nxrt::games::pkp::coop::recipes
+
+// The digests' reader (pkp_coop_digest.cpp): the recipes the save knows now.
+namespace nxrt::games::pkp::coop::digest {
+
+bool recipes(Entries& out) {
+    const uint64_t recs = coop::recipes::records();
+    if (!recs) return false;
+    for (uint32_t id = 1; id <= coop::recipes::kIdMax; ++id)
+        if (coop::recipes::known(recs, id)) out.push_back({id, 1});
+    return true;
+}
+
+}  // namespace nxrt::games::pkp::coop::digest

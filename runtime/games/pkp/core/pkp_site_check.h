@@ -12,6 +12,8 @@
 
 namespace nxrt::games::pkp {
 
+constexpr uint32_t kPacibsp = 0xd503237fu;   // pacibsp: the first instruction of most of the game's functions
+
 struct HookSite {
     uint64_t site;   // offset in main
     uint32_t word;   // the instruction expected there

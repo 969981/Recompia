@@ -13,6 +13,22 @@ constexpr uint64_t kManagerPlayer = 0x30;        // player manager: the local pl
 constexpr uint64_t kSaveRoot = 0x3561930;        // the save data (the save/options block)
 constexpr uint64_t kSaveStory = 0x4a26a0;         // save root: m_story, the story quest history (the story quest history)
 constexpr uint8_t kQuestDone = 4;                // m_story: a quest's state byte once it is completed
+// save root: the areas' progress (coop-v2 ENVIRONMENT-RE 3, AREA-GATE-RE; m_lastGate and m_playSkitInGateNum are likely, from
+// save_fields.tsv). The getter 0x58042c(stage) reads the mirror on a visitor (0x376c4) and the Cloud Island byte for its stage; the
+// setter is 0x5804ec(stage, level). Gates: setter 0x5c059c(id) sets bit 0 of history+id, but writes nothing while a session is open
+// (0x207b0); getter 0x5c0504(id) reads the visitor mirror on a visitor, else the history.
+constexpr uint64_t kSaveAreaLevel = 0x741494;         // u8[32] m_developmentLevel by stage (this save's own)
+constexpr uint64_t kSaveAreaLevelMax = 0x7414b4;      // u8[32] m_maxDevelopmentLevel by stage
+constexpr uint64_t kSaveAreaLevelMirror = 0x1718490;  // u8[32] the host's levels as a visitor sees them
+constexpr uint64_t kSaveCloudLevel = 0xfd84a7;        // u8 Cloud Island's level
+constexpr uint8_t kCloudStage = 0x11;
+constexpr size_t kAreaStages = 32;
+constexpr uint64_t kSaveGateHistory = 0x73b1aa;       // u8[32] m_gateHistory by gate id 0..31 (CMNDAT; bit 0 = the gate was opened)
+constexpr uint64_t kSaveGateMirror = 0x1718470;       // u8[32] the gates a visitor reads (no writer found)
+constexpr size_t kGateHistoryBytes = 32;
+constexpr uint64_t kSaveLastGate = 0x13d3a59;         // u8 STGDAT m_lastGate (the current stage's)
+constexpr uint64_t kSaveSkitInGate = 0x7416d1;        // u8 m_playSkitInGateNum
+constexpr uint64_t kSaveTrainerLevel = 0x4a4400;      // u8 m_trainerLevel (the rank a gate asks for; own save, no visitor copy)
 constexpr uint64_t kGameState = 0x3561710;       // the game state (stage, session)
 constexpr uint64_t kStateStage = 0x18;           // game state: u8, the stage the player is in
 constexpr uint64_t kStateSession = 0x90;         // game state: u8 Link Play session bits (kSession*); 0 offline
