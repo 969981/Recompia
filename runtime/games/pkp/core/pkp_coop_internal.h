@@ -55,6 +55,9 @@ CoopRole role();
 int members();
 // This player's member key (the launch's 32 lower-case hex digits; the same on every launch of this player in the group).
 const std::string& member_key();
+// The same key as its 16 bytes (the hex pairs in order), as the messages carry it; all 0 before install.
+constexpr size_t kMemberKeyBytes = 16;
+const uint8_t* member_key_bytes();
 
 // The game state's Link Play session bits (layout::kSession*); 0 with no game state or no session.
 uint8_t session_bits();

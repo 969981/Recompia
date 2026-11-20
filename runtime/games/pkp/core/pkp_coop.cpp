@@ -170,6 +170,7 @@ struct State {
     HookSet* hooks = nullptr;
     uint32_t ids[kSiteCount] = {};   // all 0: not coop mode, or not installed
     CoopLaunch launch;
+    uint8_t key[coop::kMemberKeyBytes] = {};   // launch.member as bytes (the hex pairs in order)
     std::atomic<bool> armed{false};
     std::atomic<bool> checked{false};
     std::atomic<bool> in_game{false};   // play mode's, from its frame (main thread) for the game-frame tick
@@ -241,6 +242,9 @@ void install(const FeatureInstall& in) {
     }
     launch.members = static_cast<int>(settings::get_int(settings::Key::CoopMembers));
     s.launch = launch;
+    auto nib = [](char ch) { return ch <= '9' ? ch - '0' : ch - 'a' + 10; };   // coop_launch_parse left lower-case hex digits only
+    for (size_t i = 0; i < coop::kMemberKeyBytes; ++i)
+        s.key[i] = static_cast<uint8_t>(nib(launch.member[2 * i]) << 4 | nib(launch.member[2 * i + 1]));
     s.base = in.base;
     coop::wirelog::install();
     s.hooks = &in.hooks;
@@ -310,6 +314,7 @@ void remove() {   // the registry has removed the hooks
     for (uint32_t& h : s.ids) h = 0;
     s.hooks = nullptr;
     s.launch = {};
+    for (uint8_t& b : s.key) b = 0;
     coop::link::reset();
     coop::story::reset();
     coop::quests::reset();
@@ -346,6 +351,7 @@ uint64_t base() { return st().base; }
 CoopRole role() { return st().launch.role; }
 int members() { return st().launch.members; }
 const std::string& member_key() { return st().launch.member; }
+const uint8_t* member_key_bytes() { return st().key; }
 
 uint8_t session_bits() {
     const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
