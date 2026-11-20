@@ -11,8 +11,10 @@
 //!
 //! A co-op launch puts its co-op rules first in that list ("Recompia co-op rules <n>", runtime pkp_coop.h kCoopRules), so a build that
 //! plays a session by other rules is refused like other mods. That entry is not a mod the player chose: it is left out of the mods
-//! shown, and a host whose fingerprint is 0 (no rules entry and no mods: a build from before the rules entry) while this one has the
-//! entry runs another version of Recompia.
+//! shown. A host runs another version of Recompia when its fingerprint is 0 (no rules entry and no mods: a build from before the rules
+//! entry) while this one has the entry, or when it is this PC's own list with another rules number in front (the release changed the
+//! rules: same mods, other version). The fingerprint is the coop module's coop_mods_add over the list (coop_interact.c: FNV-1a 64 of
+//! each name, then 0xFF), so the launcher can make those candidates itself.
 
 use serde::Serialize;
 use std::path::Path;
@@ -36,6 +38,35 @@ pub struct Finding {
 /// The co-op rules entry of the mods list (runtime pkp_coop.h kCoopRules), with any number after it.
 const RULES: &str = "Recompia co-op rules";
 
+/// The rules numbers tried when a host's fingerprint is matched against this PC's list with other rules (kCoopRules counts up by one).
+const RULES_MAX: u32 = 100;
+
+/// The co-op mods fingerprint of a list, as the coop module makes it (coop_interact.c coop_mods_add, ldn_native.cpp coop_hook_mods).
+fn fingerprint<'a>(names: impl IntoIterator<Item = &'a str>) -> u64 {
+    let mut h = 0xcbf29ce484222325u64;
+    for name in names {
+        for b in name.bytes().chain(std::iter::once(0xFFu8)) {
+            h = (h ^ b as u64).wrapping_mul(0x100000001b3);
+        }
+    }
+    h
+}
+
+/// The host plays by other co-op rules: its fingerprint is 0 (a build from before the rules entry), or this PC's own list (`own`, as the
+/// compat line names it, rules entry first) with another rules number.
+fn other_rules(own: &str, host: &str) -> bool {
+    let names: Vec<&str> = own.split(", ").filter(|m| !m.is_empty()).collect();
+    let Some((&own_rules, mods)) = names.split_first().filter(|(r, _)| r.starts_with(RULES)) else { return false };
+    if host == "0000000000000000" {
+        return true;
+    }
+    let Ok(host) = u64::from_str_radix(host, 16) else { return false };
+    (0..RULES_MAX)
+        .map(|k| format!("{RULES} {k}"))
+        .filter(|rules| rules != own_rules)
+        .any(|rules| fingerprint(std::iter::once(rules.as_str()).chain(mods.iter().copied())) == host)
+}
+
 /// The host's mods fingerprint as a "hidden from scans" line gives it: `(host <build>, mods <hex>; this one ...)`.
 fn host_fingerprint(line: &str) -> Option<&str> {
     line.split("(host ").nth(1)?.split(", mods ").nth(1)?.split(';').next()
@@ -49,8 +80,8 @@ pub fn diagnose(log: &str) -> Option<Finding> {
         if line.contains("hidden from scans: its game build differs") {
             found = Some(Mismatch::Build);
         } else if line.contains("hidden from scans: its mods or cheats differs") {
-            let older_host = own_mods.split(", ").any(|m| m.starts_with(RULES)) && host_fingerprint(line) == Some("0000000000000000");
-            found = if older_host { Some(Mismatch::Build) } else { found.or(Some(Mismatch::Mods)) };
+            let other_version = host_fingerprint(line).is_some_and(|h| other_rules(&own_mods, h));
+            found = if other_version { Some(Mismatch::Build) } else { found.or(Some(Mismatch::Mods)) };
         } else if line.contains("runs another build or other mods") {
             found = found.or(Some(Mismatch::Mods));
         } else if line.contains("matches this build again") {
@@ -119,6 +150,28 @@ mod tests {
 [I net] coop: mp: host x hidden from scans: its mods or cheats differs (host 0123456789abcdef, mods 77aa77aa77aa77aa; this one 0123456789abcdef, mods 0badc0ffee000001)
 ");
         assert_eq!(diagnose(&log), Some(Finding { mismatch: Mismatch::Mods, own_mods: String::new() }));
+    }
+
+    #[test]
+    fn the_fingerprint_is_the_coop_modules() {
+        // pkp.log of a report: "compat: gameplay mods active (Recompia co-op rules 2): fingerprint c5d983f4eddf1f4b"
+        assert_eq!(fingerprint(["Recompia co-op rules 2"]), 0xc5d983f4eddf1f4b);
+        assert_eq!(fingerprint(["Recompia co-op rules 3"]), 0xc5dd83f4ede30822);
+    }
+
+    #[test]
+    fn a_host_on_other_rules_runs_another_version() {
+        // A report: the visitor on 0.16.0 (rules 2), the host on a co-op test build (rules 3), the same mods on both
+        let log = format!("{RULES_ONLY}
+[I net] coop: mp: host [ip]:47610 (the relay's room) hidden from scans: its mods or cheats differs (host 76a489f3bd3642fa, mods c5dd83f4ede30822; this one 76a489f3bd3642fa, mods c5d983f4eddf1f4b)
+");
+        assert_eq!(diagnose(&log).unwrap().mismatch, Mismatch::Build);
+        let own = "Recompia co-op rules 2, bigger_stacks@1.1.0";
+        let host = format!("{:016x}", fingerprint(["Recompia co-op rules 3", "bigger_stacks@1.1.0"]));
+        let log = format!("[I net] coop: compat: gameplay mods active ({own}): fingerprint {:016x}; only players with the same mods can join
+[I net] coop: mp: host x hidden from scans: its mods or cheats differs (host 0123456789abcdef, mods {host}; this one 0123456789abcdef, mods 0)
+", fingerprint(own.split(", ")));
+        assert_eq!(diagnose(&log), Some(Finding { mismatch: Mismatch::Build, own_mods: "bigger_stacks@1.1.0".into() }));
     }
 
     #[test]

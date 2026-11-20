@@ -49,6 +49,7 @@ struct State {
     uint32_t hook = 0;                     // 0: not installed
     std::atomic<bool> armed{false};        // main checked: the hook may change the mask
     std::atomic<bool> checked{false};      // the frame callback made its decision
+    std::atomic<bool> mods_set{false};     // the co-op mods list is published (publish_coop_mods)
     std::atomic<bool> logged_change{false};
     std::atomic<uint64_t> changes{0};
 };
@@ -127,13 +128,8 @@ void install(const FeatureInstall& in) {
     s.checked.store(false);
     s.logged_change.store(false);
     s.changes.store(0);
+    s.mods_set.store(false);
     services::ldnapi::set_session_variant(0, kInteractName);
-    // The co-op mods fingerprint (services ldnapi::set_coop_mods): the Modtopia gameplay mods that are on, "id@version" sorted
-    // (nxrt/mods.h; Modtopia HOST.md section 3, Link Play). A co-op launch puts the co-op rules first (pkp_coop.h kCoopRules): a
-    // player on a build with other rules is refused at the join, as one with other mods.
-    std::vector<std::string> mods = nxrt::mods::gameplay_mods();
-    if (settings::get_bool(settings::Key::Coop)) mods.insert(mods.begin(), kCoopRules);
-    services::ldnapi::set_coop_mods(mods);
     if (!settings::get_bool(settings::Key::LinkInteractEverywhere)) {
         NXLOG_I(kTag, "Interact everywhere ([pkp] link_interact_everywhere): off, Link Play outside Palette Town keeps the game's Spectator Mode");
         return;
@@ -174,10 +170,23 @@ InteractCheck linkplay_arm(const std::string& build_id, bool site_lifted, uint32
 
 namespace {
 
-// Once per frame (play mode's frame: main is loaded): the first call checks main (its build id, the lifted site, the instruction word)
-// and arms the hook or removes it; logs once either way.
+// The co-op mods fingerprint (services ldnapi::set_coop_mods): the Modtopia gameplay mods that are on, "id@version" sorted (nxrt/mods.h;
+// Modtopia HOST.md section 3, Link Play). A co-op launch puts the co-op rules first (pkp_coop.h kCoopRules): a player on a build with
+// other rules is refused at the join, as one with other mods. Not at install: features install before nxrt::mods::start (pkp_main.cpp),
+// when gameplay_mods() is still empty, and every fingerprint then left the mods out. The coop module reads the list again at each
+// Initialize, CreateNetwork and Scan (coop_ldn.c cldn_ident), all after the game's first frame.
+void publish_coop_mods() {
+    std::vector<std::string> mods = nxrt::mods::gameplay_mods();
+    if (settings::get_bool(settings::Key::Coop)) mods.insert(mods.begin(), kCoopRules);
+    services::ldnapi::set_coop_mods(mods);
+}
+
+// Once per frame (play mode's frame, called from the game's own frame update: main is loaded and the mods host has started). The first
+// call publishes the co-op mods list, then checks main (its build id, the lifted site, the instruction word) and arms the hook or
+// removes it; logs once either way.
 void frame(bool, double, play::GameFrame*) {
     State& s = st();
+    if (!s.mods_set.exchange(true, std::memory_order_relaxed)) publish_coop_mods();
     if (!s.hook || s.checked.load(std::memory_order_relaxed)) return;
     const Module* m = module_at(s.base);
     const std::string build = m ? m->build_id() : std::string();
@@ -192,6 +201,7 @@ void remove() {   // the registry has removed the hooks
     State& s = st();
     s.armed.store(false);
     services::ldnapi::set_coop_mods({});
+    s.mods_set.store(false);
     s.hook = 0;
     s.hooks = nullptr;
     s.checked.store(false);
