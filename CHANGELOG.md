@@ -10,6 +10,7 @@
 - A teammate who leaves or drops and joins again keeps their own bag: the host no longer hands back its old copy of it, which emptied the bag on a rejoin. Use **Set up again** once after updating to relink the game. Your shaders are kept.
 
 ### Launcher
+- Fixed the Colours, Hide sidebar and Settings buttons on the rail doing nothing
 - Your own themes: Settings > About > Themes adds a theme pack, a folder or a .zip with a theme.json, that changes the colours, the background, the logo, the window icon, the exe icons and the Steam shortcut pictures. The launcher ships no theme art; the pictures come from your PC. No Set up again needed
 
 ### Gameplay

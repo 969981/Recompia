@@ -135,7 +135,7 @@ function drawTools() {
 /** Bound once: the draw functions replace the markup inside the elements, not the elements. */
 function listen() {
   rail.addEventListener('click', (e) => {
-    const pick = e.target.closest('[data-game]')?.dataset.game;
+    const pick = e.target.closest('.rail-game')?.dataset.game;   // not '[data-game]': <html> carries data-game too, which made every rail button a game switch
     if (pick) return switchGame(pick);
     if (e.target.closest('#theme-btn')) {
       cycleTheme();
