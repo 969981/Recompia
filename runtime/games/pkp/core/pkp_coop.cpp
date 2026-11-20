@@ -89,6 +89,8 @@ enum class Site : uintptr_t {
     RecordSend,       // the talk-end record's send: one with items the busy queue would drop is kept and sent later (pkp_coop_linkqueue.cpp)
     QueueReset,       // the visitor's request queue reset at session start: also clears a strict request an earlier session left out,
                       // which refused every talk-end record with items (pkp_coop_linkqueue.cpp)
+    ChallengePay,     // the coins of a claimed challenge: on a member (the host's goal update pays it) only once per challenge, the
+                      // ledger pkp_coop_money.cpp also pays the group's claims from
     OfflineGoods,     // "this shop row is for offline play only" (the bag upgrades among them): no row is, in a session, so the shop
                       // lists them as it does offline (#780)
     // ---- the discoveries ----
@@ -146,6 +148,7 @@ constexpr CoopSite kSites[] = {
     {{0x5728b4, 0xf9400660u, false}, Site::JoinBagSend},     // ldr x0, [x19, #8] (before the found flag is written)
     {{0xe889f8, kPacibsp, true}, Site::ShopGrant},
     {{0xe87260, kPacibsp, true}, Site::OfflineGoods},
+    {{0x637480, kPacibsp, true}, Site::ChallengePay},
     {{0x3b9060, kPacibsp, true}, Site::DexScene},
     {{0x45f2a0, 0x12003c28u, true}, Site::HabitatScene},     // and w8, w1, #0xffff
     {{0x313418, kPacibsp, true}, Site::VisitorSync},
@@ -198,6 +201,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::AreaMove: return coop::travel::on_area_move(c);
         case Site::ShopGrant: return coop::purchases::on_grant(c);
         case Site::OfflineGoods: return coop::purchases::on_offline_only(c);
+        case Site::ChallengePay: return coop::money::on_pay(c);
         case Site::JoinBagSend: return coop::bag::on_join_bag_send(c);
         case Site::DexScene: return coop::discovery::on_dex_scene(c);
         case Site::HabitatScene: return coop::discovery::on_habitat_scene(c);
@@ -275,6 +279,7 @@ void game_frame(::Ctx* c) {
     coop::discovery::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::unlocks::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::purchases::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::money::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::talk::tick();
     coop::travel::tick(c);
     coop::catchup::tick(c, s.in_game.load(std::memory_order_relaxed));
@@ -304,6 +309,7 @@ void remove() {   // the registry has removed the hooks
     coop::discovery::reset();
     coop::unlocks::reset();
     coop::purchases::reset();
+    coop::money::reset();
     coop::talk::reset();
     coop::travel::reset();
     coop::catchup::reset();

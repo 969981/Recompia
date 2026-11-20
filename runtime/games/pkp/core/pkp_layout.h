@@ -151,6 +151,16 @@ constexpr uint64_t kRecipeSize = 6;              // record: +2 u16 the learn ord
 constexpr uint64_t kRecipeFlags = 4;
 constexpr uint8_t kRecipeKnown = 0x02;
 constexpr uint32_t kRecipeMax = 0x5db;          // the learn 0x2e7240 takes id < 0x5dc; its callers test id - 1 <= 0x5da
+// ---- Life Coins and challenges (town goals; modding-docs coop-v2/MONEY-RE.md) ----
+constexpr uint64_t kSaveMoney = 0x7416ac;        // save root: u32 Life Coins (CMNDAT; getter 0x645ee8, setter 0x645ebc caps it)
+constexpr uint32_t kMoneyMax = 999999;
+constexpr uint64_t kChallengeManager = 0x3565170;   // *(main + this): CM, the challenge manager (a visitor's mirror: CM + id * 0x12)
+constexpr uint64_t kSaveChallenges = 0x6fb0ae;   // save root + id * kChallengeSize: u8 the state of challenge id 1..kChallengeMax,
+                                                 // the player's own (m_challengeStateHistory, CMNDAT; stage 0x11 has its own set)
+constexpr uint64_t kChallengeSize = 0xd8;
+constexpr uint32_t kChallengeMax = 0x4b0;
+constexpr uint8_t kChallengeClaimed = 4;         // 1..2 open, 3 done (to claim), 4 claimed: the coins were paid
+constexpr uint8_t kStageCloudIsland = 0x11;      // kStateStage: Cloud Island (0x77ecb0), whose challenges are its own
 constexpr uint64_t kCharaStatusRoot = 0x3483b60; // **(main + this): the stage data holding the CharacterStatus records
 constexpr uint64_t kCharaStatus = 0x835af0;      // + chara * kCharaStatusStride: m_position (vec4, w 1.0) at +0x10, m_id (u16, data id) at +0x24
 constexpr uint64_t kCharaStatusStride = 0x30;

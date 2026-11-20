@@ -19,6 +19,7 @@
 //   pkp_coop_recipes.cpp  the crafting recipes any member knows, learned by every member
 //   pkp_coop_unlocks.cpp  the moves and emotes any member learned, the areas visited and buildings built, unlocked for every member
 //   pkp_coop_purchases.cpp what any member buys in a shop, given to every member (and to later joiners) too
+//   pkp_coop_money.cpp    the Life Coins of a challenge the group claimed, paid once to every member's own coins
 //   pkp_coop_events.cpp   what an ended talk or scene leaves in the save (scenes played, conversations seen, story lines moved on)
 //                         kept by every member
 //   pkp_coop_held.cpp     the story events a member's game holds for Link Play's request counters: let through once they are stuck
@@ -215,6 +216,19 @@ void tick(::Ctx* c, bool in_game);
 void on_session_change();   // this process joined or left: what it lacks is asked again
 void reset();
 }  // namespace purchases
+
+namespace money {
+// The hook site (pkp_coop.cpp): entry 0x637480, the coins of a claimed challenge (on a member: the host's goal update). It runs only for
+// a challenge this member was not paid yet, and marks it paid.
+int on_pay(::Ctx* c);
+// A member: the challenges claimed in the authority's save (pkp_coop_link.cpp).
+void on_claimed_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// The authority sends what it claimed; a member is paid what it lacks at a safe moment (once a frame).
+void tick(::Ctx* c, bool in_game);
+void on_session_change();   // this process joined or left: the set is sent and learnt again
+void on_member_joined();    // another member joined: the whole set is sent again
+void reset();
+}  // namespace money
 
 namespace discovery {
 // The hook sites (pkp_coop.cpp): the scenes the game queues on the finder's process, sent to the group.

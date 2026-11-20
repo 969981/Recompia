@@ -41,6 +41,8 @@
 //               receiver clears them and never gives them back in this co-op run
 //   AreaMusic   +2 u8 the authority's area (stage), +3 u8 that area's quest music there (m_contentsBGM; 0: none), +4 u8 the play flag
 //               of the quest step that set it (1 when not known)   (with every digest; pkp_coop_story.cpp)
+//   ChallengesClaimed +2 u16 count n, then n u16 challenge ids (1..0x4b0) claimed in the authority's save (pkp_coop_money.cpp): each
+//               member is paid their coins once
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -93,6 +95,7 @@ enum class Type : uint32_t {
     UnlockKnown = 23,
     AbilityCleared = 25,
     AreaMusic = 26,
+    ChallengesClaimed = 27,
 };
 
 // Builds one payload: the header, then the fields in order.
