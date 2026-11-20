@@ -91,6 +91,8 @@ enum class Site : uintptr_t {
                       // which refused every talk-end record with items (pkp_coop_linkqueue.cpp)
     OfflineGoods,     // "this shop row is for offline play only" (the bag upgrades among them): no row is, in a session, so the shop
                       // lists them as it does offline (#780)
+    ShopTile,         // the PC menu's "a visitor may open the shop" test: a member opens it, which the member mask's cleared bit 23
+                      // (no per-row visitor lock) would otherwise grey out
     // ---- the discoveries ----
     DexScene,         // the "registered in the Pokédex" scene is queued on the finder's process: sent, so every member registers
                       // the creature and sees the same scene (pkp_coop_discovery.cpp)
@@ -146,6 +148,7 @@ constexpr CoopSite kSites[] = {
     {{0x5728b4, 0xf9400660u, false}, Site::JoinBagSend},     // ldr x0, [x19, #8] (before the found flag is written)
     {{0xe889f8, kPacibsp, true}, Site::ShopGrant},
     {{0xe87260, kPacibsp, true}, Site::OfflineGoods},
+    {{0xe8d428, kPacibsp, true}, Site::ShopTile},
     {{0x3b9060, kPacibsp, true}, Site::DexScene},
     {{0x45f2a0, 0x12003c28u, true}, Site::HabitatScene},     // and w8, w1, #0xffff
     {{0x313418, kPacibsp, true}, Site::VisitorSync},
@@ -198,6 +201,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::AreaMove: return coop::travel::on_area_move(c);
         case Site::ShopGrant: return coop::purchases::on_grant(c);
         case Site::OfflineGoods: return coop::purchases::on_offline_only(c);
+        case Site::ShopTile: return coop::purchases::on_shop_tile(c);
         case Site::JoinBagSend: return coop::bag::on_join_bag_send(c);
         case Site::DexScene: return coop::discovery::on_dex_scene(c);
         case Site::HabitatScene: return coop::discovery::on_habitat_scene(c);
