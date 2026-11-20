@@ -134,6 +134,8 @@ enum class Site : uintptr_t {
     // ---- the creature events (pkp_coop_feed.cpp) ----
     TalkedTo,         // the contents scheduler's "talked to" notice, which skips a visitor: a member's talk is posted on the
                       // authority, so content records waiting on that talk run for the group
+    // ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----
+    Befriend,         // the talk end step's befriend call: a member's first talk with a new creature is made on the authority
 };
 
 struct CoopSite {
@@ -222,6 +224,8 @@ constexpr CoopSite kSites[] = {
     {{0x643938, 0x37001220u, false}, Site::BuyCount},        // tbnz w0, #0, 0x643b7c (w0 = the visitor test 0x376c4)
     // the creature events (pkp_coop_feed.cpp)
     {{0x1355ec, kPacibsp, true}, Site::TalkedTo},
+    // a newly met creature moving in (pkp_coop_newcomer.cpp)
+    {{0x48235c, 0x97fcdcc6u, false}, Site::Befriend},        // bl 0x3b9674 (x0 = the creature's component, x1 = &own user id)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -295,6 +299,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::ClaimVisitor: return coop::money::on_claim_visitor(c);
         case Site::BuyCount: return coop::challenges::on_buy_visitor(c);
         case Site::TalkedTo: return coop::feed::on_talked_to(c);
+        case Site::Befriend: return coop::newcomer::on_befriend(c);
         default: return 0;
     }
 }
@@ -385,6 +390,7 @@ void game_frame(::Ctx* c) {
     coop::answers::tick();
     coop::friendship::tick(c);
     coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::newcomer::tick(c, s.in_game.load(std::memory_order_relaxed));
 }
 
 void remove() {   // the registry has removed the hooks
@@ -428,6 +434,7 @@ void remove() {   // the registry has removed the hooks
     coop::records::reset();
     coop::answers::reset();
     coop::jobs::reset();
+    coop::newcomer::reset();
 }
 
 }  // namespace

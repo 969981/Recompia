@@ -655,3 +655,6 @@ entryhook 0x71005c04d4
 #   Seamless co-op, the ability check (pkp_coop_story.cpp): in 0x7100113f10(id, member), the `tbz w8, #2, 0x7100114048` (w8 = GM+0x90)
 #   of the member-0xff branch, where a visitor goes on to read the host's join-time member record (0x71000b19d8) instead of its own bits
 midhook 0x71001140e8
+#   Seamless co-op, a newly met creature moving in (pkp_coop_newcomer.cpp): in the talk event's end step 0x7100481e2c, its
+#   `bl 0x71003b9674` (the befriend: x0 = the creature's component, x1 = &own user id), which on a member never reaches the host
+midhook 0x710048235c
