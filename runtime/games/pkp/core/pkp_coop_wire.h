@@ -50,6 +50,12 @@
 //   StateReport +2 u8 domain, +3 u16 differing n, +5 u16 count m (m <= n), then m times: u32 entry id, u32 the authority's value,
 //               u32 the member's value                     (a member's differences, so the host's log shows them too)
 //               These four are logging only: a build without them drops them and plays on (no kVersion, no co-op rules change).
+//   BagRecord   +2 u8[16] the member key the bag belongs to, +18 u64 its record's sequence (0: this process has no record), +26
+//               kBagSlots x 16 bytes, the bag's slots (pkp_coop_bags.cpp; each slot's first 8 bytes are 0, its last 8 the game's
+//               payload)   (a member's own record, to the authority: at session up, then at each change)
+//   BagRestore  +2 u8[16] member key, +18 u8 1 when the authority has a record for it (0: none, the rest is 0), +19 u64 sequence,
+//               +27 kBagSlots x 16 bytes   (the authority's answer to a member's first BagRecord of a session, or to one older than
+//               its own copy; a member ignores one for another member's key)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -74,6 +80,8 @@ constexpr size_t kHeader = 2;
 constexpr size_t kEffectSize = 0x14;
 constexpr size_t kAbilityBytes = 0x20;   // ability ids 0..0xff, one bit each
 constexpr size_t kNameMax = 0x40;
+constexpr size_t kBagSlots = 130;        // a whole bag as the game copies one (layout::kBagWholeSlots)
+constexpr size_t kBagSlotBytes = 16;
 
 enum class Type : uint32_t {
     StoryStates = 1,   // u16 count, then per quest: u16 id, u8 state
@@ -107,6 +115,8 @@ enum class Type : uint32_t {
     StateAsk = 29,
     StateFull = 30,
     StateReport = 31,
+    BagRecord = 32,
+    BagRestore = 33,
 };
 
 // Builds one payload: the header, then the fields in order.
@@ -119,6 +129,7 @@ public:
     }
     Writer& u16(uint16_t v) { return u8(static_cast<uint8_t>(v)).u8(static_cast<uint8_t>(v >> 8)); }
     Writer& u32(uint32_t v) { return u16(static_cast<uint16_t>(v)).u16(static_cast<uint16_t>(v >> 16)); }
+    Writer& u64(uint64_t v) { return u32(static_cast<uint32_t>(v)).u32(static_cast<uint32_t>(v >> 32)); }
     Writer& bytes(const uint8_t* p, size_t n) {
         b_.insert(b_.end(), p, p + n);
         return *this;
@@ -153,6 +164,10 @@ public:
     uint32_t u32() {
         const uint32_t lo = u16();
         return lo | static_cast<uint32_t>(u16()) << 16;
+    }
+    uint64_t u64() {
+        const uint64_t lo = u32();
+        return lo | static_cast<uint64_t>(u32()) << 32;
     }
     void bytes(uint8_t* out, size_t n) {
         if (at_ + n > n_) {
