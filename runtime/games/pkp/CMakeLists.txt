@@ -49,6 +49,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop_talk.cpp"
         "${_pkp}/core/pkp_coop_trace.cpp"
         "${_pkp}/core/pkp_coop_held.cpp"
+        "${_pkp}/core/pkp_coop_linkqueue.cpp"
         "${_pkp}/core/pkp_coop_placement.cpp"
         "${_pkp}/core/pkp_coop_contents.cpp"
         "${_pkp}/core/pkp_coop_travel.cpp"

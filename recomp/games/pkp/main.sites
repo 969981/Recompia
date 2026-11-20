@@ -323,6 +323,9 @@ entryhook 0x710045f2a0
 #   Seamless co-op, held story events (pkp_coop_held.cpp): the visitor's "every Link Play request answered" test 0x7100313418, which
 #   the event queue's ready test 0x7100479c60 asks for events with flag bit 22
 entryhook 0x7100313418
+#   Seamless co-op, Link Play's request queue (pkp_coop_linkqueue.cpp): the visitor's queue reset at session start 0x7100214954 (q = block map
+#   +0x9218378; only caller 0x7100534c74)
+entryhook 0x7100214954
 #   Seamless co-op, the placement notice (pkp_coop_placement.cpp): the "object placed" notice to the contents 0x710013596c (scheduler,
 #   object, x, y, z, dir; the placement 0x7100593120 calls it right after 0x7100594da0, which on a visitor only sends the placement to
 #   the host)
