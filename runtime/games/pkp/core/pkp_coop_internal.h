@@ -9,6 +9,7 @@
 //   pkp_coop_quests.cpp   the quest authority: in a session only the authority moves quests on; a member asks it for its player's steps
 //   pkp_coop_talk.cpp     the talk lock: one player at a time talks to a character
 //   pkp_coop_gimmicks.cpp a gimmick a member was using when it left: freed, so the others can use it again
+//   pkp_coop_owner.cpp    a gimmick whose use the player's history refused: given back, so the others can use it
 //   pkp_coop_catchup.cpp  what the talker's talk gives the talker alone (a name, items) given to every other member too
 //   pkp_coop_gate.cpp     the wait for every member: this player's input is held until the whole group is in the session
 //   pkp_coop_lock.cpp     the input lock the catch-up's name prompt and the gate share
@@ -534,5 +535,12 @@ void on_event_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace feed
+// ---- a gimmick use the history refused (pkp_coop_owner.cpp) ----
+namespace owner {
+// The hook sites (pkp_coop.cpp): midhooks at the `tbz w0` after a use's history check in five gimmick classes (site: its main
+// offset). In a session, a refused use gives the object back as the class's failed event start does; returns 0.
+int on_use_refused(::Ctx* c, uint64_t site);
+void reset();
+}  // namespace owner
 
 }  // namespace nxrt::games::pkp::coop

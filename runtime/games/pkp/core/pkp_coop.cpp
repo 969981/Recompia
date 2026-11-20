@@ -134,6 +134,8 @@ enum class Site : uintptr_t {
     // ---- the creature events (pkp_coop_feed.cpp) ----
     TalkedTo,         // the contents scheduler's "talked to" notice, which skips a visitor: a member's talk is posted on the
                       // authority, so content records waiting on that talk run for the group
+    // ---- gimmick ownership (pkp_coop_owner.cpp) ----
+    UseRefused,       // a gimmick use's history check said no: the object is given back, as when the class's event does not start
 };
 
 struct CoopSite {
@@ -222,6 +224,12 @@ constexpr CoopSite kSites[] = {
     {{0x643938, 0x37001220u, false}, Site::BuyCount},        // tbnz w0, #0, 0x643b7c (w0 = the visitor test 0x376c4)
     // the creature events (pkp_coop_feed.cpp)
     {{0x1355ec, kPacibsp, true}, Site::TalkedTo},
+    // gimmick ownership (pkp_coop_owner.cpp): the `tbz w0, #0` after the history check of a use, five classes
+    {{0x7c141c, 0x3607dec0u, false}, Site::UseRefused},      // tbz w0, #0, 0x7c0ff4 (class 0x32688e0)
+    {{0x79d558, 0x36000120u, false}, Site::UseRefused},      // tbz w0, #0, 0x79d57c (class 0x3265b20)
+    {{0x848eac, 0x3607ed40u, false}, Site::UseRefused},      // tbz w0, #0, 0x848c54 (class 0x327a3b8)
+    {{0x79b178, 0x3607ec40u, false}, Site::UseRefused},      // tbz w0, #0, 0x79af00 (class 0x3265668)
+    {{0x7e78f4, 0x36000da0u, false}, Site::UseRefused},      // tbz w0, #0, 0x7e7aa8 (class 0x326dc98)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -295,6 +303,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::ClaimVisitor: return coop::money::on_claim_visitor(c);
         case Site::BuyCount: return coop::challenges::on_buy_visitor(c);
         case Site::TalkedTo: return coop::feed::on_talked_to(c);
+        case Site::UseRefused: return coop::owner::on_use_refused(c, addr - st().base);
         default: return 0;
     }
 }
@@ -428,6 +437,7 @@ void remove() {   // the registry has removed the hooks
     coop::records::reset();
     coop::answers::reset();
     coop::jobs::reset();
+    coop::owner::reset();
 }
 
 }  // namespace
