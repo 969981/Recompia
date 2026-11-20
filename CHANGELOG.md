@@ -2,12 +2,13 @@
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once (a new game hook point for the mouse mode pointer; saves and shaders are kept, no shader is translated again).
+**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer and the co-op PC menu; saves and shaders are kept, no shader is translated again).
 
 ### Game
 - Mouse mode: the game's pointer is drawn where the mouse really is at render sizes other than 1920x1080 (it drifted away from the mouse at 1440p and above) (#806)
 
 ### Co-op
+- The Shop on the PC menu is no longer greyed out for teammates who join the host
 - A teammate who joins after a story step no longer keeps hearing an old step's music (Kyogre's music kept playing after Kyogre had left). The host's music for the area now reaches every teammate, which also fixes saves that kept the wrong music
 
 ### Launcher

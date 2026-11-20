@@ -317,6 +317,8 @@ midhook 0x71005728b4
 #   upgrades; its callers, the listing tests 0x7100e86494 / 0x7100e87424, hide such rows whenever the game is online)
 entryhook 0x7100e889f8
 entryhook 0x7100e87260
+#   and the PC menu's "a visitor may open the shop" test 0x7100e8d428 (only caller the PC menu's tile test 0x7100eff7a0, entry 0)
+entryhook 0x7100e8d428
 #   Seamless co-op, the discoveries (pkp_coop_discovery.cpp): the "registered in the Pokédex" scene 0x71003b9060 (slot, &actor id; the
 #   talk-end registration 0x71003b88b4 calls it) and the "new habitat" scene 0x710045f2a0 (slot, habitat, placed habitat, flag; the
 #   habitat build 0x7100957588 and 0x71009598c0 call it)
