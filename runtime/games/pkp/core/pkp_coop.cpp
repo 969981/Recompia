@@ -114,6 +114,9 @@ enum class Site : uintptr_t {
     // ---- the unlocks ----
     AreaGateRecord,   // the area gate record's "a session is open" guard: the write goes through, so a gate opened in a session can be
                       // entered, and is shared with the group (pkp_coop_unlocks.cpp)
+    // ---- the creature jobs (pkp_coop_jobs.cpp) ----
+    JobTick,          // the item-making tick's IsMine test: the authority also ticks a job on a creature a member holds, which
+                      // otherwise no process ticks
 };
 
 struct CoopSite {
@@ -183,6 +186,8 @@ constexpr CoopSite kSites[] = {
     {{0x13596c, 0x12003c29u, true}, Site::PlacedNotice},     // and w9, w1, #0xffff
     {{0x12b544, 0xb9400408u, true}, Site::PlayScene},        // ldr w8, [x0, #4]
     {{0x5c05c0, 0x37000140u, false}, Site::AreaGateRecord},  // tbnz w0, #0, 0x5c05e8 (w0 = IsOnline's answer)
+    // the creature jobs (pkp_coop_jobs.cpp)
+    {{0x3b39a8, 0x36001540u, false}, Site::JobTick},         // tbz w0, #0, 0x3b3c50 (w0 = IsMine's answer)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -247,6 +252,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::PlacedNotice: return coop::placement::on_placed_notice(c);
         case Site::PlayScene: return coop::contents::on_play_scene(c);
         case Site::AreaGateRecord: return coop::unlocks::on_area_gate_record(c);
+        case Site::JobTick: return coop::jobs::on_job_tick(c);
         default: return 0;
     }
 }
@@ -371,6 +377,7 @@ void remove() {   // the registry has removed the hooks
     coop::placement::reset();
     coop::contents::reset();
     coop::session::reset();
+    coop::jobs::reset();
 }
 
 }  // namespace

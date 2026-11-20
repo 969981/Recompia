@@ -461,4 +461,11 @@ void on_session_change();
 void reset();
 }  // namespace digest
 
+// ---- the creature jobs (pkp_coop_jobs.cpp) ----
+namespace jobs {
+// Midhook 0x3b39a8 in the item-making tick: on the authority, a job on a creature a member holds is ticked too.
+int on_job_tick(::Ctx* c);
+void reset();
+}  // namespace jobs
+
 }  // namespace nxrt::games::pkp::coop
