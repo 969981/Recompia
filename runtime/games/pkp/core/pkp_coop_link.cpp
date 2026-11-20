@@ -72,6 +72,12 @@ constexpr Route kRoutes[] = {
     {wire::Type::StateReport, Path::ToAuthority, &digest::on_report_message},
     {wire::Type::BagRecord, Path::ToAuthority, &bags::on_record_message},
     {wire::Type::BagRestore, Path::FromAuthority, &bags::on_restore_message},
+    // the story records (pkp_coop_records.cpp)
+    {wire::Type::StoryRecord, Path::FromAuthority, &records::on_record_message},
+    // friendship
+    {wire::Type::FriendAsk, Path::ToAuthority, &friendship::on_ask_message},
+    {wire::Type::FriendState, Path::FromAuthority, &friendship::on_state_message},
+    {wire::Type::CreatureEvent, Path::ToAuthority, &feed::on_event_message},
 };
 
 struct State {
@@ -155,6 +161,7 @@ void on_member(const ch::MemberEvent& e) {
         purchases::on_session_change();
         money::on_session_change();
         digest::on_session_change();
+        records::on_session_change();
         NXLOG_I(kTag, "Co-op: %s the session's channel as node %d%s", e.joined ? "in" : "out of", e.node, e.authority ? " (the authority)" : "");
         if (e.joined && e.authority != (role() == CoopRole::Host))
             NXLOG_W(kTag, "Co-op: this process is %s of the session, but its launch role is %s", e.authority ? "the authority" : "a member",
@@ -171,6 +178,8 @@ void on_member(const ch::MemberEvent& e) {
         unlocks::on_member_joined();
         money::on_member_joined();
         bags::on_member_joined(e.node);
+        records::on_member_joined();
+        friendship::on_member_joined(e.node);
     }
     NXLOG_I(kTag, "Co-op: node %d %s the session%s", e.node, e.joined ? "joined" : "left", e.authority ? " (the authority)" : "");
 }

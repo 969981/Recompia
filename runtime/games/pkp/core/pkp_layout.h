@@ -157,6 +157,9 @@ constexpr uint64_t kLayoutOf = 0x9132fc;         // (source) -> layout
 constexpr uint64_t kChildOf = 0xa6f92c;          // (children (screen + 0x48), element id, u16* class) -> child widget
 constexpr uint64_t kTextString = 0xf35f20;       // (widget, text slot, text id, const char*): a text id with a string argument
 constexpr uint32_t kStringText = 0xa8;           // text id "<string;0(lstr1)>"
+// The role getters as co-op's role answers name them (pkp_coop_role.cpp; kOnline above is IsVisitor under its older name).
+constexpr uint64_t kIsVisitor = 0x376c4;         // () -> GM+0x90 bit 2: a Link Play visitor (0 with no game state)
+constexpr uint64_t kIsHost = 0xa40bc;            // () -> GM+0x90 bit 1: the Link Play host (0 with no game state)
 // The key guide widget's functions, offsets and tables are in pkp_key_guide.cpp, its one user.
 
 // ---- story and characters (read by co-op and its test probe) ----
@@ -196,6 +199,14 @@ constexpr uint64_t kChallengeSize = 0xd8;
 constexpr uint32_t kChallengeMax = 0x4b0;
 constexpr uint8_t kChallengeClaimed = 4;         // 1..2 open, 3 done (to claim), 4 claimed: the coins were paid
 constexpr uint8_t kStageCloudIsland = 0x11;      // kStateStage: Cloud Island (0x77ecb0), whose challenges are its own
+// the per-player claims (pkp_coop_money.cpp): CM + id * kChallengeMirrorSize is a visitor's mirror of challenge id
+constexpr uint8_t kChallengeDone = 3;
+constexpr uint64_t kChallengeMirrorSize = 0x12;
+constexpr uint64_t kMirrorState = 0xc;           // u8 this player's view (the PC's list 0x645f20 offers a claim at 3)
+constexpr uint64_t kMirrorHostState = 0xd;       // u8 the host's own state, as its goal update 0x6355c0 last sent it (@0x635964)
+constexpr uint64_t kChallengeList = 0x18114;     // CM +: u16 ids of the listed challenges (the PC's; the kind 7 raise needs the id here)
+constexpr uint64_t kChallengeListCount = 0x18600;   // CM +: s16 how many
+constexpr int16_t kChallengeListMax = 0x276;
 constexpr uint64_t kCharaStatusRoot = 0x3483b60; // **(main + this): the stage data holding the CharacterStatus records
 constexpr uint64_t kCharaStatus = 0x835af0;      // + chara * kCharaStatusStride: m_position (vec4, w 1.0) at +0x10, m_id (u16, data id) at +0x24
 constexpr uint64_t kCharaStatusStride = 0x30;
@@ -220,5 +231,30 @@ constexpr uint32_t kMemberCount = 4;
 // when it equals the player's index).
 constexpr uint64_t kOwnMemberIndexRef = 0x3484d68, kOwnMemberIndex = 0xb3381;
 constexpr size_t kUserIdSize = 16;
+
+// ---- the story records (pkp_coop_records.cpp; modding-docs coop-v2/role-census/followup/STORY-RECORDS.md) ----
+// Save root +: m_effectCommandSaveData (STGDAT, m_saveStage R+0x7419b0 + 0x2311f0 = R+0x972ba0, serializer 0x5f82ec): its fields
+// m_flags +0x8 .. m_sRealTimer +0x1c4..+0x1eb; +0x0..+0x7 is the field object's vtable pointer, not data.
+constexpr uint64_t kSaveEffectCommands = 0x972ba8;
+constexpr size_t kEffectCommandsBytes = 0x1e4;
+// CMNDAT m_story (R+0x4a26a0) +0x12c m_charaTownFlag and +0xc40 m_targetStageForEnableMoveStage (u8 per chara index, raw 0x400 each),
+// +0x2c m_storyStageUniqueFlag (8 bytes per stage 0..31); the hint-group flags (128 group bits).
+constexpr uint64_t kSaveTownFlags = 0x4a27cc, kSaveTownTargets = 0x4a32e0;
+constexpr size_t kTownRecordBytes = 0x400;
+constexpr uint64_t kSaveStageFlags = 0x4a26cc;
+constexpr size_t kStageFlagsBytes = 0x100;
+constexpr uint64_t kSaveHintGroups = 0x7416bc;
+constexpr size_t kHintGroupsBytes = 0x10;
+// ---- co-op friendship (pkp_coop_friendship.cpp): a creature's 0x180-byte record, per chara (< kFriendCount), save root + ----
+// The own records (a host, offline), a visitor's copy of the host's, Cloud Island's own set; every reader selects on the visitor bit
+// and on Cloud Island (0x3b7708, 0x3b7e48). The once-gates: a gain's caller skips it while its byte is set and sets it after.
+constexpr uint64_t kFriendOwn = 0x120, kFriendHostCopy = 0x14c2d28, kFriendCloud = 0xa516b8, kFriendSize = 0x180;
+constexpr uint32_t kFriendCount = 0x41a;
+constexpr uint64_t kFriendPoints = 0x2c;     // u16, the friendship points (0x31fb00 reads, 0x3bb660 writes)
+constexpr uint64_t kFriendMeter = 0x2e;      // u16, filled at a friendship level-up (0x3bc034), emptied by the reward list
+constexpr uint64_t kFriendGift = 0x175;      // u8 once-gate of a gift's friendship (0x46e308)
+constexpr uint64_t kFriendDaily = 0x177;     // u8 once-gate of the talk / play friendship (0x4aae54 slot 174 and five more callers)
+constexpr uint64_t kFriendFlag17a = 0x17a;   // u8 set by script callback slot 175 (0x4ab268)
+constexpr uint64_t kFriendOnce17d = 0x17d;   // u8 once-gate of 0x3a83a0's friendship (0x3a8954 reads, 0x3a8d44 sets)
 
 }  // namespace nxrt::games::pkp::layout

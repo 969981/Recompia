@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Game layer: seamless co-op's one-off request outcomes (pkp_coop_internal.h). Every member can hand a shared unique request in
-// and keeps that hand-in (its own record, its own rewards, pkp_coop_requests.cpp); what the hand-in adds to the world is applied once
-// per request for the whole group, in the authority's world.
+// Game layer: seamless co-op's one-off request outcomes (pkp_coop_internal.h). A shared unique request is handed in once for the
+// group (the repo owner's call, 2026-11-20): the first hand-in closes it for every member (pkp_coop_requests.cpp), and what the
+// hand-in adds to the world is applied once per request for the whole group, in the authority's world.
 //
 // The game, 2.0.1: the completion step 0x618304(MU, slot, w3) of unique request id (slot = MU + id * 16, +2 u8 the id, +0 u16 the
 // bound creature's actor handle h) runs, after the record write (5) and its re-sort:
@@ -39,14 +39,15 @@
 //     the points land in its mirror) and reports the id to the authority (ReqOutcome);
 //   - the authority's own run applies #6 and #11 the first time for the group (the ledger bit is clear) and sets the bit; a later
 //     run (any player) skips them. Its idempotent pieces run every time, as the game does;
-//   - a member's report on the authority, the bit clear: the authority replays the world part in its own world once, at a safe
-//     moment (it can walk, talks to no one, the creature is bound and loaded here), in the step's order: #9, #10, #11, #12, #13
-//     (not #6: the member's run counted it), then sets the bit. Its own record and request component are left as they are (the
-//     host keeps its own hand-in);
+//   - a member's report on the authority: the request is closed here (requests::close: the record 5, the creature's component let
+//     go, its bubble off), which every member then closes too. The bit clear: the authority replays the world part in its own
+//     world once, at a safe moment (it can walk, talks to no one, the creature is bound and loaded here), in the step's order: #9,
+//     #10, #11, #12, #13 (not #6: the member's run counted it), then sets the bit;
 //     for #10 the component's id is cleared for that one call and put back, or 0x117320 sees this creature's open request and
 //     clears nothing. Not replayed: #7 (the gift: personal), #8 (above), the play report, the UI trigger and the follow-up offer;
-//   - a report of an id whose bit is set is dropped; a non-story id whose record is 5 on the authority (its own hand-in, maybe
-//     from before this ledger) only sets the bit. A story id's 5 there proves nothing (the share closes story ids with a raw 5);
+//   - a report of an id whose bit is set, or whose replay already waits, adds nothing; a non-story id whose record is 5 on the
+//     authority when no replay waits (its own hand-in, maybe from before this ledger) only sets the bit. Once a replay waits, the
+//     record's 5 is the close's own, so it proves nothing then (nor a story id's 5 ever: a member closes story ids with a raw 5);
 //   - the authority's own run while a replay waits does the world part itself: the replay is dropped (its #6 then counts once more
 //     than the member's: each hand-in counts);
 //   - a waiting replay is kept in the authority's save too (below), so a session that ends before the creature is loaded there
@@ -294,8 +295,13 @@ void on_outcome_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
     if (!r.ok() || role() != CoopRole::Host || id < 1 || id > kIdMax || requests::own_request(id)) return;
     const uint64_t recs = records();
     if (!recs) return;
+    requests::close(id, origin);   // the group's hand-in: closed for every member
     if (done(id)) {
         NXLOG_I(kTag, "Co-op outcomes: node %u finished request %u; the group's world part was applied before", origin, id);
+        return;
+    }
+    if (pending(id)) {
+        NXLOG_I(kTag, "Co-op outcomes: node %u finished request %u too; its world part waits already", origin, id);
         return;
     }
     if (!requests::story_request(id) && guest::rd<uint8_t>(recs + id * 4) == kDone) {
@@ -317,17 +323,10 @@ void tick(::Ctx* c, bool in_game) {
     }
     // Replays only in a session (a waiting one kept in the save waits for the next session).
     if (role() != CoopRole::Host || !(session_bits() & layout::kSessionOnline) || !safe_now(in_game)) return;
-    const uint64_t recs = records();
     for (uint32_t id = 1; id <= kIdMax; ++id) {
         if (!pending(id)) continue;
         if (done(id) || requests::own_request(id)) {   // applied meanwhile (or no longer shared): nothing waits
             set_pending(id, false);
-            continue;
-        }
-        if (!requests::story_request(id) && guest::rd<uint8_t>(recs + id * 4) == kDone) {   // this player finished it meanwhile
-            set_done(id);                                                                    // (as on_outcome_message)
-            set_pending(id, false);
-            NXLOG_I(kTag, "Co-op outcomes: request %u waited for its replay; this player finished it meanwhile, nothing to apply", id);
             continue;
         }
         if (replay(c, id)) {

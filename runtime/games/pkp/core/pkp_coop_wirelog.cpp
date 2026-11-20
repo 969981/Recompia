@@ -122,6 +122,10 @@ const char* type_name(uint32_t type) {
     case wire::Type::StateReport: return "StateReport";
     case wire::Type::BagRecord: return "BagRecord";
     case wire::Type::BagRestore: return "BagRestore";
+    case wire::Type::StoryRecord: return "StoryRecord";
+    case wire::Type::FriendAsk: return "FriendAsk";
+    case wire::Type::FriendState: return "FriendState";
+    case wire::Type::CreatureEvent: return "CreatureEvent";
     }
     return "?";
 }

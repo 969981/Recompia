@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags and the logs; saves and shaders are kept, no shader is translated again).
+**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's shared rules for every player and the logs; saves and shaders are kept, no shader is translated again).
 
 ### Game
 - Mouse mode: the game's pointer is drawn where the mouse really is at render sizes other than 1920x1080 (it drifted away from the mouse at 1440p and above) (#806)
@@ -11,9 +11,21 @@
 - Something a teammate was using when they left the session (the lighthouse, for one) can be used again by everyone else. Before, it said "Someone else is using this right now." until the world was loaded again
 - The Shop on the PC menu is no longer greyed out for teammates who join the host
 - A teammate who joins after a story step no longer keeps hearing an old step's music (Kyogre's music kept playing after Kyogre had left). The host's music for the area now reaches every teammate, which also fixes saves that kept the wrong music
-- Teammates now get Life Coins: each challenge the host claims pays every teammate its coins into their own wallet, once, including the challenges claimed before they joined (a teammate's PC showed 0). Coins stay each player's own, as in the game's Link Play. Still not: a teammate's own claim at the PC does nothing; the host claims for the group. Use **Set up again** once after updating to relink the game. Your shaders are kept.
+- Teammates now get Life Coins, and each player claims their own: every player can claim each finished challenge at the PC for themselves and gets its coins into their own wallet, once, including challenges the host claimed first (a teammate's PC showed 0, and only the host could claim). Coins stay each player's own, as in the game's Link Play. Use **Set up again** once after updating to relink the game. Your shaders are kept.
+- A teammate's shop buys now count toward the town's "buy items" challenges
 - Area gates open for everyone in a co-op session, and the group can walk through: before, each press only played the opening again and nobody got in. A gate any player opens is open for the whole group, including players who join later
 - Each player's bag is now kept by the co-op save itself and given back at every join, so a rejoin, drop or crash no longer empties or swaps a bag. A teammate's bag is also no longer emptied at each area change, and no longer reset when the host turns down a request ("Your items have been reset.")
+- Teammates get every unlock the group has in the game's own checks too: the Environment Level panel on the PC menu, for one, was missing for a teammate when the group unlocked it after they joined
+- The host's town and story records (who lives in town, a character's current work, the weather and light the story set, a wild creature's visit) now reach every teammate's own save, so a teammate's world no longer lags behind the host's
+- One more creature request, one the story reads, is now closed for the whole group once anyone finishes it, as the story requests are
+- In the town, teammates see the Requests app as the host does: the tabs of every opened area, every mission and request in the list, and the "new" badge for them
+- Teammates can craft the four recipes that showed "cannot craft" for a visitor
+- Teammates now see the effects of gimmicks being used and changing state, as the host does
+- Creatures the story keeps busy (in a scene, at work it set, or held by a town rule) are busy for teammates too, as for the host: teammates no longer get talks, offers or presents the host would not
+- A creature busy making items keeps working on them while a teammate talks to it. Before, a teammate's talk could stop the job for good, and the creature kept saying it needed a little more time
+- Friendship with a creature now grows for every teammate, not only the host: a teammate's talks and time with a creature add to the group's friendship with that creature, and every teammate sees it
+- Creature requests are shared: when one player hands a request in, it is done for the whole group. Its bubble goes away above the creature for everyone, nobody has to talk to the creature again, and the items it gives go to every player
+- Talking to a character now counts for the group's story when a teammate does it, not only when the host does: a story step that waits for someone to talk to a creature moves on for a teammate's talk too
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

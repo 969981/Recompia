@@ -20,6 +20,8 @@
 //                                    at vt+0x408() + 0x29a8; +0xc u32 its chara, +0x10 u8 the id the creature offers or holds (0:
 //                                    none). The offer needs it free, the take-on step writes it whatever it held (0x61491c), the
 //                                    report talk needs it to hold the id at 4, and the completion 0x618304 clears it (0x6183b0).
+//                                    The request bubble is the kind 1 balloon of the creature's talk component, owner + 0x29c0
+//                                    (0x618420); the completion takes it off with 0x3b1800(talk, 1) (0x618490).
 //   the checker 0x613c9c (3 -> 4)    for the event types (+0x5d 7, 8, 9, 0x10, 0x1b, 0x26, 0x29, 0x2a: kEventIds) it tests record
 //                                    byte +3 bit 0 alone (0x613df4..0x613e14; type 0x25 after two actor checks), a bit an event
 //                                    sets on the player's own record; a one-time scene a teammate already played may never set it
@@ -36,21 +38,25 @@
 //                                    Cloud Island (0x77ecb0). So on a member no slot ever binds: no offer, no take-on (kTakeOn
 //                                    returns at once) and no report talk. The hook answers on a member as the game does at home
 //                                    (mapped first by a community contributor's link_story_coop gifts work).
-// Rules on a receiver (the repo owner's call: every member can complete a request and gets its rewards; two to four times the
-// resources is fine), so nothing is undone and no history is invented:
-//   - another member's 3, 4 or 5: a record here below 3 becomes 3 through the game's own take-on step (or 3 + the queue when the
-//     creature is not loaded here; it binds and re-applies when it loads); the game's checker and the report talk do the rest, on
-//     each member's own record and with each member's own rewards. A 5 counts too, so a player who was away when another member
-//     finished a request still gets it;
+// Rules on a receiver (the repo owner's call, 2026-11-20: requests are shared, one completion closes a request for the whole group
+// and every member gets its reward once), so nothing is undone and no history is invented:
+//   - another member's 3 or 4, and on the host also another member's 5 (that member's own history): a record here below 3 becomes
+//     3 through the game's own take-on step (or 3 + the queue when the creature is not loaded here; it binds and re-applies when it
+//     loads); the game's checker and the report talk do the rest;
+//   - a close (the group's completion): on a member, the authority's 5 (its world is the group's: the host's own hand-in, or a
+//     member's that the host closed); on the host, a member's hand-in (requests::close from pkp_coop_outcomes.cpp, which also
+//     applies the world part once). The record here goes from any state 1..4 to 5 (+ the queue), and what the completion 0x618304
+//     does for the creature is done too: its component let go (0x6183b0) and its request bubble taken off (0x618490), so no member
+//     keeps the bubble or can hand the request in again. The reward is the completer's own run, shared: the items its report talk
+//     gives (catch-up's Items) and the world part (pkp_coop_outcomes.cpp). A 5 from another member alone does not close it on a
+//     member (it may be that member's own history; the authority's word follows a real hand-in). The host's close is sent at once;
 //   - an event id (kEventIds) is taken on only from another member's 4 or 5, and then with its event bit (+3 bit 0) set, so the
 //     checker makes it 4 at once: its event may be a one-time scene of the shared world that this player never sees, and a 3
 //     taken on from another member's 3 could stay 3 forever and keep the creature's other requests waiting here (the rule below).
-//     A 3 here (taken on by this player, or by an older build) gets the bit from another member's 4 or 5 the same way;
-//   - a request that is also a story step (kStoryIds: the story is shared, so its effects run once): on a member, another member's
-//     5 closes it here from any state 1..4 (5 + the queue, and the creature's component let go as the completion does), so it is
-//     never offered or done again here. On the host it is taken on instead (as any request): the host's world is the group's
-//     world, and only the host's own completion 0x618304 runs the world part of the step (home, party, world event, the next
-//     offer); a raw 5 there would skip it for everyone;
+//     A 3 here (taken on by this player, or by an older build) gets the bit from another member's 4 the same way (on the host
+//     also from a 5; on a member a 5 alone changes nothing, so the bubble never comes back after the group's hand-in);
+//   - a request that is also a story step (kStoryIds: the story is shared, so its effects run once): on a member, any other member's
+//     5 closes it here too. On the host another member's 5 takes it on (as any request); the member's hand-in closes it;
 //   - one request per creature at a time, as the game offers them: an id waits while another id of its creature (by the table, or
 //     the same bound actor) is at 2..4 here, or while the creature has a general request (the offer's own rule), so the take-on step
 //     never takes the component from a request in progress. Only a take-on waits: a request the player already holds is never
@@ -63,9 +69,13 @@
 // Each process reads its records every frame and sends a change when it sees one (one that could not be sent goes at the next
 // frame), and its whole list of taken-on and finished requests every kAllEvery seconds and when it or another member joins,
 // through the authority to every member.
-// General requests, one exception: their completion 0x6218e0(.., w2 rewards, w3 replay) counts the town goal ("hand in requests",
-// 0x618b00(CM) at 0x621bec, behind `cbz x0` at 0x621be8; w21 = w3 there) with no test of its own, so a replay counted it again on
-// every process: the kind 6 reader's replay of the host's step on each member (0x620ba8, w3 = 1) and the host's apply of a member's
+// General requests are the game's own (one entry on the host, kind 6 replays its steps on every member, the bubble included), with
+// two exceptions. The reward of the completion 0x6218e0(.., w2 rewards, w3 replay): 0x3bcdc0(0, &h, entry +0x14 item, +0x16 count)
+// behind `tbz w20, #0` at 0x621c94, and item 0x1b1 x1 when entry +0x19 is set (0x621e3c), go to the talker alone (the replays pass
+// w2 = 0); the talker's run shares them (catch-up's Items), read at the goal's site below (w20 = w2, x26 = the request component:
+// +0xc chara, x24 the save root's pointer; straight line from there to 0x621c94). And the completion counts the town goal ("hand in
+// requests", 0x618b00(CM) at 0x621bec, behind `cbz x0` at 0x621be8; w21 = w3 there) with no test of its own, so a replay counted it
+// again on every process: the kind 6 reader's replay of the host's step on each member (0x620ba8, w3 = 1) and the host's apply of a member's
 // step (0x62e0fc, w3 = 1). The talks pass w3 = 0 (0x62a404, 0x62ab90). The talker's own count is the group's: on the host it is
 // the host's goal, on a member the game sends it to the host (CM frame 0x631020 -> 0x633150, RequestChallengeProgress; host
 // handler 0x54fbc0 -> 0x54fd60). So in a session a replay skips the goal (x0 = 0 at 0x621be8) and each hand-in counts once.
@@ -98,20 +108,27 @@ constexpr uint64_t kTakeOn = 0x614860;   // (MU, slot, talked): the step "taken 
 constexpr uint64_t kActors = 0x3483bd0;  // main + : -> the actor manager pointer
 constexpr uint64_t kActorOf = 0x281360;  // (actors, &u16 handle): the actor, or 0
 constexpr uint64_t kActorAlive = 0x1d8, kActorRequest = 0x408;   // actor vtable + : bool (), the request owner ()
-constexpr uint64_t kRequestComp = 0x29a8;                        // owner + : the request component
+constexpr uint64_t kRequestComp = 0x29a8, kTalkComp = 0x29c0;    // owner + : the request component, the talk component
+constexpr uint64_t kBubbleOff = 0x3b1800;                        // (talk, kind): takes the creature's balloons of that kind off
+constexpr uint32_t kRequestBubble = 1;
 constexpr uint64_t kCompChara = 0xc, kCompId = 0x10;             // component + : its u32 chara, its u8 id
 constexpr uint64_t kCharaTable = 0x129 * 8;              // data-table manager + 0x10 + : the table of slot 0x129, a row per character
 constexpr uint32_t kCharaMax = 0x1ff;                    // characters 1..0x1ff
 constexpr uint64_t kCharaIds = 2, kCharaIdsEnd = 0x16;   // *(row + 8) + : the ids the character offers, in its order
 constexpr uint64_t kGeneralOwn = 0x22fef0, kGeneralMirror = 0x16f2af8, kGeneralCloud = 0xc81488;   // save root + : general entries
 constexpr uint64_t kGeneralSize = 0x30, kGeneralState = 8;   // per chara; entry + : u8 state (0 none, 1..5 a request today)
+constexpr uint64_t kGeneralReward = 0x14, kGeneralRewardCount = 0x16, kGeneralJuly = 0x19;   // entry + : u16 item, u8 count, u8 flag
+constexpr uint16_t kJulyItem = 0x1b1;                        // the completion's second give while the July flag is set (0x621e28)
+constexpr uint64_t kGoalChara = 0xc;                         // x26 at the goal's site (the request component) + : u32 chara
 constexpr uint32_t kGeneralCount = 0x41a;                    // charas with an entry (another reads entry 0, as the game does)
 constexpr uint8_t kCloudStage = 0x11;                        // game state stage: Cloud Island (0x77ecb0)
 constexpr uint64_t kIsResident = 0x286de4;                   // (&u16 handle): bit 0, the handle is a resident creature's
 constexpr uint64_t kRecFlags = 3;                            // record + : u8 flags
 constexpr uint8_t kEventBit = 0x01;                          // flags: the event of an event-type request ran
-// Requests that are also a story step (LINKDATA #1209 +2 != 0): one completion closes them for the group.
-constexpr uint8_t kStoryIds[] = {2, 3, 7, 8, 9, 10, 11, 15, 17, 19, 20, 23, 28, 31, 54, 56, 65, 66, 76, 77, 79, 80};
+// Requests that are also a story step (LINKDATA #1209 +2 != 0): one completion closes them for the group. 73 is here by the repo
+// owner's rule, not the table: its state byte is read as story state (0x34b20, 0x4147c, 0x13aa20, 0x13aaf4 test 2..4 for the
+// creature that offers it), so a member must not stay at 4 after the group's 5 (STORY-RECORDS.md section 3).
+constexpr uint8_t kStoryIds[] = {2, 3, 7, 8, 9, 10, 11, 15, 17, 19, 20, 23, 28, 31, 54, 56, 65, 66, 73, 76, 77, 79, 80};
 // Requests the game binds to one player (#1557 +0x2c != 0): never shared.
 constexpr uint8_t kOwnIds[] = {94, 95};
 // Requests the checker meets by the record's event bit (#1557 +0x5d 7, 8, 9, 0x10, 0x1b, 0x26, 0x29, 0x2a: the bit alone; 0x25,
@@ -129,6 +146,7 @@ constexpr unsigned kApplyPerTick = 4;    // received ids applied in one frame, a
 struct Pending {
     uint8_t there = 0;    // the other member's state (0: nothing waits)
     uint8_t origin = 0;   // that member's node
+    bool close = false;   // the group's completion: closed here (the rules above)
     bool logged = false;  // its wait for the creature was logged
 };
 
@@ -179,8 +197,9 @@ bool bound(uint64_t slot) {
     return !(handle & 0x800) && kind >= 1 && kind <= 4;
 }
 
-// The request component of the creature bound to the slot, found as the take-on step and the completion find it; 0 if none.
-uint64_t component(::Ctx* c, uint64_t slot) {
+// The request owner of the creature bound to the slot (its components at kRequestComp and kTalkComp), found as the take-on step and
+// the completion find it; 0 if none.
+uint64_t owner_of(::Ctx* c, uint64_t slot) {
     State& s = st();
     if (!bound(slot)) return 0;
     const uint64_t got = guest::rd<uint64_t>(base() + kActors);
@@ -192,7 +211,12 @@ uint64_t component(::Ctx* c, uint64_t slot) {
     const uint64_t vt = guest::rd<uint64_t>(actor);
     if (!(guest::call(c, guest::rd<uint64_t>(vt + kActorAlive), actor) & 1)) return 0;
     const uint64_t owner = guest::call(c, guest::rd<uint64_t>(vt + kActorRequest), actor);
-    return owner && guest::ok(owner + kRequestComp + kCompId, 1) ? owner + kRequestComp : 0;
+    return owner && guest::ok(owner + kTalkComp, 0x20) && guest::ok(owner + kRequestComp + kCompId, 1) ? owner : 0;
+}
+
+uint64_t component(::Ctx* c, uint64_t slot) {
+    const uint64_t owner = owner_of(c, slot);
+    return owner ? owner + kRequestComp : 0;
 }
 
 // Takes request id on here as the game does when its creature loads with a saved 3.
@@ -230,15 +254,21 @@ void read_charas(::Ctx* c) {
     NXLOG_I(kTag, "Co-op requests: %u requests have a known creature", n);
 }
 
-// The character has a general (daily) request here (state 1..5), read as the offer 0x6132b8 reads it before it offers a unique id.
-bool general_busy(uint32_t chara) {
+// The character's general (daily) request entry as the game's 3-way select picks it here (0: no save or game state).
+uint64_t general_entry(uint32_t chara) {
     const uint64_t root = guest::rd<uint64_t>(base() + layout::kSaveRoot);
     const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
-    if (!root || !guest::ok(game, layout::kStateStage + 1)) return false;
+    if (!root || !guest::ok(game, layout::kStateStage + 1)) return 0;
     const bool cloud = guest::rd<uint8_t>(game + layout::kStateStage) == kCloudStage;
     const uint64_t entries = root + (cloud ? kGeneralCloud : (session_bits() & layout::kSessionVisitor) ? kGeneralMirror : kGeneralOwn);
     const uint64_t entry = entries + (chara < kGeneralCount ? chara * kGeneralSize : 0);
-    if (!guest::ok(entry + kGeneralState, 1)) return false;
+    return guest::ok(entry, kGeneralSize) ? entry : 0;
+}
+
+// The character has a general (daily) request here (state 1..5), read as the offer 0x6132b8 reads it before it offers a unique id.
+bool general_busy(uint32_t chara) {
+    const uint64_t entry = general_entry(chara);
+    if (!entry) return false;
     const uint8_t state = guest::rd<uint8_t>(entry + kGeneralState);
     return state >= 1 && state <= 5;
 }
@@ -307,16 +337,19 @@ void line(const std::string& text) {
     notice::post(text);
 }
 
-// The state another member's state `there` gives a record at `here` (the rules above).
-uint8_t target(uint32_t id, uint8_t there, uint8_t here) {
-    if (there == kDone && listed(kStoryIds, id) && role() != CoopRole::Host) return here >= kWaiting && here < kDone ? kDone : here;
-    if (listed(kEventIds, id) && there < kFulfilled) return here;
+// The state another member's state (or a close) gives a record at `here` (the rules above).
+uint8_t target(uint32_t id, const Pending& p, uint8_t here) {
+    const bool member = role() != CoopRole::Host;
+    if (p.close || (p.there == kDone && member && listed(kStoryIds, id))) return here >= kWaiting && here < kDone ? kDone : here;
+    if (p.there == kDone && member) return here;   // another member's 5 alone: the authority's word closes it
+    if (listed(kEventIds, id) && p.there < kFulfilled) return here;
     return here >= kWaiting && here < kTaken ? kTaken : here;
 }
 
 // The record needs its event bit for the checker: an event id another member met, being taken on here or held at 3.
 bool needs_event_bit(uint64_t recs, uint32_t id, uint8_t there, uint8_t here, uint8_t to, bool take) {
-    return listed(kEventIds, id) && there >= kFulfilled && (take || (here == kTaken && to == here)) &&
+    const bool met = there == kFulfilled || (there == kDone && role() == CoopRole::Host);
+    return listed(kEventIds, id) && met && (take || (here == kTaken && to == here)) &&
            !(guest::rd<uint8_t>(recs + id * 4 + kRecFlags) & kEventBit);
 }
 
@@ -334,7 +367,7 @@ void apply(::Ctx* c, uint64_t recs) {
         Pending& waiting = s.pending[id];
         if (!waiting.there) continue;
         const uint8_t here = state_of(recs, id);
-        const uint8_t to = target(id, waiting.there, here);
+        const uint8_t to = target(id, waiting, here);
         const bool take = here < kTaken && to == kTaken;   // only a take-on waits; a request held here is never held back
         if (take && chara_busy(c, recs, mu, id)) {   // kept: taken on once the creature's other request is done here
             if (!waiting.logged)
@@ -354,27 +387,42 @@ void apply(::Ctx* c, uint64_t recs) {
             take_on(c, recs, mu, id);
         } else if (to != here) {
             const uint64_t slot = mu + id * kSlotSize;
-            const uint64_t comp = component(c, slot);   // the completion lets the component go; a raw 5 does too
-            if (comp && guest::rd<uint8_t>(comp + kCompId) == id) guest::wr<uint8_t>(comp + kCompId, 0);
+            // The completion lets the component go and takes the bubble off (0x6183b0, 0x618490); a close does too.
+            const uint64_t owner = owner_of(c, slot);
+            if (owner && guest::rd<uint8_t>(owner + kRequestComp + kCompId) == id) {
+                guest::wr<uint8_t>(owner + kRequestComp + kCompId, 0);
+                guest::call(c, base() + kBubbleOff, owner + kTalkComp, kRequestBubble);
+            }
             guest::wr<uint8_t>(recs + id * 4, to);
             queue(c, mu, slot);
         }
-        if (s.have_seen) s.seen[id] = state_of(recs, id);   // ours now: not sent back as a change
+        // Ours now: not sent back as a change. The host's close is the group's word, sent at the next read.
+        if (s.have_seen && !(p.close && role() == CoopRole::Host)) s.seen[id] = state_of(recs, id);
         NXLOG_I(kTag, "Co-op requests: request %u at state %u on node %u, %u here -> %u%s", id, p.there, p.origin, here, to,
                 event_bit ? ", its event bit set" : "");
         int& first = to == kDone ? closed : take && p.there != kDone ? taken : finished;   // only the bit: it was listed already
         if (first < 0) first = p.origin;
     }
     if (taken >= 0) line(notice::name_of(static_cast<uint8_t>(taken)) + " took on a creature request. It is in your requests too!");
-    else if (finished >= 0) line(notice::name_of(static_cast<uint8_t>(finished)) + " finished a creature request. You can finish it too!");
-    else if (closed >= 0) line(notice::name_of(static_cast<uint8_t>(closed)) + " finished a story request for the group.");
+    else if (finished >= 0)
+        line(notice::name_of(static_cast<uint8_t>(finished)) + " finished a creature request. It is in your requests too!");
+    else if (closed >= 0) line("A creature request was finished. It is done for the whole group!");
 }
 
 }  // namespace
 
 int on_general_goal(::Ctx* c) {
     // w21 bit 0: the game's own replay of a step (the talks pass 0). Replays only run online; offline nothing changes.
-    if (!(c->x[21] & 1) || !(session_bits() & layout::kSessionOnline) || !c->x[0]) return 0;
+    if (!(c->x[21] & 1)) {
+        // The talker's own step: w20 bit 0, its reward is given here next (0x621c94), to this player alone. Shared in a session.
+        if (!(c->x[20] & 1) || !link::in_session() || !guest::ok(c->x[26] + kGoalChara, 4)) return 0;
+        const uint64_t entry = general_entry(guest::rd<uint32_t>(c->x[26] + kGoalChara));
+        if (!entry) return 0;
+        catchup::share_give(guest::rd<uint16_t>(entry + kGeneralReward), guest::rd<uint8_t>(entry + kGeneralRewardCount));
+        if (guest::rd<uint8_t>(entry + kGeneralJuly)) catchup::share_give(kJulyItem, 1);
+        return 0;
+    }
+    if (!(session_bits() & layout::kSessionOnline) || !c->x[0]) return 0;
     c->x[0] = 0;
     NXLOG_I(kTag, "Co-op requests: a general request's hand-in replayed here; its town goal counted on the process of the player who "
             "handed it in, skipped here");
@@ -405,10 +453,22 @@ void on_unique_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
         if (!r.ok()) return;
         if (id < 1 || id > kIdMax || there < kTaken || there > kDone || listed(kOwnIds, id)) continue;
         Pending& p = s.pending[id];
+        if (there == kDone && role() != CoopRole::Host && origin == link::authority()) {   // the group's completion
+            p.close = true;
+            p.origin = origin;
+        }
         if (there <= p.there) continue;   // the highest wins: a member that is behind never lowers it
         p.there = there;                  // a logged wait stays logged (the whole list comes every kAllEvery)
         p.origin = origin;
     }
+}
+
+void close(uint32_t id, uint8_t origin) {
+    if (id < 1 || id > kIdMax || listed(kOwnIds, id) || role() != CoopRole::Host || !shared_here()) return;
+    Pending& p = st().pending[id];
+    p.close = true;
+    p.there = kDone;
+    p.origin = origin;
 }
 
 void tick(::Ctx* c, bool in_game) {

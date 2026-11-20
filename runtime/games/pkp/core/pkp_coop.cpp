@@ -64,7 +64,7 @@ enum class Site : uintptr_t {
                       // decided (once for the group), the goal skipped when they are not this run's
     Friendship,       // the friendship that completion step adds: skipped as decided at GoalCount
     GeneralGoal,      // a general request's completion, right before its town goal +1: a replay of another player's hand-in skips
-                      // it, so each hand-in counts once
+                      // it, so each hand-in counts once; the talker's own hand-in shares its reward with the group
     // ---- the session ----
     PastTitle,        // the title screen's continue: the co-op save loads without the title, and its unclean-exit mark is cleared
     SimStep,          // the simulation step: skipped while the session waits for a dropped member (the network tick keeps running)
@@ -114,6 +114,26 @@ enum class Site : uintptr_t {
     // ---- the unlocks ----
     AreaGateRecord,   // the area gate record's "a session is open" guard: the write goes through, so a gate opened in a session can be
                       // entered, and is shared with the group (pkp_coop_unlocks.cpp)
+    // ---- the ability check (pkp_coop_story.cpp) ----
+    AbilityCheck,     // the ability check's "a visitor reads the host's record" branch: a member reads its own bits, which hold the
+                      // group's abilities (the Environment Level panel on a teammate's PC menu)
+    // ---- the role answers (pkp_coop_role.cpp) ----
+    RoleAnswer,       // a role getter's call listed in pkp_coop_role_table.inc (a permission or display check): a member gets the host's
+                      // answer there, every other caller the game's own
+    // ---- the creature jobs (pkp_coop_jobs.cpp) ----
+    JobTick,          // the item-making tick's IsMine test: the authority also ticks a job on a creature a member holds, which
+                      // otherwise no process ticks
+    // ---- friendship (pkp_coop_friendship.cpp) ----
+    FriendGain,       // a friendship gain with a creature: a member's (outside Cloud Island) is made on the authority, whose record
+                      // is the group's
+    FriendFlag,       // script callback slot 175's friend record flag: a member's is set on the authority too
+    FriendTag,        // the name tag's friendship test: a member reads its copy of the host's records, as the host reads its own
+    // ---- the challenges: per-player claims (pkp_coop_money.cpp), a member's actions counted (pkp_coop_challenges.cpp) ----
+    ClaimVisitor,     // the PC's claim after its visitor test: a member's own claim pays it its coins (kPay's ledger keeps it to once)
+    BuyCount,         // the "buy items" challenge count after its visitor test: a member's buy counts for the group
+    // ---- the creature events (pkp_coop_feed.cpp) ----
+    TalkedTo,         // the contents scheduler's "talked to" notice, which skips a visitor: a member's talk is posted on the
+                      // authority, so content records waiting on that talk run for the group
 };
 
 struct CoopSite {
@@ -183,6 +203,25 @@ constexpr CoopSite kSites[] = {
     {{0x13596c, 0x12003c29u, true}, Site::PlacedNotice},     // and w9, w1, #0xffff
     {{0x12b544, 0xb9400408u, true}, Site::PlayScene},        // ldr w8, [x0, #4]
     {{0x5c05c0, 0x37000140u, false}, Site::AreaGateRecord},  // tbnz w0, #0, 0x5c05e8 (w0 = IsOnline's answer)
+    // the ability check (pkp_coop_story.cpp)
+    {{0x1140e8, 0x3617fb08u, false}, Site::AbilityCheck},    // tbz w8, #2, 0x114048 (w8 = GM+0x90, the session bits)
+    // ---- the role answers (pkp_coop_role.cpp): one midhook per row (after its `bl`, or at its session-bit test) ----
+#define PKP_ROLE_ROW(ret, getter, word, tag, what) {{ret, word, false}, Site::RoleAnswer},
+#define PKP_ROLE_BIT(site, reg, bit, word, tag, what) {{site, word, false}, Site::RoleAnswer},
+#include "core/pkp_coop_role_table.inc"
+#undef PKP_ROLE_BIT
+#undef PKP_ROLE_ROW
+    // the creature jobs (pkp_coop_jobs.cpp)
+    {{0x3b39a8, 0x36001540u, false}, Site::JobTick},         // tbz w0, #0, 0x3b3c50 (w0 = IsMine's answer)
+    // friendship
+    {{0x3a89fc, kPacibsp, true}, Site::FriendGain},
+    {{0x4ab358, 0x36000120u, false}, Site::FriendFlag},      // tbz w0, #0, 0x4ab37c (w0 = Cloud Island, w19 = the chara)
+    {{0x3b7cd0, 0x36000540u, false}, Site::FriendTag},       // tbz w0, #0, 0x3b7d78 (w0 = Cloud Island, on a visitor)
+    // the challenges
+    {{0x645d18, 0x37000080u, false}, Site::ClaimVisitor},    // tbnz w0, #0, 0x645d28 (w0 = the visitor test 0x376c4; kPay at 0x645d24)
+    {{0x643938, 0x37001220u, false}, Site::BuyCount},        // tbnz w0, #0, 0x643b7c (w0 = the visitor test 0x376c4)
+    // the creature events (pkp_coop_feed.cpp)
+    {{0x1355ec, kPacibsp, true}, Site::TalkedTo},
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -203,7 +242,7 @@ State& st() {
 
 // Every co-op site (user: its Site), once the frame callback armed the hooks: the part of co-op that owns the site does its work there.
 // A site no part owns yet passes through (returns 0: the game's own code runs).
-int hook(::Ctx* c, uint64_t, void* user) {
+int hook(::Ctx* c, uint64_t addr, void* user) {
     if (!st().armed.load(std::memory_order_acquire)) return 0;
     switch (static_cast<Site>(reinterpret_cast<uintptr_t>(user))) {
         case Site::MaskStart: return coop::story::on_mask_start(c);
@@ -247,6 +286,15 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::PlacedNotice: return coop::placement::on_placed_notice(c);
         case Site::PlayScene: return coop::contents::on_play_scene(c);
         case Site::AreaGateRecord: return coop::unlocks::on_area_gate_record(c);
+        case Site::AbilityCheck: return coop::story::on_ability_check(c);
+        case Site::RoleAnswer: return coop::answers::on_answer(c, addr - st().base);
+        case Site::JobTick: return coop::jobs::on_job_tick(c);
+        case Site::FriendGain: return coop::friendship::on_add_points(c);
+        case Site::FriendFlag: return coop::friendship::on_flag_17a(c);
+        case Site::FriendTag: return coop::friendship::on_name_tag(c);
+        case Site::ClaimVisitor: return coop::money::on_claim_visitor(c);
+        case Site::BuyCount: return coop::challenges::on_buy_visitor(c);
+        case Site::TalkedTo: return coop::feed::on_talked_to(c);
         default: return 0;
     }
 }
@@ -333,6 +381,10 @@ void game_frame(::Ctx* c) {
     coop::gate::tick(s.in_game.load(std::memory_order_relaxed));
     coop::trace::tick(s.in_game.load(std::memory_order_relaxed));
     coop::digest::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::records::tick(s.in_game.load(std::memory_order_relaxed));
+    coop::answers::tick();
+    coop::friendship::tick(c);
+    coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
 }
 
 void remove() {   // the registry has removed the hooks
@@ -370,7 +422,12 @@ void remove() {   // the registry has removed the hooks
     coop::linkqueue::reset();
     coop::placement::reset();
     coop::contents::reset();
+    coop::friendship::reset();
+    coop::feed::reset();
     coop::session::reset();
+    coop::records::reset();
+    coop::answers::reset();
+    coop::jobs::reset();
 }
 
 }  // namespace
