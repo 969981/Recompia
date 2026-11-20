@@ -347,6 +347,18 @@ alternatives. A bug report from a few players is worth fixing, but not by making
   repo owner.
 - The PR says who the fix is for, how many players that is, and why nobody else is affected.
 
+### 6.7 A game system that fights our model is rebuilt, not patched.
+
+Many bugs come from the game's own systems working as designed for something we changed (for example, co-op's vanilla Link Play
+treats a visitor's bag as temporary and hands it back and forth). When a bug comes from such a system:
+
+- Reverse-engineer it first (modding-docs\), enough to know every place it reads and writes the state.
+- Then prefer rebuilding that part our own way, the way that benefits the port, over another fix on top of the flawed system. Our
+  own data and files are fine (they do not need to be the game's), and the game's paths that fight it are switched off.
+- Say the call in the PR: what the game did, why it fights our model, what replaces it, and which of the game's paths are disabled.
+- A small, clean bend of the game's own function is still fine when it really ends the problem; the rule is against piling fixes on
+  a system whose design is the cause.
+
 ---
 
 ## 7. Guard rails: signs you are about to break the structure

@@ -39,6 +39,10 @@ the change, do it and write in the PR which rule was overridden, by whom and why
 6. **A patch that doesn't need a shader rebuild never makes one mandatory (PROJECT.md 6.5).** Raise `TRANSLATOR_REV` or change
    what a finished shader cache is checked against only when shaders really change, and then rebuild only the shaders that changed.
    A relink (**Set up again**) keeps the shaders and is not a rebuild.
+7. **A game system that fights our model is rebuilt, not patched (PROJECT.md 6.7).** When a bug comes from the game's own system
+   doing what it was designed for under our changes (co-op's visitor bags, for one), RE it, then rebuild that part our own way
+   (our own data is fine) and switch off the game's paths that fight it, instead of fixing the flawed system again. Say the call in
+   the PR.
 
 If a request goes against one of these rules and the person has not said they are overriding it, name the rule and ask whether
 they want to. If yes, do it and note the override in the PR. Don't quietly look for a workaround that has the same effect.
