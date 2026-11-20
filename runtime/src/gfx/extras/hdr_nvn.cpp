@@ -70,7 +70,7 @@ bool hdr_tonemap_variant(const std::vector<uint32_t>& words, const std::string& 
     return ok;
 }
 
-bool hdr_is_tonemap(const std::vector<uint32_t>& words, const std::string& hash) {
+bool hdr_is_tonemap(const std::string& hash, const std::function<std::shared_ptr<const std::vector<uint32_t>>()>& words) {
     static std::mutex mu;
     static std::map<std::string, bool> cache;
     {
@@ -80,7 +80,8 @@ bool hdr_is_tonemap(const std::vector<uint32_t>& words, const std::string& hash)
     }
     std::vector<uint32_t> scratch;
     // the same match as hdr_tonemap_variant; the patch result is only used as a match test here (any peak ratio above 1 will do)
-    const bool ok = tonemap_patch(words, 2.0f, scratch) != nullptr;
+    const std::shared_ptr<const std::vector<uint32_t>> w = words();
+    const bool ok = w && tonemap_patch(*w, 2.0f, scratch) != nullptr;
     std::lock_guard<std::mutex> lk(mu);
     cache[hash] = ok;
     return ok;

@@ -543,7 +543,8 @@ VkShaderModule shader_module(const ShaderInfo* s) {
     std::lock_guard<std::recursive_mutex> lk(g_module_mu);
     auto it = g_modules.find(s);
     if (it != g_modules.end()) return it->second;
-    VkShaderModule m = create_module(s->spirv, s->hash.c_str());
+    const SpirvWords w = shader_words(s);
+    VkShaderModule m = w ? create_module(*w, s->hash.c_str()) : VK_NULL_HANDLE;
     g_modules[s] = m;
     return m;
 }
@@ -556,7 +557,8 @@ static const std::pair<VkShaderModule, uint32_t>& xfb_variant(const ShaderInfo* 
     std::vector<SpvXfbOutput> lay;
     uint32_t stride = 0;
     VkShaderModule m = VK_NULL_HANDLE;
-    if (spirv_add_xfb(vs->spirv, patched, &lay, &stride)) {
+    const SpirvWords w = shader_words(vs);
+    if (w && spirv_add_xfb(*w, patched, &lay, &stride)) {
         m = create_module(patched, vs->hash.c_str());
         std::string desc;
         for (const SpvXfbOutput& o : lay) desc += " loc" + std::to_string(o.location) + "x" + std::to_string(o.components) + "@" + std::to_string(o.offset);
@@ -575,7 +577,8 @@ static VkShaderModule no_output_module(const ShaderInfo* fs) {
     if (it != g_no_out.end()) return it->second.first;
     std::vector<uint32_t> patched;
     std::pair<VkShaderModule, bool> e = {VK_NULL_HANDLE, false};
-    if (spirv_outputs_to_private(fs->spirv, patched)) e = {create_module(patched, fs->hash.c_str()), true};
+    const SpirvWords w = shader_words(fs);
+    if (w && spirv_outputs_to_private(*w, patched)) e = {create_module(patched, fs->hash.c_str()), true};
     else e = {shader_module(fs), false};
     g_no_out[fs] = e;
     return e.first;
@@ -583,12 +586,13 @@ static VkShaderModule no_output_module(const ShaderInfo* fs) {
 
 // The tone-map fragment shader runs as its HDR variant while the HDR scene is active (extras/hdr_nvn.h); every other fragment shader is the translated one.
 static VkShaderModule hdr_fragment_module(const ShaderInfo* fs) {
-    if (!extras::hdr_scene_active() || fs->spirv.size() > 65536) return shader_module(fs);   // The game's composite tone map is about 24.5k words
+    if (!extras::hdr_scene_active() || fs->spirv_words > 65536) return shader_module(fs);   // The game's composite tone map is about 24.5k words
     std::lock_guard<std::recursive_mutex> lk(g_module_mu);
     auto it = g_hdr_frag.find(fs);
     if (it != g_hdr_frag.end()) return it->second.first;
     std::vector<uint32_t> patched;
-    const bool variant = extras::hdr_tonemap_variant(fs->spirv, fs->hash, patched);
+    const SpirvWords w = shader_words(fs);
+    const bool variant = w && extras::hdr_tonemap_variant(*w, fs->hash, patched);
     VkShaderModule m = variant ? create_module(patched, fs->hash.c_str()) : shader_module(fs);
     g_hdr_frag[fs] = {m, variant};
     return m;
@@ -600,7 +604,8 @@ static VkShaderModule dual_source_module(const ShaderInfo* fs) {
     if (it != g_dual_src.end()) return it->second;
     VkShaderModule m = VK_NULL_HANDLE;
     std::vector<uint32_t> patched;
-    if (spirv_dual_source_output(fs->spirv, patched)) {
+    const SpirvWords w = shader_words(fs);
+    if (w && spirv_dual_source_output(*w, patched)) {
         m = create_module(patched, fs->hash.c_str());
     } else {
         NXLOG_W(kTag, "%s: dual-source blending is on but the fragment shader has no second output; the unpatched module is used", fs->hash.c_str());
@@ -644,11 +649,16 @@ static VkShaderModule producer_module(const ShaderInfo* producer, const ShaderIn
     auto it = g_variants.find({producer, id});
     if (it != g_variants.end()) return it->second;
     VkShaderModule m = VK_NULL_HANDLE;
+    const SpirvWords own = shader_words(producer);
+    if (!own) {
+        g_variants[{producer, id}] = VK_NULL_HANDLE;
+        return VK_NULL_HANDLE;
+    }
     std::vector<uint32_t> base_words;
-    const std::vector<uint32_t>* words = &producer->spirv;
+    const std::vector<uint32_t>* words = own.get();
     if (!ints.empty()) {
         // integer vertex attributes: the shader gets the raw bits the console delivers (nvn_spirv_patch.h)
-        if (!spirv_int_attributes(producer->spirv, ints, base_words)) {
+        if (!spirv_int_attributes(*own, ints, base_words)) {
             NXLOG_E(kTag, "%s: the integer vertex attributes could not be patched in; draws with this shader are skipped", producer->hash.c_str());
             g_variants[{producer, id}] = VK_NULL_HANDLE;
             return VK_NULL_HANDLE;
