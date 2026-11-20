@@ -491,5 +491,11 @@ int on_answer(::Ctx* c, uint64_t site);
 void tick();    // once a frame: the marks of the rows logged this session clear when the session closes
 void reset();
 }  // namespace answers
+// ---- the creature jobs (pkp_coop_jobs.cpp) ----
+namespace jobs {
+// Midhook 0x3b39a8 in the item-making tick: on the authority, a job on a creature a member holds is ticked too.
+int on_job_tick(::Ctx* c);
+void reset();
+}  // namespace jobs
 
 }  // namespace nxrt::games::pkp::coop

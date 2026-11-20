@@ -416,6 +416,9 @@ midhook 0x7100faa3e4
 midhook 0x7100faa3f8
 midhook 0x7100fab940
 #   ---- end of the role answers ----
+#   Seamless co-op, creature jobs (pkp_coop_jobs.cpp): in the item-making tick 0x71003b38f0, the `tbz w0, #0` after the actor's
+#   IsMine (vt+0x478) that returns when another member holds the creature (x19 = the job component)
+midhook 0x71003b39a8
 #   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): talk conditions
 #   0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0` after IsOnline), and condition 0x22, the one instruction `b IsOnline`;
 #   the quest pump 0x710011b600 at `tbz w0, #0` after the flag read; the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item

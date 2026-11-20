@@ -120,6 +120,9 @@ enum class Site : uintptr_t {
     // ---- the role answers (pkp_coop_role.cpp) ----
     RoleAnswer,       // a role getter's call listed in pkp_coop_role_table.inc (a permission or display check): a member gets the host's
                       // answer there, every other caller the game's own
+    // ---- the creature jobs (pkp_coop_jobs.cpp) ----
+    JobTick,          // the item-making tick's IsMine test: the authority also ticks a job on a creature a member holds, which
+                      // otherwise no process ticks
 };
 
 struct CoopSite {
@@ -197,6 +200,8 @@ constexpr CoopSite kSites[] = {
 #include "core/pkp_coop_role_table.inc"
 #undef PKP_ROLE_BIT
 #undef PKP_ROLE_ROW
+    // the creature jobs (pkp_coop_jobs.cpp)
+    {{0x3b39a8, 0x36001540u, false}, Site::JobTick},         // tbz w0, #0, 0x3b3c50 (w0 = IsMine's answer)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -263,6 +268,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::AreaGateRecord: return coop::unlocks::on_area_gate_record(c);
         case Site::AbilityCheck: return coop::story::on_ability_check(c);
         case Site::RoleAnswer: return coop::answers::on_answer(c, addr - st().base);
+        case Site::JobTick: return coop::jobs::on_job_tick(c);
         default: return 0;
     }
 }
@@ -391,6 +397,7 @@ void remove() {   // the registry has removed the hooks
     coop::session::reset();
     coop::records::reset();
     coop::answers::reset();
+    coop::jobs::reset();
 }
 
 }  // namespace
