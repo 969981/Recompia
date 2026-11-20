@@ -54,6 +54,8 @@ enum class Site : uintptr_t {
     AbilityStep,      // the story-line step action that sets or clears an ability: a clear likewise
     NameEntry,        // event-script command 0x44, the name entry: after the talker's, every other member enters a name of their own
     ScriptItems,      // event-script command 0xbea, items given by a script: replayed for every member
+    RewardItem,       // the item of a character's reward list (its talk reward): replayed for every member likewise; a member's
+                      // reward talk runs the list on the host, so without this the member never got the item
     MaskStart,        // the permission-mask builder starts: its arguments are set so every stage type builds the full mask
     MaskPattern,      // the mask builder's online pattern: every member gets the full permissions with the story system on
     // ---- the requests ----
@@ -77,12 +79,16 @@ enum class Site : uintptr_t {
     MemberScreen,     // the member screen: shut likewise
     // ---- the save ----
     SaveWrite,        // a member's own save write (three writers): held, the authority writes the co-op save
-    JoinBagSync,      // the bag sync of a join: the authority's working copy never overwrites a member's own bag
+    JoinBagSend,      // the host's side of a join's bag sync: it sends "no stored bag", so a member keeps its own bag instead of the
+                      // host's stale copy (pkp_coop_bag.cpp)
     // ---- the shops ----
     ShopGrant,        // a purchase's give on the buyer's process (the shop's buy, or a visitor's buy the host answered): logged for the
                       // group, so every member gets it too (pkp_coop_purchases.cpp)
     VisitorSync,      // the visitor's "every Link Play request answered" test, from the event queue's ready test: a member's story events
                       // are not held for counters that stopped meeting (pkp_coop_held.cpp)
+    RecordSend,       // the talk-end record's send: one with items the busy queue would drop is kept and sent later (pkp_coop_linkqueue.cpp)
+    QueueReset,       // the visitor's request queue reset at session start: also clears a strict request an earlier session left out,
+                      // which refused every talk-end record with items (pkp_coop_linkqueue.cpp)
     OfflineGoods,     // "this shop row is for offline play only" (the bag upgrades among them): no row is, in a session, so the shop
                       // lists them as it does offline (#780)
     // ---- the discoveries ----
@@ -92,6 +98,8 @@ enum class Site : uintptr_t {
     // ---- the contents ----
     PlacedNotice,     // the "object placed" notice to the contents (from the placement): on a member it waits until the object is in
                       // the member's world, so the contents' "placed near a character" tests see it (pkp_coop_placement.cpp)
+    PlayScene,        // a content's "play scene" command: a scene the event queue refuses (a talk on) is asked for again until it
+                      // plays, so a one-shot record's scene is not lost (pkp_coop_contents.cpp)
 };
 
 struct CoopSite {
@@ -112,6 +120,7 @@ constexpr CoopSite kSites[] = {
     {{0x10c0d0, kPacibsp, true}, Site::AbilityStep},
     {{0x43d3e0, kPacibsp, true}, Site::NameEntry},
     {{0x12c734, 0x79400808u, true}, Site::ScriptItems},      // ldrh w8, [x0, #4]
+    {{0x3bcbc0, 0xaa0203e8u, true}, Site::RewardItem},       // mov x8, x2
     {{0xb0f74, 0xaa0003f3u, false}, Site::MaskStart},        // mov x19, x0
     {{0xb1030, 0xf2c0002du, false}, Site::MaskPattern},      // movk x13, #1, lsl #32
     {{0x11435c, kPacibsp, true}, Site::GiverCheck},
@@ -134,13 +143,16 @@ constexpr CoopSite kSites[] = {
     {{0x241324, kPacibsp, true}, Site::SaveWrite},
     {{0x245200, kPacibsp, true}, Site::SaveWrite},
     {{0x5a8a34, kPacibsp, true}, Site::SaveWrite},
-    {{0x5727c0, kPacibsp, true}, Site::JoinBagSync},
+    {{0x5728b4, 0xf9400660u, false}, Site::JoinBagSend},     // ldr x0, [x19, #8] (before the found flag is written)
     {{0xe889f8, kPacibsp, true}, Site::ShopGrant},
     {{0xe87260, kPacibsp, true}, Site::OfflineGoods},
     {{0x3b9060, kPacibsp, true}, Site::DexScene},
     {{0x45f2a0, 0x12003c28u, true}, Site::HabitatScene},     // and w8, w1, #0xffff
     {{0x313418, kPacibsp, true}, Site::VisitorSync},
+    {{0x2159c0, 0x90019a68u, true}, Site::RecordSend},       // adrp x8, 0x3561000
+    {{0x214954, 0xb0019a68u, true}, Site::QueueReset},       // adrp x8, 0x3561000
     {{0x13596c, 0x12003c29u, true}, Site::PlacedNotice},     // and w9, w1, #0xffff
+    {{0x12b544, 0xb9400408u, true}, Site::PlayScene},        // ldr w8, [x0, #4]
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -178,6 +190,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::TalkKind: return coop::talk::on_talk_kind(c);
         case Site::NameEntry: return coop::catchup::on_name_entry(c);
         case Site::ScriptItems: return coop::catchup::on_script_items(c);
+        case Site::RewardItem: return coop::catchup::on_reward_item(c);
         case Site::GiverCheck: return coop::requests::on_giver_check(c);
         case Site::GoalCount: return coop::outcomes::on_goal_count(c);
         case Site::Friendship: return coop::outcomes::on_friendship(c);
@@ -185,10 +198,14 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::AreaMove: return coop::travel::on_area_move(c);
         case Site::ShopGrant: return coop::purchases::on_grant(c);
         case Site::OfflineGoods: return coop::purchases::on_offline_only(c);
+        case Site::JoinBagSend: return coop::bag::on_join_bag_send(c);
         case Site::DexScene: return coop::discovery::on_dex_scene(c);
         case Site::HabitatScene: return coop::discovery::on_habitat_scene(c);
         case Site::VisitorSync: return coop::held::on_visitor_sync(c);
+        case Site::RecordSend: return coop::linkqueue::on_send_record(c);
+        case Site::QueueReset: return coop::linkqueue::on_session_reset(c);
         case Site::PlacedNotice: return coop::placement::on_placed_notice(c);
+        case Site::PlayScene: return coop::contents::on_play_scene(c);
         default: return 0;
     }
 }
@@ -261,8 +278,10 @@ void game_frame(::Ctx* c) {
     coop::talk::tick();
     coop::travel::tick(c);
     coop::catchup::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::linkqueue::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::notice::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::placement::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::contents::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::gate::tick(s.in_game.load(std::memory_order_relaxed));
     coop::trace::tick(s.in_game.load(std::memory_order_relaxed));
 }
@@ -293,7 +312,9 @@ void remove() {   // the registry has removed the hooks
     coop::gate::reset();
     coop::trace::reset();
     coop::held::reset();
+    coop::linkqueue::reset();
     coop::placement::reset();
+    coop::contents::reset();
     coop::session::reset();
 }
 

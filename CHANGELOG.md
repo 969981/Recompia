@@ -2,8 +2,18 @@
 
 ## Unreleased
 
+**Update:** press **Update** in the launcher, then **Set up again** once (co-op gets a new game hook point; saves and shaders are kept).
+
+### Co-op
+- A teammate's talks with characters that give, take or make things now always reach the host: a talk that ended while the game was still waiting on another request was lost, so the teammate got nothing and the character stayed tied to them (its work stopped and others could not use it). A teammate who talks to a character for its reward now gets the reward item too, instead of it going to the host's bag (and the host's own reward items reach teammates as well). Use **Set up again** once after updating to relink the game. Your shaders are kept.
+- Fixed the beach scene with Kyogre never playing, which left Kyogre with nothing to say and the story stuck. A story scene the game could not start at that moment is now asked for again until it plays, instead of being lost. Worlds already stuck there get the scene when the host walks onto the beach
+- A teammate who leaves or drops and joins again keeps their own bag: the host no longer hands back its old copy of it, which emptied the bag on a rejoin. Use **Set up again** once after updating to relink the game. Your shaders are kept.
+
 ### Gameplay
 - Storage box tabs, off by default (switch them on in the launcher's Settings > Gameplay or in the new Inventory tab of the game's Settings screen, which now also holds the sort settings): standard storage boxes get up to 12 pages of 20 slots (4 by default), and big storage boxes get up to 6 tabs of 60 slots (360 slots total, 4 tabs by default). L and R switch pages and move between big box tabs at their page boundaries; the box shows the game's own page dots and L / R icons for all its pages, and an item you hold comes along to the next page (it needs one free bag slot on the way). Each standard page uses one of the island's 271 standard box spots and each big tab uses one of its 256 big box spots. About the first 22 standard boxes and 42 big boxes placed get every extra, with fewer or none for later boxes. Extra storage is off during Link Play. Items stay saved. Use **Set up again** once after updating to relink the game. Your shaders are kept.
+
+### For developers
+- Co-op trace: also logs creatures' item-making jobs (whose job, made, taken, end, a timer that stands still) and the player ids, to find why a teammate's job never finishes
 
 ## 0.15.2 (build S: Sloth Hotfix a2)
 

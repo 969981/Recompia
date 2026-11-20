@@ -22,9 +22,13 @@
 //   pkp_coop_events.cpp   what an ended talk or scene leaves in the save (scenes played, conversations seen, story lines moved on)
 //                         kept by every member
 //   pkp_coop_held.cpp     the story events a member's game holds for Link Play's request counters: let through once they are stuck
+//   pkp_coop_linkqueue.cpp Link Play's request queue on a member: a talk-end record the busy queue would drop is kept and sent once it
+//                         is idle; a strict request left out by an earlier session is cleared at the next session start
 //   pkp_coop_travel.cpp   the group's trips: a move to another area runs only after the game's poll passed, and the host makes it for all
 //   pkp_coop_discovery.cpp the Pokédex entries and habitats any member found, found by every member, with the game's own scenes
 //   pkp_coop_placement.cpp a member's "object placed" notice to the contents, raised once the host has put the object in its world
+//   pkp_coop_contents.cpp  a scene a content queued that the event queue refused: asked for again until it plays
+//   pkp_coop_bag.cpp      a member's bag stays its own at a join: the host's stored copy of it is never sent
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -231,6 +235,20 @@ namespace held {
 int on_visitor_sync(::Ctx* c);
 void reset();
 }  // namespace held
+namespace linkqueue {
+// The hook sites (pkp_coop.cpp).
+int on_send_record(::Ctx* c);     // entry 0x2159c0: the talk-end record's send, from the talk-end walk 0x480b60
+int on_session_reset(::Ctx* c);   // entry 0x214954: the visitor's request queue reset at session start
+// Sends a kept record once the queue is idle and the player walks (once a frame).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace linkqueue
+
+namespace bag {
+// The hook site (pkp_coop.cpp): midhook 0x5728b4, the host's side of a join's bag sync (0x5727c0): the found flag is cleared, so the
+// joiner keeps its own bag.
+int on_join_bag_send(::Ctx* c);
+}  // namespace bag
 
 namespace placement {
 // The hook site (pkp_coop.cpp): entry 0x13596c, the "object placed" notice, from the placement 0x593120 only. On a member it waits
@@ -240,6 +258,15 @@ int on_placed_notice(::Ctx* c);
 void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace placement
+
+namespace contents {
+// The hook site (pkp_coop.cpp): entry 0x12b544, a content's "play scene" command. A scene not played yet is remembered.
+int on_play_scene(::Ctx* c);
+// Asks the game again for a remembered scene at a safe moment until it plays (once a frame); on the authority, gives a quest a
+// scene it was waiting on that an older save lost.
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace contents
 
 namespace travel {
 // The hook site (pkp_coop.cpp): entry 0xbda20, the area move by destination index. In a session it runs only after the group's poll
@@ -272,6 +299,7 @@ namespace catchup {
 // The hook sites (pkp_coop.cpp).
 int on_name_entry(::Ctx* c);     // entry 0x43d3e0: script command 0x44, the name entry
 int on_script_items(::Ctx* c);   // entry 0x12c734: script command 0xbea, items given
+int on_reward_item(::Ctx* c);    // entry 0x3bcbc0: the item of a character's reward list
 // The messages (pkp_coop_link.cpp).
 void on_name_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_items_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);

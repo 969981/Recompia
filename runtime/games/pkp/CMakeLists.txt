@@ -29,6 +29,7 @@ if(TARGET nxrt_gfx)
     add_library(nxrt_game_pkp STATIC
         # core
         "${_pkp}/core/pkp_coop.cpp"
+        "${_pkp}/core/pkp_coop_bag.cpp"
         "${_pkp}/core/pkp_coop_catchup.cpp"
         "${_pkp}/core/pkp_coop_curtain.cpp"
         "${_pkp}/core/pkp_coop_events.cpp"
@@ -48,7 +49,9 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop_talk.cpp"
         "${_pkp}/core/pkp_coop_trace.cpp"
         "${_pkp}/core/pkp_coop_held.cpp"
+        "${_pkp}/core/pkp_coop_linkqueue.cpp"
         "${_pkp}/core/pkp_coop_placement.cpp"
+        "${_pkp}/core/pkp_coop_contents.cpp"
         "${_pkp}/core/pkp_coop_travel.cpp"
         "${_pkp}/core/pkp_game.cpp"
         "${_pkp}/core/pkp_link_digspots.cpp"

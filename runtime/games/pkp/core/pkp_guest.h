@@ -19,6 +19,19 @@ template <class T> void wr(uint64_t a, T v) { std::memcpy(reinterpret_cast<void*
 // The range is above the low 64 GiB (no null-based or small garbage pointer) and mapped.
 inline bool ok(uint64_t a, uint64_t n) { return a >= 0x1000000000ull && mem::is_mapped(a, n); }
 
+// Checked reads: false (out untouched) when the range is not ok().
+inline bool read(uint64_t a, void* out, size_t n) {
+    if (!ok(a, n)) return false;
+    std::memcpy(out, reinterpret_cast<const void*>(a), n);
+    return true;
+}
+template <class T> bool read(uint64_t a, T& out) { return read(a, &out, sizeof(T)); }
+// The u64 at a when that range is ok(); 0 otherwise (deref(deref(x)) for a two-step pointer).
+inline uint64_t deref(uint64_t a) {
+    uint64_t p = 0;
+    return read(a, p) ? p : 0;
+}
+
 // Runs the guest function at `fn` (absolute) on `c` with x0..x(N-1) = args (missing ones 0) and, when sp is nonzero, that stack pointer.
 // Registers past x(N-1) keep the caller's values. The whole context is restored afterwards; returns x0.
 template <size_t N>

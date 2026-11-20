@@ -265,6 +265,9 @@ entryhook 0x710011b214
 entryhook 0x71001240dc
 entryhook 0x710043d3e0
 entryhook 0x710012c734
+#   Seamless co-op, catch-up (pkp_coop_catchup.cpp): the item of a character's reward list 0x71003bcbc0 (comp, &u16 item, &u16 count;
+#   only called through the reward command table 0x7103485400)
+entryhook 0x71003bcbc0
 #   Seamless co-op, the story lines (pkp_coop_story.cpp): step action 6 0x710010c270 (the town register and house arrival; no direct
 #   callers, row 6 of the step-action table 0x710322d658 that 0x710010afc0 calls through)
 entryhook 0x710010c270
@@ -300,11 +303,13 @@ entryhook 0x7100fb9ea0
 #   Seamless co-op, group travel (pkp_coop_travel.cpp): the area-move filer by destination index (event callbacks 0x52 / 0x53, a
 #   travel object's step 0x71007cbc88), the moves that run no poll of their own
 entryhook 0x71000bda20
-#   Seamless co-op, the save: the three writers of a member's own save, and the bag sync of a join
+#   Seamless co-op, the save: the three writers of a member's own save
 entryhook 0x7100241324
 entryhook 0x7100245200
 entryhook 0x71005a8a34
-entryhook 0x71005727c0
+#   Seamless co-op, member bags (pkp_coop_bag.cpp): in the join sync's bag piece 0x71005727c0, the host's (writer's) `ldr x0, [x19, #8]`
+#   right before it writes the found flag [x29 + 0x1c]; cleared there, the joiner keeps its own bag
+midhook 0x71005728b4
 #   Seamless co-op, the shops (pkp_coop_purchases.cpp): a purchase's give 0x7100e889f8 (the shop's buy 0x7100e88868 tail-calls it; on a
 #   visitor the host's answer to its buy, 0x7100226280, calls it), and "this shop row is for offline play only" 0x7100e87260 (the bag
 #   upgrades; its callers, the listing tests 0x7100e86494 / 0x7100e87424, hide such rows whenever the game is online)
@@ -318,10 +323,18 @@ entryhook 0x710045f2a0
 #   Seamless co-op, held story events (pkp_coop_held.cpp): the visitor's "every Link Play request answered" test 0x7100313418, which
 #   the event queue's ready test 0x7100479c60 asks for events with flag bit 22
 entryhook 0x7100313418
+#   Seamless co-op, Link Play's request queue (pkp_coop_linkqueue.cpp): the talk-end record's send 0x71002159c0 (q, record, entries; one
+#   caller, the talk-end walk 0x7100480b60) and the visitor's queue reset at session start 0x7100214954 (q = world +0x9218378; only
+#   caller 0x7100534c74)
+entryhook 0x71002159c0
+entryhook 0x7100214954
 #   Seamless co-op, the placement notice (pkp_coop_placement.cpp): the "object placed" notice to the contents 0x710013596c (scheduler,
 #   object, x, y, z, dir; the placement 0x7100593120 calls it right after 0x7100594da0, which on a visitor only sends the placement to
 #   the host)
 entryhook 0x710013596c
+#   Seamless co-op, contents scenes (pkp_coop_contents.cpp): a content record's "play scene" command 0x710012b544 (cmd; scene u16 at
+#   cmd +4), which queues the scene through 0x71002e6ce0 and does not see the queue refuse it
+entryhook 0x710012b544
 #   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): talk conditions
 #   0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0` after IsOnline), and condition 0x22, the one instruction `b IsOnline`;
 #   the quest pump 0x710011b600 at `tbz w0, #0` after the flag read; the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item
