@@ -151,6 +151,12 @@ constexpr uint64_t kRecipeSize = 6;              // record: +2 u16 the learn ord
 constexpr uint64_t kRecipeFlags = 4;
 constexpr uint8_t kRecipeKnown = 0x02;
 constexpr uint32_t kRecipeMax = 0x5db;          // the learn 0x2e7240 takes id < 0x5dc; its callers test id - 1 <= 0x5da
+// ---- area gates (modding-docs coop-v2/AREA-GATE-RE.md) ----
+// Save root + id: m_gateHistory, bit 0 per gate id 0..kGateCount-1 (opened; the door's second press enters). Setter 0x5c059c refuses
+// whenever a Link Play session is open; getter 0x5c0504 reads kSaveGateMirror + id on a visitor (0x376c4), which no game code fills.
+constexpr uint64_t kSaveGateHistory = 0x73b1aa;
+constexpr uint64_t kSaveGateMirror = 0x1718470;
+constexpr uint32_t kGateCount = 0x20;
 // ---- Life Coins and challenges (town goals; modding-docs coop-v2/MONEY-RE.md) ----
 constexpr uint64_t kSaveMoney = 0x7416ac;        // save root: u32 Life Coins (CMNDAT; getter 0x645ee8, setter 0x645ebc caps it)
 constexpr uint32_t kMoneyMax = 999999;

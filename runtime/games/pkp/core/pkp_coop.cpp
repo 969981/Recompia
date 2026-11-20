@@ -104,6 +104,9 @@ enum class Site : uintptr_t {
                       // the member's world, so the contents' "placed near a character" tests see it (pkp_coop_placement.cpp)
     PlayScene,        // a content's "play scene" command: a scene the event queue refuses (a talk on) is asked for again until it
                       // plays, so a one-shot record's scene is not lost (pkp_coop_contents.cpp)
+    // ---- the unlocks ----
+    AreaGateRecord,   // the area gate record's "a session is open" guard: the write goes through, so a gate opened in a session can be
+                      // entered, and is shared with the group (pkp_coop_unlocks.cpp)
 };
 
 struct CoopSite {
@@ -159,6 +162,7 @@ constexpr CoopSite kSites[] = {
     {{0x214954, 0xb0019a68u, true}, Site::QueueReset},       // adrp x8, 0x3561000
     {{0x13596c, 0x12003c29u, true}, Site::PlacedNotice},     // and w9, w1, #0xffff
     {{0x12b544, 0xb9400408u, true}, Site::PlayScene},        // ldr w8, [x0, #4]
+    {{0x5c05c0, 0x37000140u, false}, Site::AreaGateRecord},  // tbnz w0, #0, 0x5c05e8 (w0 = IsOnline's answer)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -214,6 +218,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::QueueReset: return coop::linkqueue::on_session_reset(c);
         case Site::PlacedNotice: return coop::placement::on_placed_notice(c);
         case Site::PlayScene: return coop::contents::on_play_scene(c);
+        case Site::AreaGateRecord: return coop::unlocks::on_area_gate_record(c);
         default: return 0;
     }
 }

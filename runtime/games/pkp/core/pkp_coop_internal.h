@@ -18,7 +18,8 @@
 //   pkp_coop_requests.cpp the creature requests a member took on or finished, listed in every member's requests app
 //   pkp_coop_outcomes.cpp what a finished request adds to the world (town goal, friendship), applied once for the group
 //   pkp_coop_recipes.cpp  the crafting recipes any member knows, learned by every member
-//   pkp_coop_unlocks.cpp  the moves and emotes any member learned, the areas visited and buildings built, unlocked for every member
+//   pkp_coop_unlocks.cpp  the moves and emotes any member learned, the areas visited, buildings built and area gates opened, unlocked
+//                         for every member
 //   pkp_coop_purchases.cpp what any member buys in a shop, given to every member (and to later joiners) too
 //   pkp_coop_money.cpp    the Life Coins of a challenge the authority claimed, paid once to every member's own coins
 //   pkp_coop_events.cpp   what an ended talk or scene leaves in the save (scenes played, conversations seen, story lines moved on)
@@ -190,6 +191,9 @@ void on_member_joined();    // another member joined: everything is sent again
 void reset();
 }  // namespace events
 namespace unlocks {
+// The hook site (pkp_coop.cpp): midhook 0x5c05c0, the area gate record's session guard (`tbnz w0, #0` after 0x207b0 in the setter
+// 0x5c059c): in a session the write goes through, and on a visitor the copy its getter reads is set too.
+int on_area_gate_record(::Ctx* c);
 // The message (pkp_coop_link.cpp): kept until this player can take it.
 void on_known_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // Sets what other members have when this player can walk and talks to no one, reads this player's unlock lists and shares what grew
