@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Game layer: seamless co-op's contents scenes (pkp_coop_internal.h; RE: modding-docs coop-v2/KYOGRE-BEACH-RE.md).
 // A content record's "play scene" command (2000, 0x12b544(cmd): scene u16 at cmd +4) queues the scene's event with 0x2e6ce0, and the
-// event queue 0x45d5a0 drops it when it cannot take it now: among others while the runner of slot 0 is busy (0x92210 on GM+0x3bb600),
-// for example while the player talks to someone. The command does not look: the record counts as run, and a record of mode 0 runs
-// once (0x134b80 takes it out of its list, its saved progress says done). So a scene a content queues while the player is in a talk
-// is lost for good, saved with it. Kyogre's arc: content 151 (quest 122) queues the beach scene 150 once, when the player stands at
+// event queue 0x45d5a0 drops it when it cannot take it now (the same event queued or running, a stage-change request below phase 5
+// (0x92210 on GM+0x3bb600), the bit-13 player test, no free queue slot). The command does not look: the record counts as run, and a
+// record of mode 0 runs once (0x134b80 takes it out of its list, its saved progress says done). So a refused scene is lost for good,
+// saved with it. Kyogre's arc: content 151 (quest 122) queues the beach scene 150 once, when the player stands at
 // the beach (its NPCs give their talks right there); without scene 150 quest 122 (close: scene 150 ended) stays 3 and quest 60
-// (Kyogre's talk) never comes. In co-op talks and scenes come from four players, so the refusal is no longer rare.
+// (Kyogre's talk) never comes.
 //   0x12b544 (entry hook): a scene not played yet in this save is remembered. Every kEvery seconds at a safe moment (in the group's
-//   world, can walk, no talk, slot 0's runner idle) the game's own 0x12b544 is called again for it, until the scene is played (its
+//   world, can walk, no talk, slot 0's runner idle, no stage-change request) the game's own 0x12b544 is called again for it, until
+//   the scene is played (its
 //   played bit, 0x117650) or its event is seen running; the queue drops a second copy while one is queued or running. Dropped on a
 //   stage change or after kGiveUp seconds.
 //   Saves where it was lost already: a quest at 3 whose scene was lost is given it again when the player is where the record asked
@@ -35,6 +36,8 @@ constexpr uint64_t kCurrentEvent = 0x2946d0;  // (slot) -> u16 the event slot's 
 constexpr uint64_t kSceneTable = 0x300;       // the data-table manager: the scene table (row u16 +0x1a its event)
 constexpr uint64_t kSceneEvent = 0x1a;
 constexpr uint64_t kPlayedFlags = 0x4a2cec;   // save root +: the played-scene bits (m_playedContentsSkitFlag)
+constexpr uint64_t kStageRequest = 0x3bb600;  // game state: the stage-change request (u32 +0 phase, +4 kind); 0x92210 refuses events
+                                              // without flag bit 4 while the phase is below 5 (slot 0 kind 0xf excepted)
 constexpr uint32_t kSceneMax = 2999;
 constexpr uint32_t kEventMax = 0x18ff;
 constexpr double kFirst = 3.0;                // the first retry after the refusal
@@ -100,6 +103,15 @@ uint16_t scene_event(::Ctx* c, uint32_t scene) {
     return static_cast<uint16_t>(ev - 1) < kEventMax ? ev : 0;
 }
 
+// The stage-change request refuses the scene now (0x92210(GM+0x3bb600, 0), the test 0x45d5a0 makes for these events).
+bool stage_request(uint32_t* phase, uint32_t* kind) {
+    const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
+    if (!game || !guest::ok(game + kStageRequest, 8)) return false;
+    *phase = guest::rd<uint32_t>(game + kStageRequest);
+    *kind = guest::rd<uint32_t>(game + kStageRequest + 4);
+    return *phase < 5 && *kind != 0xf;
+}
+
 uint16_t current_event(::Ctx* c) {
     const uint16_t ev = static_cast<uint16_t>(guest::call(c, base() + kCurrentEvent, 0));
     return static_cast<uint16_t>(ev - 1) < kEventMax ? ev : 0;
@@ -112,7 +124,13 @@ void remember(::Ctx* c, uint32_t scene, const char* why) {
     if (s.pending.size() >= kMax) return;
     const double now = qpc::seconds();
     s.pending.push_back(Pending{scene, scene_event(c, scene), stage(), now, now + kFirst, 0});
-    NXLOG_I(kTag, "Co-op contents: scene %u (event %u) %s; it is asked for again until it plays", scene, s.pending.back().event, why);
+    uint32_t phase = 0, kind = 0;
+    const bool refused = stage_request(&phase, &kind);
+    NXLOG_I(kTag,
+            "Co-op contents: scene %u (event %u) %s; it is asked for again until it plays (now: talking %d, slot 0 plays event %u, "
+            "stage-change request phase %d kind %u%s)",
+            scene, s.pending.back().event, why, talk::talking() ? 1 : 0, current_event(c), static_cast<int>(phase), kind,
+            refused ? ", refuses it" : "");
 }
 
 // The game's own command, with a command record on the scratch stack (free at the frame tick).
@@ -165,7 +183,8 @@ void tick(::Ctx* c, bool in_game) {
         }
         ++i;
     }
-    if (!session::can_walk(in_game) || talk::talking() || running) return;   // the queue would refuse it again
+    uint32_t phase = 0, kind = 0;
+    if (!session::can_walk(in_game) || talk::talking() || running || stage_request(&phase, &kind)) return;   // not now
     for (Pending& p : s.pending) {
         if (now < p.next) continue;
         p.next = now + kEvery;
