@@ -1,5 +1,5 @@
 // Tests for the player's themes (src/themes-model.js). Run: node scripts/test-themes-model.mjs   (exit 1 on a failure)
-import { TOKENS, brandOf, contrast, deriveTokens, nextTheme, onAccent, parseColor, safeUrl, themeCss, toCss } from '../src/themes-model.js';
+import { TOKENS, brandOf, syncAction, contrast, deriveTokens, nextTheme, onAccent, parseColor, safeUrl, themeCss, toCss } from '../src/themes-model.js';
 
 let bad = 0;
 const check = (ok, what) => { if (!ok) { console.log(`FAIL ${what}`); bad++; } };
@@ -60,6 +60,17 @@ same(nextTheme(['a', 'b'], [], 'gone/y'), 'a', 'an unknown current starts over')
 // branding: Co-op keeps its wordmark, Zonith never appears
 same(brandOf({ logo: 'l', mark: 'm' }, (f) => `u:${f}`), { recompia: { logo: 'u:l', mark: 'u:m' }, coop: { mark: 'u:m' } }, 'brandOf');
 check(!('zonith' in brandOf({ logo: 'l', mark: 'm' }, (f) => f)), 'zonith keeps its own');
+
+// at start: a saved theme with an unchanged kept copy stays (the bug that opened in Meadow), a changed or missing copy is painted, a gone pack drops
+const kept = { key: 'p/t', version: 7 };
+same(syncAction('p/t', 7, kept, false), 'keep', 'saved theme, copy kept: keep');
+same(syncAction('p/t', 7, kept, true), 'keep', 'saved theme, painted from the copy already: keep');
+same(syncAction('p/t', 8, kept, true), 'paint', 'pack changed: paint again');
+same(syncAction('p/t', 7, null, false), 'paint', 'no copy yet: paint');
+same(syncAction('p/t', 7, { key: 'p/other', version: 7 }, true), 'paint', 'another theme was kept: paint');
+same(syncAction('p/t', null, kept, true), 'drop', 'pack gone: drop');
+same(syncAction('', null, kept, true), 'drop', 'nothing saved but a copy was painted: drop');
+same(syncAction('', null, null, false), 'none', 'nothing saved, nothing painted: nothing');
 
 // negative control: the comparison helper really fails on a wrong answer (that one failure is not counted)
 {

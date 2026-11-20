@@ -8,7 +8,7 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { api } from './api.js';
 import { setBrandTheme } from './branding.js';
 import { t } from './i18n.js';
-import { brandOf, nextTheme, themeCss } from './themes-model.js';
+import { brandOf, nextTheme, syncAction, themeCss } from './themes-model.js';
 import { errText, toast } from './ui.js';
 
 // Launcher colours: 'meadow' (a bright daytime scene made for the project, the default), 'sunrise' (amber to red; reads well with red-green colour blindness) or 'dusk' (the old violet).
@@ -97,14 +97,14 @@ async function paint(key) {
   const found = findTheme(key);
   if (!found) return false;
   const { pack, theme } = found;
+  userKey = key;   // at once: the Settings page may draw while the picture is still being made
+  userName = theme.name;
   const url = (file) => themeUrl(file, pack.version);
   const sharp = theme.background ? url(theme.background) : null;
   const soft = sharp ? await makeSoft(sharp) : null;
   const css = themeCss({ colors: theme.colors, art: { sharp, soft }, position: theme.background_position });
   const brand = brandOf(theme, url);
   install(css, brand);
-  userKey = key;
-  userName = theme.name;
   writeCache({ key, name: theme.name, version: pack.version, css, brand });
   return true;
 }
@@ -138,9 +138,10 @@ export async function syncThemes() {
     const key = cfg.theme || '';
     const found = key ? findTheme(key) : null;
     const cached = readCache();
-    if (found) { userKey = key; userName = found.theme.name; }
-    if (found && !(cached && cached.key === key && cached.version === found.pack.version)) await paint(key);
-    else if (userKey || cached) uninstall();   // its pack is not there (now): the saved choice stays, so adding the pack again brings it back
+    const act = syncAction(key, found ? found.pack.version : null, cached, !!userKey);
+    if (act === 'keep') { userKey = key; userName = found.theme.name; }
+    else if (act === 'paint') await paint(key);
+    else if (act === 'drop') uninstall();   // its pack is not there (now): the saved choice stays, so adding the pack again brings it back
   } catch (e) {
     console.warn('themes', e);   // the launcher's own look stays
   }

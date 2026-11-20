@@ -120,6 +120,14 @@ export function themeCss({ colors = {}, art = {}, position = null } = {}) {
   return `:root[data-theme="user"] {\n  ${lines.join('\n  ')}\n}`;
 }
 
+/** What themes.js does at start with the saved theme `key`: 'keep' (it is painted from the copy this PC kept, and the pack is unchanged),
+ *  'paint' (paint it from the pack), 'drop' (nothing is saved or its pack is gone: the launcher's own look; the saved key stays) or 'none'.
+ *  `version`: the pack's version, null when the pack or the theme is not there. `cached`: { key, version } of the kept copy, or null. */
+export function syncAction(key, version, cached, painted) {
+  if (key && version !== null) return cached && cached.key === key && cached.version === version ? 'keep' : 'paint';
+  return painted || cached ? 'drop' : 'none';
+}
+
 /** The key the Colours button picks after `current` among the launcher's own looks, then the player's themes. */
 export function nextTheme(builtins, userKeys, current) {
   const all = [...builtins, ...userKeys];
