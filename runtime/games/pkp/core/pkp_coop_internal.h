@@ -21,7 +21,7 @@
 //   pkp_coop_unlocks.cpp  the moves and emotes any member learned, the areas visited, buildings built and area gates opened, unlocked
 //                         for every member
 //   pkp_coop_purchases.cpp what any member buys in a shop, given to every member (and to later joiners) too
-//   pkp_coop_money.cpp    the Life Coins of a challenge the authority claimed, paid once to every member's own coins
+//   pkp_coop_money.cpp    the Life Coins of the challenges: each member claims its own at the PC, once, into its own coins
 //   pkp_coop_events.cpp   what an ended talk or scene leaves in the save (scenes played, conversations seen, story lines moved on)
 //                         kept by every member
 //   pkp_coop_held.cpp     the story events a member's game holds for Link Play's request counters: let through once they are stuck
@@ -38,6 +38,7 @@
 //                         saves into its per-user table, a refusal's bag reset), switched off
 //   pkp_coop_bags.cpp     every member's bag kept as a record of ours (a file per member key in the co-op save), written into the bag
 //                         the game selects and given back at every join; the host's copy of each visitor's bag fed from it
+//   pkp_coop_challenges.cpp what a member does counts toward the group's challenges (its shop buys)
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -234,12 +235,12 @@ void reset();
 }  // namespace purchases
 
 namespace money {
-// The hook site (pkp_coop.cpp): entry 0x637480, the coins of a claimed challenge (on a member: the host's goal update). It runs only for
-// a challenge this member was not paid yet, and marks it paid.
-int on_pay(::Ctx* c);
-// A member: the challenges claimed in the authority's save (pkp_coop_link.cpp).
+// The hook sites (pkp_coop.cpp).
+int on_pay(::Ctx* c);            // entry 0x637480, the coins of a claimed challenge: on a member only once per challenge, marked paid
+int on_claim_visitor(::Ctx* c);  // midhook 0x645d18, the PC's claim after its visitor test: a member's own claim pays here
+// The challenges claimed in the authority's save (pkp_coop_link.cpp): members on older builds pay from it; this build ignores it.
 void on_claimed_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
-// The authority sends what it claimed; a member is paid what it lacks at a safe moment (once a frame).
+// The authority sends what it claimed; a member's view of the done challenges follows its own claims (once a frame).
 void tick(::Ctx* c, bool in_game);
 void on_session_change();   // this process joined or left: the set is sent and learnt again
 void on_member_joined();    // another member joined: the whole set is sent again
@@ -460,5 +461,11 @@ void on_report_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_session_change();
 void reset();
 }  // namespace digest
+
+// ---- pkp_coop_challenges.cpp ----
+namespace challenges {
+// The hook site (pkp_coop.cpp): midhook 0x643938, the "buy items" challenge count after its visitor test: a member's buy counts.
+int on_buy_visitor(::Ctx* c);
+}  // namespace challenges
 
 }  // namespace nxrt::games::pkp::coop

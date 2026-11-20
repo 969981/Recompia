@@ -41,8 +41,8 @@
 //               receiver clears them and never gives them back in this co-op run
 //   AreaMusic   +2 u8 the authority's area (stage), +3 u8 that area's quest music there (m_contentsBGM; 0: none), +4 u8 the play flag
 //               of the quest step that set it (1 when not known)   (with every digest; pkp_coop_story.cpp)
-//   ChallengesClaimed +2 u16 count n, then n u16 challenge ids (1..0x4b0) claimed in the authority's save (pkp_coop_money.cpp): each
-//               member is paid their coins once
+//   ChallengesClaimed +2 u16 count n, then n u16 challenge ids (1..0x4b0) claimed in the authority's save (pkp_coop_money.cpp): a
+//               member on an older build pays itself their coins once; a newer member ignores it (each claims its own at the PC)
 //   StateDigest +2 u8 count n, then n times: u8 domain, u32 hash of the domain's entries, u16 how many entries are set
 //               (the authority's shared state, every kDigestEvery seconds; pkp_coop_digest.cpp: a member compares its own)
 //   StateAsk    +2 u8 domain                               (a member whose digest differed twice asks for the authority's entries)
