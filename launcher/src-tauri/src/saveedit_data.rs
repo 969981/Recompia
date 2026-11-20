@@ -2,13 +2,13 @@
 //! The save editor's game data: the names, tables and pictures PokoHex shows, made from the player's own game files, so the launcher
 //! ships none of them. `tools/pokohex/pokohex-extract` (PokoHex.Extract, built by scripts/build-pokohex.sh) reads the romfs of
 //! `[fs] romfs` and writes `<game>/pokohex_data/` once (about 2,200 small files, 35 MB, a few seconds); the Save Editor page serves
-//! that folder to the editor through the `pokohex-data` protocol (`respond`).
+//! that folder to the editor through the `pokohex-data` protocol (`respond`, local_files.rs).
 //!
 //! The folder counts as ready while its manifest is the version the tool writes (EXPORT_VERSION) and `source.txt` names the romfs it
 //! was made from: a new dump or a newer tool makes it again.
 
 use std::io::Read;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use serde::Serialize;
@@ -102,74 +102,15 @@ pub fn prepare(game_dir: &Path, mut report: impl FnMut(Progress)) -> Result<(), 
     Ok(())
 }
 
-/// A path the protocol may serve: relative, plain names only, inside the folder. No `\` or `:` on any system (a drive or a stream
-/// on Windows), so the rule is the same everywhere.
-fn safe_path(path: &str) -> Option<PathBuf> {
-    let path = path.trim_start_matches('/');
-    let p = Path::new(path);
-    (!path.is_empty() && !path.contains(['\\', ':', '\0']) && p.components().all(|c| matches!(c, Component::Normal(_)))).then(|| p.to_path_buf())
-}
-
-fn content_type(path: &Path) -> &'static str {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some("png") => "image/png",
-        Some("json") => "application/json",
-        Some("txt") => "text/plain; charset=utf-8",
-        _ => "application/octet-stream",
-    }
-}
-
 /// The `pokohex-data` protocol: a file of the folder, read only. The editor fetches the text and tables from the launcher's own
 /// origin, so the response allows any origin to read it (it holds nothing but the game data made from the player's files).
 pub fn respond(game_dir: &Path, request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
-    let builder = tauri::http::Response::builder().header("Access-Control-Allow-Origin", "*");
-    let path = percent_decode(request.uri().path());
-    let file = safe_path(&path).map(|p| data_dir(game_dir).join(p));
-    match file.as_deref().map(|f| (f, std::fs::read(f))) {
-        Some((f, Ok(bytes))) => builder.header("Content-Type", content_type(f)).body(bytes),
-        _ => builder.status(404).body(Vec::new()),
-    }
-    .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()))
-}
-
-fn percent_decode(s: &str) -> String {
-    let b = s.as_bytes();
-    let hex = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len() {
-            if let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2])) {
-                out.push((h << 4) | l);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(b[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
+    crate::local_files::respond(&data_dir(game_dir), request)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn serves_only_plain_paths_inside_the_folder() {
-        assert_eq!(safe_path("/images/items/item_0006.png"), Some(PathBuf::from("images/items/item_0006.png")));
-        assert_eq!(safe_path("manifest.json"), Some(PathBuf::from("manifest.json")));
-        for bad in ["", "/", "../pkp.ini", "/images/../../pkp.ini", "/a\\b", "/C:/x", "/./x"] {
-            assert_eq!(safe_path(bad), None, "{bad}");
-        }
-    }
-
-    #[test]
-    fn decodes_escaped_paths() {
-        assert_eq!(percent_decode("/text/jp/text_item_jp.txt"), "/text/jp/text_item_jp.txt");
-        assert_eq!(percent_decode("/a%20b%2Fc"), "/a b/c");
-        assert_eq!(percent_decode("/50%"), "/50%");
-    }
 
     #[test]
     fn ready_needs_the_manifest_version_and_the_source() {

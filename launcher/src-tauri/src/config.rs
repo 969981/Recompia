@@ -59,6 +59,9 @@ pub struct Config {
     pub achievements_sharing_unlocked: bool,
     // Retired keys an older launcher.json may still hold are skipped (serde ignores unknown fields): `logo` and `icon` (the logo and
     // icon choice, removed with the Classic look).
+    /// The player's own theme (themes.rs): `<pack folder>/<theme id>`. Empty: one of the launcher's own looks (the page keeps which in
+    /// localStorage). Rust reads it for the icon and the Steam pictures a theme changes; the page for the colours and pictures.
+    pub theme: String,
     /// Which game the launcher shows (src/games.js): "recompia" or "coop". Empty (an older launcher.json): "recompia". Only the pages
     /// read it; both games are the same install, build and shaders.
     pub game: String,
@@ -138,6 +141,7 @@ mod tests {
     #[test]
     fn an_old_launcher_json_with_retired_keys_still_loads() {
         let cfg: Config = serde_json::from_str(r#"{"channel":"testing","logo":"classic","icon":"classic"}"#).unwrap();
+        assert_eq!(cfg.theme, "", "a launcher.json from before themes has none chosen");
         assert_eq!(cfg.channel, "testing");
         assert_eq!(cfg.picked_version, "", "no version picked: Latest");
         assert!(!cfg.signin_skipped, "a launcher.json from before the sign-in offer has not skipped it");

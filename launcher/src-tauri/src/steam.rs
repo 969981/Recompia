@@ -14,7 +14,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::branding::{self, Branding};
+use crate::branding::Branding;
 use crate::fsutil::{self, AtomicFail};
 
 use serde::Serialize;
@@ -373,7 +373,8 @@ pub fn add_to_account(account: &Path, spec: &Spec) -> Result<(), String> {
     let mut root = load_root(&file)?;
     let id = short_id(&spec.exe, &spec.name);
     for (path, kind) in art_files(&grid, id) {
-        write_atomic(&path, branding::steam_art(kind, &spec.look))?;
+        spec.look.note_steam_art(kind)?;
+        write_atomic(&path, spec.look.steam_art(kind))?;
     }
     let icon_path = grid.join(format!("{id}_icon.png")).to_string_lossy().into_owned();
     add_entry(&mut root, spec, &icon_path);
@@ -394,7 +395,7 @@ pub fn remove_from_account(account: &Path, spec: &Spec) -> Result<bool, String> 
     let id = short_id(&spec.exe, &spec.name);
     for (path, kind) in art_files(&cfg.join("grid"), id) {
         if let Ok(cur) = fs::read(&path) {
-            if branding::is_our_steam_art(kind, spec.look.testing, &cur) {
+            if spec.look.is_our_steam_art(kind, &cur) {
                 let _ = fs::remove_file(&path);
             }
         }
@@ -449,7 +450,7 @@ pub fn spec_here(look: &Branding, target: Target) -> Result<Spec, String> {
         exe: format!("\"{}\"", exe.display()),
         start_dir: format!("\"{}\"", dir.display()),
         launch: String::new(),
-        look: *look,
+        look: look.clone(),
     })
 }
 
@@ -526,9 +527,12 @@ pub fn refresh_art(look: &Branding) -> Result<(), String> {
         for account in all_accounts() {
             let grid = account.join("config").join("grid");
             for (path, kind) in art_files(&grid, id) {
-                let want = branding::steam_art(kind, look);
+                let want = look.steam_art(kind);
                 match fs::read(&path) {
-                    Ok(cur) if cur != want && branding::is_our_steam_art(kind, look.testing, &cur) => write_atomic(&path, want)?,
+                    Ok(cur) if cur != want && look.is_our_steam_art(kind, &cur) => {
+                        look.note_steam_art(kind)?;
+                        write_atomic(&path, want)?
+                    }
                     _ => {}
                 }
             }
@@ -558,7 +562,7 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
     }
 
-    const LOOK: Branding = Branding { testing: false };
+    const LOOK: Branding = Branding { testing: false, art: None };
 
     fn spec(testing: bool) -> Spec {
         Spec {
@@ -566,7 +570,7 @@ mod tests {
             exe: "\"/home/deck/Games/PokopiaRecomp/PokopiaLauncher.AppImage\"".into(),
             start_dir: "\"/home/deck/Games/PokopiaRecomp\"".into(),
             launch: String::new(),
-            look: Branding { testing },
+            look: Branding { testing, art: None },
         }
     }
 
