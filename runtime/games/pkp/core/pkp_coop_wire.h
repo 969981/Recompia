@@ -60,6 +60,12 @@
 //   StoryRecord +2 u8 record (1 effect commands, 2 town flags, 3 town targets, 4 stage flags, 5 hint groups; another is skipped),
 //               +3 u8 the authority's area (stage), +4 u16 length n (the record's size; another is skipped), n bytes: the record as the
 //               authority's save holds it   (when it changed, and all of them on a join and every so often; pkp_coop_records.cpp)
+//   FriendAsk   +2 u8 kind, +3 u16 the creature's actor handle (kind 1; 0 for 2), +5 u32 its chara (< 0x41a), +9 s16 amount (kind 1,
+//               >= 1; 0 for 2), +11 u16 a record byte (kind 1: the caller's once-gate, 0 none / 0x175 / 0x177 / 0x17d; kind 2: 0x17a)
+//               (kind 1: a member's friendship gain with that creature; kind 2: a member set that friend record flag;
+//               pkp_coop_friendship.cpp)
+//   FriendState +2 u16 count n, then n times: u16 chara (< 0x41a), u16 friendship points (+0x2c), u16 meter (+0x2e), u8 the bytes
+//               +0x175, +0x177, +0x17a, +0x17d   (the authority's friend records that changed, or all set ones to a member that joins)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -122,6 +128,9 @@ enum class Type : uint32_t {
     BagRecord = 32,
     BagRestore = 33,
     StoryRecord = 34,   // the story records (pkp_coop_records.cpp)
+    // ---- friendship (pkp_coop_friendship.cpp) ----
+    FriendAsk = 40,
+    FriendState = 41,
 };
 
 // Builds one payload: the header, then the fields in order.

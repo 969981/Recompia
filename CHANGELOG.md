@@ -22,6 +22,7 @@
 - Teammates now see the effects of gimmicks being used and changing state, as the host does
 - Creatures the story keeps busy (in a scene, at work it set, or held by a town rule) are busy for teammates too, as for the host: teammates no longer get talks, offers or presents the host would not
 - A creature busy making items keeps working on them while a teammate talks to it. Before, a teammate's talk could stop the job for good, and the creature kept saying it needed a little more time
+- Friendship with a creature now grows for every teammate, not only the host: a teammate's talks and time with a creature add to the group's friendship with that creature, and every teammate sees it
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

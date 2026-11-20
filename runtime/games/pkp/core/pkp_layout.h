@@ -237,5 +237,16 @@ constexpr uint64_t kSaveStageFlags = 0x4a26cc;
 constexpr size_t kStageFlagsBytes = 0x100;
 constexpr uint64_t kSaveHintGroups = 0x7416bc;
 constexpr size_t kHintGroupsBytes = 0x10;
+// ---- co-op friendship (pkp_coop_friendship.cpp): a creature's 0x180-byte record, per chara (< kFriendCount), save root + ----
+// The own records (a host, offline), a visitor's copy of the host's, Cloud Island's own set; every reader selects on the visitor bit
+// and on Cloud Island (0x3b7708, 0x3b7e48). The once-gates: a gain's caller skips it while its byte is set and sets it after.
+constexpr uint64_t kFriendOwn = 0x120, kFriendHostCopy = 0x14c2d28, kFriendCloud = 0xa516b8, kFriendSize = 0x180;
+constexpr uint32_t kFriendCount = 0x41a;
+constexpr uint64_t kFriendPoints = 0x2c;     // u16, the friendship points (0x31fb00 reads, 0x3bb660 writes)
+constexpr uint64_t kFriendMeter = 0x2e;      // u16, filled at a friendship level-up (0x3bc034), emptied by the reward list
+constexpr uint64_t kFriendGift = 0x175;      // u8 once-gate of a gift's friendship (0x46e308)
+constexpr uint64_t kFriendDaily = 0x177;     // u8 once-gate of the talk / play friendship (0x4aae54 slot 174 and five more callers)
+constexpr uint64_t kFriendFlag17a = 0x17a;   // u8 set by script callback slot 175 (0x4ab268)
+constexpr uint64_t kFriendOnce17d = 0x17d;   // u8 once-gate of 0x3a83a0's friendship (0x3a8954 reads, 0x3a8d44 sets)
 
 }  // namespace nxrt::games::pkp::layout

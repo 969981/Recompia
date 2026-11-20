@@ -123,6 +123,11 @@ enum class Site : uintptr_t {
     // ---- the creature jobs (pkp_coop_jobs.cpp) ----
     JobTick,          // the item-making tick's IsMine test: the authority also ticks a job on a creature a member holds, which
                       // otherwise no process ticks
+    // ---- friendship (pkp_coop_friendship.cpp) ----
+    FriendGain,       // a friendship gain with a creature: a member's (outside Cloud Island) is made on the authority, whose record
+                      // is the group's
+    FriendFlag,       // script callback slot 175's friend record flag: a member's is set on the authority too
+    FriendTag,        // the name tag's friendship test: a member reads its copy of the host's records, as the host reads its own
 };
 
 struct CoopSite {
@@ -202,6 +207,10 @@ constexpr CoopSite kSites[] = {
 #undef PKP_ROLE_ROW
     // the creature jobs (pkp_coop_jobs.cpp)
     {{0x3b39a8, 0x36001540u, false}, Site::JobTick},         // tbz w0, #0, 0x3b3c50 (w0 = IsMine's answer)
+    // friendship
+    {{0x3a89fc, kPacibsp, true}, Site::FriendGain},
+    {{0x4ab358, 0x36000120u, false}, Site::FriendFlag},      // tbz w0, #0, 0x4ab37c (w0 = Cloud Island, w19 = the chara)
+    {{0x3b7cd0, 0x36000540u, false}, Site::FriendTag},       // tbz w0, #0, 0x3b7d78 (w0 = Cloud Island, on a visitor)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -269,6 +278,9 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::AbilityCheck: return coop::story::on_ability_check(c);
         case Site::RoleAnswer: return coop::answers::on_answer(c, addr - st().base);
         case Site::JobTick: return coop::jobs::on_job_tick(c);
+        case Site::FriendGain: return coop::friendship::on_add_points(c);
+        case Site::FriendFlag: return coop::friendship::on_flag_17a(c);
+        case Site::FriendTag: return coop::friendship::on_name_tag(c);
         default: return 0;
     }
 }
@@ -357,6 +369,7 @@ void game_frame(::Ctx* c) {
     coop::digest::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::records::tick(s.in_game.load(std::memory_order_relaxed));
     coop::answers::tick();
+    coop::friendship::tick(c);
 }
 
 void remove() {   // the registry has removed the hooks
@@ -394,6 +407,7 @@ void remove() {   // the registry has removed the hooks
     coop::linkqueue::reset();
     coop::placement::reset();
     coop::contents::reset();
+    coop::friendship::reset();
     coop::session::reset();
     coop::records::reset();
     coop::answers::reset();

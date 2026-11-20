@@ -74,6 +74,9 @@ constexpr Route kRoutes[] = {
     {wire::Type::BagRestore, Path::FromAuthority, &bags::on_restore_message},
     // the story records (pkp_coop_records.cpp)
     {wire::Type::StoryRecord, Path::FromAuthority, &records::on_record_message},
+    // friendship
+    {wire::Type::FriendAsk, Path::ToAuthority, &friendship::on_ask_message},
+    {wire::Type::FriendState, Path::FromAuthority, &friendship::on_state_message},
 };
 
 struct State {
@@ -175,6 +178,7 @@ void on_member(const ch::MemberEvent& e) {
         money::on_member_joined();
         bags::on_member_joined(e.node);
         records::on_member_joined();
+        friendship::on_member_joined(e.node);
     }
     NXLOG_I(kTag, "Co-op: node %d %s the session%s", e.node, e.joined ? "joined" : "left", e.authority ? " (the authority)" : "");
 }
