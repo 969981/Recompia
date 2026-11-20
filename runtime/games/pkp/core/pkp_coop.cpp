@@ -293,7 +293,7 @@ void game_frame(::Ctx* c) {
     coop::unlocks::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::purchases::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::money::tick(c, s.in_game.load(std::memory_order_relaxed));
-    coop::bags::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::bags::tick(c);
     coop::talk::tick();
     coop::gimmicks::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::travel::tick(c);

@@ -282,7 +282,7 @@ int on_join_bag_send(::Ctx* c);
 namespace bags {
 // Applies this player's record to the bag the game selects, takes the bag's changes into it (or refuses a wipe), sends a member's to
 // the authority and writes the records' files (once a frame, after the channel's handlers). reset() writes what changed first.
-void tick(::Ctx* c, bool in_game);
+void tick(::Ctx* c);
 void reset();
 // Another member joined (its node): the authority answers its first record of the session again.
 void on_member_joined(int node);

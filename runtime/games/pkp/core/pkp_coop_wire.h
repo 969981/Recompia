@@ -51,10 +51,10 @@
 //               u32 the member's value                     (a member's differences, so the host's log shows them too)
 //               These four are logging only: a build without them drops them and plays on (no kVersion, no co-op rules change).
 //   BagRecord   +2 u8[16] the member key the bag belongs to, +18 u64 its record's sequence (0: this process has no record), +26
-//               kBagSlots x 16 bytes, the bag's slots (pkp_coop_bags.cpp; each slot's first 8 bytes are 0, its last 8 the game's
+//               kBagRecordSlots x 16 bytes, the bag's slots (pkp_coop_bags.cpp; each slot's first 8 bytes are 0, its last 8 the game's
 //               payload)   (a member's own record, to the authority: at session up, then at each change)
 //   BagRestore  +2 u8[16] member key, +18 u8 1 when the authority has a record for it (0: none, the rest is 0), +19 u64 sequence,
-//               +27 kBagSlots x 16 bytes   (the authority's answer to a member's first BagRecord of a session, or to one older than
+//               +27 kBagRecordSlots x 16 bytes   (the authority's answer to a member's first BagRecord of a session, or to one older than
 //               its own copy; a member ignores one for another member's key)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
@@ -80,7 +80,7 @@ constexpr size_t kHeader = 2;
 constexpr size_t kEffectSize = 0x14;
 constexpr size_t kAbilityBytes = 0x20;   // ability ids 0..0xff, one bit each
 constexpr size_t kNameMax = 0x40;
-constexpr size_t kBagSlots = 130;        // a whole bag as the game copies one (layout::kBagWholeSlots)
+constexpr size_t kBagRecordSlots = 130;  // a whole bag as the game copies one (layout::kBagWholeSlots)
 constexpr size_t kBagSlotBytes = 16;
 
 enum class Type : uint32_t {

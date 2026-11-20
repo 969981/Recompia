@@ -19,8 +19,10 @@
 //   - when two copies meet, the higher sequence wins.
 // Every process, the authority's own bag too, in a session:
 //   - apply: the record is written into the bag the selector picks now, at session up, when the authority's copy is newer, and when
-//     the selection may change (the visitor test, GM+0x11 bit 0, the stage, a load ending). The game's own loaded bag is never taken
-//     over a record. No record anywhere (a first co-op session): the bag as it is becomes the first record.
+//     the selection may change (the visitor test, GM+0x11 bit 0, the stage, the player's character made again at a load's end). The
+//     game's own loaded bag is never taken over a record. No record anywhere (a first co-op session): the bag as it is becomes the
+//     first record, once the selection has held for kGrace. A member does neither before its visitor test is up (until then the
+//     selection is its own island's bag, not the one it plays the session with).
 //   - take: once a frame the selected bag is compared with the record; a change becomes the record, sequence + 1, and a member sends
 //     it to the authority (BagRecord, at most every kSendEvery).
 //   - safeguard: a change that empties a non-empty bag, leaves more than kMaxKindsGone item kinds with nothing left, or loses anything
@@ -56,7 +58,7 @@ namespace {
 constexpr const char* kTag = "pkp";
 
 constexpr size_t kSlots = layout::kBagWholeSlots;
-static_assert(kSlots == wire::kBagSlots && items::kSlotSize == wire::kBagSlotBytes, "the record is the game's whole bag");
+static_assert(kSlots == wire::kBagRecordSlots && items::kSlotSize == wire::kBagSlotBytes, "the record is the game's whole bag");
 constexpr uint64_t kBagBytes = kSlots * items::kSlotSize;
 
 constexpr double kWriteEvery = 2.0;   // seconds between two writes of one record's file
@@ -65,6 +67,7 @@ constexpr double kHelloEvery = 5.0;   // seconds between two first BagRecords wh
 constexpr double kGrace = 3.0;        // seconds after an apply or a selection change in which no loss is taken
 constexpr uint32_t kMaxKindsGone = 8;
 constexpr double kRefuseLogEvery = 1.0;
+constexpr double kNotReadyLog = 15.0; // seconds in a session with the player in the world but the bag never ready: logged once
 
 constexpr char kFileMagic[4] = {'C', 'B', 'A', 'G'};
 constexpr uint8_t kFormat = 1;
@@ -88,7 +91,8 @@ struct Kept {
 struct Selection {
     uint64_t bag = 0;
     uint8_t stage = 0, own_bag = 0;
-    bool visitor = false, online = false, in_game = false;
+    bool visitor = false, online = false;
+    bool player = false;   // the local player's character exists (it is made again at the end of a load)
     bool operator==(const Selection&) const = default;
 };
 
@@ -106,6 +110,8 @@ struct State {
     double refused_log_at = -1e9;
     Selection seen;
     bool looked = false;      // seen holds this session's first look
+    double up_at = 0.0;       // the session came up
+    bool was_ready = false;   // the bag was ready once in this session (or its absence was logged)
     uint32_t greeted = 0;     // the authority: bit per node whose first record of its session was answered
 };
 State& st() {
@@ -201,9 +207,9 @@ Kept& member(const Key& k) {
 // ---- the bag ----
 
 // The bag the game's selector picks now (0 while there is none), with what it read.
-Selection select(::Ctx* c, bool in_game) {
+Selection select(::Ctx* c) {
     Selection sel;
-    sel.in_game = in_game;
+    sel.player = local_player() != 0;
     const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
     const uint64_t gm = guest::rd<uint64_t>(base() + layout::kGameState);
     if (!guest::ok(r + layout::kSaveCommon, layout::kBagOffline + kBagBytes) || !guest::ok(gm, layout::kStateSession + 1)) return sel;
@@ -216,12 +222,14 @@ Selection select(::Ctx* c, bool in_game) {
     return sel;
 }
 
-// The bag may be read and written now: the player is in the world, no item is held in the bag screen (its temp copy would be copied
-// back over ours), and every slot holds the slot vtable (the bag is made).
-bool ready(const Selection& sel) {
-    if (!sel.bag || !sel.in_game || !local_player() || guest::rd<uint8_t>(base() + layout::kItemTempFlag)) return false;
+// The bag may be read and written now: the player's character exists, no item is held in the bag screen (its temp copy would be
+// copied back over ours), and every slot holds the slot vtable (the bag is made; *bad_slot the first that does not). Play mode's
+// in_game is not asked: it is also false while a menu is open (no ProcessInput), and a craft or a box move there must be taken.
+bool ready(const Selection& sel, size_t* bad_slot) {
+    *bad_slot = kSlots;
+    if (!sel.bag || !sel.player || guest::rd<uint8_t>(base() + layout::kItemTempFlag)) return false;
     for (size_t i = 0; i < kSlots; ++i)
-        if (guest::rd<uint64_t>(sel.bag + i * items::kSlotSize) != base() + layout::kItemSlotVtable) return false;
+        if (guest::rd<uint64_t>(sel.bag + i * items::kSlotSize) != base() + layout::kItemSlotVtable) return *bad_slot = i, false;
     return true;
 }
 
@@ -306,6 +314,8 @@ void session_up() {
     s.apply = o.rec.seq != 0;
     s.grace_until = qpc::seconds() + kGrace;
     s.looked = false;
+    s.up_at = qpc::seconds();
+    s.was_ready = false;
     NXLOG_I(kTag, "Co-op bags: in a session as %s; this player's record %llu", s.answered ? "the authority" : "a member",
             static_cast<unsigned long long>(o.rec.seq));
 }
@@ -323,7 +333,8 @@ void take_or_refuse(const Selection& sel, double now) {
     Kept& o = s.own;
     Record bag;
     read_bag(sel.bag, &bag);
-    if (o.rec.seq == 0) {   // no record anywhere: the bag as it is becomes the first one
+    if (o.rec.seq == 0) {   // no record anywhere: the bag as it is becomes the first one, once the selection has settled
+        if (now < s.grace_until) return;
         bag.seq = 1;
         o.rec = bag;
         o.dirty = true;
@@ -357,7 +368,7 @@ void take_or_refuse(const Selection& sel, double now) {
 
 }  // namespace
 
-void tick(::Ctx* c, bool in_game) {
+void tick(::Ctx* c) {
     State& s = st();
     const bool in = c && link::in_session();
     if (in != s.active) {
@@ -366,7 +377,7 @@ void tick(::Ctx* c, bool in_game) {
     }
     if (!in) return;
     const double now = qpc::seconds();
-    const Selection sel = select(c, in_game);
+    const Selection sel = select(c);
     if (!s.looked || !(sel == s.seen)) {
         if (s.looked) {   // the first look of a session is session_up's
             s.apply = s.own.rec.seq != 0;
@@ -379,7 +390,18 @@ void tick(::Ctx* c, bool in_game) {
         s.hello_at = now;
         send_record();
     }
-    if (ready(sel)) {
+    // A member's bag is the online one once the host's world has loaded (the visitor test rises 10 to 20 s after the join,
+    // pkp_coop_session.cpp); before that its selection is its own island's, which is neither applied to nor taken from.
+    const bool settled = link::is_authority() || sel.visitor;
+    size_t bad_slot = kSlots;
+    const bool can = settled && ready(sel, &bad_slot);
+    if (can) s.was_ready = true;
+    else if (!s.was_ready && bad_slot < kSlots && now - s.up_at > kNotReadyLog) {
+        s.was_ready = true;
+        NXLOG_W(kTag, "Co-op bags: the %s bag is not usable (slot %zu holds no slot vtable); its record is neither applied nor taken",
+                sel.online ? "online" : "offline", bad_slot);
+    }
+    if (can) {
         if (s.apply) {
             write_bag(sel.bag, s.own.rec);
             s.apply = false;
