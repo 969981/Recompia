@@ -26,6 +26,7 @@
 - Friendship with a creature now grows for every teammate, not only the host: a teammate's talks and time with a creature add to the group's friendship with that creature, and every teammate sees it
 - Creature requests are shared: when one player hands a request in, it is done for the whole group. Its bubble goes away above the creature for everyone, nobody has to talk to the creature again, and the items it gives go to every player
 - Talking to a character now counts for the group's story when a teammate does it, not only when the host does: a story step that waits for someone to talk to a creature moves on for a teammate's talk too
+- A present a teammate gives a creature in a talk now adds to the group's friendship with it, as the host's presents do
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

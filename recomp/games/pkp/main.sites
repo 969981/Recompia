@@ -655,3 +655,6 @@ entryhook 0x71005c04d4
 #   Seamless co-op, the ability check (pkp_coop_story.cpp): in 0x7100113f10(id, member), the `tbz w8, #2, 0x7100114048` (w8 = GM+0x90)
 #   of the member-0xff branch, where a visitor goes on to read the host's join-time member record (0x71000b19d8) instead of its own bits
 midhook 0x71001140e8
+#   Seamless co-op, a member's talk gift (pkp_coop_friendship.cpp): in the host's talk-end apply 0x71002197a0, the `and w3, w0, #0x1`
+#   after the Cloud Island test that becomes the gift re-run 0x710046e308's w3 (its friendship part) at 0x710021c484
+midhook 0x710021c46c

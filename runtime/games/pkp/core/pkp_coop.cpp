@@ -134,6 +134,8 @@ enum class Site : uintptr_t {
     // ---- the creature events (pkp_coop_feed.cpp) ----
     TalkedTo,         // the contents scheduler's "talked to" notice, which skips a visitor: a member's talk is posted on the
                       // authority, so content records waiting on that talk run for the group
+    // ---- a member's talk gift (pkp_coop_friendship.cpp) ----
+    FriendGift,       // the host's apply of a member's talk gift: its friendship is made on the authority outside Cloud Island too
 };
 
 struct CoopSite {
@@ -222,6 +224,8 @@ constexpr CoopSite kSites[] = {
     {{0x643938, 0x37001220u, false}, Site::BuyCount},        // tbnz w0, #0, 0x643b7c (w0 = the visitor test 0x376c4)
     // the creature events (pkp_coop_feed.cpp)
     {{0x1355ec, kPacibsp, true}, Site::TalkedTo},
+    // a member's talk gift (pkp_coop_friendship.cpp)
+    {{0x21c46c, 0x12000003u, false}, Site::FriendGift},      // and w3, w0, #0x1 (w0 = Cloud Island, 0x46e308's w3 at 0x21c484)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -295,6 +299,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::ClaimVisitor: return coop::money::on_claim_visitor(c);
         case Site::BuyCount: return coop::challenges::on_buy_visitor(c);
         case Site::TalkedTo: return coop::feed::on_talked_to(c);
+        case Site::FriendGift: return coop::friendship::on_gift_apply(c);
         default: return 0;
     }
 }
