@@ -14,6 +14,12 @@
 //            slot's mode word and the queue's locks. Logged once per record and on each change, and when a held record starts or leaves.
 //            The counters alone are logged too when they stand unequal and still for kHeldAfter seconds, and the stage-change request
 //            when it stays kHeldAfter seconds in a phase below 5 (new events are dropped then, so they never show as held)
+//   work     a character's item-making job (its m_CraftRefine record, 0x40 bytes per chara: the host's own at save root + 0x62820, a
+//            member's copy of the host's at + 0x1525428, picked on the visitor bit as the game does): at the session's start every record
+//            with a job, then each change of recipe, count, made, taken, end or the user's id, and a running timer that stood still for
+//            kHeldAfter seconds. The host makes the job (0x34dc64) and ticks it (0x3b38f0, never on a visitor); a member's copy changes
+//            only by the host's replication. At the start also this process's own user id and the four of the member table, so two
+//            logs show whose job it is
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -55,6 +61,10 @@ constexpr uint64_t kSlotPhases = 0x35650f8, kSlotPhaseSize = 0x2010, kSceneHolde
 // is in a phase below 5, unless it is slot 0's kind 0xf (0x92210).
 constexpr uint64_t kGameState = 0x3561710, kTripRequest = 0x3bb600;
 constexpr double kHeldEvery = 2.0, kHeldAfter = 10.0;
+// The work watch (layout: m_CraftRefine, user ids): Cloud Island's third set of records is not traced. All records are read with one
+// checked block copy a second (kCharaCount * kCraftWorkSize = 67200 bytes).
+constexpr int kWorkLinesMax = 12;
+constexpr double kWorkEvery = 1.0;
 
 struct Vec {
     float x = 0, y = 0, z = 0;
@@ -80,6 +90,18 @@ struct State {
     uint32_t trip_phase = 0xffffffffu, trip_kind = 0;
     double trip_since = 0;
     bool trip_logged = false;
+    struct Work {
+        float timer = 0;
+        uint16_t recipe = 0;
+        uint8_t count = 0, made = 0, taken = 0, dummy = 0, end = 0;
+        uint8_t user[layout::kUserIdSize] = {};
+        double timer_since = 0;
+        bool timer_logged = false;
+    };
+    std::vector<Work> work;   // per chara, the record as last seen
+    std::vector<uint8_t> work_block;   // this second's copy of all records
+    uint64_t work_base = 0;   // the records it was read from (own or the host's copy); a change starts the listing again
+    double work_at = 0;
 };
 State& st() {
     static State s;
@@ -209,6 +231,102 @@ void watch_charas(State& s, double t, bool first) {
         }
     }
     for (uint32_t i : moved) s.charas[i] = now[i];
+}
+
+std::string hex16(const uint8_t* b) {
+    char out[layout::kUserIdSize * 2 + 1];
+    for (size_t i = 0; i < layout::kUserIdSize; ++i) std::snprintf(out + i * 2, 3, "%02x", b[i]);
+    return out;
+}
+
+bool has_job(const State::Work& w) { return static_cast<uint16_t>(w.recipe - 1) < layout::kRecipeMax; }
+
+std::string work_line(uint32_t chara, const State::Work& w) {
+    char line[200];
+    std::snprintf(line, sizeof line, "chara %u: recipe %u, count %u, made %u, taken %u, end %u%s, timer %.1f, user %s", chara, w.recipe,
+                  w.count, w.made, w.taken, w.end, w.dummy ? " (dummy end approach)" : "", w.timer, hex16(w.user).c_str());
+    return line;
+}
+
+std::string user_id(uint64_t a) {
+    uint8_t id[layout::kUserIdSize];
+    return guest::read(a, id, sizeof id) ? hex16(id) : std::string("unreadable");
+}
+
+void log_users(uint64_t r) {
+    const uint64_t obj = guest::deref(guest::deref(base() + layout::kOwnMemberIndexRef));
+    uint8_t own = 0;
+    const bool have_index = obj && guest::read(obj + layout::kOwnMemberIndex, own);
+    char idx[40];
+    std::snprintf(idx, sizeof idx, ", own index %d; member table", have_index ? static_cast<int>(own) : -1);
+    std::string line = "own " + user_id(r + layout::kOwnUserId) + idx;
+    for (uint32_t m = 0; m < layout::kMemberCount; ++m)
+        line += " " + std::to_string(m) + "=" + user_id(r + layout::kMemberTable + m * layout::kMemberSize + layout::kMemberUserId);
+    NXLOG_I(kTag, "Co-op trace: user ids: %s", line.c_str());
+}
+
+// One record out of the block copy (rec points at its first byte, kCraftWorkSize bytes).
+State::Work parse_work(const uint8_t* rec) {
+    State::Work w;
+    std::memcpy(&w.timer, rec + layout::kCraftWorkTimer, sizeof w.timer);
+    std::memcpy(&w.recipe, rec + layout::kCraftWorkRecipe, sizeof w.recipe);
+    w.count = rec[layout::kCraftWorkCount];
+    w.made = rec[layout::kCraftWorkMade];
+    w.taken = rec[layout::kCraftWorkTaken];
+    w.dummy = rec[layout::kCraftWorkDummyEnd];
+    w.end = rec[layout::kCraftWorkEnd];
+    std::memcpy(w.user, rec + layout::kCraftWorkUser, sizeof w.user);
+    return w;
+}
+
+bool same_job(const State::Work& a, const State::Work& b) {
+    return a.recipe == b.recipe && a.count == b.count && a.made == b.made && a.taken == b.taken && a.dummy == b.dummy && a.end == b.end &&
+           std::memcmp(a.user, b.user, sizeof a.user) == 0;
+}
+
+void watch_work(State& s, double t, bool session_start) {
+    if (!session_start && t - s.work_at < kWorkEvery) return;
+    s.work_at = t;
+    const uint64_t r = guest::deref(base() + layout::kSaveRoot);
+    if (!r) return;
+    const bool visitor = (session_bits() & layout::kSessionVisitor) != 0;
+    const uint64_t recs = r + (visitor ? layout::kCraftWorkHostCopy : layout::kCraftWorkOwn);
+    s.work_block.resize(size_t{layout::kCharaCount} * layout::kCraftWorkSize);
+    if (!guest::read(recs, s.work_block.data(), s.work_block.size())) return;
+    const char* whose = visitor ? "the host's copy" : "own records";
+    const bool first = recs != s.work_base;   // the session's start, or the visitor bit changed: list again
+    s.work_base = recs;
+    if (first) log_users(r);
+    s.work.resize(layout::kCharaCount);
+    int lines = 0, jobs = 0;
+    for (uint32_t i = 0; i < layout::kCharaCount; ++i) {
+        State::Work now = parse_work(s.work_block.data() + size_t{i} * layout::kCraftWorkSize);
+        State::Work& was = s.work[i];
+        if (first) {
+            if (has_job(now) && ++jobs <= kWorkLinesMax)
+                NXLOG_I(kTag, "Co-op trace: work at the start (%s): %s", whose, work_line(i, now).c_str());
+            now.timer_since = t;
+            was = now;
+            continue;
+        }
+        const bool changed = !same_job(now, was);
+        if (changed && (has_job(now) || has_job(was)) && lines++ < kWorkLinesMax)
+            NXLOG_I(kTag, "Co-op trace: work %s", work_line(i, now).c_str());
+        if (changed || now.timer != was.timer) {
+            now.timer_since = t;
+        } else {
+            now.timer_since = was.timer_since;
+            now.timer_logged = was.timer_logged;
+            if (has_job(now) && now.timer > 0.0f && !now.timer_logged && t - now.timer_since >= kHeldAfter) {
+                now.timer_logged = true;
+                NXLOG_I(kTag, "Co-op trace: work timer of chara %u stands at %.1f for %.0f s (recipe %u, end %u, %s)", i, now.timer,
+                        t - now.timer_since, now.recipe, now.end, whose);
+            }
+        }
+        was = now;
+    }
+    if (first) NXLOG_I(kTag, "Co-op trace: work at the start: %d characters with a job (%s)", jobs, whose);
+    if (lines > kWorkLinesMax) NXLOG_I(kTag, "Co-op trace: work: and %d more records changed", lines - kWorkLinesMax);
 }
 
 uint64_t event_queue() {
@@ -380,6 +498,7 @@ void tick(bool in_game) {
     watch_players(s, t);
     watch_charas(s, t, first);
     watch_held(s, t);
+    watch_work(s, t, first);
 }
 
 void reset() { st() = State{}; }
