@@ -25,8 +25,9 @@
 //     selection is its own island's bag, not the one it plays the session with).
 //   - take: once a frame the selected bag is compared with the record; a change becomes the record, sequence + 1, and a member sends
 //     it to the authority (BagRecord, at most every kSendEvery).
-//   - safeguard: a change that empties a non-empty bag, leaves more than kMaxKindsGone item kinds with nothing left, or loses anything
-//     within kGrace of an apply or a selection change is not taken: the record is written back into the bag, and the refusal logged.
+//   - safeguard: within kGrace of an apply or a selection change (a load, an area or session change: where the game's own wipes
+//     run), a change that loses anything is not taken: the record is written back into the bag, and the refusal logged (an emptied
+//     bag and more than kMaxKindsGone item kinds gone are named in the line). In play every change is taken, a store-all too.
 //     Losses are counted per item id over the whole bag, so a sort or a stack merge (slots emptied, nothing lost) is taken.
 //   - a member sends its record (sequence 0 when it has none) at session up, again every kHelloEvery until the authority answered;
 //     the authority keeps the newer copy and answers the first record of each member's session (and any older than its copy) with a
@@ -347,10 +348,15 @@ void take_or_refuse(const Selection& sel, double now) {
     const Loss loss = loss_of(o.rec, bag);
     const auto [was_slots, was_count] = totals(o.rec);
     const auto [now_slots, now_count] = totals(bag);
+    // Only inside the grace window: every game-side wipe mapped so far (the join hand-back, the stage load's move to the PC
+    // 0x5affe0, the split-screen clear 0x5b0e00 / 0x5b0d60) runs at a load, an area or session change or a selection change, and
+    // the apply right before it puts the record back. In play, a bulk loss is the player's own (a store-all into a box), and
+    // writing the record back then would copy the items.
     const char* why = nullptr;
-    if (was_slots && !now_slots) why = "it empties the bag";
-    else if (loss.kinds_gone > kMaxKindsGone) why = "too many item kinds are gone at once";
-    else if (loss.any && now < s.grace_until) why = "it loses items right after a load, an area change or a session change";
+    if (now >= s.grace_until) {
+    } else if (was_slots && !now_slots) why = "it empties the bag right after a load, an area change or a session change";
+    else if (loss.kinds_gone > kMaxKindsGone) why = "too many item kinds are gone right after a load, an area change or a session change";
+    else if (loss.any) why = "it loses items right after a load, an area change or a session change";
     if (why) {
         write_bag(sel.bag, o.rec);
         if (now - s.refused_log_at >= kRefuseLogEvery) {
