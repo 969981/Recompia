@@ -12,6 +12,9 @@
 ### Gameplay
 - Storage box tabs, off by default (switch them on in the launcher's Settings > Gameplay or in the new Inventory tab of the game's Settings screen, which now also holds the sort settings): standard storage boxes get up to 12 pages of 20 slots (4 by default), and big storage boxes get up to 6 tabs of 60 slots (360 slots total, 4 tabs by default). L and R switch pages and move between big box tabs at their page boundaries; the box shows the game's own page dots and L / R icons for all its pages, and an item you hold comes along to the next page (it needs one free bag slot on the way). Each standard page uses one of the island's 271 standard box spots and each big tab uses one of its 256 big box spots. About the first 22 standard boxes and 42 big boxes placed get every extra, with fewer or none for later boxes. Extra storage is off during Link Play. Items stay saved. Use **Set up again** once after updating to relink the game. Your shaders are kept.
 
+### Performance
+- Linux PCs and laptops (native build and Proton), and macOS: the game no longer keeps processor cores busy while it waits for the graphics card. At a 60 fps cap it used about half the processor time (cooler, quieter, longer on battery), and without a cap it ran at about 314 instead of 198 fps on a test PC. The Steam Deck and other Linux handhelds already worked this way
+
 ### For developers
 - Co-op trace: also logs creatures' item-making jobs (whose job, made, taken, end, a timer that stands still) and the player ids, to find why a teammate's job never finishes
 
