@@ -64,7 +64,7 @@ enum class Site : uintptr_t {
                       // decided (once for the group), the goal skipped when they are not this run's
     Friendship,       // the friendship that completion step adds: skipped as decided at GoalCount
     GeneralGoal,      // a general request's completion, right before its town goal +1: a replay of another player's hand-in skips
-                      // it, so each hand-in counts once
+                      // it, so each hand-in counts once; the talker's own hand-in shares its reward with the group
     // ---- the session ----
     PastTitle,        // the title screen's continue: the co-op save loads without the title, and its unclean-exit mark is cleared
     SimStep,          // the simulation step: skipped while the session waits for a dropped member (the network tick keeps running)
