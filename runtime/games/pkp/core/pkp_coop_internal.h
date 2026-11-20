@@ -37,7 +37,7 @@
 //   pkp_coop_bag.cpp      the game's own bag writers that fight the records (the join hand-back, stage-load clears and moves, host
 //                         saves into its per-user table, a refusal's bag reset), switched off
 //   pkp_coop_bags.cpp     every member's bag kept as a record of ours (a file per member key in the co-op save), written into the bag
-//                         the game selects and given back at every join
+//                         the game selects and given back at every join; the host's copy of each visitor's bag fed from it
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -291,6 +291,9 @@ void tick(::Ctx* c);
 void reset();
 // Another member joined (its node): the authority answers its first record of the session again.
 void on_member_joined(int node);
+// The hook sites (pkp_coop.cpp).
+int on_mirror_fill(::Ctx* c);   // entry 0x575644 (member index), the host at a join: the mirror fed from that member's record
+int on_bag_screen(::Ctx* c);    // entry 0xfeee78 (screen), the bag / container screen's frame: an apply waits while it is open
 // The messages (pkp_coop_link.cpp).
 void on_record_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);    // the authority: a member's record
 void on_restore_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: the authority's copy of its record

@@ -1,16 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Game layer: seamless co-op's bag records (pkp_coop_internal.h; RE: modding-docs coop-v2 BAG-RECORDS-PLAN.md, P0-RE.md P0RE-11,
-// REJOIN-BAG-2-RE.md). Vanilla Link Play treats a visitor's bag as the host's to keep and hand back (pkp_coop_bag.cpp), and a copy
-// that drifts from the real bag came back at a rejoin, a drop or a crash: an empty bag, or another session's. In co-op the bag is
-// ours instead (PROJECT.md 6.7): one record per member, which is the truth, written into whichever bag the game uses.
+// REJOIN-BAG-2-RE.md). Vanilla Link Play treats a visitor's bag as the host's to keep and hand back, and a copy that drifts from the
+// real bag came back at a rejoin, a drop or a crash: an empty bag, or another session's. In co-op the bag is ours instead (PROJECT.md
+// 6.7): one record per member, which is the truth, written into whichever bag the game uses; the game's own writers that fight it are
+// switched off (pkp_coop_bag.cpp).
 //
 // The game, 2.0.1a:
 //   The bag is 130 slots of 16 bytes (layout::kBagWholeSlots): +0 the slot vtable (main + layout::kItemSlotVtable, a pointer into this
-//   process's main, never copied), +8 the payload (pkp_items.h: packed item word, count). There are two: the offline bag (save common
+//   process's main, never copied), +8 the payload (pkp_items.h: packed item word, count; only items::kMoved of it is copied, as the
+//   game's own copies do, so each slot keeps its bit 31 and padding). There are two: the offline bag (save common
 //   + layout::kBagOffline) and the online one (+ layout::kBagOnline). The selectors 0x2ecc04 / 0x2e70e0 take the online bag on stage
 //   0x11 (Cloud Island), or when IsOnline (0x207b0), not GM+0x11 bit 0 (layout::kStateOwnBag) and the visitor test (0x376c4); the
 //   offline bag otherwise. (Their third case, the local second player, is a split-screen window of its own here: its own process.)
-//   While an item is held, the bag screen works on a temp copy (layout::kItemTempFlag) and copies it back over the bag at the end.
+//   While an item is held, the bag screen works on a temp copy (layout::kItemTempFlag) and copies it back over the bag at the end;
+//   while it is open at all, its panels show the array as they last read it. After a whole-bag write the game refreshes the HUD's
+//   item bar (layout::kItemBarRefresh); so does every write here.
+//   The host also keeps a working copy of each visitor's bag (save root + layout::kBagMirror, by member table index) that its request
+//   checks read and change (station crafts, pickups). At a join (0x575644, join state 3 -> 4) the game fills it from its per-user
+//   table and sets its valid flag, which later stores it back there.
 // The record:
 //   - per member key: a sequence number and the 130 payloads. A file per key, <save dir>/bags/<member key>.bin ([fs] save_dir is
 //     the co-op folder, launcher coop_save.rs): "CBAG", u8 format, u64 sequence, 130 x 16 bytes (the first 8 of each 0), written
@@ -22,16 +29,23 @@
 //     the selection may change (the visitor test, GM+0x11 bit 0, the stage, the player's character made again at a load's end). The
 //     game's own loaded bag is never taken over a record. No record anywhere (a first co-op session): the bag as it is becomes the
 //     first record, once the selection has held for kGrace. A member does neither before its visitor test is up (until then the
-//     selection is its own island's bag, not the one it plays the session with).
+//     selection is its own island's bag, not the one it plays the session with). An apply waits while the bag / container screen
+//     is open, so no panel shows a bag that is no longer there.
 //   - take: once a frame the selected bag is compared with the record; a change becomes the record, sequence + 1, and a member sends
 //     it to the authority (BagRecord, at most every kSendEvery).
 //   - safeguard: within kGrace of an apply or a selection change (a load, an area or session change: where the game's own wipes
-//     run), a change that loses anything is not taken: the record is written back into the bag, and the refusal logged (an emptied
-//     bag and more than kMaxKindsGone item kinds gone are named in the line). In play every change is taken, a store-all too.
+//     ran, and any not mapped would), a change that loses anything is not taken: the record is written back into the bag, and the
+//     refusal logged (an emptied bag and more than kMaxKindsGone item kinds gone are named in the line). In play every change is
+//     taken, a store-all too.
 //     Losses are counted per item id over the whole bag, so a sort or a stack merge (slots emptied, nothing lost) is taken.
 //   - a member sends its record (sequence 0 when it has none) at session up, again every kHelloEvery until the authority answered;
 //     the authority keeps the newer copy and answers the first record of each member's session (and any older than its copy) with a
 //     BagRestore. Until that answer a member takes nothing, so a stale bag never outbids the authority's copy.
+// The authority's mirror of each visitor:
+//   - a record carries its player's user id, which names its row in the member table, so its mirror index. The game's fill at the
+//     join is replaced: the mirror gets the record (when there is none yet, the mirror stays as the game cleared it until the first
+//     arrives), the valid flag stays clear (nothing stores the mirror back), and the game's fill from its table does not run (it
+//     also pushed what did not fit into the host's PC). Every newer record of that member is fed into its mirror again.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_items.h"
@@ -69,12 +83,14 @@ constexpr double kGrace = 3.0;        // seconds after an apply or a selection c
 constexpr uint32_t kMaxKindsGone = 8;
 constexpr double kRefuseLogEvery = 1.0;
 constexpr double kNotReadyLog = 15.0; // seconds in a session with the player in the world but the bag never ready: logged once
+constexpr double kScreenGap = 0.3;    // seconds without a bag / container screen frame: the screen is closed
 
 constexpr char kFileMagic[4] = {'C', 'B', 'A', 'G'};
 constexpr uint8_t kFormat = 1;
 constexpr size_t kFileHead = sizeof kFileMagic + 1 + 8;
 
 using Key = std::array<uint8_t, kMemberKeyBytes>;
+using UserId = std::array<uint8_t, layout::kUserIdSize>;
 
 struct Record {
     uint64_t seq = 0;   // 0: no record
@@ -86,6 +102,7 @@ struct Kept {
     Record rec;
     bool dirty = false;
     double written_at = -1e9;
+    UserId user{};   // the authority: the member's user id, from its last BagRecord (all 0: not known yet)
 };
 
 // What the bag selector reads, as last seen.
@@ -114,6 +131,7 @@ struct State {
     double up_at = 0.0;       // the session came up
     bool was_ready = false;   // the bag was ready once in this session (or its absence was logged)
     uint32_t greeted = 0;     // the authority: bit per node whose first record of its session was answered
+    double screen_at = -1e9;  // the bag / container screen's last frame (its hook runs on the game thread, as the tick)
 };
 State& st() {
     static State s;
@@ -158,7 +176,10 @@ bool read_file(const Key& k, Record* out) {
         return false;
     }
     std::memcpy(&out->seq, p + 5, 8);
-    for (size_t i = 0; i < kSlots; ++i) std::memcpy(&out->slot[i], p + kFileHead + i * items::kSlotSize + items::kSlotPayload, 8);
+    for (size_t i = 0; i < kSlots; ++i) {
+        std::memcpy(&out->slot[i], p + kFileHead + i * items::kSlotSize + items::kSlotPayload, 8);
+        out->slot[i] = items::moved_of(out->slot[i]);
+    }
     return true;
 }
 
@@ -234,12 +255,47 @@ bool ready(const Selection& sel, size_t* bad_slot) {
     return true;
 }
 
+// A record holds what a copy moves (items::kMoved) only, so a bag and its record compare equal right after a write.
 void read_bag(uint64_t bag, Record* out) {
-    for (size_t i = 0; i < kSlots; ++i) out->slot[i] = guest::rd<uint64_t>(bag + i * items::kSlotSize + items::kSlotPayload);
+    for (size_t i = 0; i < kSlots; ++i)
+        out->slot[i] = items::moved_of(guest::rd<uint64_t>(bag + i * items::kSlotSize + items::kSlotPayload));
 }
 
 void write_bag(uint64_t bag, const Record& r) {
-    for (size_t i = 0; i < kSlots; ++i) guest::wr<uint64_t>(bag + i * items::kSlotSize + items::kSlotPayload, r.slot[i]);
+    for (size_t i = 0; i < kSlots; ++i) {
+        const uint64_t at = bag + i * items::kSlotSize + items::kSlotPayload;
+        guest::wr<uint64_t>(at, items::moved_into(guest::rd<uint64_t>(at), r.slot[i]));
+    }
+}
+
+// The record into this player's bag, and the HUD's item bar told (slot 0: a co-op process plays one player).
+void put(::Ctx* c, uint64_t bag, const Record& r) {
+    write_bag(bag, r);
+    guest::call(c, base() + layout::kItemBarRefresh, 0, 0, 0);
+}
+
+bool screen_open() { return qpc::seconds() - st().screen_at < kScreenGap; }
+
+// The authority: the mirror index of the member with this user id (its row in the member table), or -1.
+int mirror_index(const UserId& user) {
+    if (user == UserId{}) return -1;
+    const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
+    const uint64_t own = guest::deref(guest::deref(base() + layout::kOwnMemberIndexRef));
+    if (!guest::ok(r + layout::kBagMirror, layout::kMemberCount * kBagBytes) || !guest::ok(own + layout::kOwnMirrorIndex, 1)) return -1;
+    const uint8_t own_idx = guest::rd<uint8_t>(own + layout::kOwnMirrorIndex);
+    for (uint32_t i = 0; i < layout::kMemberCount; ++i) {
+        UserId row;
+        const uint64_t at = r + layout::kMemberTable + i * layout::kMemberSize + layout::kMemberUserId;
+        if (i != own_idx && guest::read(at, row.data(), row.size()) && row == user) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+// The authority: a member's record into its mirror (each slot's vtable and unmoved bits kept). The valid flag is left as it is
+// (clear: the game's fill that sets it does not run in co-op).
+void feed_mirror(int idx, const Record& r) {
+    const uint64_t root = guest::rd<uint64_t>(base() + layout::kSaveRoot);
+    write_bag(root + layout::kBagMirror + static_cast<uint64_t>(idx) * kBagBytes, r);
 }
 
 // What a change from `was` to `now` loses: whether any item's total fell, and how many item kinds have nothing left.
@@ -274,7 +330,7 @@ std::vector<uint8_t> slots_payload(wire::Writer& w, const Record& r) {
 bool read_slots(wire::Reader& r, Record* out) {
     for (uint64_t& p : out->slot) {
         r.u64();   // the vtable's place: 0 on the wire
-        p = r.u64();
+        p = items::moved_of(r.u64());
     }
     return r.ok();
 }
@@ -282,7 +338,10 @@ bool read_slots(wire::Reader& r, Record* out) {
 void send_record() {
     State& s = st();
     wire::Writer w(link::self());
-    w.bytes(member_key_bytes(), kMemberKeyBytes).u64(s.own.rec.seq);
+    UserId user{};
+    const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
+    if (guest::ok(r + layout::kOwnUserId, user.size())) guest::read(r + layout::kOwnUserId, user.data(), user.size());
+    w.bytes(member_key_bytes(), kMemberKeyBytes).u64(s.own.rec.seq).bytes(user.data(), user.size());
     if (link::to_authority(wire::Type::BagRecord, slots_payload(w, s.own.rec))) {
         s.send = false;
         s.sent_at = qpc::seconds();
@@ -295,12 +354,13 @@ void send_restore(int node, const Key& k, const Record& r) {
     link::to_node(node, wire::Type::BagRestore, slots_payload(w, r));
 }
 
-// Phase 2 seam, the host's mirror: the authority's game keeps a working copy of each visitor's bag (R+0x17154a8 + idx*0x820) that its
-// request checks read (station crafts, pickups). Once the game's own writers of that mirror are switched off (the RE pass maps their
-// sites), the mirror of the member with this key is fed from here, from its record. Today the record is only kept.
-void on_member_record(const Key& k, Kept& kept, int node) {
-    kept.dirty = true;
-    NXLOG_D(kTag, "Co-op bags: node %d's record %llu stored (%s)", node, static_cast<unsigned long long>(kept.rec.seq), hex(k).c_str());
+// The authority: a member's record changed (or its user id became known): its mirror, if the member is in the member table, gets it.
+// Latest wins: the host's own request checks change the mirror in between, and the member's next record carries the same change.
+void on_member_record(const Key& k, const Kept& kept, int node) {
+    const int idx = kept.rec.seq ? mirror_index(kept.user) : -1;
+    if (idx >= 0) feed_mirror(idx, kept.rec);
+    NXLOG_D(kTag, "Co-op bags: node %d's record %llu stored (%s), mirror %d", node, static_cast<unsigned long long>(kept.rec.seq),
+            hex(k).c_str(), idx);
 }
 
 // ---- the tick's steps ----
@@ -329,7 +389,7 @@ void session_down() {
     NXLOG_I(kTag, "Co-op bags: out of the session; the records are written");
 }
 
-void take_or_refuse(const Selection& sel, double now) {
+void take_or_refuse(::Ctx* c, const Selection& sel, double now) {
     State& s = st();
     Kept& o = s.own;
     Record bag;
@@ -348,17 +408,16 @@ void take_or_refuse(const Selection& sel, double now) {
     const Loss loss = loss_of(o.rec, bag);
     const auto [was_slots, was_count] = totals(o.rec);
     const auto [now_slots, now_count] = totals(bag);
-    // Only inside the grace window: every game-side wipe mapped so far (the join hand-back, the stage load's move to the PC
-    // 0x5affe0, the split-screen clear 0x5b0e00 / 0x5b0d60) runs at a load, an area or session change or a selection change, and
-    // the apply right before it puts the record back. In play, a bulk loss is the player's own (a store-all into a box), and
-    // writing the record back then would copy the items.
+    // Only inside the grace window: the game's whole-bag wipes (switched off in pkp_coop_bag.cpp; this catches one not mapped) run
+    // at a load, an area or session change or a selection change, and the apply right before it puts the record back. In play, a
+    // bulk loss is the player's own (a store-all into a box), and writing the record back then would copy the items.
     const char* why = nullptr;
     if (now >= s.grace_until) {
     } else if (was_slots && !now_slots) why = "it empties the bag right after a load, an area change or a session change";
     else if (loss.kinds_gone > kMaxKindsGone) why = "too many item kinds are gone right after a load, an area change or a session change";
     else if (loss.any) why = "it loses items right after a load, an area change or a session change";
     if (why) {
-        write_bag(sel.bag, o.rec);
+        put(c, sel.bag, o.rec);
         if (now - s.refused_log_at >= kRefuseLogEvery) {
             s.refused_log_at = now;
             NXLOG_W(kTag, "Co-op bags: a change of the bag is refused (%s): %u slots / %u items before, %u / %u after, %u kinds gone; "
@@ -407,17 +466,17 @@ void tick(::Ctx* c) {
         NXLOG_W(kTag, "Co-op bags: the %s bag is not usable (slot %zu holds no slot vtable); its record is neither applied nor taken",
                 sel.online ? "online" : "offline", bad_slot);
     }
-    if (can) {
-        if (s.apply) {
-            write_bag(sel.bag, s.own.rec);
-            s.apply = false;
-            s.grace_until = now + kGrace;
-            const auto [slots, count] = totals(s.own.rec);
-            NXLOG_I(kTag, "Co-op bags: record %llu written into the %s bag (%u slots, %u items)",
-                    static_cast<unsigned long long>(s.own.rec.seq), sel.online ? "online" : "offline", slots, count);
-        } else if (s.answered) {
-            take_or_refuse(sel, now);
-        }
+    // An apply waits while the bag / container screen is open, and the take with it (a change made meanwhile is the apply's to
+    // overwrite: the record it brings is the newer one).
+    if (can && s.apply && !screen_open()) {
+        put(c, sel.bag, s.own.rec);
+        s.apply = false;
+        s.grace_until = now + kGrace;
+        const auto [slots, count] = totals(s.own.rec);
+        NXLOG_I(kTag, "Co-op bags: record %llu written into the %s bag (%u slots, %u items)",
+                static_cast<unsigned long long>(s.own.rec.seq), sel.online ? "online" : "offline", slots, count);
+    } else if (can && !s.apply && s.answered) {
+        take_or_refuse(c, sel, now);
     }
     if (s.send && s.answered && !link::is_authority() && now - s.sent_at >= kSendEvery) send_record();
     flush(false);
@@ -427,11 +486,34 @@ void on_member_joined(int node) {
     if (node >= 0 && node < 32) st().greeted &= ~(1u << node);
 }
 
+int on_mirror_fill(::Ctx* c) {
+    if (role() != CoopRole::Host) return 0;
+    const int idx = static_cast<int>(c->x[0] & 0xff);
+    for (const auto& [k, kept] : st().members) {
+        if (!kept.rec.seq || mirror_index(kept.user) != idx) continue;
+        feed_mirror(idx, kept.rec);
+        const auto [slots, count] = totals(kept.rec);
+        NXLOG_I(kTag, "Co-op bags: member %d joins; the host's copy of its bag is its record %llu (%u slots, %u items)", idx,
+                static_cast<unsigned long long>(kept.rec.seq), slots, count);
+        return 1;
+    }
+    NXLOG_I(kTag, "Co-op bags: member %d joins before its record is here; the host's copy of its bag waits for it", idx);
+    return 1;   // the game's fill from its per-user table does not run in co-op
+}
+
+int on_bag_screen(::Ctx* c) {
+    const uint64_t screen = c->x[0];
+    if (guest::ok(screen, 8) && guest::rd<uint64_t>(screen) == base() + layout::kBagScreenVtable) st().screen_at = qpc::seconds();
+    return 0;
+}
+
 void on_record_message(::Ctx*, int from, uint8_t, wire::Reader& r) {
     Key k;
     r.bytes(k.data(), k.size());
     Record got;
     got.seq = r.u64();
+    UserId user;
+    r.bytes(user.data(), user.size());
     if (!read_slots(r, &got) || !link::is_authority() || from < 0 || from >= 32) return;
     if (k == own_key()) {
         NXLOG_W(kTag, "Co-op bags: node %d sent a record under this player's own key; it is not kept", from);
@@ -440,10 +522,13 @@ void on_record_message(::Ctx*, int from, uint8_t, wire::Reader& r) {
     State& s = st();
     Kept& m = member(k);
     const bool first = !(s.greeted & (1u << from));
-    if (got.seq > m.rec.seq) {
+    const bool newer = got.seq > m.rec.seq, new_user = user != m.user;
+    m.user = user;
+    if (newer) {
         m.rec = got;
-        on_member_record(k, m, from);
+        m.dirty = true;
     }
+    if (newer || new_user) on_member_record(k, m, from);
     if (first || got.seq < m.rec.seq) {
         s.greeted |= 1u << from;
         send_restore(from, k, m.rec);

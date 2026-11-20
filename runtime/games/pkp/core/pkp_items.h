@@ -3,7 +3,8 @@
 // search, the item editor). The addresses are in pkp_layout.h.
 //
 // A slot is 16 bytes: a vtable qword (main + layout::kItemSlotVtable), a packed u32 (bits 0..12 the item id, 0 = empty; 13..20, 21..25,
-// 26..30 and bit 31 per-slot data) and a u8 count at +0xc. Only the 8 bytes from +8 (the payload) ever move; every slot keeps its vtable
+// 26..30 per-item data; bit 31 is the bitfield's padding) and a u8 count at +0xc. Only the 8 bytes from +8 (the payload) ever move, and
+// of those the game's whole-bag copies move the word's bits 0..30 and the count only (kMoved); every slot keeps its vtable
 // (measured with page traps and snapshot diffs in scripted runs, main 2.0.1a; the game's own sort 0x71005b25e0 moves the same fields).
 // Inventory kind 0 is the player's bag: 120 slots, then kind 4 (10 slots at bag + 0x780, a separate sub-area). The other kinds are
 // containers: count slots from slot `first` of a store (0x71002ee4bc (type, id, &first, &count)); 0x7100e6dc2c (player, kind, type, id,
@@ -28,6 +29,10 @@ constexpr uint64_t kCountMask = uint64_t{0xff} << 32;
 constexpr uint32_t id_of(uint64_t p) { return static_cast<uint32_t>(p) & kIdMask; }
 constexpr uint32_t count_of(uint64_t p) { return static_cast<uint32_t>((p >> 32) & 0xff); }
 constexpr uint64_t with_count(uint64_t p, uint32_t n) { return (p & ~kCountMask) | (uint64_t{n} << 32); }
+// What a copy of a slot moves (the word's bits 0..30 and the count), and src's moved into dst (dst keeps its bit 31 and padding).
+constexpr uint64_t kMoved = uint64_t{0x7fffffff} | kCountMask;
+constexpr uint64_t moved_of(uint64_t p) { return p & kMoved; }
+constexpr uint64_t moved_into(uint64_t dst, uint64_t src) { return (dst & ~kMoved) | (src & kMoved); }
 
 // An item's record in the item table (the table at +0 while the manager does not hold it yet, pkp_tables.h); 0 if none.
 inline uint64_t record(::Ctx* c, uint64_t base, uint32_t id) {

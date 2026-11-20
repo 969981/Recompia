@@ -51,8 +51,9 @@
 //               u32 the member's value                     (a member's differences, so the host's log shows them too)
 //               These four are logging only: a build without them drops them and plays on (no kVersion, no co-op rules change).
 //   BagRecord   +2 u8[16] the member key the bag belongs to, +18 u64 its record's sequence (0: this process has no record), +26
-//               kBagRecordSlots x 16 bytes, the bag's slots (pkp_coop_bags.cpp; each slot's first 8 bytes are 0, its last 8 the game's
-//               payload)   (a member's own record, to the authority: at session up, then at each change)
+//               u8[16] the player's user id as the game keeps it (its row in the host's member table), +42 kBagRecordSlots x 16
+//               bytes, the bag's slots (pkp_coop_bags.cpp; each slot's first 8 bytes are 0, its last 8 the game's payload)
+//               (a member's own record, to the authority: at session up, then at each change)
 //   BagRestore  +2 u8[16] member key, +18 u8 1 when the authority has a record for it (0: none, the rest is 0), +19 u64 sequence,
 //               +27 kBagRecordSlots x 16 bytes   (the authority's answer to a member's first BagRecord of a session, or to one older than
 //               its own copy; a member ignores one for another member's key)

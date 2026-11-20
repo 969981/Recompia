@@ -107,6 +107,10 @@ constexpr uint32_t kBagWholeSlots = 130;        // a whole bag: the 120 slots, t
                                                 // the game copies one (its per-user table, the host's visitor mirror)
 constexpr uint64_t kCommonFlags = 0xc074;       // common block: u8; bit 1 set while a second local player (GameShare) has the online bag
 constexpr uint8_t kCommonFlagShare = 2;
+// The host's working copy of each visitor's bag (save root +, kMemberCount whole bags by member table index; its getter 0x5bc840 has
+// none for the index at kOwnMirrorIndex): the host's request checks read and change it.
+constexpr uint64_t kBagMirror = 0x17154a8;
+constexpr uint64_t kOwnMirrorIndex = 0xb3380;   // u8 of **(main + kOwnMemberIndexRef): the member index 0x5bc840 has no mirror for
 constexpr uint64_t kStageContainerStore = 0x13ea9a8; // save root: stage item slots (pkp_items.h)
 constexpr uint64_t kCabinetRecords = 0xa0ee28;   // save root: stage cabinet records (m_gimmickSaveData)
 constexpr uint32_t kCabinetRecordCount = 0x610;
@@ -126,6 +130,8 @@ constexpr uint64_t kHeldItem = 0x3684310;        // per player (stride 0x18): th
 constexpr uint64_t kHeldItemSize = 0x18;
 constexpr uint64_t kStagedBag = 0x3684340;       // per player (stride 0x838): the bag's temp copy while an item is held {data, len, cap, slots}
 constexpr uint64_t kStagedBagSize = 0x838;
+constexpr uint64_t kBagScreenVtable = 0x333ba70; // the vtable pointer the bag / container screen object (UI class 0x8d) holds
+constexpr uint64_t kItemBarRefresh = 0xa8e724;   // (local player slot, 0, 0): the HUD's item bar reads the bag again
 constexpr uint64_t kResourceWaitEnd = 0x46aa6c;  // (): clears the two wait bytes of the object at main+0x35650f8 that a request kind 0xb
                                                  // reply releases on either answer
 
