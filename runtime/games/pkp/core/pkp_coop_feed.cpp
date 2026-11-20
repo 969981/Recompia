@@ -11,15 +11,15 @@
 //
 // Kind 1, "talked to": 0x1355ec(SC, &u16 actor id). Its only caller is the A press 0x31347c, right after the talk start 0x3180e0
 // claimed the talk (0x314058 `tbz w0` skips it otherwise). It posts only when 0x286de4(&id) (a resident whose idx +0x39f2 is not in
-// the special range 0x400..0x415), not GM+0x90 bit 2 (a Link Play visitor: every co-op member), not on Cloud Island (0x77ecb0), and
-// the data id 0x27d848(&id) is 1..0x3ff; it then writes the data id at SC+0x11aaa0, the kind at +0x11aae0 and calls
-// 0x1353a0(SC, SC+0x88ed8, 1, 0). So a member's talk never reached any scheduler: content records waiting on "talked to X" (quest
-// starts and steps) never ran for it. Nothing else forwards the event (the talk-end record carries the item and request steps of
+// the special range 0x400..0x415), not GM+0x90 bit 2 (a Link Play visitor: every co-op member), not on Cloud Island (0x77ecb0:
+// GM+0x18 == 0x11), and the data id 0x27d848(&id) is 1..0x3ff; it then writes the data id at SC+0x11aaa0, the kind at +0x11aae0
+// and calls 0x1353a0(SC, SC+0x88ed8, 1, 0). So a member's talk never reached any scheduler: content records waiting on "talked to
+// X" (quest starts and steps) never ran for it. Nothing else forwards the event (the talk-end record carries the item and request steps of
 // 0x46e308, not kind 1), so it reaches the authority once, from here.
 //   0x1355ec (entry hook), on a member in the session (quests::member_rules()): when the game's own tests other than the visitor bit
-//   pass (the same calls), the event (kind, this stage, the data id) is queued for the authority, and sent once this player's talk has
-//   ended (the creature's ownership is back by then, so a scene the record queues on the authority is not refused for it) or after
-//   kSendWait. The game's own code runs on and returns at its visitor test, as before.
+//   pass (0x286de4 called, the stage compared, 0x27d848 called), the event (kind, this stage, the data id) is queued for the
+//   authority, and sent once this player's talk has ended (the creature's ownership is back by then, so a scene the record queues on
+//   the authority is not refused for it) or after kSendWait. The game's own code runs on and returns at its visitor test, as before.
 //   On the authority the event waits for a safe moment (in the same stage, can walk, no talk of its own), then the game's own 0x1355ec
 //   runs with the authority's copy of that character: 0x28cc60(player manager, data id), the first live resident of that data id
 //   outside the special idx range (the same rule 0x286de4 applies), and its u16 actor id at actor +0x27fe (0x597820 passes that
@@ -135,7 +135,7 @@ int on_talked_to(::Ctx* c) {
     if (!quests::member_rules()) return 0;
     const uint64_t id = c->x[1];
     if (!guest::ok(id, 2)) return 0;
-    // 0x1355ec's own tests but the visitor bit: 0x286de4, Cloud Island (0x77ecb0 is the stage test), then the data id's range.
+    // 0x1355ec's own tests but the visitor bit: 0x286de4, Cloud Island (0x77ecb0 only compares the stage), then the data id's range.
     if (!(guest::call(c, base() + kResident, id) & 1) || stage() == layout::kStageCloudIsland) return 0;
     const uint16_t data = static_cast<uint16_t>(guest::call(c, base() + kDataIdOf, id));
     if (static_cast<uint16_t>(data - 1) >= kDataIdMax) return 0;
