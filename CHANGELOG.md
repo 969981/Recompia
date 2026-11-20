@@ -7,6 +7,9 @@
 ### Game
 - Mouse mode: the game's pointer is drawn where the mouse really is at render sizes other than 1920x1080 (it drifted away from the mouse at 1440p and above) (#806)
 
+### Co-op
+- A teammate who joins after a story step no longer keeps hearing an old step's music (Kyogre's music kept playing after Kyogre had left). The host's music for the area now reaches every teammate, which also fixes saves that kept the wrong music
+
 ### Launcher
 - Pausing Set up on Windows now stops all of the compiler's work. Before, part of it kept running until the launcher closed, and the next **Set up again** could sit at "Linking pkp.exe"
 
