@@ -199,6 +199,14 @@ constexpr uint64_t kChallengeSize = 0xd8;
 constexpr uint32_t kChallengeMax = 0x4b0;
 constexpr uint8_t kChallengeClaimed = 4;         // 1..2 open, 3 done (to claim), 4 claimed: the coins were paid
 constexpr uint8_t kStageCloudIsland = 0x11;      // kStateStage: Cloud Island (0x77ecb0), whose challenges are its own
+// the per-player claims (pkp_coop_money.cpp): CM + id * kChallengeMirrorSize is a visitor's mirror of challenge id
+constexpr uint8_t kChallengeDone = 3;
+constexpr uint64_t kChallengeMirrorSize = 0x12;
+constexpr uint64_t kMirrorState = 0xc;           // u8 this player's view (the PC's list 0x645f20 offers a claim at 3)
+constexpr uint64_t kMirrorHostState = 0xd;       // u8 the host's own state, as its goal update 0x6355c0 last sent it (@0x635964)
+constexpr uint64_t kChallengeList = 0x18114;     // CM +: u16 ids of the listed challenges (the PC's; the kind 7 raise needs the id here)
+constexpr uint64_t kChallengeListCount = 0x18600;   // CM +: s16 how many
+constexpr int16_t kChallengeListMax = 0x276;
 constexpr uint64_t kCharaStatusRoot = 0x3483b60; // **(main + this): the stage data holding the CharacterStatus records
 constexpr uint64_t kCharaStatus = 0x835af0;      // + chara * kCharaStatusStride: m_position (vec4, w 1.0) at +0x10, m_id (u16, data id) at +0x24
 constexpr uint64_t kCharaStatusStride = 0x30;

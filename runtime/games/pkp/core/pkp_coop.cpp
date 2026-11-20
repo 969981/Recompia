@@ -128,6 +128,9 @@ enum class Site : uintptr_t {
                       // is the group's
     FriendFlag,       // script callback slot 175's friend record flag: a member's is set on the authority too
     FriendTag,        // the name tag's friendship test: a member reads its copy of the host's records, as the host reads its own
+    // ---- the challenges: per-player claims (pkp_coop_money.cpp), a member's actions counted (pkp_coop_challenges.cpp) ----
+    ClaimVisitor,     // the PC's claim after its visitor test: a member's own claim pays it its coins (kPay's ledger keeps it to once)
+    BuyCount,         // the "buy items" challenge count after its visitor test: a member's buy counts for the group
 };
 
 struct CoopSite {
@@ -211,6 +214,9 @@ constexpr CoopSite kSites[] = {
     {{0x3a89fc, kPacibsp, true}, Site::FriendGain},
     {{0x4ab358, 0x36000120u, false}, Site::FriendFlag},      // tbz w0, #0, 0x4ab37c (w0 = Cloud Island, w19 = the chara)
     {{0x3b7cd0, 0x36000540u, false}, Site::FriendTag},       // tbz w0, #0, 0x3b7d78 (w0 = Cloud Island, on a visitor)
+    // the challenges
+    {{0x645d18, 0x37000080u, false}, Site::ClaimVisitor},    // tbnz w0, #0, 0x645d28 (w0 = the visitor test 0x376c4; kPay at 0x645d24)
+    {{0x643938, 0x37001220u, false}, Site::BuyCount},        // tbnz w0, #0, 0x643b7c (w0 = the visitor test 0x376c4)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -281,6 +287,8 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::FriendGain: return coop::friendship::on_add_points(c);
         case Site::FriendFlag: return coop::friendship::on_flag_17a(c);
         case Site::FriendTag: return coop::friendship::on_name_tag(c);
+        case Site::ClaimVisitor: return coop::money::on_claim_visitor(c);
+        case Site::BuyCount: return coop::challenges::on_buy_visitor(c);
         default: return 0;
     }
 }

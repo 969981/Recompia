@@ -1,38 +1,45 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Game layer: seamless co-op's Life Coins (pkp_coop_internal.h). The coins are each player's own, as in the game's Link Play: every
-// buy takes them from the buyer's own save (purchases: only the buyer pays). Coins come from the challenges (town goals) of the world,
-// and a challenge claimed in the authority's save pays every member its coins, once.
+// buy takes them from the buyer's own save (purchases: only the buyer pays). Coins come from the challenges (town goals) of the
+// world, and the claims are per player too: each member claims each done challenge at the PC for itself, once, into its own coins.
 //
 // The game, 2.0.1 (modding-docs coop-v2/MONEY-RE.md):
 //   save root + kSaveMoney             the coins, u32 (CMNDAT): every reader and writer takes this process's own, visitor or not.
 //   save root + kSaveChallenges + id * 0xd8   the state of challenge id 1..0x4b0 (CMNDAT), the player's own: 3 done, 4 claimed. A
-//                                      visitor's game reads and writes the mirror of the host's (CM + id * 0x12 + 0xc) instead: its
-//                                      three state writers (0x63732c, the open 0x637040, the goal update 0x6355c0) take the own record
-//                                      only when not a visitor. So on a member the own record is ours: it is the member's ledger
-//                                      ("paid here"), saved with the coins.
-//   kClaim 0x645c90(CM, id)            the PC's claim: state 4 (0x639440) and the coins (kPay) only when not a visitor (0x645d18), so a
-//                                      member's claim pays nothing.
+//                                      visitor's game reads and writes the mirror (CM + id * 0x12) instead: its three state writers
+//                                      (0x63732c, the open 0x637040, the goal update 0x6355c0) take the own record only when not a
+//                                      visitor. So on a member the own record is ours: it is the member's ledger ("paid here"),
+//                                      saved with the coins.
+//   mirror +0xc / +0xd                 a visitor's view of the challenge (+0xc: 3 to claim, 4 claimed; the PC's list 0x645f20 offers
+//                                      a claim for +0xc == 3) and the host's own state, as the host's goal update 0x6355c0 last sent
+//                                      it (@0x635964). The update sets +0xc from the host's state and from this player's slot (the
+//                                      host's per-user claim bit): host claimed and this player not -> 4 (@0x6363f4, nothing paid);
+//                                      this player is no participant of the goal in the host's save (the writer 0x633f60 leaves its
+//                                      slot empty) -> 2 for a done goal (@0x636308). So a member who joined late, or whose host
+//                                      claimed first, never had a claim button.
+//   kClaim 0x645c90(CM, id)            the PC's claim: 0x639440 (on a visitor: the claim sent to the host, RequestChallengeProgress
+//                                      +0x4b = 1), then the coins (kPay) only when `bl 0x376c4; tbnz w0` (0x645d14 / 0x645d18) says
+//                                      not a visitor.
 //   kPay 0x637480(CM, id)              the coins += kReward(CM, id) (capped at 999999), then the "claim N challenges" progress (0x6427a0,
-//                                      forwarded to the host on a visitor). Its only visitor caller is the host's goal update
-//                                      0x6355c0: when the host's state 4 arrives for a goal this member's mirror held at 3 and the
-//                                      update marks this member a participant (mirror +0x11 bit 0, 0x636ddc); members showed 0 coins.
+//                                      forwarded to the host on a visitor). Its visitor callers: the claim (bent below) and the host's
+//                                      goal update 0x6355c0 @0x636340, when its answer carries this player's claim bit and +0xc was 3.
 //   kReward 0x645d40(CM, id)           the goal's coins (table row +0x28), with the goal's bonus on top (a visitor reads the mirror).
 // Rules:
-//   - the authority sends the ids of every challenge claimed in its own save (ChallengesClaimed) to every member: when the set grew,
-//     when a member joins and every kAllEvery seconds;
-//   - a member pays itself kReward for each such id its ledger lacks (own state != 4), then marks it, kPayPerTick at a safe moment
-//     (in the group's world, can walk, talks to no one), with one line in the message log per batch. A goal claimed before the
-//     member joined pays it too: the group earned it;
-//   - the game's own visitor pay (kPay on a member) runs only for an id not in the ledger, and marks it: one goal pays once;
-//   - Cloud Island (stage 0x11) keeps its own challenges: nothing is sent or paid there.
+//   - a member's claim pays here at once (ClaimVisitor: the visitor answer at 0x645d18 reads 0); the claim still goes to the host,
+//     which records it for this player as the game does;
+//   - kPay on a member runs only for an id not in the ledger, and marks it: one challenge pays a member once, by whichever path;
+//   - a member's view of every listed challenge the host has done (+0xd 3 or 4, or in the host's ChallengesClaimed set: a goal the
+//     host claimed before this member joined may have had no goal update here) is its own: +0xc 4 when the ledger has it, else 3,
+//     every frame (the PC reads it while open). The host's own claim no longer pays the members;
+//   - the authority still sends the ids claimed in its save (ChallengesClaimed): members on older builds pay themselves from it (their
+//     ledger keeps that to once). This build only reads it as "the host has done it", so a challenge an older build paid stays
+//     claimed (its ledger has it), and one it did not is claimable here;
+//   - Cloud Island (stage 0x11) keeps its own challenges: nothing is sent, paid or changed there.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 
-#include <algorithm>
 #include <bitset>
-#include <cstdio>
-#include <vector>
 
 #include "nxrt/log.h"
 #include "nxrt/qpc.h"
@@ -43,20 +50,19 @@ namespace {
 
 constexpr const char* kTag = "pkp";
 
-constexpr uint64_t kReward = 0x645d40;    // (CM, id) -> u32 the goal's coins for this process
 constexpr uint32_t kIdMax = layout::kChallengeMax;
 constexpr double kAllEvery = 30.0;        // the authority's whole set again (a member that missed one)
-constexpr unsigned kPayPerTick = 32;
+constexpr uint64_t kFromClaim = 0x645d28;  // kPay's return address when the PC's claim calls it (0x645d24)
+constexpr uint8_t kViewFrom = 2;          // mirror +0xc below this (0 none, 1 open or reopened by 0x6371b0) is the game's alone,
+                                          // except 0 on a goal the host claimed (no goal update came here)
 
 struct State {
-    // the authority
+    // the authority (for members on older builds)
     std::bitset<kIdMax + 1> sent;      // claimed at the last send
     bool send_all = true;
     double all_at = 0.0;
     // a member
-    std::bitset<kIdMax + 1> claimed;   // claimed in the authority's save, as it last said
-    unsigned batch_goals = 0;          // paid in the current batch (its line goes when it is done)
-    uint64_t batch_coins = 0;
+    std::bitset<kIdMax + 1> host_claimed;   // claimed in the authority's save, as it last said
 };
 State& st() {
     static State s;
@@ -104,40 +110,25 @@ void send_claimed(uint64_t recs) {
     s.all_at = t;
 }
 
-void batch_line() {
-    State& s = st();
-    if (!s.batch_goals) return;
-    char text[160];
-    std::snprintf(text, sizeof text, "The group's challenges paid you %llu Life Coin%s (%u challenge%s)!",
-                  static_cast<unsigned long long>(s.batch_coins), s.batch_coins == 1 ? "" : "s", s.batch_goals,
-                  s.batch_goals == 1 ? "" : "s");
-    notice::post(text);
-    NXLOG_I(kTag, "Co-op coins: %u challenge%s claimed by the group paid %llu coins here", s.batch_goals,
-            s.batch_goals == 1 ? "" : "s", static_cast<unsigned long long>(s.batch_coins));
-    s.batch_goals = 0;
-    s.batch_coins = 0;
-}
-
-// A member: pays the claimed goals its ledger lacks, kPayPerTick at most.
-void pay(::Ctx* c, uint64_t recs) {
-    State& s = st();
+// A member: every challenge of the PC's list (CM + kChallengeList, the ids 0x645f20 offers) the host has done shows this member's own
+// claim: claimed when the ledger has it, else to claim. +0xc below 2 (open, or a goal the update reopened, 0x6371b0) is left alone.
+void own_view(uint64_t recs) {
     const uint64_t cm = guest::rd<uint64_t>(base() + layout::kChallengeManager);
-    const uint64_t coins = save_root() + layout::kSaveMoney;
-    if (!cm || !guest::ok(coins, 4)) return;
-    unsigned paid = 0;
-    for (uint32_t id = 1; id <= kIdMax && paid < kPayPerTick; ++id) {
-        if (!s.claimed.test(id)) continue;
-        s.claimed.reset(id);
-        if (claimed_here(recs, id)) continue;
-        const uint32_t reward = static_cast<uint32_t>(guest::call(c, base() + kReward, cm, id));
-        const uint64_t have = guest::rd<uint32_t>(coins);
-        guest::wr<uint32_t>(coins, static_cast<uint32_t>(std::min<uint64_t>(have + reward, layout::kMoneyMax)));
-        guest::wr<uint8_t>(recs + id * layout::kChallengeSize, layout::kChallengeClaimed);
-        ++paid;
-        ++s.batch_goals;
-        s.batch_coins += reward;
+    if (!cm || !guest::ok(cm, layout::kChallengeListCount + 2)) return;
+    const int16_t n = guest::rd<int16_t>(cm + layout::kChallengeListCount);
+    if (n < 1 || n > layout::kChallengeListMax) return;
+    for (int16_t k = 0; k < n; ++k) {
+        const uint16_t id = guest::rd<uint16_t>(cm + layout::kChallengeList + k * 2u);
+        if (id < 1 || id > kIdMax) continue;
+        const uint64_t m = cm + id * layout::kChallengeMirrorSize;
+        const uint8_t host = guest::rd<uint8_t>(m + layout::kMirrorHostState);
+        const uint8_t mine = guest::rd<uint8_t>(m + layout::kMirrorState);
+        const bool claimed_there = st().host_claimed.test(id);
+        if (!claimed_there && (host < layout::kChallengeDone || host > layout::kChallengeClaimed)) continue;
+        if (mine > layout::kChallengeClaimed || (mine < kViewFrom && !(claimed_there && mine == 0))) continue;
+        const uint8_t want = claimed_here(recs, id) ? layout::kChallengeClaimed : layout::kChallengeDone;
+        if (mine != want) guest::wr<uint8_t>(m + layout::kMirrorState, want);
     }
-    if (s.claimed.none()) batch_line();
 }
 
 }  // namespace
@@ -148,26 +139,35 @@ int on_pay(::Ctx* c) {
     const uint64_t recs = records();
     if (!recs || id < 1 || id > kIdMax) return 0;
     if (claimed_here(recs, id)) {
-        NXLOG_I(kTag, "Co-op coins: the game's own visitor pay of challenge %u skipped: it paid here already", id);
-        return 1;   // the function's result is not read (0x6355c0 sets the state next)
+        NXLOG_I(kTag, "Co-op coins: challenge %u skipped: it paid here already", id);
+        return 1;   // the function's result is not read (the claim returns 1 next, 0x6355c0 sets the state next)
     }
     guest::wr<uint8_t>(recs + id * layout::kChallengeSize, layout::kChallengeClaimed);
-    NXLOG_I(kTag, "Co-op coins: the game pays challenge %u here (its visitor pay)", id);
+    NXLOG_I(kTag, "Co-op coins: challenge %u pays here (%s)", id,
+            c->x[30] - base() == kFromClaim ? "this player's claim" : "the host's goal update");
     return 0;
 }
 
+int on_claim_visitor(::Ctx* c) {
+    if (member_here()) c->x[0] = 0;   // the visitor answer: the claim's pay runs here, kPay's ledger keeps it to once
+    return 0;
+}
+
+// Older builds pay from it; here it only says which challenges the host has done (a member claims its own).
 void on_claimed_message(::Ctx*, int, uint8_t, wire::Reader& r) {
     State& s = st();
     const uint16_t n = r.u16();
     if (!r.ok()) return;
+    std::bitset<kIdMax + 1> now;
     for (uint16_t k = 0; k < n; ++k) {
         const uint16_t id = r.u16();
         if (!r.ok()) return;
-        if (id >= 1 && id <= kIdMax) s.claimed.set(id);
+        if (id >= 1 && id <= kIdMax) now.set(id);
     }
+    s.host_claimed = now;
 }
 
-void tick(::Ctx* c, bool in_game) {
+void tick(::Ctx*, bool) {
     if (!in_play()) return;
     const uint64_t recs = records();
     if (!recs) return;
@@ -175,16 +175,14 @@ void tick(::Ctx* c, bool in_game) {
         send_claimed(recs);
         return;
     }
-    if (c && member_here() && session::can_walk(in_game) && !talk::talking()) pay(c, recs);
+    if (member_here()) own_view(recs);
 }
 
 void on_session_change() {
     State& s = st();
     s.sent.reset();
     s.send_all = true;
-    s.claimed.reset();
-    s.batch_goals = 0;
-    s.batch_coins = 0;
+    s.host_claimed.reset();
 }
 
 void on_member_joined() { st().send_all = true; }
