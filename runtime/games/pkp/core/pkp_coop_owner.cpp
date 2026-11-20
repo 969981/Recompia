@@ -4,16 +4,17 @@
 //
 // A gimmick (a placed object one player uses at a time) keeps its user's member index in an owner byte, 0xff free; every other
 // player's press then shows "Someone else is using this right now." (0x10d). A use takes the byte first (the host at once, a member
-// through RequestGimmickOwnership and the grant's apply), then asks the player's history whether the use may start (0x765b54: false
-// when the history 0x135d80 already holds the use, for one); then the class starts its event, and gives the byte back when that
-// start fails. In five classes the history refusal returns without that give-back: the press does nothing and the presser keeps the
-// object for the rest of the session, on every process (the grant reached them all). Here, in a session, at the `tbz w0` after that
-// history call, a refusal gives the byte back the way the class's own failed start does: the class's release function where it has
-// one, else the game's give-back for one owner slot (the host applies the release; a member sends SyncGimmickOwnership, take 0, to the
-// host, which applies it and reports the cell to everyone, as at a grant). A presser that does not own the object changes nothing: the
+// through RequestGimmickOwnership and the grant's apply), then posts the press to the contents scheduler (0x765b54: 0x135d80 posts
+// notice kind 0xe to GM+0xd8's list +0xb6530 through 0x1353a0, true when a content record takes the press, a story step waiting for
+// it; 0x765b54 then answers false and the use does not start). Otherwise the class starts its event, and gives the byte back when that
+// start fails. In five classes the "a content took it" answer returns without a give-back, and nothing gives it back later: the
+// presser keeps the object for the rest of the session, on every process (the grant reached them all). Here, in a session, at the
+// `tbz w0` after that call, a false answer gives the byte back as the class's failed start does: the class's release function where
+// it has one, else the game's give-back for one owner slot (the host applies the release; a member sends SyncGimmickOwnership, take 0,
+// to the host, which applies it and reports the cell, as at a grant). A presser that does not own the object changes nothing: the
 // release checks the owner against the presser's index.
 //
-// The game, 2.0.1a (x19 = the gimmick at every site, w0 = the history's answer):
+// The game, 2.0.1a (x19 = the gimmick at every site, w0 = 0x765b54's answer):
 //   class 0x32688e0 slot 5 0x7c0be0   the use at 0x7c13d8: 0x765b54 at 0x7c1418, `tbz w0, #0` 0x7c141c returns; a failed event
 //                                     start (0x7c1838) releases with 0x7c1690(g, slot) (slot w21; +0x5d cleared, host 0x538f60
 //                                     take 0, member Sync take 0 forced when 0x25af7c)
@@ -107,7 +108,7 @@ void give_back(::Ctx* c, uint64_t g, uint8_t slot) {
 }  // namespace
 
 int on_use_refused(::Ctx* c, uint64_t site) {
-    if (c->x[kAnswerReg] & 1) return 0;   // the use starts: the class keeps the object until its end
+    if (c->x[kAnswerReg] & 1) return 0;   // no content took the press: the use goes on, the class keeps the object until its end
     if (!link::in_session()) return 0;
     size_t i = 0;
     while (i < kUseCount && kUses[i].at != site) ++i;
@@ -121,7 +122,7 @@ int on_use_refused(::Ctx* c, uint64_t site) {
     else give_back(c, g, slot);
     if (!st().logged[i]) {
         st().logged[i] = true;
-        NXLOG_I(kTag, "Co-op owner: a use at main+0x%llx was refused by the player's history; the object (slot %u) is given back",
+        NXLOG_I(kTag, "Co-op owner: a press at main+0x%llx went to a story content, not a use; the object (slot %u) is given back",
                 static_cast<unsigned long long>(site), slot);
     }
     return 0;

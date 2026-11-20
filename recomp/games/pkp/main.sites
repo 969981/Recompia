@@ -433,8 +433,8 @@ midhook 0x7100645d18
 midhook 0x7100643938
 #   Seamless co-op, creature events (pkp_coop_feed.cpp): the contents scheduler's "talked to" notice 0x71001355ec (SC, &actor id;
 #   only caller the A press 0x710031347c after a claimed talk), declared below under journal roles
-#   Seamless co-op, gimmick ownership (pkp_coop_owner.cpp): the `tbz w0, #0` after a gimmick use's history check (0x7100765b54, or
-#   0x71007659c8 that returns its answer) that returns without giving the object back, in class 0x32688e0 0x71007c0be0, 0x3265b20
+#   Seamless co-op, gimmick ownership (pkp_coop_owner.cpp): the `tbz w0, #0` after a gimmick use posts its press to the contents
+#   (0x7100765b54, or 0x71007659c8 that returns its answer), whose false (a content took it) returns without giving the object back, in class 0x32688e0 0x71007c0be0, 0x3265b20
 #   0x710079cf40, 0x327a3b8 0x7100848860, 0x3265668 0x710079aa80 and 0x326dc98's use 0x71007e77a4 (x19 = the gimmick)
 midhook 0x71007c141c
 midhook 0x710079d558
