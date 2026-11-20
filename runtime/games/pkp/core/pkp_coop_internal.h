@@ -38,6 +38,7 @@
 //                         saves into its per-user table, a refusal's bag reset), switched off
 //   pkp_coop_bags.cpp     every member's bag kept as a record of ours (a file per member key in the co-op save), written into the bag
 //                         the game selects and given back at every join; the host's copy of each visitor's bag fed from it
+//   pkp_coop_feed.cpp     what a member's player did to a creature (talked to it), posted to the authority's contents scheduler
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -460,5 +461,16 @@ void on_report_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_session_change();
 void reset();
 }  // namespace digest
+
+namespace feed {
+// The hook site (pkp_coop.cpp): entry 0x1355ec, the contents scheduler's "talked to" notice. On a member in the session the talk is
+// queued for the authority; the game's own code runs everywhere (returns 0).
+int on_talked_to(::Ctx* c);
+// The message (pkp_coop_link.cpp): a member's creature event, posted on the authority at a safe moment.
+void on_event_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Sends a member's events and posts the authority's received ones (once a frame, after the channel's handlers).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace feed
 
 }  // namespace nxrt::games::pkp::coop

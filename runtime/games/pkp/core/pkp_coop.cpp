@@ -114,6 +114,9 @@ enum class Site : uintptr_t {
     // ---- the unlocks ----
     AreaGateRecord,   // the area gate record's "a session is open" guard: the write goes through, so a gate opened in a session can be
                       // entered, and is shared with the group (pkp_coop_unlocks.cpp)
+    // ---- the creature events (pkp_coop_feed.cpp) ----
+    TalkedTo,         // the contents scheduler's "talked to" notice, which skips a visitor: a member's talk is posted on the
+                      // authority, so content records waiting on that talk run for the group
 };
 
 struct CoopSite {
@@ -183,6 +186,8 @@ constexpr CoopSite kSites[] = {
     {{0x13596c, 0x12003c29u, true}, Site::PlacedNotice},     // and w9, w1, #0xffff
     {{0x12b544, 0xb9400408u, true}, Site::PlayScene},        // ldr w8, [x0, #4]
     {{0x5c05c0, 0x37000140u, false}, Site::AreaGateRecord},  // tbnz w0, #0, 0x5c05e8 (w0 = IsOnline's answer)
+    // the creature events (pkp_coop_feed.cpp)
+    {{0x1355ec, kPacibsp, true}, Site::TalkedTo},
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -247,6 +252,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::PlacedNotice: return coop::placement::on_placed_notice(c);
         case Site::PlayScene: return coop::contents::on_play_scene(c);
         case Site::AreaGateRecord: return coop::unlocks::on_area_gate_record(c);
+        case Site::TalkedTo: return coop::feed::on_talked_to(c);
         default: return 0;
     }
 }
@@ -333,6 +339,7 @@ void game_frame(::Ctx* c) {
     coop::gate::tick(s.in_game.load(std::memory_order_relaxed));
     coop::trace::tick(s.in_game.load(std::memory_order_relaxed));
     coop::digest::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
 }
 
 void remove() {   // the registry has removed the hooks
@@ -370,6 +377,7 @@ void remove() {   // the registry has removed the hooks
     coop::linkqueue::reset();
     coop::placement::reset();
     coop::contents::reset();
+    coop::feed::reset();
     coop::session::reset();
 }
 

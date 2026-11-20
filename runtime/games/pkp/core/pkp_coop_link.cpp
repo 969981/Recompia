@@ -72,6 +72,7 @@ constexpr Route kRoutes[] = {
     {wire::Type::StateReport, Path::ToAuthority, &digest::on_report_message},
     {wire::Type::BagRecord, Path::ToAuthority, &bags::on_record_message},
     {wire::Type::BagRestore, Path::FromAuthority, &bags::on_restore_message},
+    {wire::Type::CreatureEvent, Path::ToAuthority, &feed::on_event_message},
 };
 
 struct State {
