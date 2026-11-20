@@ -148,7 +148,7 @@ namespace requests {
 // The hook site (pkp_coop.cpp): entry 0x11435c, the bind gate; a member answers as the game does at home.
 int on_giver_check(::Ctx* c);
 // Midhook 0x621be8 in a general request's completion 0x6218e0: a replay of the step (w21 bit 0) skips its town goal (x0 = 0) in a
-// session, so each hand-in counts once, on the talker's process.
+// session, so each hand-in counts once, on the talker's process; the talker's own step (w21 0, w20 1) shares its reward.
 int on_general_goal(::Ctx* c);
 // The message (pkp_coop_link.cpp): kept until this player can take it.
 void on_unique_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
@@ -164,6 +164,8 @@ uint64_t request_slot(uint32_t id);
 uint64_t request_component(::Ctx* c, uint64_t slot);
 bool story_request(uint32_t id);   // also a story step: one completion closes it for the group
 bool own_request(uint32_t id);     // bound to one player: never shared
+// The authority: node origin handed request id in; it is closed here at the next safe moment, and the close is shared.
+void close(uint32_t id, uint8_t origin);
 }  // namespace requests
 
 namespace outcomes {
@@ -357,6 +359,8 @@ namespace catchup {
 int on_name_entry(::Ctx* c);     // entry 0x43d3e0: script command 0x44, the name entry
 int on_script_items(::Ctx* c);   // entry 0x12c734: script command 0xbea, items given
 int on_reward_item(::Ctx* c);    // entry 0x3bcbc0: the item of a character's reward list
+// A give that ran on this process for its own player: every other member gets it too (Items; nothing outside a session).
+void share_give(uint16_t item, uint32_t count);
 // The messages (pkp_coop_link.cpp).
 void on_name_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_items_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
