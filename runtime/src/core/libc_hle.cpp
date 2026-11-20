@@ -34,7 +34,47 @@ void h_memcmp(::Ctx* c) { ret_int(c, std::memcmp(p(c, 0), p(c, 1), static_cast<s
 // memcpy as memmove: a guest that copies overlapping ranges gets what musl's forward copy gives for the common case, never a torn copy
 void h_memcpy(::Ctx* c) { std::memmove(p(c, 0), p(c, 1), static_cast<size_t>(c->x[2])); }
 void h_memmove(::Ctx* c) { std::memmove(p(c, 0), p(c, 1), static_cast<size_t>(c->x[2])); }
-void h_memset(::Ctx* c) { std::memset(p(c, 0), static_cast<int>(c->x[1] & 0xFF), static_cast<size_t>(c->x[2])); }   // x0 stays dst
+// A large memset to zero writes only the whole pages that are not zero already. The game clears large buffers right after it allocates
+// them (about 1 GiB at boot, in clears of up to 200 MiB at the start of the heap) whose pages were never touched: a read of such a page
+// costs no memory on Linux (the kernel's shared zero page), a write makes it resident; many of them are never written later (0.18 GiB
+// less resident in the world, Linux PC). A page that is zero already keeps its bytes either way, so the result is the same; a buffer
+// cleared again while still zero is read instead of written, and a page the write tracker armed is left unwritten.
+constexpr size_t kPage = 4096;
+constexpr size_t kZeroSkipMin = 64 * 1024;   // below this a plain memset
+
+bool page_is_zero(const uint8_t* p) {
+    const auto* w = reinterpret_cast<const uint64_t*>(p);
+    for (size_t i = 0; i < kPage / 8; i += 8)
+        if (w[i] | w[i + 1] | w[i + 2] | w[i + 3] | w[i + 4] | w[i + 5] | w[i + 6] | w[i + 7]) return false;
+    return true;
+}
+
+void zero_fill(uint8_t* d, size_t n) {
+    uint8_t* const a = reinterpret_cast<uint8_t*>((reinterpret_cast<uintptr_t>(d) + kPage - 1) & ~uintptr_t(kPage - 1));
+    uint8_t* const e = reinterpret_cast<uint8_t*>((reinterpret_cast<uintptr_t>(d) + n) & ~uintptr_t(kPage - 1));
+    if (n < kZeroSkipMin || a >= e) {
+        std::memset(d, 0, n);
+        return;
+    }
+    std::memset(d, 0, static_cast<size_t>(a - d));
+    for (uint8_t* q = a; q < e;) {
+        if (page_is_zero(q)) {
+            q += kPage;
+            continue;
+        }
+        uint8_t* r = q + kPage;   // a run of pages to clear: one memset
+        while (r < e && !page_is_zero(r)) r += kPage;
+        std::memset(q, 0, static_cast<size_t>(r - q));
+        q = r;
+    }
+    std::memset(e, 0, static_cast<size_t>(d + n - e));
+}
+
+void h_memset(::Ctx* c) {   // x0 stays dst
+    const int v = static_cast<int>(c->x[1] & 0xFF);
+    if (v == 0) zero_fill(static_cast<uint8_t*>(p(c, 0)), static_cast<size_t>(c->x[2]));
+    else std::memset(p(c, 0), v, static_cast<size_t>(c->x[2]));
+}
 void h_memchr(::Ctx* c) { ret_ptr(c, std::memchr(p(c, 0), static_cast<int>(c->x[1] & 0xFF), static_cast<size_t>(c->x[2]))); }
 void h_strchr(::Ctx* c) { ret_ptr(c, std::strchr(s(c, 0), static_cast<int>(c->x[1] & 0xFF))); }
 void h_strrchr(::Ctx* c) { ret_ptr(c, std::strrchr(s(c, 0), static_cast<int>(c->x[1] & 0xFF))); }

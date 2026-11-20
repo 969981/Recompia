@@ -1027,6 +1027,7 @@ bool make_shader_info(const uint8_t* code, const uint8_t* control, std::vector<u
     if (pre_refl) out.refl = *pre_refl;
     else if (!reflect_spirv(spirv.data(), spirv.size(), out.refl, error)) return false;
     out.stage = out.refl.stage;
+    out.spirv_words = static_cast<uint32_t>(spirv.size());
     out.spirv = std::move(spirv);
     if (c.const_size) {
         if (uint64_t(c.const_offset) + c.const_size > c.code_size) return fail("constant data outside the code block");
@@ -1244,7 +1245,7 @@ bool ShaderCache::pack_stale(const std::string& hash) {
 bool ShaderCache::pack_read(const std::string& hash, std::string& out) {
     if (!pack_file_) return false;
     auto it = pack_.find(hash);
-    if (it == pack_.end() || pack_stale(hash)) return false;
+    if (it == pack_.end()) return false;
     const PackEntry& e = it->second;
     thread_local std::string comp;
     comp.resize(e.csize);
@@ -1258,17 +1259,78 @@ bool ShaderCache::pack_read(const std::string& hash, std::string& out) {
     return true;
 }
 
-bool ShaderCache::read_spv(const std::string& hash, std::string& out) {
-    if (pack_read(hash, out)) {
+bool ShaderCache::read_spv(const std::string& hash, std::string& out, SpirvFrom* from) {
+    if (!pack_stale(hash) && pack_read(hash, out)) {
         pre_from_pack_.fetch_add(1, std::memory_order_relaxed);
+        if (from) *from = SpirvFrom::Pack;
         return true;
     }
     if (archive_has(hash) && archive_read(hash, out)) {
         from_archive_.fetch_add(1, std::memory_order_relaxed);
+        if (from) *from = SpirvFrom::Archive;
         return true;
     }
     pre_from_files_.fetch_add(1, std::memory_order_relaxed);
+    if (from) *from = SpirvFrom::Memory;
     return read_file(dir_ + "/" + hash + ".spv", out);
+}
+
+// ---- words on demand (SpirvFrom) ------------------------------------------------------------------------------------
+
+void ShaderCache::keep_recent(const ShaderInfo* s, SpirvWords w) {
+    const size_t bytes = w->size() * 4;
+    std::lock_guard lk(recent_mu_);
+    for (const auto& [k, v] : recent_)
+        if (k == s) return;
+    recent_.emplace_back(s, std::move(w));
+    recent_bytes_ += bytes;
+    size_t drop = 0;
+    while (drop + 1 < recent_.size() && recent_bytes_ > kRecentBytes) recent_bytes_ -= recent_[drop++].second->size() * 4;
+    recent_.erase(recent_.begin(), recent_.begin() + static_cast<std::ptrdiff_t>(drop));
+}
+
+void ShaderCache::drop_words(ShaderInfo& info) {
+    if (info.spirv_from == SpirvFrom::Memory || info.spirv.empty()) return;
+    auto w = std::make_shared<const std::vector<uint32_t>>(std::move(info.spirv));
+    info.spirv = std::vector<uint32_t>();
+    keep_recent(&info, std::move(w));
+}
+
+SpirvWords ShaderCache::words(const ShaderInfo* s) {
+    {
+        std::lock_guard lk(recent_mu_);
+        for (size_t i = recent_.size(); i-- > 0;)
+            if (recent_[i].first == s) {
+                SpirvWords w = recent_[i].second;
+                if (i + 1 != recent_.size()) {   // used again: to the back, so it is dropped last
+                    auto e = std::move(recent_[i]);
+                    recent_.erase(recent_.begin() + static_cast<std::ptrdiff_t>(i));
+                    recent_.push_back(std::move(e));
+                }
+                return w;
+            }
+    }
+    NXFT("shader.words");
+    std::string bytes;
+    const bool ok = s->spirv_from == SpirvFrom::Pack ? pack_read(s->hash, bytes) : archive_read(s->hash, bytes);
+    if (!ok || bytes.size() != size_t(s->spirv_words) * 4) {
+        std::lock_guard lk(recent_mu_);
+        if (unreadable_.insert(s->hash).second)
+            NXLOG_E("nvn", "shader %s: its SPIR-V could not be read again from the %s (%zu bytes, %u words expected): no module is made from it",
+                    s->hash.c_str(), s->spirv_from == SpirvFrom::Pack ? "preload pack" : "shader archive", bytes.size(), s->spirv_words);
+        return nullptr;
+    }
+    auto w = std::make_shared<std::vector<uint32_t>>(bytes.size() / 4);
+    std::memcpy(w->data(), bytes.data(), bytes.size());
+    SpirvWords out = std::move(w);
+    keep_recent(s, out);
+    return out;
+}
+
+SpirvWords shader_words(const ShaderInfo* s) {
+    if (!s) return nullptr;
+    if (s->spirv_from == SpirvFrom::Memory) return SpirvWords(SpirvWords{}, &s->spirv);   // aliasing, owns nothing: a ShaderInfo lives on
+    return shader_cache().words(s);
 }
 
 // ---- the shader archive -------------------------------------------------------------------------------------------
@@ -1728,12 +1790,16 @@ std::unique_ptr<ShaderCache::Preloaded> ShaderCache::preload_one(const std::stri
         if (by_hash_.count(hash)) return nullptr;   // the game got there first
     }
     std::string bytes;
-    if (!read_spv(hash, bytes) || bytes.empty() || bytes.size() % 4) return nullptr;
+    SpirvFrom from = SpirvFrom::Memory;
+    if (!read_spv(hash, bytes, &from) || bytes.empty() || bytes.size() % 4) return nullptr;
     auto p = std::make_unique<Preloaded>();
+    p->from = from;
     p->words.resize(bytes.size() / 4);
     std::memcpy(p->words.data(), bytes.data(), bytes.size());
     bytes = std::string();
     if (!reflect_spirv(p->words.data(), p->words.size(), p->refl, nullptr)) return nullptr;
+    p->word_count = static_cast<uint32_t>(p->words.size());
+    if (p->from != SpirvFrom::Memory) p->words = std::vector<uint32_t>();   // read again when a module is made (SpirvFrom)
     std::string record;
     bool have_record = false;
     {
@@ -1897,11 +1963,13 @@ const ShaderInfo* ShaderCache::load(const std::string& hash, const uint8_t* code
     NXFT("shader.load");
     std::unique_ptr<Preloaded> pre = take_preloaded(hash);   // waits for a worker that is reading this file: one read, not two
     std::vector<uint32_t> words;
+    SpirvFrom from = SpirvFrom::Memory;
     if (pre) {
         words = std::move(pre->words);
+        from = pre->from;
     } else {
         std::string bytes;
-        if (!read_spv(hash, bytes) || bytes.empty() || bytes.size() % 4) {
+        if (!read_spv(hash, bytes, &from) || bytes.empty() || bytes.size() % 4) {
             dump_missing_block(hash, code, control, code_size);
             return miss("no usable " + dir_ + "/" + hash + ".spv");
         }
@@ -1912,6 +1980,8 @@ const ShaderInfo* ShaderCache::load(const std::string& hash, const uint8_t* code
     auto info = std::make_unique<ShaderInfo>();
     std::string error;
     if (!make_shader_info(code, control, std::move(words), record_ptr, *info, &error, pre ? &pre->refl : nullptr)) return miss(error);
+    info->spirv_from = from;
+    if (pre) info->spirv_words = pre->word_count;
     std::string flush;
     const ShaderInfo* out;
     {
@@ -1919,6 +1989,7 @@ const ShaderInfo* ShaderCache::load(const std::string& hash, const uint8_t* code
         auto r = by_hash_.emplace(hash, std::move(info));   // a second reader of the same file loses here and its copy is dropped
         out = r.first->second.get();
         if (r.second) {
+            drop_words(*r.first->second);                    // only the winner: recent_ is keyed by the pointer that stays
             loaded_++;
             note_order_locked(hash, flush);
         }
@@ -1928,66 +1999,43 @@ const ShaderInfo* ShaderCache::load(const std::string& hash, const uint8_t* code
 }
 
 const ShaderInfo* ShaderCache::load_stub(const std::string& hash) {
-    std::string dir, record;
+    std::string record;
     bool have_record = false;
-    ShaderInfo* existing = nullptr;
     {
         std::lock_guard lk(lock_);
         if (!open_) return nullptr;
-        auto it = stubs_.find(hash);
-        if (it != stubs_.end()) {
-            if (!it->second) return nullptr;
-            existing = it->second.get();
-            if (!existing->spirv.empty()) return existing;        // checked under the lock: another thread may be putting the words back
-        } else if (auto ln = lines_.find(hash); ln != lines_.end()) {
+        if (auto it = stubs_.find(hash); it != stubs_.end()) return it->second.get();
+        if (auto ln = lines_.find(hash); ln != lines_.end()) {
             record = column_text(std::string_view(results_.data() + ln->second.first, ln->second.second), resources_col_);
             have_record = true;
         }
-        dir = dir_;
     }
     std::string bytes;
-    if (!read_spv(hash, bytes) || bytes.empty() || bytes.size() % 4) {
-        if (!existing) {
-            std::lock_guard lk(lock_);
-            stubs_.emplace(hash, nullptr);
+    SpirvFrom from = SpirvFrom::Memory;
+    std::unique_ptr<ShaderInfo> info;
+    if (read_spv(hash, bytes, &from) && !bytes.empty() && bytes.size() % 4 == 0) {
+        std::vector<uint32_t> words(bytes.size() / 4);
+        std::memcpy(words.data(), bytes.data(), bytes.size());
+        bytes = std::string();
+        info = std::make_unique<ShaderInfo>();
+        info->hash = hash;
+        std::string error;
+        if (!reflect_spirv(words.data(), words.size(), info->refl, &error)) info.reset();
+        if (info && have_record) {
+            std::vector<HarnessResource> list;
+            if (!parse_harness_resources(record, list) || !apply_harness(info->refl, list)) info.reset();
         }
-        return nullptr;
-    }
-    std::vector<uint32_t> words(bytes.size() / 4);
-    std::memcpy(words.data(), bytes.data(), bytes.size());
-    if (existing) {                         // the words were dropped: put them back (the reflection is kept)
-        std::lock_guard lk(lock_);
-        if (existing->spirv.empty()) existing->spirv = std::move(words);
-        return existing;
-    }
-    auto info = std::make_unique<ShaderInfo>();
-    info->hash = hash;
-    std::string error;
-    if (!reflect_spirv(words.data(), words.size(), info->refl, &error)) info.reset();
-    if (info && have_record) {
-        std::vector<HarnessResource> list;
-        if (!parse_harness_resources(record, list) || !apply_harness(info->refl, list)) info.reset();
-    }
-    if (info) {
-        info->stage = info->refl.stage;
-        info->spirv = std::move(words);
+        if (info) {
+            info->stage = info->refl.stage;
+            info->spirv_words = static_cast<uint32_t>(words.size());
+            info->spirv_from = from;
+            info->spirv = std::move(words);
+        }
     }
     std::lock_guard lk(lock_);
-    if (auto it = stubs_.find(hash); it != stubs_.end()) {
-        // Another thread made the stub first (and its words may have been dropped since): hand it ours. They sit in info when the
-        // reflection worked, in words otherwise.
-        std::vector<uint32_t>& mine = info ? info->spirv : words;
-        if (it->second && it->second->spirv.empty() && !mine.empty()) it->second->spirv = std::move(mine);
-        return it->second.get();
-    }
-    return stubs_.emplace(hash, std::move(info)).first->second.get();
-}
-
-void ShaderCache::release_stub_spirv(const ShaderInfo* s) {
-    std::lock_guard lk(lock_);
-    auto it = stubs_.find(s->hash);
-    if (it == stubs_.end() || it->second.get() != s) return;
-    std::vector<uint32_t>().swap(it->second->spirv);
+    auto r = stubs_.emplace(hash, std::move(info));   // another thread made the stub first: theirs stays, ours is dropped
+    if (r.second && r.first->second) drop_words(*r.first->second);
+    return r.first->second.get();
 }
 
 const ShaderInfo* ShaderCache::find_by_hash(const std::string& hash) {

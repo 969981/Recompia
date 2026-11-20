@@ -85,22 +85,29 @@ export const api = {
   profileRemove: (args) => invoke('profile_remove', args),   // { id }
   profileSelect: (args) => invoke('profile_select', args),   // { id }
 
-  // Co-op saves: each view is { profile: { id, name, members: [{ id, name }], me, ... }, host: { host, role }, folder }
+  // Co-op saves: each view is { profile: { id, name, members: [{ id, name }], me, split, ... }, host: { host, role }, folder }
   coopList: () => invoke('coop_list'),
   coopCreate: (args) => invoke('coop_create', args),   // { name, myName, relay }; resolves the list
+  coopCreateSplit: (args) => invoke('coop_create_split', args),   // { name, players }; resolves the list
   coopAddMember: (args) => invoke('coop_add_member', args),   // { id, name }
   coopRemoveMember: (args) => invoke('coop_remove_member', args),   // { id, member }
   coopInvite: (args) => invoke('coop_invite', args),   // { id, relay }: { long, short }; short ('XXX-XXX') is null when that relay keeps none
   coopResolveInvite: (args) => invoke('coop_resolve_invite', args),   // { text, relay }: the long invite for a short code; other text as it is; rejects { code: 'invite_not_found' } when no invite has it
   coopInviteMembers: (args) => invoke('coop_invite_members', args),   // { invite }: { id, members: [{ id, name }] }, null when it is not an invite
   coopAccept: (args) => invoke('coop_accept', args),   // { invite, member }
-  coopPlay: (args) => invoke('coop_play', args),   // { id, startAs: 'auto' | 'host' | 'visit' }
+  coopPlay: (args) => invoke('coop_play', args),   // { id, startAs: 'auto' | 'host' | 'visit', split: { side, pads, sound } }; options may be omitted
   coopDelete: (args) => invoke('coop_delete', args),   // { id, relay }: relay = the one coop_invite was given; resolves the list
   coopLastRun: (args) => invoke('coop_last_run', args),   // { since }: unix seconds; { mismatch: 'build' | 'mods', own_mods } or null
 
   // Steam
   steamStatus: () => invoke('steam_status'),
   applyBranding: () => invoke('apply_branding'),
+  listThemes: () => invoke('list_themes'),   // { packs: [{ folder, name, version, themes: [...], error }] } (themes.rs)
+  addTheme: (args) => invoke('add_theme', args),   // { path }: a pack folder or .zip; { name, themes }
+  setTheme: (args) => invoke('set_theme', args),   // { theme }: '<pack folder>/<id>', '' for the launcher's own looks (save_config never changes it)
+  removeThemePack: (args) => invoke('remove_theme_pack', args),   // { pack }: the pack's folder name
+  openThemesDir: () => invoke('open_themes_dir'),
+  pickThemeFile: () => invoke('pick_theme_file'),   // a .zip; null when the dialog is closed
   steamAdd: () => invoke('steam_add'),   // the launcher shortcut
   steamRemove: (args) => invoke('steam_remove', args),   // { target: 'launcher' | 'game' } (game: the old shortcut)
 

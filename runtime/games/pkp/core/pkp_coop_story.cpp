@@ -71,6 +71,11 @@
 // makes every step through the catch-up now (it moves no quest by itself, pkp_coop_quests.cpp), so the step that reaches the group's
 // state of its quest (the target is the state the step leads to) counts as live and plays both; only a step with more of that
 // quest's steps after it is a replay.
+// The music a member is left with is the authority's, though: a muted step can be the one that ends an earlier step's music
+// (Kyogre's: quest 122's close plays track 117, quest 61's start plays 119, quest 110's start stops it), and a member that saved
+// while the wrong track played keeps it in its save (m_contentsBGM is CMNDAT, read when the area starts). So the authority sends
+// its area's m_contentsBGM with every digest (AreaMusic), and a member in the same area whose own differs plays or stops it with
+// 0x1222d4's own calls (0xf9774 / 0xf99e0, which also write m_contentsBGM) once no quest music step has run here for kMusicSettle.
 //
 // Abilities (unlocks such as the creature list and its menu entries). The bits live at save root + 0x4a26a8 (id 1..0xf9: byte id >> 3, bit
 // id & 7) and have four writers: the quest effects 0x01 (0x121bb8) and 0x19 (0x1227fc), event command 0x10c0d0 and script command
@@ -154,6 +159,10 @@ constexpr uint64_t kScEvent = 0x119f60, kScEventOn = 0x119f74;   // contents sch
 constexpr uint64_t kFadeBlocker = 0x35650f8, kFadeBlockerTest = 0x2410b0, kFadeBlockerAsk = 0xaa01c8;   // 0x1231f0's second test
 constexpr uint64_t kFadeOut = 0xa9fcc4, kFadeBusy = 0xa9ff4c, kFadeIn = 0xa9fa34;
 constexpr double kFadeMax = 10.0;                      // a member's time fade is brought back in after this at the latest
+constexpr uint64_t kAreaMusic = 0x4a36e0;              // save root + stage: m_contentsBGM, the area's quest music (0: none)
+constexpr uint64_t kBgmPlayer = 0x3561910, kBgmPlayerObj = 0x10;   // 0x1222d4's music player: *(main + kBgmPlayer) + kBgmPlayerObj
+constexpr uint64_t kBgmPlay = 0xf9774, kBgmStop = 0xf99e0;          // (player, track u8, flag) / (player), as 0x1222d4 calls them
+constexpr double kMusicSettle = 3.0;   // a member takes the authority's music once no quest music step ran here for this long
 constexpr uint8_t kEffectFirst = 0x01, kEffectLast = 0x39;
 
 constexpr uint8_t kAbilitySet = 0x01, kAbilityToggle = 0x19;
@@ -211,6 +220,13 @@ struct State {
     bool cleared_send_all = false;           // the next send is the whole set (joined, or another member joined)
     bool fade_out = false;                   // a member's time-skip fade is out; brought back in once it is done
     double fade_since = 0.0;
+    double music_at = -1e9;                  // the last quest music step (0x07) seen here, run or muted
+    uint8_t music_flag[256] = {};            // the authority: per area, the play flag of the last 0x07 seen there (+1; 0 = none)
+    struct Music {                           // a member: the authority's area music, as its last AreaMusic said
+        bool have = false;
+        uint8_t stage = 0, track = 0, flag = 1;
+        bool applied = false;                // taken here (each new area / track is taken once)
+    } music;
 };
 State& st() {
     static State s;
@@ -553,6 +569,8 @@ void catch_up(::Ctx* c) {
 }
 
 // The authority's whole story to every member (StoryDigest).
+void send_music();   // with the digest (below, with the other music parts)
+
 void send_digest() {
     State& s = st();
     const uint64_t words = quest_words(), root = save_root();
@@ -567,6 +585,7 @@ void send_digest() {
                                                   .bytes(states, kQuestMax)
                                                   .bytes(reinterpret_cast<const uint8_t*>(root + kAbilities), kAbilityBytes)
                                                   .take());
+    send_music();
 }
 
 const char* ability_name(uint16_t id) {
@@ -813,6 +832,48 @@ void finish_time_fade(::Ctx* c) {
 
 }  // namespace
 
+namespace {
+
+// The quest music of area `stage` on this process (its m_contentsBGM), or -1 when the save is not readable.
+int area_music(uint8_t stage) {
+    const uint64_t root = save_root();
+    return root && guest::ok(root + kAreaMusic + stage, 1) ? guest::rd<uint8_t>(root + kAreaMusic + stage) : -1;
+}
+
+// The authority: its area's quest music, to every member (with the digest).
+void send_music() {
+    const State& s = st();
+    const uint8_t stage = area_stage();
+    const int track = area_music(stage);
+    if (track < 0) return;
+    const uint8_t flag = s.music_flag[stage] ? static_cast<uint8_t>(s.music_flag[stage] - 1) : 1;
+    link::to_members(wire::Type::AreaMusic,
+                     wire::Writer(link::self()).u8(stage).u8(static_cast<uint8_t>(track)).u8(flag).take());
+}
+
+// A member: the authority's area music, once this process's catch-up has made no music step for kMusicSettle.
+void take_music(::Ctx* c) {
+    State& s = st();
+    State::Music& m = s.music;
+    if (!m.have || m.applied || link::is_authority() || !link::in_session()) return;
+    if (qpc::seconds() - s.music_at < kMusicSettle || m.stage != area_stage()) return;
+    const int here = area_music(m.stage);
+    if (here < 0) return;
+    m.applied = true;
+    if (here == m.track) return;
+    const uint64_t bgm = guest::rd<uint64_t>(base() + kBgmPlayer);
+    if (!bgm) return;
+    if (m.track) {
+        guest::call(c, base() + kBgmPlay, bgm + kBgmPlayerObj, m.track, m.flag ? 1 : 0);
+        NXLOG_I(kTag, "Co-op story: the area's quest music is track %u on the authority (%d here); it plays here", m.track, here);
+    } else {
+        guest::call(c, base() + kBgmStop, bgm + kBgmPlayerObj);
+        NXLOG_I(kTag, "Co-op story: the area has no quest music on the authority (track %d here); it stops here", here);
+    }
+}
+
+}  // namespace
+
 int on_quest_effect(::Ctx* c) {
     // The game's own session bits, not the channel: a member in the host's world never runs a world effect, even before its channel
     // has learnt the authority.
@@ -822,6 +883,10 @@ int on_quest_effect(::Ctx* c) {
     if (kind == kAbilitySet && link::in_session() && guest::ok(c->x[0], 2 + kAbilitySlots * 2))
         for (unsigned k = 0; k < kAbilitySlots; ++k) note_grant(guest::rd<uint16_t>(c->x[0] + 2 + k * 2), "quest effect 0x01");
     const bool member = role() == CoopRole::Visit && (session_bits() & layout::kSessionVisitor);
+    if (kind == kQuestMusicEffect) {
+        st().music_at = qpc::seconds();
+        if (guest::ok(c->x[0], 8)) st().music_flag[area_stage()] = guest::rd<uint16_t>(c->x[0] + 6) ? 2 : 1;
+    }
     if (kind == kQuestMusicEffect && link::in_session() && catch_up_step(c)) {
         NXLOG_I(kTag, "Co-op story: effect 0x07 of a step the catch-up replays; its music not played here");
         return 1;
@@ -1014,6 +1079,14 @@ void on_cleared_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
     if (n && !turned_off) NXLOG_I(kTag, "Co-op story: %u cleared abilities from node %u, all already off here", n, origin);
 }
 
+void on_music_message(::Ctx*, int, uint8_t, wire::Reader& r) {
+    const uint8_t stage = r.u8(), track = r.u8(), flag = r.u8();
+    if (!r.ok() || link::is_authority()) return;
+    State::Music& m = st().music;
+    if (m.have && m.stage == stage && m.track == track) return;   // the same as before: taken already, or waiting
+    m = State::Music{true, stage, track, flag, false};
+}
+
 void on_ability_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
     State& s = st();
     std::memset(s.command, 0, sizeof s.command);
@@ -1065,6 +1138,7 @@ static void send_wild_pops() {
 
 void tick(::Ctx* c) {
     finish_time_fade(c);   // also out of a session: a fade started here is always brought back in
+    take_music(c);
     send_wild_pops();
     send_cleared();
     catch_up(c);
@@ -1092,6 +1166,7 @@ void on_session_change() {
     std::memset(s.cleared, 0, sizeof s.cleared);
     s.cleared_new.clear();
     s.cleared_send_all = false;
+    s.music = State::Music{};
 }
 
 void on_member_joined() {

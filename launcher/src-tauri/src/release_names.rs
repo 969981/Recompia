@@ -114,6 +114,20 @@ pub fn launcher_files(root: &Path, host: Host) -> Vec<PathBuf> {
     host.launchers().iter().map(|n| root.join(n)).collect()
 }
 
+/// Which of the two names `launcher`'s file carries (any case): Some(true) the new one, Some(false) the old one, None neither (a name
+/// the player gave it).
+pub fn is_new_name(launcher: &Path, host: Host) -> Option<bool> {
+    let name = launcher.file_name()?.to_str()?;
+    host.launchers().iter().position(|l| l.eq_ignore_ascii_case(name)).map(|i| i == 0)
+}
+
+/// The other scheme's launcher beside `launcher` when it carries one of the two names: what a shortcut made before or after the
+/// rename starts instead. None for a name the player gave it.
+pub fn other_name(launcher: &Path, host: Host) -> Option<PathBuf> {
+    let new = is_new_name(launcher, host)?;
+    Some(launcher.with_file_name(host.launchers()[usize::from(new)]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,5 +223,20 @@ mod tests {
         let bundle = Path::new("/Applications/R.app/Contents/MacOS");
         let [new, old] = Host::MacOs.launchers();
         assert_eq!(landing(bundle, &bundle.join(old), new, Host::MacOs), bundle.join(old), "a bundle keeps the binary its Info.plist names");
+    }
+
+    #[test]
+    fn each_name_knows_the_other_and_a_players_own_name_has_none() {
+        let root = Path::new("/games/r");
+        for host in [Host::Windows, Host::Linux, Host::MacOs] {
+            let [new, old] = host.launchers();
+            assert_eq!(is_new_name(&root.join(new), host), Some(true));
+            assert_eq!(is_new_name(&root.join(old), host), Some(false));
+            assert_eq!(other_name(&root.join(new), host), Some(root.join(old)));
+            assert_eq!(other_name(&root.join(old), host), Some(root.join(new)));
+            assert_eq!(is_new_name(&root.join("My launcher"), host), None);
+            assert_eq!(other_name(&root.join("My launcher"), host), None);
+        }
+        assert_eq!(is_new_name(Path::new("/t/debug/recompia.exe"), Host::Windows), Some(true), "any case");
     }
 }

@@ -73,7 +73,7 @@ mod tests {
     use crate::relay::{Config, RelayServer};
 
     fn save(relay: &str, id: &str, room_code: &str) -> Profile {
-        Profile { version: 1, id: id.into(), name: "Island".into(), account_uid: "0".repeat(32), room_code: room_code.into(), relay: relay.into(), members: vec![], me: String::new() }
+        Profile { version: 1, id: id.into(), name: "Island".into(), account_uid: "0".repeat(32), room_code: room_code.into(), relay: relay.into(), members: vec![], me: String::new(), split: false }
     }
 
     const ID: &str = "0123456789abcdef";

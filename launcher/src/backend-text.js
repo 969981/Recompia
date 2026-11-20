@@ -307,6 +307,7 @@ const TEXTS = [
   msg('Removed "{1}" from Steam. Start Steam again.'),
 
   // releases.rs, update.rs, update_cmds.rs
+  msg('The launcher\'s file was renamed Recompia.exe (Recompia.AppImage on Linux, Recompia on macOS) in 0.16.0. An older version goes back to the old file name, so Steam shortcuts that start the new name stop working: use Add to Steam again after going back.'),
   msg('Profiles (a separate save and name for each player) arrived in 0.8.0. An older version ignores profiles.json and uses one save, so a second player\'s save may not be found.'),
   msg('The one-click updater arrived in 0.7.5. An older launcher cannot update itself, so moving forward again would mean extracting a release by hand.'),
   msg('That version could not be compared with the one you have.'),
@@ -349,7 +350,7 @@ const TEXTS = [
   msg("The game folder's drive is write-protected"),
   msg("The game folder's drive is full"),
   msg('Cannot write in the game folder'),
-  msg('Windows is blocking writes in this folder ({1}). This is most likely Windows Security\'s Controlled folder access or an antivirus, which block programs in Documents, Desktop, Downloads and Pictures. Allow PokopiaLauncher.exe, pkp.exe and the tools it runs (python.exe, zig.exe and spirv_harness.exe in the tools folder) in Windows Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled folder access, or in your antivirus. Or move the game folder somewhere like C:\\Games.'),
+  msg('Windows is blocking writes in this folder ({1}). This is most likely Windows Security\'s Controlled folder access or an antivirus, which block programs in Documents, Desktop, Downloads and Pictures. Allow Recompia.exe, PokopiaLauncher.exe (its old name), pkp.exe and the tools it runs (python.exe, zig.exe and spirv_harness.exe in the tools folder) in Windows Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled folder access, or in your antivirus. Or move the game folder somewhere like C:\\Games.'),
   msg('The drive is write-protected ({1}). Move the game folder to another drive, somewhere like C:\\Games.'),
   msg('The drive is full ({1}). Free some space, or move the game folder to a bigger drive.'),
   msg('Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.'),

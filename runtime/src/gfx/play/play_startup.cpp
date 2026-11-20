@@ -4,6 +4,7 @@
 #include "nxrt/key_state.h"
 #include "nxrt/perf_report.h"
 #include "nxrt/screenshot.h"
+#include "nxrt/split.h"
 #include "nxrt/text.h"
 #include "nxrt/vi_sinks.h"
 
@@ -136,6 +137,8 @@ DisplayConfig display() {
     d.fps_cap = st.settings.display.fps_cap;
     d.keep_aspect = st.settings.display.keep_aspect;
     d.present_mode = present_mode_for(st.settings.display);
+    d.places_window = split_active();
+    d.takes_focus = split::window() <= 1;
     return d;
 }
 
@@ -246,8 +249,12 @@ bool start(const StartOptions& opt) {
     // game waits for it (keyboard_service; also headless with swkbd_prompt = force, which has an overlay and no window)
     if (st.window || st.overlay) svc_set_busy_hook(GetCurrentThreadId(), &busy_pump);
     kernel::set_blocked_hook(GetCurrentThreadId(), &keyboard_service);
-    if (st.window && st.settings.display.monitor > 0) platform::move_to_display(st.settings.display.monitor);
-    if (st.window && st.settings.display.window_mode != "windowed") set_window_mode(st.settings.display.window_mode);
+    if (split_active()) {
+        split_start();      // the window's part of the screen, in place of the settings' monitor and window mode
+    } else {
+        if (st.window && st.settings.display.monitor > 0) platform::move_to_display(st.settings.display.monitor);
+        if (st.window && st.settings.display.window_mode != "windowed") set_window_mode(st.settings.display.window_mode);
+    }
 
     const GamePlay* gp = game_play();
     {   // display options: the internal resolution comes from the window as it is now (after the window mode change above)

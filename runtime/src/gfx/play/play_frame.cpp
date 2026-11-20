@@ -21,9 +21,11 @@ void busy_pump() {
 // Master volume (live). The mute while the window has no focus is set every frame (update_hook) and on focus changes.
 void apply_audio(const AudioSettings& a) { audio::set_master_volume(static_cast<float>(a.volume)); }
 
-void apply_unfocused_mute() {
+// In split screen one of the two windows never has the focus, so [audio] mute_unfocused does not apply there: a window is silent when
+// its starter said so ([split] mute).
+void apply_window_mute() {
     G& st = g();
-    audio::set_muted(st.window && st.settings.audio.mute_unfocused && !platform::focused());
+    audio::set_muted(split_active() ? split_muted() : st.window && st.settings.audio.mute_unfocused && !platform::focused());
 }
 
 // ---- hooks ----------------------------------------------------------------------------------------------------------------------------
@@ -83,7 +85,10 @@ int update_hook(::Ctx*, uint64_t, void*) {
         st.thread_mismatch.store(true);
         NXLOG_W(kTag, "the frame-boundary hook runs on another thread than the one that started play mode: SDL events are not pumped");
     }
-    if (st.window && on_pump_thread) platform::pump_events();
+    if (st.window && on_pump_thread) {
+        platform::pump_events();
+        split_keep(now);
+    }
 
     // settings queued by the page
     {
@@ -106,7 +111,8 @@ int update_hook(::Ctx*, uint64_t, void*) {
             apply_fps_counter(s.fps);
             st.want_present.store(static_cast<int>(present_mode_for(s.display)));
             apply_audio(s.audio);
-            if (st.window && s.display.monitor != old_monitor && s.display.monitor > 0) {
+            // split screen: the window stays in its half (split_keep follows another monitor), whatever mode and size the settings name
+            if (st.window && !split_active() && s.display.monitor != old_monitor && s.display.monitor > 0) {
                 if (platform::move_to_display(s.display.monitor)) st.limiter.reset_schedule();
                 apply_frame_cap(s);                        // another display can mean another refresh rate
             }
@@ -115,7 +121,7 @@ int update_hook(::Ctx*, uint64_t, void*) {
                 apply_frame_cap(s);                        // another window mode can mean another refresh rate (vsync cap)
             }
             // The windowed size is live while the window is windowed; in fullscreen it is the size the window goes back to (the next start).
-            if (st.window && (s.display.width != old_w || s.display.height != old_h) && platform::fullscreen_mode() == platform::FullscreenMode::Windowed)
+            if (st.window && !split_active() && (s.display.width != old_w || s.display.height != old_h) && platform::fullscreen_mode() == platform::FullscreenMode::Windowed)
                 platform::set_window_size(s.display.width, s.display.height);
             std::string err;
             if (!save_settings(st.path, s, &err)) NXLOG_W(kTag, "cannot save %s: %s", st.path.c_str(), err.c_str());
@@ -123,7 +129,7 @@ int update_hook(::Ctx*, uint64_t, void*) {
         }
     }
 
-    apply_unfocused_mute();
+    apply_window_mute();
 
     // events
     input::Event buf[128];
@@ -182,7 +188,7 @@ int update_hook(::Ctx*, uint64_t, void*) {
         pin.last = st.last_dev;
         pin.last_pad_kind = st.last_pad_kind;
         input::GamepadInfo pads[1];
-        pin.connected_pad_kind = input::gamepad_list(pads, 1) > 0 ? static_cast<int>(pads[0].kind) : -1;
+        pin.connected_pad_kind = own_pads(pads, 1) > 0 ? static_cast<int>(pads[0].kind) : -1;
         prompts_update(st.settings, pin);
     }
 

@@ -167,6 +167,16 @@ void set_window_mode(const std::string& mode);
 void toggle_fullscreen();
 void apply_fps_counter(const FpsSettings& f);
 
+// play_split.cpp: split screen (nxrt/split.h)
+bool split_active();
+bool split_muted();              // this window plays no sound
+// Pure: the part of a work area that `window` (1..count) of `count` windows (2 to 4) has (nxrt/split.h says how they are cut).
+platform::Rect split_part(const platform::Rect& area, int window, int count, bool side);
+// The controllers this window plays, in the order they were connected: every one, or in split screen the one in its place (or none).
+size_t own_pads(input::GamepadInfo* out, size_t max);
+void split_start();              // at start, in place of the display settings' monitor and window mode: the window goes to its place
+void split_keep(uint64_t now);   // the frame boundary: puts the window back when something moved it
+
 // play_events.cpp
 void vib_sink(uint32_t slot, int hand, const hid::VibrationValue& v, void*);
 void handle_event(const input::Event& e, uint64_t now);
@@ -176,6 +186,7 @@ void poll_pads(uint64_t now);
 // play_frame.cpp
 extern std::atomic<uint64_t> g_last_pump_ms;
 void busy_pump();
+void apply_window_mute();          // the sound is off: [audio] mute_unfocused without the focus, or a silent split screen window
 void keyboard_service();
 void pre_frame(void*);
 int update_hook(::Ctx*, uint64_t, void*);

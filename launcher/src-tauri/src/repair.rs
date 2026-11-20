@@ -61,7 +61,11 @@ const CACHE_FILES: [&str; 4] = ["pipeline_cache.bin", "pipeline_keys.bin", "shad
 /// launcher.json keeps the places the launcher needs; everything else is a preference and goes back to its default.
 const LAUNCHER_KEEP: [&str; 4] = ["dump_dir", "game_dir", "channel", "picked_version"];
 /// Files whose old copies updates set aside (`pkp_rt.dll.0.7.6`); the file with the plain name is the current one and is never listed.
-const VERSIONED: [&str; 7] = ["pkp_rt.dll", "libpkp_rt.so", "libpkp_rt.dylib", "PokopiaLauncher.AppImage", "pkp.exe", "pkp", "PokopiaLauncher.exe"];
+/// The launcher under both names of the release rename (release_names.rs).
+const VERSIONED: [&str; 10] = [
+    "pkp_rt.dll", "libpkp_rt.so", "libpkp_rt.dylib", "pkp.exe", "pkp",
+    "Recompia.exe", "Recompia.AppImage", "Recompia", "PokopiaLauncher.exe", "PokopiaLauncher.AppImage",
+];
 /// Never a target of any action (a unit test checks that no plan names one).
 pub const PROTECTED: [&str; 14] = ["save", "save-backups", "rollback-backups", "profiles.json", "shader_cache", "build", "nup_dump", ".update", "tools", "pkp.exe", "pkp", "pkp_rt.dll", "libpkp_rt.so", "libpkp_rt.dylib"];
 
@@ -190,9 +194,12 @@ pub fn reset_launcher_text(old: &str) -> String {
 
 /// `pkp_rt.dll.0.7.6` yes; `pkp_rt.dll`, `pkp_rt.dll.bak` and `pkp.log.prev` no.
 pub fn is_old_copy(name: &str) -> bool {
-    VERSIONED.iter().any(|base| {
-        name.strip_prefix(base).and_then(|rest| rest.strip_prefix('.')).map_or(false, |v| v.chars().next().map_or(false, |c| c.is_ascii_digit()))
-    })
+    VERSIONED.iter().any(|base| is_copy_of(base, name))
+}
+
+/// `name` is `base` followed by a dot and a version (`pkp_rt.dll.0.7.6`).
+pub fn is_copy_of(base: &str, name: &str) -> bool {
+    name.strip_prefix(base).and_then(|rest| rest.strip_prefix('.')).map_or(false, |v| v.chars().next().map_or(false, |c| c.is_ascii_digit()))
 }
 
 fn size_of(path: &Path) -> u64 {
@@ -514,10 +521,11 @@ mod tests {
 
     #[test]
     fn only_old_versioned_copies_count_as_leftovers() {
-        for yes in ["pkp_rt.dll.0.7.6", "libpkp_rt.so.0.7.6", "libpkp_rt.dylib.0.7.6", "PokopiaLauncher.AppImage.0.7.9", "pkp.exe.0.7.5", "pkp.0.7.5", "PokopiaLauncher.exe.1.0"] {
+        for yes in ["pkp_rt.dll.0.7.6", "libpkp_rt.so.0.7.6", "libpkp_rt.dylib.0.7.6", "PokopiaLauncher.AppImage.0.7.9", "pkp.exe.0.7.5", "pkp.0.7.5", "PokopiaLauncher.exe.1.0",
+                    "Recompia.exe.0.15.0", "Recompia.AppImage.0.15.0", "Recompia.0.15.0"] {
             assert!(is_old_copy(yes), "{}", yes);
         }
-        for no in ["pkp_rt.dll", "libpkp_rt.so", "libpkp_rt.dylib", "PokopiaLauncher.AppImage", "pkp.exe", "pkp", "pkp_rt.dll.bak", "pkp.log.prev", "pkp_rt.dll.", "save", "other.dll.0.7.6", ""] {
+        for no in ["pkp_rt.dll", "libpkp_rt.so", "libpkp_rt.dylib", "PokopiaLauncher.AppImage", "pkp.exe", "pkp", "Recompia.exe", "Recompia.AppImage", "Recompia", "Recompia.exe.old", "pkp_rt.dll.bak", "pkp.log.prev", "pkp_rt.dll.", "save", "other.dll.0.7.6", ""] {
             assert!(!is_old_copy(no), "{}", no);
         }
     }

@@ -296,8 +296,8 @@ mod tests {
 
     #[test]
     fn the_shipped_icons_parse() {
-        for b in [crate::branding::ico(false), crate::branding::ico(true)] {
-            assert!(parse_ico(b).is_some_and(|v| !v.is_empty()));
+        for b in [crate::branding::Branding { testing: false, art: None }, crate::branding::Branding { testing: true, art: None }] {
+            assert!(parse_ico(b.ico()).is_some_and(|v| !v.is_empty()));
         }
     }
 }

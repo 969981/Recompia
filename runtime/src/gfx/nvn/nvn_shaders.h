@@ -234,10 +234,20 @@ void support_buffer_set_viewport(SupportBuffer& sb, float width, float height, b
 
 // ---- one stage ------------------------------------------------------------------------------------------------------
 
+// Where a shader's SPIR-V words were read from. Words from the preload pack or the shader archive are not kept in the ShaderInfo: the
+// frame is read and decompressed again when a module or a variant is made (shader_words). A run loads ~6,600 shaders (1.1 GiB of
+// words: the game sets every program at boot) and ~700 of them ever become a module. The pack and the archive's segments are not
+// changed under a running game, so the same frame gives the same words the reflection was made from. A loose <hash>.spv may be written
+// again while the game runs (a translator beside it), and a stage the runtime generates has no file: those keep their words.
+enum class SpirvFrom : uint8_t { Memory, Pack, Archive };
+using SpirvWords = std::shared_ptr<const std::vector<uint32_t>>;
+
 struct ShaderInfo {
     std::string hash;
     ShaderStage stage = ShaderStage::Unknown;  // from the SPIR-V execution model
-    std::vector<uint32_t> spirv;
+    std::vector<uint32_t> spirv;               // spirv_from == Memory only; otherwise empty: read the words with shader_words()
+    uint32_t spirv_words = 0;                  // the SPIR-V's size in words, wherever the words are
+    SpirvFrom spirv_from = SpirvFrom::Memory;
     ShaderReflection refl;
     ShaderControl control;
     // c[1]: the constant data at code block + control.const_offset. Copied because the game may reuse the pool. The
@@ -296,10 +306,11 @@ public:
 
     // A ShaderInfo for pipeline building only (S24, the shader preparation): SPIR-V, stage and reflection from <hash>.spv and its results.tsv line,
     // no code block, no control section, no constant data. Kept apart from find(): the game's own ShaderInfos never come from here. The
-    // pointer stays valid for the life of the cache; only the SPIR-V words can be dropped (release_stub_spirv) and are read again by
-    // load_stub. Null if the hash has no usable .spv. Any thread.
+    // pointer stays valid for the life of the cache. Null if the hash has no usable .spv. Any thread.
     const ShaderInfo* load_stub(const std::string& hash);
-    void release_stub_spirv(const ShaderInfo* s);   // frees the words; the caller guarantees nobody is using them (single threaded point)
+    // The words of a ShaderInfo this cache made (find or load_stub) whose words it does not keep (SpirvFrom): from the few recently used,
+    // else read again from the pack or the archive. Null (logged once per hash) if the frame cannot be read. Any thread.
+    SpirvWords words(const ShaderInfo* s);
     size_t loaded() const;   // ShaderInfos built so far
     size_t missing() const;  // hashes asked for that have no usable .spv (or do not reflect)
     bool is_open() const;
@@ -327,10 +338,14 @@ private:
     // Boot preload ([nvn] shader_order, default shader_order.txt; [nvn] shader_preload_threads, default 6; [nvn] shader_preload_mb, default 1024
     // = how much prepared-but-untaken data the workers may hold): the hashes find() loaded,
     // in the order it first loaded them, are kept in the order file; the next run reads and reflects those .spv files on worker
-    // threads from the moment the cache opens, ahead of the game's own program loads, which then only take the prepared words.
+    // threads from the moment the cache opens, ahead of the game's own program loads, which then only take the prepared reflection.
+    // Words from the pack or the archive are not held (SpirvFrom): a ShaderInfo does not keep them either, and holding them made a boot
+    // peak of up to shader_preload_mb that the heap kept after it was freed.
     struct Preloaded {
-        std::vector<uint32_t> words;
+        std::vector<uint32_t> words;   // spirv_from == Memory only
+        uint32_t word_count = 0;
         ShaderReflection refl;   // the resources record already applied
+        SpirvFrom from = SpirvFrom::Memory;
     };
     void start_preload();
     void preload_worker();
@@ -346,9 +361,13 @@ private:
         uint32_t csize, usize;
     };
     void pack_open();                                                  // open(), lock_ held
-    bool pack_read(const std::string& hash, std::string& out);         // any thread, no lock
+    bool pack_read(const std::string& hash, std::string& out);         // the pack's frame, stale or not; any thread, no lock
     bool pack_stale(const std::string& hash);                          // translated again since open(); takes loose_mu_
-    bool read_spv(const std::string& hash, std::string& out);          // the pack, else <dir>/<hash>.spv
+    // The pack (unless stale), else the archive (unless a loose file overrides it), else <dir>/<hash>.spv; `from`: which one served it.
+    bool read_spv(const std::string& hash, std::string& out, SpirvFrom* from = nullptr);
+    // A ShaderInfo's words leave it (SpirvFrom) into the recently used: load() and load_stub(), for the info that won the insert (lock_).
+    void drop_words(ShaderInfo& info);
+    void keep_recent(const ShaderInfo* s, SpirvWords w);
     void pack_prefetch();                                              // own thread
     void preload_done();                                               // the last preload worker as it ends
     void pack_build(size_t missing);                                   // own thread
@@ -405,7 +424,18 @@ private:
     std::unordered_set<uintptr_t> bad_controls_;                           // malformed control pointers (logged once)
     std::unordered_map<std::string, std::unique_ptr<ShaderInfo>> stubs_;   // load_stub (see there); null: no usable .spv
     size_t loaded_ = 0, missing_ = 0;
+
+    // The words read last (words(), load), newest at the back: the module and its variants of one pipeline ask for the same shader
+    // several times in a row. At most kRecentBytes; an entry still in use elsewhere stays alive through its shared_ptr.
+    static constexpr size_t kRecentBytes = 32u << 20;
+    std::mutex recent_mu_;
+    std::vector<std::pair<const ShaderInfo*, SpirvWords>> recent_;         // recent_mu_
+    size_t recent_bytes_ = 0;                                               // recent_mu_
+    std::unordered_set<std::string> unreadable_;                            // words() failures, logged once (recent_mu_)
 };
+
+// The words of any ShaderInfo: its own when it keeps them (SpirvFrom::Memory), else shader_cache().words(s). Null if they cannot be read.
+SpirvWords shader_words(const ShaderInfo* s);
 
 // The process-wide cache. Opens itself on first use from config [nvn] shader_cache (environment NXRT_NVN_SHADER_CACHE);
 // if that is empty, the first of ./shader_cache/spirv and <executable folder>/shader_cache/spirv that has a

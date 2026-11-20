@@ -119,23 +119,23 @@ Press **F1** in the game to change graphics, controls and sound (volume, output 
 
 ## Quick start
 
-1. Download the zip from the [latest release](https://github.com/Dittobyte/Recompia/releases/latest) and extract it anywhere.
-2. Run `PokopiaLauncher.exe`. If SmartScreen warns, choose **More info → Run anyway**. Pick your dump folder and press **Set up**: it compiles the game on your PC (about 7 minutes), then builds the shader cache (1 to 2 hours, you can pause and continue later).
+1. Download `Recompia-<version>-windows-x64.zip` from the [latest release](https://github.com/Dittobyte/Recompia/releases/latest) and extract it anywhere.
+2. Run `Recompia.exe`. If SmartScreen warns, choose **More info → Run anyway**. Pick your dump folder and press **Set up**: it compiles the game on your PC (about 7 minutes), then builds the shader cache (1 to 2 hours, you can pause and continue later).
 3. Press **Play**.
 
 F1 opens the settings in game. Middle mouse toggles Joy-Con 2 mouse mode (point and click to place and break blocks).
 
 ### Linux, SteamOS and the Steam Deck
 
-1. Download `PokopiaRecomp-<version>-linux-x64.tar.gz` from the [latest release](https://github.com/Dittobyte/Recompia/releases/latest) and extract it anywhere (for example your home folder).
-2. Run `PokopiaLauncher.AppImage` in that folder (double-click it, or `./PokopiaLauncher.AppImage` in a terminal). Pick your dump folder and press **Set up**: the first time it downloads its build tools (Python and Zig, about 100 MB), compiles the game, then builds the shader cache. You can pause and continue later.
+1. Download `Recompia-<version>-linux-x86_64.tar.gz` from the [latest release](https://github.com/Dittobyte/Recompia/releases/latest) and extract it anywhere (for example your home folder).
+2. Run `Recompia.AppImage` in that folder (double-click it, or `./Recompia.AppImage` in a terminal). Pick your dump folder and press **Set up**: the first time it downloads its build tools (Python and Zig, about 100 MB), compiles the game, then builds the shader cache. You can pause and continue later.
 3. Press **Play**.
 
 Nothing runs through Proton or Wine: the launcher, the game, the shader translator and the build tools are all native Linux programs.
 
-If `PokopiaLauncher.AppImage` does not start on a system without FUSE, run `./PokopiaLauncher.AppImage --appimage-extract-and-run`.
+If `Recompia.AppImage` does not start on a system without FUSE, run `./Recompia.AppImage --appimage-extract-and-run`.
 
-To start from Steam (Game Mode on the Deck): add the launcher to Steam, either in the launcher's Settings (Steam, Add to Steam) or in Desktop Mode with **Add a Non-Steam Game**, picking `PokopiaLauncher.AppImage` and leaving the launch options empty. The shortcut opens the launcher, which checks for updates; then press Play. More detail, and what was tested, in [launcher/README.md](launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
+To start from Steam (Game Mode on the Deck): add the launcher to Steam, either in the launcher's Settings (Steam, Add to Steam) or in Desktop Mode with **Add a Non-Steam Game**, picking `Recompia.AppImage` and leaving the launch options empty. The shortcut opens the launcher, which checks for updates; then press Play. More detail, and what was tested, in [launcher/README.md](launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
 
 ## Mods and translations
 
@@ -167,7 +167,7 @@ Your saves, settings and shaders stay.
 
 **From 0.7.5 on:** press **Update** on Home (or in Settings > About). The launcher downloads the new release, checks it, swaps its own files and restarts. When the release changes the game code, the launcher first builds the new game program (`pkp.exe`) next to the one you have, with the new release's own tools. That takes from a few minutes to an hour, depending on your PC, and you can keep playing the whole time: Home shows the progress, and the update installs once the game is closed. **Cancel** stops it until then and changes nothing; the next **Update** picks up where it stopped.
 
-**From 0.7.0 or older:** download the new zip (Windows) or `PokopiaRecomp-<version>-linux-x64.tar.gz` (Linux) from the [latest release](https://github.com/Dittobyte/Recompia/releases/latest), close the game and the launcher, and extract it over your install, into the same folder. It holds no saves, settings, shader cache or game files, so nothing of yours is replaced.
+**From 0.7.0 or older:** download the new zip (Windows) or `Recompia-<version>-linux-x86_64.tar.gz` (Linux) from the [latest release](https://github.com/Dittobyte/Recompia/releases/latest), close the game and the launcher, and extract it over your install, into the same folder. It holds no saves, settings, shader cache or game files, so nothing of yours is replaced.
 
 **If Home shows Finish update after an update:** that release changed the game code and it could not be built before the update (an install that was extracted by hand, or an older version picked in Settings), so the launcher builds the game program (`pkp.exe`) again from your game files. It also happens when you skipped such a release earlier and update by hand later. This takes from a few minutes to an hour, depending on your PC, and your shaders and saves are kept. It is not the long first setup: shaders are only translated again when the release notes say so, and then only the ones that changed. The old `pkp.exe` stays until the new one is ready.
 
@@ -195,7 +195,7 @@ Changes apply the next time the game starts.
 
 **Same network.** Everyone picks **Same network**. Steam Deck and other Proton or Linux devices find hosts and are found too, on whatever network they are on. Cafe, hotel and guest Wi-Fi often keeps devices apart: there, play over the internet instead.
 
-**Over the internet.** Everyone picks **Internet**. Nothing to forward and no code to type: the launcher uses the project's public relay, and every room on it shows up in the game's **Visit a Friend** list. For a private room, say yes when the game asks to set a **Link Code**: only players who type it can join. Your own relay or a forwarded port are under **Advanced**; any co-op relay of the parent project works there too, and `PokopiaLauncher --host` runs one on a server. **[The Link Play guide](docs/link-play.md)** has the steps and what to check when it does not connect; [the full multiplayer page](docs/multiplayer/README.md) has relays and ports. The relay does not encrypt the game's traffic.
+**Over the internet.** Everyone picks **Internet**. Nothing to forward and no code to type: the launcher uses the project's public relay, and every room on it shows up in the game's **Visit a Friend** list. For a private room, say yes when the game asks to set a **Link Code**: only players who type it can join. Your own relay or a forwarded port are under **Advanced**; any co-op relay of the parent project works there too, and `Recompia --host` runs one on a server. **[The Link Play guide](docs/link-play.md)** has the steps and what to check when it does not connect; [the full multiplayer page](docs/multiplayer/README.md) has relays and ports. The relay does not encrypt the game's traffic.
 
 **Ports and firewall.** The first time you host, Windows Firewall asks about `pkp.exe`: allow **Private networks**. Your network must be Private too (Settings, Network & internet, your connection, Network profile type: **Private**).
 
@@ -211,7 +211,7 @@ Link Play: joining and walking around together work. See [docs/multiplayer](docs
 ## Common problems
 
 - **The window is black, or the game stutters a lot, on the first launch.** The game makes some shaders while it runs. The launcher translates the ones it has seen before every start and again after you quit, so the first runs are rough and later ones are better. Give it a minute and keep playing. If the setup stopped half way, open **Game files** and press **Set up** to continue. It keeps finished work.
-- **Windows says "Smart App Control blocked" the launcher, the setup or the game.** Smart App Control only runs programs that are digitally signed or already known to Microsoft, and it has no **Run anyway** button. The game (`pkp.exe`) is compiled on your own PC during setup, so it can never carry a signature. Turn Smart App Control off: **Windows Security**, **App & browser control**, **Smart App Control settings**, **Off**. On some Windows 11 versions it cannot be turned back on without resetting Windows, so read Windows' own message before you confirm. Then run `PokopiaLauncher.exe` again and press **Set up** if it stopped.
+- **Windows says "Smart App Control blocked" the launcher, the setup or the game.** Smart App Control only runs programs that are digitally signed or already known to Microsoft, and it has no **Run anyway** button. The game (`pkp.exe`) is compiled on your own PC during setup, so it can never carry a signature. Turn Smart App Control off: **Windows Security**, **App & browser control**, **Smart App Control settings**, **Off**. On some Windows 11 versions it cannot be turned back on without resetting Windows, so read Windows' own message before you confirm. Then run `Recompia.exe` again and press **Set up** if it stopped.
 - **The launcher says the game files are from an older version, or that the update is missing.** This release needs version 2.0.1a. Dump the game again with the update installed. The base game alone is not enough.
 - **The launcher says it found no usable game files, or Set up says a file does not match.** Pick the folder that holds `base` and `updates` (for example `Game_v2.0.1a`). Each needs `exefs` (`main`, `sdk`, `subsdk0`, `rtld`, `main.npdm`) and `romfs`. A file that does not match is damaged. Dump it again, or copy it again.
 - **The launcher says the game data (romfs) is incomplete, or the game closed at start with "pkp.exe exited with code 4".** Your dumping tool wrote the update's `romfs` without the base game's files under it (an update only holds the files it changes). Keep the base game in the same dump (`base` next to `updates`, each with `exefs` and `romfs`) and pick the folder that holds both: the launcher adds the missing files from `base` itself. Then press **Set up** once more. Otherwise dump the game again with the update merged into the base game.
@@ -232,7 +232,7 @@ If it is none of these, see [Reporting problems](#reporting-problems).
 
 ## Where your saves, logs and settings are
 
-All of these are in the game folder: the folder with `PokopiaLauncher.exe` and `pkp.exe`, unless you chose another one in **Settings**, **Game folder**.
+All of these are in the game folder: the folder with `Recompia.exe` and `pkp.exe`, unless you chose another one in **Settings**, **Game folder**.
 
 | What | Where |
 |---|---|

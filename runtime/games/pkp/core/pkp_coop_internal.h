@@ -101,6 +101,7 @@ void on_ability_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_digest_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_wild_pop_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_cleared_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_music_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // Moves the quests behind another member's state one step on, shares the quest states and ability bits that rose here (once a frame,
 // after the channel's handlers).
 void tick(::Ctx* c);

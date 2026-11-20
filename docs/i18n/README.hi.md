@@ -113,8 +113,8 @@
 
 ## त्वरित शुरुआत
 
-1. [नवीनतम रिलीज़](https://github.com/Dittobyte/Recompia/releases/latest) से zip डाउनलोड करें और कहीं भी एक्सट्रैक्ट करें।
-2. `PokopiaLauncher.exe` चलाएँ। अगर SmartScreen चेतावनी दे, तो **More info → Run anyway** चुनें। अपना डंप फ़ोल्डर चुनें और **Set up** दबाएँ: यह आपके PC पर गेम कंपाइल करता है (लगभग 7 मिनट), फिर शेडर कैश बनाता है (1 से 2 घंटे, आप रोककर बाद में जारी रख सकते हैं)।
+1. [नवीनतम रिलीज़](https://github.com/Dittobyte/Recompia/releases/latest) से `Recompia-<version>-windows-x64.zip` डाउनलोड करें और कहीं भी एक्सट्रैक्ट करें।
+2. `Recompia.exe` चलाएँ। अगर SmartScreen चेतावनी दे, तो **More info → Run anyway** चुनें। अपना डंप फ़ोल्डर चुनें और **Set up** दबाएँ: यह आपके PC पर गेम कंपाइल करता है (लगभग 7 मिनट), फिर शेडर कैश बनाता है (1 से 2 घंटे, आप रोककर बाद में जारी रख सकते हैं)।
 3. **Play** दबाएँ।
 
 F1 गेम में सेटिंग्स खोलता है। माउस का बीच का बटन आइटम रखने के लिए Joy-Con 2 माउस मोड बदलता है।
@@ -122,13 +122,13 @@ F1 गेम में सेटिंग्स खोलता है। मा
 ### Linux, SteamOS और Steam Deck
 
 1. Steam में **Proton Experimental** इंस्टॉल करें (Library, Tools; Steam Deck पर पहले Desktop Mode में जाएँ)।
-2. [नवीनतम रिलीज़](https://github.com/Dittobyte/Recompia/releases/latest) से `PokopiaRecomp-<version>-linux-x64.tar.gz` डाउनलोड करें और कहीं भी एक्सट्रैक्ट करें (जैसे अपने home फ़ोल्डर में)।
-3. उस फ़ोल्डर में `PokopiaLauncher.AppImage` चलाएँ (उस पर डबल-क्लिक करें, या टर्मिनल में `./PokopiaLauncher.AppImage`)। अपना डंप फ़ोल्डर चुनें और **Set up** दबाएँ: पहली बार यह अपने बिल्ड टूल डाउनलोड करता है (Python और Zig, लगभग 100 MB), गेम कंपाइल करता है, फिर Proton के ज़रिए शेडर कैश बनाता है। आप रोककर बाद में जारी रख सकते हैं।
+2. [नवीनतम रिलीज़](https://github.com/Dittobyte/Recompia/releases/latest) से `Recompia-<version>-linux-x86_64.tar.gz` डाउनलोड करें और कहीं भी एक्सट्रैक्ट करें (जैसे अपने home फ़ोल्डर में)।
+3. उस फ़ोल्डर में `Recompia.AppImage` चलाएँ (उस पर डबल-क्लिक करें, या टर्मिनल में `./Recompia.AppImage`)। अपना डंप फ़ोल्डर चुनें और **Set up** दबाएँ: पहली बार यह अपने बिल्ड टूल डाउनलोड करता है (Python और Zig, लगभग 100 MB), गेम कंपाइल करता है, फिर Proton के ज़रिए शेडर कैश बनाता है। आप रोककर बाद में जारी रख सकते हैं।
 4. **Play** दबाएँ। गेम खुद Steam के Proton के ज़रिए चलता है।
 
-अगर FUSE के बिना सिस्टम पर `PokopiaLauncher.AppImage` शुरू नहीं होता, तो `./PokopiaLauncher.AppImage --appimage-extract-and-run` चलाएँ।
+अगर FUSE के बिना सिस्टम पर `Recompia.AppImage` शुरू नहीं होता, तो `./Recompia.AppImage --appimage-extract-and-run` चलाएँ।
 
-Steam से शुरू करने के लिए (Deck पर Game Mode): लॉन्चर को Steam में जोड़ें, या तो लॉन्चर की Settings में (Steam, Add to Steam) या Desktop Mode में **Add a Non-Steam Game** से, `PokopiaLauncher.AppImage` चुनकर और लॉन्च विकल्प खाली छोड़कर। यह शॉर्टकट लॉन्चर खोलता है, जो अपडेट जाँचता है; फिर Play दबाएँ। ज़्यादा जानकारी और क्या टेस्ट हुआ, [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions) में।
+Steam से शुरू करने के लिए (Deck पर Game Mode): लॉन्चर को Steam में जोड़ें, या तो लॉन्चर की Settings में (Steam, Add to Steam) या Desktop Mode में **Add a Non-Steam Game** से, `Recompia.AppImage` चुनकर और लॉन्च विकल्प खाली छोड़कर। यह शॉर्टकट लॉन्चर खोलता है, जो अपडेट जाँचता है; फिर Play दबाएँ। ज़्यादा जानकारी और क्या टेस्ट हुआ, [launcher/README.md](../../launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions) में।
 
 ## मॉड और अनुवाद
 
@@ -160,7 +160,7 @@ MyMod/                       <- choose this folder in Settings > Game > Mods
 
 **0.7.5 से:** Home पर **Update** दबाएँ (या Settings > About में)। लॉन्चर नई रिलीज़ डाउनलोड करता है, जाँचता है, अपनी फ़ाइलें बदलता है और फिर से शुरू होता है।
 
-**0.7.0 या पुराने से:** [नवीनतम रिलीज़](https://github.com/Dittobyte/Recompia/releases/latest) से नया zip (Windows) या `PokopiaRecomp-<version>-linux-x64.tar.gz` (Linux) डाउनलोड करें, गेम और लॉन्चर बंद करें, और इसे अपने इंस्टॉल पर, उसी फ़ोल्डर में एक्सट्रैक्ट करें। इसमें कोई सेव, सेटिंग, शेडर कैश या गेम फ़ाइल नहीं होती, इसलिए आपकी कोई चीज़ नहीं बदलती।
+**0.7.0 या पुराने से:** [नवीनतम रिलीज़](https://github.com/Dittobyte/Recompia/releases/latest) से नया zip (Windows) या `Recompia-<version>-linux-x86_64.tar.gz` (Linux) डाउनलोड करें, गेम और लॉन्चर बंद करें, और इसे अपने इंस्टॉल पर, उसी फ़ोल्डर में एक्सट्रैक्ट करें। इसमें कोई सेव, सेटिंग, शेडर कैश या गेम फ़ाइल नहीं होती, इसलिए आपकी कोई चीज़ नहीं बदलती।
 
 **अगर अपडेट के बाद Home पर Finish update दिखे:** उस रिलीज़ ने गेम का कोड बदला है, इसलिए लॉन्चर आपकी गेम फ़ाइलों से गेम प्रोग्राम (`pkp.exe`) फिर से बनाता है। ऐसा तब भी होता है जब आपने पहले ऐसी रिलीज़ छोड़ी हो और बाद में अपडेट करें। यह छोटा इंतज़ार है, ज़्यादातर PCs पर लगभग 7 मिनट और हैंडहेल्ड पर थोड़ा ज़्यादा, क्योंकि आपके शेडर और सेव बचे रहते हैं। यह लंबा पहला सेटअप नहीं है: शेडर सिर्फ़ तब फिर अनुवादित होते हैं जब रिलीज़ नोट्स कहें, और तब भी सिर्फ़ बदले हुए। पुराना `pkp.exe` तब तक रहता है जब तक नया तैयार न हो जाए।
 
@@ -192,7 +192,7 @@ Link Play कई खिलाड़ियों को एक द्वीप �
 **इंटरनेट के ज़रिए।** सब **Internet** चुनते हैं और रिले के ज़रिए जाते हैं:
 - होस्ट **I host** चुनता है। पेज रूम कोड दिखाता है। आगंतुकों को रिले पता और कोड दें। **Copy** और **New code** पेज पर हैं।
 - आगंतुक **I visit** चुनता है और रिले पता और कोड टाइप करता है।
-- खुद रिले चलाने के लिए, होस्ट के Link Play पेज पर **Run a relay here** दबाएँ (जब तक लॉन्चर खुला है काम करता है), या सर्वर पर `PokopiaLauncher --host` चलाएँ। कोई भी मूल प्रोजेक्ट co-op रिले भी काम करता है।
+- खुद रिले चलाने के लिए, होस्ट के Link Play पेज पर **Run a relay here** दबाएँ (जब तक लॉन्चर खुला है काम करता है), या सर्वर पर `Recompia --host` चलाएँ। कोई भी मूल प्रोजेक्ट co-op रिले भी काम करता है।
 - रिले के बिना, होस्ट पर रिले पता खाली छोड़ें और राउटर पर TCP और UDP **47600** फ़ॉरवर्ड करें। आगंतुक होस्ट के सार्वजनिक पते के साथ **Visit by address** इस्तेमाल करते हैं।
 - रिले रूम कोड की जाँच करता है पर गेम का ट्रैफ़िक एन्क्रिप्ट नहीं करता।
 
@@ -230,7 +230,7 @@ Link Play अभी परीक्षण में है: जुड़ना �
 
 ## आपके सेव, लॉग और सेटिंग्स कहाँ हैं
 
-ये सब गेम फ़ोल्डर में हैं: वह फ़ोल्डर जिसमें `PokopiaLauncher.exe` और `pkp.exe` हैं, जब तक आपने **Settings**, **Game folder** में दूसरा न चुना हो।
+ये सब गेम फ़ोल्डर में हैं: वह फ़ोल्डर जिसमें `Recompia.exe` और `pkp.exe` हैं, जब तक आपने **Settings**, **Game folder** में दूसरा न चुना हो।
 
 | क्या | कहाँ |
 |---|---|

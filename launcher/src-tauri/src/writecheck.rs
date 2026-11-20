@@ -115,7 +115,7 @@ impl WriteError {
         let what = format!("{} in {} failed: {}", self.step.what(), dir, self.os);
         match self.cause {
             Cause::Blocked => format!(
-                "Windows is blocking writes in this folder ({}). This is most likely Windows Security's Controlled folder access or an antivirus, which block programs in Documents, Desktop, Downloads and Pictures. Allow PokopiaLauncher.exe, pkp.exe and the tools it runs (python.exe, zig.exe and spirv_harness.exe in the tools folder) in Windows Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled folder access, or in your antivirus. Or move the game folder somewhere like C:\\Games.",
+                "Windows is blocking writes in this folder ({}). This is most likely Windows Security's Controlled folder access or an antivirus, which block programs in Documents, Desktop, Downloads and Pictures. Allow Recompia.exe, PokopiaLauncher.exe (its old name), pkp.exe and the tools it runs (python.exe, zig.exe and spirv_harness.exe in the tools folder) in Windows Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled folder access, or in your antivirus. Or move the game folder somewhere like C:\\Games.",
                 what
             ),
             Cause::ReadOnly => format!("The drive is write-protected ({}). Move the game folder to another drive, somewhere like C:\\Games.", what),

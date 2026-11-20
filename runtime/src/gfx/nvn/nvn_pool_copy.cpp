@@ -103,7 +103,7 @@ struct Cfg {
     bool automatic = true;
     bool on = false;
     std::string mode;
-    uint64_t cell = 16ull << 20;
+    uint64_t cell = 2ull << 20;
     uint32_t idle = 600;
     uint64_t cap = 1536ull << 20;
     bool once_queued = true;
@@ -115,7 +115,10 @@ const Cfg& cfg() {
         r.mode = config_get_str("nvn", "pool_copy", "auto");
         r.automatic = r.mode == "auto";
         r.on = !r.automatic && (r.mode == "on" || r.mode == "1" || r.mode == "true");
-        r.cell = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_cell_mb", 16), 1, 1024)) << 20;
+        // Default 2 MiB: a shadow is at least one cell, and the game binds a few KiB here and there, so with cells of 16 MiB only 149 MiB of
+        // 1092 MiB of live shadows held a copy in the world (headless PC run). Cells of 2 MiB: 378 MiB live, the same frame times; a range
+        // that runs into a cell another shadow holds gets a span of its own (83 spans instead of 11 in that run).
+        r.cell = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_cell_mb", 2), 1, 1024)) << 20;
         r.idle = static_cast<uint32_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_idle", 600), 0, 1 << 30));
         // Default: 1536 MiB, or an eighth of the RAM Windows sees when that is less. The shadows are system RAM; at 1536 MiB an 8 GB laptop
         // (about 6 GB seen, the rest reserved for its integrated GPU) ran out of memory in the first area and was ended with 0xC0000409.

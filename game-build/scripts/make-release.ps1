@@ -3,13 +3,19 @@
 # Everything built from this repo is taken from the given build outputs and the checkout; the unchanged third-party payload (Zig, embedded
 # Python, FSR 3 / Streamline DLLs, astcdec, fonts, input icons, licence texts) comes from a base package (the previous release zip; release.yml BASE_REPO / BASE_RELEASE).
 # ponytail: base zip for the third-party payload; fetch each piece from its own source when one of them needs a new version.
+# Two zips of the same tree (release_names.rs in the launcher): Recompia-<v>-windows-x64.zip, folder Recompia-<v>/ with Recompia.exe
+# and the small starter under the old name PokopiaLauncher.exe (launcher/stub), and the old-name copy PokopiaRecomp-<v>-win64.zip,
+# folder PokopiaRecomp-<v>/ with the full launcher as PokopiaLauncher.exe and no starter: the only one a launcher from before the rename
+# can match and install. The old-name copy ships for three releases after the rename.
 #   pwsh game-build\scripts\make-release.ps1 -Version 0.2.0 -Base PokopiaRecomp-0.1.1-win64.zip -RtDir game-build\build\rtdll `
-#        -Launcher launcher\src-tauri\target\release\pokopia-launcher.exe -Harness work\rel\harness -Crates work\licenses\THIRD_PARTY_CRATES.txt -Out work\rel
+#        -Launcher launcher\src-tauri\target\release\recompia.exe -Stub launcher\stub\target\release\recompia-stub.exe `
+#        -Harness work\rel\harness -Crates work\licenses\THIRD_PARTY_CRATES.txt -Out work\rel
 param(
     [Parameter(Mandatory)][string]$Version,
     [Parameter(Mandatory)][string]$Base,       # previous player zip (third-party payload)
     [Parameter(Mandatory)][string]$RtDir,      # folder with pkp_rt.dll + pkp_rt.lib (game-build, PKP_RT_DLL=ON PKP_RELEASE=ON)
-    [Parameter(Mandatory)][string]$Launcher,   # pokopia-launcher.exe (launcher, npm run tauri build)
+    [Parameter(Mandatory)][string]$Launcher,   # recompia.exe (launcher, npm run tauri build)
+    [Parameter(Mandatory)][string]$Stub,       # recompia-stub.exe (launcher/stub, cargo build --release): the starter under the old name
     [Parameter(Mandatory)][string]$Harness,    # self-contained spirv_harness publish folder
     [Parameter(Mandatory)][string]$Crates,     # THIRD_PARTY_CRATES.txt (the release workflow's licenses job: cargo about, launcher/about.hbs)
     [string]$PokoHex,                          # the Save Editor's data tool (build-pokohex.sh --extractor win-x64 <dir>)
@@ -18,7 +24,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$name = "PokopiaRecomp-$Version"
+$name = "Recompia-$Version"
+$oldName = "PokopiaRecomp-$Version"
 $stage = Join-Path $Out 'stage'
 $pkg = Join-Path $stage $name
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
@@ -56,7 +63,8 @@ Put (Join-Path $RtDir 'pkp_rt.lib') 'tools\build\sdk\pkp_rt.lib'
 # controllers it reaches over USB, so it sits next to pkp.exe, ahead of any other libusb-1.0.dll on PATH.
 Put (Join-Path $RtDir 'libusb-1.0.dll') 'libusb-1.0.dll'
 Put "$root\runtime\third_party\libusb\COPYING" 'licenses\LICENSE.libusb.LGPL-2.1.txt'
-Put $Launcher 'PokopiaLauncher.exe'
+Put $Launcher 'Recompia.exe'
+Put $Stub 'PokopiaLauncher.exe'   # over the base zip's old launcher
 Mirror $Harness 'tools\spirv_harness' @('*.pdb')
 if ($PokoHex) {
     if (-not (Test-Path (Join-Path $PokoHex 'pokohex-extract.exe'))) { throw "no pokohex-extract.exe in $PokoHex" }
@@ -68,7 +76,10 @@ Put "$root\game-build\src\pkp_stub.cpp" 'tools\build\sdk\pkp_stub.cpp'
 Put "$root\game-build\res\pkp.manifest" 'tools\build\sdk\pkp.manifest'
 Put "$root\game-build\res\pkp.rc" 'tools\build\sdk\pkp.rc'
 foreach ($f in 'pkp_build.py', 'dump_hashes.json', 'fetch_dlss.py') { Put "$root\game-build\release_b\$f" "tools\build\$f" }
-(Get-Content -Raw "$root\game-build\release_b\README.txt").Replace('@VERSION@', $Version) | Set-Content -NoNewline (Join-Path $pkg 'README.txt')
+function Readme([string]$launcherName) {
+    (Get-Content -Raw "$root\game-build\release_b\README.txt").Replace('@VERSION@', $Version).Replace('@LAUNCHER@', $launcherName) | Set-Content -NoNewline (Join-Path $pkg 'README.txt')
+}
+Readme 'Recompia.exe'
 Put "$root\game-build\release_b\BUNDLED_TOOLS.txt" 'licenses\BUNDLED_TOOLS.txt'
 # licence texts and notices (the base package's licenses/ keeps what only it carries: Zig, Python, FSR 3, Streamline)
 foreach ($d in 'tools\release\licenses', 'tools\shaders\licenses') {
@@ -100,7 +111,24 @@ $bad = Get-ChildItem $pkg -Recurse -Force | Where-Object {
 }
 if ($bad) { $bad | ForEach-Object { Write-Error "game-derived or private file in the package: $($_.FullName)" -ErrorAction Continue }; throw 'package check failed' }
 
-$zip = Join-Path $Out "$name-win64.zip"
-if (Test-Path $zip) { Remove-Item -Force $zip }
-[IO.Compression.ZipFile]::CreateFromDirectory($pkg, $zip, [IO.Compression.CompressionLevel]::Optimal, $true)
-Write-Host "wrote $zip ($([math]::Round((Get-Item $zip).Length / 1MB)) MiB)"
+# each launcher file in the package is the one built for it: never the base zip's old launcher, never one in place of the other
+function Same([string]$file, [string]$want) { (Test-Path $file) -and (Get-FileHash $file).Hash -eq (Get-FileHash $want).Hash }
+function Zip([string]$zipName) {
+    $zip = Join-Path $Out $zipName
+    if (Test-Path $zip) { Remove-Item -Force $zip }
+    [IO.Compression.ZipFile]::CreateFromDirectory($pkg, $zip, [IO.Compression.CompressionLevel]::Optimal, $true)
+    Write-Host "wrote $zip ($([math]::Round((Get-Item $zip).Length / 1MB)) MiB)"
+}
+
+if (-not (Same (Join-Path $pkg 'Recompia.exe') $Launcher)) { throw 'Recompia.exe in the package is not the launcher just built' }
+if (-not (Same (Join-Path $pkg 'PokopiaLauncher.exe') $Stub)) { throw 'PokopiaLauncher.exe in the package is not the starter just built' }
+Zip "$name-windows-x64.zip"
+
+# the old-name copy: the same tree under the old folder, the full launcher under the old name, no starter
+Rename-Item $pkg $oldName
+$pkg = Join-Path $stage $oldName
+Remove-Item -Force (Join-Path $pkg 'Recompia.exe')
+Put $Launcher 'PokopiaLauncher.exe'
+Readme 'PokopiaLauncher.exe'
+if (-not (Same (Join-Path $pkg 'PokopiaLauncher.exe') $Launcher)) { throw 'PokopiaLauncher.exe in the old-name copy is not the launcher just built' }
+Zip "$oldName-win64.zip"

@@ -5,6 +5,7 @@ import { store } from '../../store.js';
 import { AUTO, LANGUAGES, savedLanguage, t } from '../../i18n.js';
 import { fromBackend } from '../../backend-text.js';
 import { pickerHtml } from '../version-picker.js';
+import { currentTheme, themeOptions } from '../../themes.js';
 import { sectionsIn, customStart, isAvailable, isEnabled, optionsFor, readAll, rowsOf, shownChoice } from '../../settings-schema.js';
 
 const numberField = (id, value, min, max, label, disabled) =>
@@ -79,6 +80,9 @@ function noteHtml(r, e) {
 const languageSelect = () => select('language', [[AUTO, t('Automatic (system language)')], ...LANGUAGES.map((l) => [l.code, l.name])], savedLanguage(), { label: t('Language') });
 
 /** The Button icons preview: each Switch button with its icon; a dashed box where the game keeps its own icon. */
+/** The launcher's own looks and the player's themes, by their own names (themes.js). */
+const themeSelect = () => select('theme-pick', themeOptions(), currentTheme(), { label: t('Theme') });
+
 function glyphsControl(r, values, e) {
   const g = r.glyphs(values);
   if (g.text) return `<span class="set-value">${esc(g.text)}</span>`;
@@ -94,6 +98,7 @@ function rowOf(st, r, values, e) {
   if (r.type === 'note') return noteHtml(r, e);
   if (r.type === 'glyphs') return rowHtml(r, 'set-glyphrow', r.label, glyphsControl(r, values, e));
   if (r.type === 'language') return rowHtml(r, '', r.label, languageSelect());
+  if (r.type === 'theme') return rowHtml(r, '', r.label, themeSelect());
   if (r.type === 'keycap') return rowHtml(r, '', r.label, `<kbd class="set-key">${esc(r.key)}</kbd>`);
   if (r.type === 'version') return rowHtml(r, 'set-version', r.label, pickerHtml());
   if (r.type === 'info') return rowHtml(r, 'set-info', r.label, infoControl(r, e));

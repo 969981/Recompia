@@ -116,7 +116,7 @@ What it cannot get past:
 - **Internet without a relay** (Advanced): the host forwards TCP and UDP 47600 on its router; visitors turn on **Use my own relay or address** under **Advanced**, pick
   **Visit** and type the host's public address, with **Through a relay** off.
 - **Internet through your own relay** (Advanced): nobody forwards anything except whoever runs the relay. Any coop relay of the parent project works. The launcher can
-  run one too: **Run a relay on this PC** on the Link Play page (while the launcher stays open), or `PokopiaLauncher --host` on a server
+  run one too: **Run a relay on this PC** on the Link Play page (while the launcher stays open), or `Recompia --host` on a server
   (`--listen <IPv4>[:<port>]`, `--no-udp`, and the parent project's limits options), or the standalone `pokopia-relay` server
   (`launcher/relay/README.md`). Forward TCP 47610 to it, and UDP 47610 too for the faster path.
 

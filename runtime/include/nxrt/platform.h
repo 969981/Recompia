@@ -10,6 +10,8 @@ namespace nxrt::platform {
 
 struct InitOptions {
     bool gamepads = true;       // init the joystick/gamepad subsystems and open pads as they are plugged in
+    bool place_windows = false; // the caller puts its window at a screen position (place_window): on Linux X11 is asked for first, since
+                                // a Wayland window cannot choose where it is
 };
 bool init(const InitOptions& opt = {});   // idempotent; sets the SDL hints (raw mouse), SDL_Init(VIDEO|EVENTS|JOYSTICK|GAMEPAD)
 void shutdown();                           // closes the window and every opened gamepad, SDL_Quit
@@ -20,6 +22,7 @@ struct WindowDesc {
     int width = 1280, height = 720;     // client size in screen coordinates at creation
     bool resizable = true;
     bool hidden = false;                // also forced by [gfx] hidden / NXRT_GFX_HIDDEN
+    bool focusable = true;              // false: the window appears without taking the keyboard focus from the one that has it
 };
 bool create_window(const WindowDesc& desc);   // Vulkan-capable window (SDL_WINDOW_VULKAN, high pixel density)
 void destroy_window();
@@ -54,6 +57,19 @@ bool display_name(int number, char* out, int cap);
 int window_display();                         // the number of the display the window is on, 0 if unknown
 // Moves the window to the centre of that display, keeping its mode (a fullscreen window leaves fullscreen, moves and goes back).
 bool move_to_display(int number);
+
+// A rectangle of the desktop, in screen coordinates.
+struct Rect {
+    int x = 0, y = 0, w = 0, h = 0;
+    bool operator==(const Rect&) const = default;
+};
+// The part of that display windows may cover (without the taskbar or panels); number 0 = the primary display. False for a bad number.
+bool display_work_area(int number, Rect* out);
+// Puts the window at that rectangle, without a frame (a fullscreen or maximised window leaves that state first). Synchronous, like
+// set_fullscreen. False when the window system gives a window no say in its position (Wayland): the window is then left as it was.
+bool place_window(const Rect& r);
+bool window_rect(Rect* out);                  // where the window is now (client area); false without a window
+void set_window_focusable(bool on);           // whether the window can take the keyboard focus (WindowDesc::focusable, changed later)
 
 // Relative mouse mode: raw, unaccelerated deltas (SDL_SetWindowRelativeMouseMode with SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE
 // forced to "0" and SDL_HINT_MOUSE_RELATIVE_SPEED_SCALE to "1"). The cursor is hidden and confined while it is on.

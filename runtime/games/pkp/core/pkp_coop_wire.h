@@ -39,6 +39,8 @@
 //               a list this build does not know is skipped
 //   AbilityCleared +2 u16 count n, then n u8 ability ids (1..0xf9) a step took away on the origin (pkp_coop_story.cpp): every
 //               receiver clears them and never gives them back in this co-op run
+//   AreaMusic   +2 u8 the authority's area (stage), +3 u8 that area's quest music there (m_contentsBGM; 0: none), +4 u8 the play flag
+//               of the quest step that set it (1 when not known)   (with every digest; pkp_coop_story.cpp)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -90,6 +92,7 @@ enum class Type : uint32_t {
     QuestFlagAsk = 24,   // with the story's types (pkp_coop_quests.cpp)
     UnlockKnown = 23,
     AbilityCleared = 25,
+    AreaMusic = 26,
 };
 
 // Builds one payload: the header, then the fields in order.

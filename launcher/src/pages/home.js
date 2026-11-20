@@ -99,7 +99,7 @@ export function render(el, ctx) {
       <button class="feature-card coop-card" data-act="coop" aria-label="${esc(t('Recompia: Co-op'))}">
         <span class="feature-art" aria-hidden="true"></span>
         ${brandImg('logo', 'class="feature-logo" alt=""', 'coop')}
-        <span class="feature-text"><strong>${esc(t('Play the story together'))}</strong><span>${esc(t('Up to 4 players, each on their own PC'))}</span></span>
+        <span class="feature-text"><strong>${esc(t('Play the story together'))}</strong><span>${esc(t('Up to 4 players, on their own PCs or together on one'))}</span></span>
         <span class="feature-go">${icon('chevron-right')}</span>
       </button>
       <div class="home-news" id="news" aria-label="${esc(t('Newest releases'))}"></div>

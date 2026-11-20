@@ -14,6 +14,7 @@ import { welcomeOwed } from './cloud-signin.js';
 import { padGlyph, startGamepadNav } from './gamepad-nav.js';
 import { zonithBadge } from './zonith-model.js';
 import { channelOf } from './version-model.js';
+import { applyTheme, cycleTheme, syncThemes } from './themes.js';
 import * as coop from './pages/coop.js';
 import * as home from './pages/home.js';
 import * as linkplay from './pages/linkplay.js';
@@ -53,6 +54,7 @@ if (import.meta.env.DEV && !window.__TAURI_INTERNALS__) {
   const q = new URLSearchParams(location.search);
   startPage = q.get('page');
   if (q.get('from')) startOpts = { from: q.get('from') };
+  if (q.get('section')) startOpts = { ...startOpts, section: q.get('section') };   // &section=<id>: Settings opens on that section
 }
 
 // where the task pill leads (a page of another game switches to that game, see go)
@@ -73,26 +75,6 @@ let leaving = [];        // run when the page goes
 let shown = gameOf();    // the game the launcher shows (games.js; launcher.json `game`)
 let welcomeAsked = false;   // the sign-in screen is a question for the first Home of a launcher start only
 
-// Launcher colours: 'meadow' (a bright daytime scene made for the project, the default), 'sunrise' (amber to red; reads well with red-green colour blindness) or 'dusk' (the old violet).
-// They colour Recompia; Zonith keeps its own (theme.css). Per PC, kept in localStorage: nothing else needs it, and losing it just shows the
-// default. A value no longer in THEMES (such as an older launcher's 'koi') shows the default too.
-const THEMES = ['sunrise', 'dusk', 'meadow'];
-// theme names are proper names: they stay in English in every language
-const THEME_NAME = { sunrise: 'Sunrise', dusk: 'Dusk', meadow: 'Meadow' };
-function readTheme() {
-  try { return THEMES.includes(localStorage.getItem('theme')) ? localStorage.getItem('theme') : 'meadow'; } catch { return 'meadow'; }
-}
-function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme;
-  const b = document.getElementById('theme-btn');
-  if (b) {
-    const say = t('Colours: {name}', { name: THEME_NAME[theme] });
-    b.querySelector('.nav-tip').textContent = say;
-    b.setAttribute('aria-label', say);
-  }
-}
-applyTheme(readTheme());
-
 // Hide sidebar: a per-PC preference kept in localStorage like the theme. When hidden the rail and the tabs go so the art is
 // unobstructed; the floating #show-sidebar button (index.html) is the only way back. data-sidebar="hide" on <html> drives the CSS.
 function readSidebar() {
@@ -102,6 +84,7 @@ function applySidebar(hidden) {
   if (hidden) document.documentElement.setAttribute('data-sidebar', 'hide');
   else document.documentElement.removeAttribute('data-sidebar');
 }
+applyTheme();
 applySidebar(readSidebar());
 
 const tip = (label) => `<span class="nav-tip" aria-hidden="true">${esc(label)}</span>`;
@@ -126,7 +109,7 @@ function drawRail() {
     <button class="rail-tool" id="theme-btn">${icon('palette')}${tip('')}</button>
     <button class="rail-tool" id="ui-hide-btn" aria-label="${esc(t('Hide sidebar'))}">${icon('eye-off')}${tip(t('Hide sidebar'))}</button>
     <button class="rail-tool" id="settings-btn" data-page="settings" aria-label="${esc(t('Settings'))}">${icon('settings')}${tip(t('Settings'))}</button>`;
-  applyTheme(readTheme());
+  applyTheme();
 }
 
 /** The shown game's pages in the top bar, with the pad's bumper glyphs at the two ends. */
@@ -152,12 +135,10 @@ function drawTools() {
 /** Bound once: the draw functions replace the markup inside the elements, not the elements. */
 function listen() {
   rail.addEventListener('click', (e) => {
-    const pick = e.target.closest('[data-game]')?.dataset.game;
+    const pick = e.target.closest('.rail-game')?.dataset.game;   // not '[data-game]': <html> carries data-game too, which made every rail button a game switch
     if (pick) return switchGame(pick);
     if (e.target.closest('#theme-btn')) {
-      const next = THEMES[(THEMES.indexOf(readTheme()) + 1) % THEMES.length];
-      try { localStorage.setItem('theme', next); } catch { /* the choice lasts until the launcher closes */ }
-      applyTheme(next);
+      cycleTheme();
     }
     if (e.target.closest('#ui-hide-btn')) {
       const hide = !readSidebar();
@@ -372,6 +353,7 @@ async function start() {
   shown = gameOf(await api.getConfig().then((c) => c?.game, () => ''));
   listen();
   drawRail();
+  syncThemes();
   drawTools();
   drawNav();
   drawPadBar();

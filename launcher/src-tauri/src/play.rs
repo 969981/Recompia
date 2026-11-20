@@ -8,6 +8,8 @@ use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::config::Config;
+use crate::coop_launch::{self, Group, Launch, FIRST_LOG};
+use crate::events::ClockOverride;
 use crate::states::States;
 
 /// Files the launcher may open for the user, by name, inside the game folder.
@@ -63,8 +65,8 @@ fn report_files(dir: &Path, started: SystemTime) -> Vec<ReportFile> {
         .collect()
 }
 
-/// `coop`: a co-op start (coop_launch.rs); None is a singleplayer start.
-pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool, coop: Option<crate::coop_launch::Launch>) -> Result<(), String> {
+/// `coop`: a co-op start (coop_launch.rs); None is a singleplayer start. The first process owns status and the other windows end with it.
+pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool, coop: Option<Group>) -> Result<(), String> {
     let (minimize, discord) = (cfg.minimize_on_play, cfg.discord_presence);
     let gentle = cfg.gentle_build;
     let cloud_islands = cfg.cloud_islands;
@@ -122,13 +124,16 @@ pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool,
             eprintln!("branding: {e}");
         }
         // Calculate after shader preparation, immediately before the process starts, so a long preparation cannot age the offset.
-        let mut cmd = match crate::events::override_for(&dir).and_then(|clock| game_command(&exe, &dir, clock, without_mods, coop.as_ref())) {
-            Ok(c) => c,
+        let clock = match crate::events::override_for(&dir).and_then(|clock| sync_game_runtime(&dir).map(|()| clock)) {
+            Ok(clock) => clock,
             Err(e) => {
                 set_status(&app2, Status { state: GameState::Exited, crashed: true, message: format!("Could not start pkp.exe: {}", e), ..Default::default() });
                 return;
             }
         };
+        let first = coop.as_ref().map(|g| &g.first);
+        let log = first.map_or(FIRST_LOG, |w| w.log.as_str());
+        let mut cmd = game_command(&exe, &dir, clock, without_mods, first, log);
         // Cloud Islands (launcher.json cloud_islands): the game is pointed at the server, or at none; in account mode the local gateway
         // runs from here until the game has ended
         let cloud_account = crate::cloud_account::Watch::start(&dir, cloud_islands, &mut cmd);
@@ -140,7 +145,22 @@ pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool,
                 return;
             }
         };
-        set_status(&app2, Status { state: GameState::Running, message: format!("pkp.exe started (process {})", child.id()), ..Default::default() });
+        let mut others = Vec::new();
+        let mut window_notes = String::new();
+        for (i, window) in coop.iter().flat_map(|g| &g.others).enumerate() {
+            let mut c = game_command(&exe, &dir, clock, without_mods, Some(window), &window.log);
+            cloud_account.point_also(&dir, cloud_islands, &mut c);
+            match c.spawn() {
+                Ok(c) => others.push(c),
+                Err(e) => window_notes.push_str(&format!(" Window {} did not start: {}.", i + 2, e)),
+            }
+        }
+        let mut message = format!("pkp.exe started (process {})", child.id());
+        if !window_notes.is_empty() {
+            message.push('.');
+            message.push_str(&window_notes);
+        }
+        set_status(&app2, Status { state: GameState::Running, message, ..Default::default() });
         if minimize {
             if let Some(w) = app2.get_webview_window("main") {
                 let _ = w.minimize();
@@ -151,6 +171,12 @@ pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool,
         let presence = crate::presence::Watch::start(discord);
         let online = crate::online::Watch::start(&app2, &dir);
         let result = wait_with_memory_guard(&mut child);
+        for c in &mut others {
+            let _ = c.kill();
+        }
+        for mut c in others {
+            let _ = c.wait();
+        }
         cloud_account.finish();
         online.finish();
         presence.finish();
@@ -183,7 +209,7 @@ pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool,
             (None, Some(c)) => format!("pkp.exe exited with code {} (0x{:08X}).", c, c as u32),
             (None, None) => "pkp.exe was ended by the system.".to_string(),
         };
-        set_status(&app2, Status { state: GameState::Exited, code, crashed, files, message: message + &prep + &shaders });
+        set_status(&app2, Status { state: GameState::Exited, code, crashed, files, message: message + &window_notes + &prep + &shaders });
         if minimize {
             if let Some(w) = app2.get_webview_window("main") {
                 let _ = w.unminimize();
@@ -194,27 +220,33 @@ pub fn start(app: &AppHandle, game_dir: &Path, cfg: &Config, without_mods: bool,
     Ok(())
 }
 
-/// How Play starts the game: `pkp` in its folder on macOS and Linux, `pkp.exe` on Windows (host.rs). Every path (exefs, romfs, shader
-/// cache) comes from pkp.ini next to it. `without_mods`: this start runs without mods. `coop`: the co-op start's environment, or None.
-fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverride>, without_mods: bool, coop: Option<&crate::coop_launch::Launch>) -> Result<std::process::Command, String> {
+/// The runtime libraries are shared by the group and synced before any process loads them.
+fn sync_game_runtime(dir: &Path) -> Result<(), String> {
     if !crate::host::native_game() {
         crate::host::sync_runtime_files(&crate::paths::exe_dir(), dir)?;   // pkp_rt.dll and the ASTC decoders: Windows files
     }
     #[cfg(target_os = "macos")]
     crate::host::sync_macos_runtime(dir)?;   // libpkp_rt.dylib and MoltenVK: a launcher update brings newer ones
+    Ok(())
+}
+
+/// How Play starts the game: `pkp` in its folder on macOS and Linux, `pkp.exe` on Windows (host.rs). Every path (exefs, romfs, shader
+/// cache) comes from pkp.ini next to it. `without_mods`: this start runs without mods. `coop`: one window's co-op environment, or
+/// None. `log`: the log file, relative to the folder (pkp.log; split screen's other windows have their own).
+fn game_command(exe: &Path, dir: &Path, clock: Option<ClockOverride>, without_mods: bool, coop: Option<&Launch>, log: &str) -> std::process::Command {
     // host::command: in the AppImage the game must not inherit LD_LIBRARY_PATH into the AppImage, or the system libcurl the
     // runtime loads for mods' HTTPS requests picks up the AppImage's older libnghttp2 and fails to load (#819)
     let mut cmd = crate::host::command(exe);
-    cmd.current_dir(dir).args(["--log", "pkp.log"]);
+    cmd.current_dir(dir).args(["--log", log]);
     // macOS: the folder is not the release's installed layout (no exefs/main next to the binary), so name the settings file;
     // the game reads exefs and romfs from it.
     if crate::host::native_game() && dir.join(crate::settings::PKP_INI).is_file() {
         cmd.args(["--ini", crate::settings::PKP_INI]);
     }
     if crate::host::native_game() {
-        // The game writes its log to pkp.log and tees it to stdout. Windows spawns it with CREATE_NO_WINDOW and a GUI-subsystem
-        // exe, so nothing shows; on macOS it would inherit the launcher's terminal (or the .app's stderr). Nothing is lost: the
-        // log file and the crash/freeze reports are next to the game.
+        // The game writes its log to its --log file and tees it to stdout. Windows spawns it with CREATE_NO_WINDOW and a
+        // GUI-subsystem exe, so nothing shows; on macOS it would inherit the launcher's terminal (or the .app's stderr). Nothing is
+        // lost: the log file and the crash/freeze reports are next to the game.
         cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     }
     if let Some(clock) = clock {
@@ -229,13 +261,13 @@ fn game_command(exe: &Path, dir: &Path, clock: Option<crate::events::ClockOverri
             cmd.env(MESA_SHADER_CACHE_VAR, size);
         }
     }
-    crate::coop_launch::apply(&mut cmd, coop);
+    coop_launch::apply(&mut cmd, coop);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: no stray console if pkp.exe is a console build
     }
-    Ok(cmd)
+    cmd
 }
 
 /// One start without mods: the runtime's `[mods] off` through its environment override (runtime/docs/CONFIG.md), so pkp.ini and

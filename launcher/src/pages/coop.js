@@ -3,13 +3,15 @@
 // enter it under Join and say which player they are. Each card says who hosts the next start and why (coop-model.js), lets the player override it for one start, and starts the
 // game; the host starts first. After a start the game's log is read for a host hidden by another build or other mods (coop_diag.rs).
 // Co-op plays the install Recompia (Solo) sets up: until it is ready, this page says so and leads there.
+// A split screen save is the third way in: all its players play on this PC, one window each (coop_launch.rs build_split). Its card has
+// the windows' choices (screen, controllers, sound; kept in this launcher, the same for every such save) and no invite or Start as.
 import './coop.css';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
 import { PUBLIC_RELAY } from '../linkplay-model.js';
 import { formatDate } from '../markdown.js';
-import { MAX_PLAYERS, START_AS, askOnce, creatorName, hosting, mismatchText, nameOf, needsPlayers, others, roleLine, runningLine } from '../coop-model.js';
-import { askText, confirm, errCode, errText, esc, formDialog, icon, segmented, toast } from '../ui.js';
+import { MAX_PLAYERS, START_AS, askOnce, choosePad, creatorName, hosting, isSplit, mismatchText, nameOf, needsPlayers, others, roleLine, runningLine, windowPads } from '../coop-model.js';
+import { askText, confirm, errCode, errText, esc, formDialog, icon, segmented, select, toast, toggle } from '../ui.js';
 import { store } from '../store.js';
 import { saveLogs } from '../log-bundle.js';
 import { gamePhase } from '../action.js';
@@ -30,6 +32,17 @@ const findings = new Map();
 let redraw = () => {};   // the page on screen, if any
 const LOG_POLL_MS = 5000;   // while it runs: a host hidden by other mods is said while the visitor still waits in the game
 let poll = null;
+
+// split screen's choices (coop_launch.rs SplitOptions): how two or three windows share the screen, what each window plays with (by
+// window number, coop-model.js windowPads), and whether the other windows play sound
+const SPLIT_LS = 'pkp.coop.split';
+const split = (() => {
+  try {
+    const m = JSON.parse(localStorage.getItem(SPLIT_LS)) || {};
+    return { side: !!m.side, pads: Array.isArray(m.pads) ? m.pads : [], sound: !!m.sound };
+  } catch { return { side: false, pads: [], sound: false }; }
+})();
+const keepSplit = () => { try { localStorage.setItem(SPLIT_LS, JSON.stringify(split)); } catch { /* private window: kept for this run */ } };
 
 function readLog(id, at) {
   return api.coopLastRun({ since: at }).then((f) => {
@@ -76,17 +89,39 @@ export async function render(el, ctx) {
 
   function playersHtml(v, choice) {
     const p = v.profile;
-    const hostId = choice === 'host' ? p.me : choice === 'visit' ? '' : v.host.host;
+    const hostId = isSplit(v) ? '' : choice === 'host' ? p.me : choice === 'visit' ? '' : v.host.host;
     const chips = p.members.map((m) => {
       const mine = m.id === p.me;
       const remove = v.creator && !mine && m.id !== p.members[0].id
         ? `<button class="chip-x" data-act="remove" data-id="${esc(p.id)}" data-member="${esc(m.id)}" aria-label="${esc(t('Remove {name}', { name: m.name }))}" title="${esc(t('Remove {name}', { name: m.name }))}">${icon('x')}</button>` : '';
       const host = m.id === hostId ? `<span class="coop-host-mark" title="${esc(t('Hosts'))}">${icon('crown')}</span>` : '';
-      return `<span class="chip coop-player${mine ? ' on' : ''}">${host}${esc(m.name)}${mine ? ` <span class="coop-you">${esc(t('You'))}</span>` : ''}${remove}</span>`;
+      const tag = mine && !isSplit(v) ? `<span class="coop-you">${esc(t('You'))}</span>` : '';   // a split save: the windows list below says who plays where
+      return `<span class="chip coop-player${mine || isSplit(v) ? ' on' : ''}">${host}${esc(m.name)}${tag ? ` ${tag}` : ''}${remove}</span>`;
     }).join('');
     const add = v.creator && p.members.length < MAX_PLAYERS
       ? `<button class="chip coop-add" data-act="add" data-id="${esc(p.id)}">${icon('plus')}${esc(t('Add a player'))}</button>` : '';
     return `<div class="coop-players">${chips}${add}</div>`;
+  }
+
+  // a split screen save's windows: how they share the screen, who plays with what, the sound, and what it costs
+  function splitHtml(v) {
+    const n = v.profile.members.length;
+    if (!isSplit(v) || n < 2) return '';
+    const id = v.profile.id;   // one set of controls per card: radio names and ids stay unique on the page
+    const off = busy(store.state);
+    const opt = (label, control) => `<div class="coop-split-opt"><span class="coop-role-label">${esc(label)}</span>${control}</div>`;
+    const inputs = [...[1, 2, 3, 4].map((k) => [k, t('Controller {n}', { n: k })]), [0, t('Keyboard and mouse')]];
+    const pads = windowPads(n, split.pads);
+    const players = v.profile.members.map((m, i) => `<label class="coop-split-pad"><span class="coop-split-who">${icon('monitor')}${i + 1}<span class="clip">${esc(m.name)}</span></span>${
+      select(`split-pad-${id}-${i}`, inputs, pads[i], { label: t('{name} plays with', { name: m.name }), disabled: off })}</label>`).join('');
+    return `<div class="coop-split">
+      <div class="coop-split-pads">${players}</div>
+      <div class="coop-split-opts">
+        ${n === 4 ? '' : opt(t('Screen'), segmented(`split-layout-${id}`, [['stacked', t('Top and bottom')], ['side', t('Side by side')]], split.side ? 'side' : 'stacked', { label: t('Screen'), disabled: off }))}
+        <label class="coop-split-opt">${toggle(`split-sound-${id}`, split.sound, { disabled: off })}<span class="coop-role-label">${esc(t('Sound from the other windows'))}</span></label>
+      </div>
+      <p class="coop-split-note">${esc(t('Controllers count in the order they were connected. The keyboard and mouse play in the window you click.'))} ${esc(t('Each window is a game of its own and needs about 7 GB of memory: 32 GB is recommended for two players, 64 GB for four.'))}</p>
+    </div>`;
   }
 
   function saveHtml(v) {
@@ -94,7 +129,7 @@ export async function render(el, ctx) {
     const choice = startAs.get(p.id) ?? 'auto';
     const running = playing?.id === p.id && busy(store.state);
     const meta = [
-      v.creator ? t('Made by you') : t('Made by {name}', { name: creatorName(v) }),
+      isSplit(v) ? t('Split screen on this PC') : v.creator ? t('Made by you') : t('Made by {name}', { name: creatorName(v) }),
       v.saved_at ? t('Last played {date}', { date: formatDate(new Date(v.saved_at * 1000).toISOString()) }) : t('Not played yet'),
     ].join(' · ');
     const f = findings.get(p.id);
@@ -106,7 +141,7 @@ export async function render(el, ctx) {
         <button class="btn quiet sm icon-only" data-act="dismiss" data-id="${esc(p.id)}" aria-label="${esc(t('Dismiss'))}" title="${esc(t('Dismiss'))}">${icon('x')}</button></div></div>`;
     })() : '';
     const lonely = needsPlayers(v)
-      ? `<div class="banner warn coop-banner">${icon('triangle-alert')}<div class="grow">${esc(t('Add the other players by name, then send them the invite code. Co-op needs at least two players.'))}</div></div>` : '';
+      ? `<div class="banner warn coop-banner">${icon('triangle-alert')}<div class="grow">${esc(isSplit(v) ? t('Add a second player to play split screen.') : t('Add the other players by name, then send them the invite code. Co-op needs at least two players.'))}</div></div>` : '';
     const playOff = busy(store.state) || !ready(store.state) || needsPlayers(v);
     const status = running
       ? `<p class="coop-role-line ok">${icon('loader-circle', 'spin')}<span>${esc(runningLine(v, choice))}</span></p>`
@@ -117,15 +152,15 @@ export async function render(el, ctx) {
         <button class="btn quiet sm icon-only" data-act="delete" data-id="${esc(p.id)}" ${busy(store.state) ? 'disabled' : ''} aria-label="${esc(t('Delete {name} from this PC', { name: p.name }))}" title="${esc(t('Delete {name} from this PC', { name: p.name }))}">${icon('trash-2')}</button>
       </div>
       ${playersHtml(v, choice)}
-      ${lonely}${finding}
+      ${lonely}${finding}${splitHtml(v)}
       <div class="coop-start-row">
         <div class="coop-role">
-          <div class="coop-role-pick"><span class="coop-role-label">${esc(t('Start as'))}</span>${segmented(`start-${p.id}`, [['auto', t('Auto')], ['host', t('Host')], ['visit', t('Join')]], choice, { label: t('Start as'), disabled: running || needsPlayers(v) })}</div>
+          ${isSplit(v) ? '' : `<div class="coop-role-pick"><span class="coop-role-label">${esc(t('Start as'))}</span>${segmented(`start-${p.id}`, [['auto', t('Auto')], ['host', t('Host')], ['visit', t('Join')]], choice, { label: t('Start as'), disabled: running || needsPlayers(v) })}</div>`}
           ${needsPlayers(v) ? '' : status}
         </div>
         <div class="coop-buttons">
-          ${v.creator ? `<button class="btn" data-act="invite" data-id="${esc(p.id)}" ${needsPlayers(v) ? 'disabled' : ''}>${icon('send')}${esc(t('Invite code'))}</button>` : ''}
-          <button class="btn primary" data-act="play" data-hero-play data-id="${esc(p.id)}" ${playOff ? 'disabled' : ''}>${icon(running ? 'loader-circle' : 'play', running ? 'spin' : '')}${esc(running ? t('Playing') : hosting(v, choice) ? t('Play as host') : t('Play and join'))}</button>
+          ${v.creator && !isSplit(v) ? `<button class="btn" data-act="invite" data-id="${esc(p.id)}" ${needsPlayers(v) ? 'disabled' : ''}>${icon('send')}${esc(t('Invite code'))}</button>` : ''}
+          <button class="btn primary" data-act="play" data-hero-play data-id="${esc(p.id)}" ${playOff ? 'disabled' : ''}>${icon(running ? 'loader-circle' : 'play', running ? 'spin' : '')}${esc(running ? t('Playing') : isSplit(v) ? t('Play split screen') : hosting(v, choice) ? t('Play as host') : t('Play and join'))}</button>
         </div>
       </div>
     </article>`;
@@ -135,6 +170,7 @@ export async function render(el, ctx) {
       <div class="coop-choices">
         <button class="coop-choice glass hover" data-act="create">${icon('plus')}<strong>${esc(t('Start a co-op save'))}</strong><span>${esc(t('You host it. Type in your friends\' names and send them the invite code.'))}</span></button>
         <button class="coop-choice glass hover" data-act="join">${icon('log-in')}<strong>${esc(t('Join a friend'))}</strong><span>${esc(t('Paste the invite code a friend sent you.'))}</span></button>
+        <button class="coop-choice glass hover" data-act="split">${icon('monitor')}<strong>${esc(t('Split screen on this PC'))}</strong><span>${esc(t('2 to 4 players on this PC, each in a window of their own. No internet needed.'))}</span></button>
       </div>
       <h2 class="group-title">${esc(t('How co-op works'))}</h2>
       ${steps()}
@@ -160,10 +196,11 @@ export async function render(el, ctx) {
   el.innerHTML = `<div class="page coop">
     <section class="coop-hero">
       <h1 class="hero-title">${brandImg('logo', `class="coop-logo" alt="${esc(t('Recompia: Co-op'))}"`, 'coop')}</h1>
-      <p class="coop-lead">${esc(t('Up to 4 players, each on their own PC'))}</p>
+      <p class="coop-lead">${esc(t('Up to 4 players, on their own PCs or together on one'))}</p>
       <div class="cluster coop-hero-actions" id="coop-actions">
         <button class="btn primary big" data-act="create">${icon('plus')}${esc(t('New co-op save'))}</button>
         <button class="btn big on-art" data-act="join">${icon('log-in')}${esc(t('Join'))}</button>
+        <button class="btn big on-art" data-act="split">${icon('monitor')}${esc(t('Split screen'))}</button>
         <button class="btn big on-art icon-only" data-act="save-logs" aria-label="${esc(t('Save logs for a bug report'))}" title="${esc(t('Logs, settings and co-op save info in one zip. Room codes and invites are left out.'))}">${icon('file-archive')}</button>
       </div>
     </section>
@@ -231,17 +268,42 @@ export async function render(el, ctx) {
     }
   });
 
+  // ---- split screen -------------------------------------------------------------------------------------------------------------
+  // A save of its own whose players all play here: no invite, the players are named once and play in the windows in that order.
+  const createSplit = () => inOrder(async () => {
+    const players = [1, 2, 3, 4].map((n) => field(`split-p${n}`, t('Player {n}', { n }), { placeholder: n > 2 ? t('Optional') : '' })).join('');
+    const ids = ['split-name', 'split-p1', 'split-p2', 'split-p3', 'split-p4'];
+    const form = await formDialog({
+      title: t('Split screen on this PC'), ok: t('Create'), wide: true,
+      html: `<p class="faint">${esc(t('This makes a new save that starts from the beginning. Your current save is not used or changed.'))}</p>
+        <div class="form-grid">${field('split-name', t('Name of the save'), { placeholder: t('For example: Our island') })}</div>
+        <p class="faint">${esc(t('Who plays? Each player gets a window of their own, in this order, and makes their own character.'))}</p><div class="form-grid">${players}</div>`,
+      check: (f) => {
+        const [name, ...names] = ids.map((id) => f.querySelector(`#${id}`).value.trim());
+        if (!name || !names[0] || !names[1]) return '';
+        const given = names.filter(Boolean).map((n) => n.toLowerCase());
+        return new Set(given).size === given.length ? true : t('Every player needs a different name.');
+      },
+      read: (f) => ids.map((id) => f.querySelector(`#${id}`).value.trim()),
+    });
+    if (!form) return;
+    const [name, ...players2] = form;
+    saves = await api.coopCreateSplit({ name, players: players2.filter(Boolean) });
+    draw();
+  });
+
   const addPlayer = (id) => inOrder(async () => {
-    const name = await askText({ title: t('Add a player'), body: t('Then send the new invite code to everyone, so every PC lists the same players.'), label: t('Name of the new player'), ok: t('Add'), max: MAX_NAME });
+    const local = isSplit(saves.find((x) => x.profile.id === id));
+    const name = await askText({ title: t('Add a player'), body: local ? t('They get the next window on this PC.') : t('Then send the new invite code to everyone, so every PC lists the same players.'), label: t('Name of the new player'), ok: t('Add'), max: MAX_NAME });
     if (!name) return;
     saves = await api.coopAddMember({ id, name });
     draw();
-    await showInvite(id);
+    if (!local) await showInvite(id);
   });
 
   const removePlayer = (id, member) => inOrder(async () => {
     const v = saves.find((x) => x.profile.id === id);
-    const ok = await confirm({ title: t('Remove {name}?', { name: nameOf(v, member) }), body: t('Then send the new invite code to the others, so every PC lists the same players.'), ok: t('Remove'), danger: true });
+    const ok = await confirm({ title: t('Remove {name}?', { name: nameOf(v, member) }), body: isSplit(v) ? '' : t('Then send the new invite code to the others, so every PC lists the same players.'), ok: t('Remove'), danger: true });
     if (!ok) return;
     saves = await api.coopRemoveMember({ id, member });
     draw();
@@ -294,7 +356,7 @@ export async function render(el, ctx) {
   // ---- delete and play ---------------------------------------------------------------------------------------------------------------
   const remove = (id) => inOrder(async () => {
     const v = saves.find((x) => x.profile.id === id);
-    const rest = others(v);
+    const rest = isSplit(v) ? [] : others(v);
     const ok = await confirm({
       title: t('Delete {name} from this PC?', { name: v.profile.name }),
       body: rest.length ? t('This PC\'s copy of the world and its mod choices are deleted for good. The other players ({names}) keep their own copies.', { names: rest.join(', ') })
@@ -313,7 +375,8 @@ export async function render(el, ctx) {
     findings.delete(id);
     playing = { id, at: now(), seen: false };
     try {
-      await api.coopPlay({ id, startAs: startAs.get(id) ?? 'auto' });
+      const v = saves.find((x) => x.profile.id === id);
+      await api.coopPlay({ id, startAs: startAs.get(id) ?? 'auto', split: { side: split.side, sound: split.sound, pads: windowPads(v.profile.members.length, split.pads) } });
     } catch (e) {
       playing = null;
       throw e;
@@ -327,6 +390,7 @@ export async function render(el, ctx) {
     const { act, id, member } = b.dataset;
     if (act === 'create') create();
     else if (act === 'join') join();
+    else if (act === 'split') createSplit();
     else if (act === 'save-logs') saveLogs();
     else if (act === 'add') addPlayer(id);
     else if (act === 'remove') removePlayer(id, member);
@@ -338,6 +402,19 @@ export async function render(el, ctx) {
     else if (act === 'recompia') ctx.go('home');   // Solo's Home: Set up, Update or the game files, whichever is needed
   });
   el.addEventListener('change', (e) => {
+    const what = /^split-(layout|pad|sound)-/.exec(e.target.name || e.target.id)?.[1];
+    if (what) {
+      if (what === 'layout') split.side = e.target.value === 'side';
+      else if (what === 'sound') split.sound = e.target.checked;
+      else {
+        const [, sid, i] = /^split-pad-(.+)-(\d)$/.exec(e.target.id);
+        const n = saves.find((x) => x.profile.id === sid).profile.members.length;
+        split.pads = choosePad(n, split.pads, Number(i), Number(e.target.value));
+      }
+      keepSplit();
+      draw();
+      return;
+    }
     if (!e.target.name?.startsWith('start-') || !START_AS.includes(e.target.value)) return;
     const id = e.target.name.slice(6);
     if (e.target.value === 'auto') startAs.delete(id); else startAs.set(id, e.target.value);

@@ -57,8 +57,14 @@ pub struct Config {
     pub achievements_unlocked: bool,
     /// The player unlocked the mod's sharing setting (mods_lock.rs): it may be switched off. Locked unless the player unlocks it.
     pub achievements_sharing_unlocked: bool,
+    /// The install folder whose first start under the launcher's new file name already ran (rename_migrate.rs); empty: none yet. A folder,
+    /// not a yes/no, because every install on the machine shares this file.
+    pub renamed_in: String,
     // Retired keys an older launcher.json may still hold are skipped (serde ignores unknown fields): `logo` and `icon` (the logo and
     // icon choice, removed with the Classic look).
+    /// The player's own theme (themes.rs): `<pack folder>/<theme id>`. Empty: one of the launcher's own looks (the page keeps which in
+    /// localStorage). Rust reads it for the icon and the Steam pictures a theme changes; the page for the colours and pictures.
+    pub theme: String,
     /// Which game the launcher shows (src/games.js): "recompia" or "coop". Empty (an older launcher.json): "recompia". Only the pages
     /// read it; both games are the same install, build and shaders.
     pub game: String,
@@ -108,7 +114,9 @@ pub fn get_config(app: AppHandle) -> Config {
 }
 
 #[tauri::command]
-pub fn save_config(app: AppHandle, config: Config) -> Result<(), String> {
+pub fn save_config(app: AppHandle, mut config: Config) -> Result<(), String> {
+    // a page sends the copy it read when it opened: the chosen theme is set only by set_theme (themes_cmds.rs), so an older copy never undoes it
+    config.theme = load_config(&app).theme;
     store_config(&app, &config)
 }
 
@@ -138,6 +146,7 @@ mod tests {
     #[test]
     fn an_old_launcher_json_with_retired_keys_still_loads() {
         let cfg: Config = serde_json::from_str(r#"{"channel":"testing","logo":"classic","icon":"classic"}"#).unwrap();
+        assert_eq!(cfg.theme, "", "a launcher.json from before themes has none chosen");
         assert_eq!(cfg.channel, "testing");
         assert_eq!(cfg.picked_version, "", "no version picked: Latest");
         assert!(!cfg.signin_skipped, "a launcher.json from before the sign-in offer has not skipped it");

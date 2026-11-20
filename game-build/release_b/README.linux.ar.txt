@@ -4,12 +4,12 @@
 Recompia @VERSION@ لنظام Linux وSteamOS وSteam Deck
 
 1. تحتاج إلى مشغّل Vulkan: مشغّلات Mesa لـ AMD وIntel أو مشغّل NVIDIA الخاص. لا شيء غير ذلك، لأن اللعبة وزمن التشغيل ومترجم الشيدرات كلها برامج Linux أصلية.
-2. شغّل PokopiaLauncher.AppImage واختر مجلد النسخة المستخرجة (base/ و updates/<version>/، وكل منهما يحتوي exefs/ و romfs/) أو ملف .nup أو .nx. الإصدار 2.0.1a مطلوب.
+2. شغّل @LAUNCHER@ واختر مجلد النسخة المستخرجة (base/ و updates/<version>/، وكل منهما يحتوي exefs/ و romfs/) أو ملف .nup أو .nx. الإصدار 2.0.1a مطلوب.
 3. اضغط Set up. في المرة الأولى ينزّل أدوات البناء (Python وZig، نحو 100 ميغابايت)، ثم يبني اللعبة ويترجم شيدراتها على هذا الحاسوب. يمكنك الإيقاف المؤقت والمتابعة لاحقاً.
 4. اضغط Play. تعمل اللعبة أصلياً: بدون Proton وبدون Wine. موسّعات FSR 3 و DLSS خاصة بـ Windows فقط.
 
-إذا لم يبدأ PokopiaLauncher.AppImage (نظام بدون FUSE): ./PokopiaLauncher.AppImage --appimage-extract-and-run
-من Steam (وضع الألعاب على Deck): أضف المشغّل من الإعدادات ثم Add to Steam، أو أضف PokopiaLauncher.AppImage كلعبة غير تابعة لـ Steam دون خيارات تشغيل. يفتح المشغّل، الذي يتحقق من التحديثات؛ ثم اضغط Play.
+إذا لم يبدأ @LAUNCHER@ (نظام بدون FUSE): ./@LAUNCHER@ --appimage-extract-and-run
+من Steam (وضع الألعاب على Deck): أضف المشغّل من الإعدادات ثم Add to Steam، أو أضف @LAUNCHER@ كلعبة غير تابعة لـ Steam دون خيارات تشغيل. يفتح المشغّل، الذي يتحقق من التحديثات؛ ثم اضغط Play.
 
 التحديث: استخرج الإصدار الجديد فوق تثبيتك. إذا غيّر التحديث شيفرة اللعبة، يخبرك المشغّل: اضغط Set up مرة أخرى وسيعيد بناء pkp. تبقى شيدراتك وملفات حفظك.
 

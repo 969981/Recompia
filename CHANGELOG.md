@@ -2,15 +2,49 @@
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once (co-op gets a new game hook point; saves and shaders are kept).
+**Update:** press **Update** in the launcher, then **Set up again** once (a new game hook point for the mouse mode pointer; saves and shaders are kept, no shader is translated again).
+
+### Game
+- Mouse mode: the game's pointer is drawn where the mouse really is at render sizes other than 1920x1080 (it drifted away from the mouse at 1440p and above) (#806)
 
 ### Co-op
+- A teammate who joins after a story step no longer keeps hearing an old step's music (Kyogre's music kept playing after Kyogre had left). The host's music for the area now reaches every teammate, which also fixes saves that kept the wrong music
+
+### Launcher
+- Pausing Set up on Windows now stops all of the compiler's work. Before, part of it kept running until the launcher closed, and the next **Set up again** could sit at "Linking pkp.exe"
+
+## 0.16.0 (build T: Tapir)
+
+**Update:** press **Update** in the launcher, then **Set up again** once (co-op gets a new game hook point and split screen a new window setup; saves and shaders are kept, no shader is translated again).
+
+### Highlights
+- **Split screen:** 2 to 4 players on one PC in one co-op story, each in a window of their own with their own character and controller. Open **Co-op**, then **Split screen on this PC**
+- **The launcher is now called Recompia:** Recompia.exe (Recompia.AppImage on Linux, Recompia on macOS). Shortcuts to PokopiaLauncher keep working and Steam shortcuts are moved over by themselves
+- About 1 GB less memory on every platform, and up to 2 GB less on Linux and the Steam Deck
+- Your own launcher themes: colours, background, logo and icons from a theme pack on your PC
+
+### Known issues
+- Downloading by hand: the download is now Recompia-0.16.0-<platform> and its folder Recompia-0.16.0, so extracting it over an old PokopiaRecomp folder no longer replaces that install. Use **Update** in the launcher, or move your files to the new folder. PokopiaLauncher.exe in an install keeps working
+
+### Co-op
+- Co-op: split screen. **Split screen on this PC** on the Co-op page makes a co-op save for 2 to 4 players on one PC, each in a window of their own with their own character, controller (or the keyboard and mouse) and copy of the world. The windows share one story as in online co-op and meet on their own, with no internet. Each window needs about 7 GB of memory.
 - A teammate's talks with characters that give, take or make things now always reach the host: a talk that ended while the game was still waiting on another request was lost, so the teammate got nothing and the character stayed tied to them (its work stopped and others could not use it). A teammate who talks to a character for its reward now gets the reward item too, instead of it going to the host's bag (and the host's own reward items reach teammates as well). Use **Set up again** once after updating to relink the game. Your shaders are kept.
 - Fixed the beach scene with Kyogre never playing, which left Kyogre with nothing to say and the story stuck. A story scene the game could not start at that moment is now asked for again until it plays, instead of being lost. Worlds already stuck there get the scene when the host walks onto the beach
 - A teammate who leaves or drops and joins again keeps their own bag: the host no longer hands back its old copy of it, which emptied the bag on a rejoin. Use **Set up again** once after updating to relink the game. Your shaders are kept.
 
+### Launcher
+- The launcher is now Recompia.exe (Recompia.AppImage on Linux, Recompia on macOS) and the downloads are named Recompia-<version>-...; shortcuts to the old name keep working
+- Fixed the Colours, Hide sidebar and Settings buttons on the rail doing nothing
+- Your own themes: Settings > About > Themes adds a theme pack, a folder or a .zip with a theme.json, that changes the colours, the background, the logo, the window icon, the exe icons and the Steam shortcut pictures. The launcher ships no theme art; the pictures come from your PC. No Set up again needed
+
 ### Gameplay
 - Storage box tabs, off by default (switch them on in the launcher's Settings > Gameplay or in the new Inventory tab of the game's Settings screen, which now also holds the sort settings): standard storage boxes get up to 12 pages of 20 slots (4 by default), and big storage boxes get up to 6 tabs of 60 slots (360 slots total, 4 tabs by default). L and R switch pages and move between big box tabs at their page boundaries; the box shows the game's own page dots and L / R icons for all its pages, and an item you hold comes along to the next page (it needs one free bag slot on the way). Each standard page uses one of the island's 271 standard box spots and each big tab uses one of its 256 big box spots. About the first 22 standard boxes and 42 big boxes placed get every extra, with fewer or none for later boxes. Extra storage is off during Link Play. Items stay saved. Use **Set up again** once after updating to relink the game. Your shaders are kept.
+
+### Performance
+- Linux PCs and laptops (native build and Proton), and macOS: the game no longer keeps processor cores busy while it waits for the graphics card. At a 60 fps cap it used about half the processor time (cooler, quieter, longer on battery), and without a cap it ran at about 314 instead of 198 fps on a test PC. The Steam Deck and other Linux handhelds already worked this way
+- Native Linux build (also on the Steam Deck): the game uses about 0.2 GB less memory. Large buffers the game clears at start are no longer filled in when they are empty already
+- Linux, Steam Deck and other handhelds: the game holds about 0.9 GB less graphics memory. Copies of the game's GPU buffers are now made in pieces of 2 MB instead of 16 MB, so far less of them sits unused
+- The game uses about 1 GB less memory on every platform: the translated shaders are no longer all kept in memory after they are loaded; the few the renderer still needs are read again from the shader cache when they are needed. Your shaders are kept
 
 ### For developers
 - Co-op trace: also logs creatures' item-making jobs (whose job, made, taken, end, a timer that stands still) and the player ids, to find why a teammate's job never finishes

@@ -129,9 +129,18 @@ let setup = structuredClone(sc.setup);
 let readiness = sc.readiness;
 let dumpDir = sc.dump ? 'D:/Dumps/Game' : '';
 let relay = null;
-let mockSteam = { found: true, running: false, accounts: 1, game_added: 0, launcher_added: 0 };
+let mockSteam = { found: true, running: false, accounts: 1, game_added: 0, launcher_added: 0, game_other_name: 0, launcher_other_name: 0 };
 let mockChannel = 'stable';
 let mockPicked = '';
+let mockTheme = params.get('usertheme') || '';   // &usertheme=<pack>/<id> starts with one of the mock packs chosen
+// the player's theme packs (themes.rs): one good pack with two themes, and one that cannot be used
+const mockPacks = [
+  { folder: 'camp-pack', name: 'Camp Pack', version: 1, error: null, themes: [
+    { key: 'camp-pack/camp', name: 'Camp', background: 'camp-pack/bg.webp', background_position: '50% 56%', colors: { accent: '#ffc23d', base: '#1c1006' }, logo: 'camp-pack/logo.png', mark: 'camp-pack/mark.png' },
+    { key: 'camp-pack/night', name: 'Night', background: null, background_position: null, colors: { accent: '#9fd8ff', base: '#08122a' }, logo: null, mark: null },
+  ] },
+  { folder: 'broken-pack', name: 'Broken Pack', version: 0, themes: [], error: 'theme.json: the file bg.png is not in the pack.' },
+];
 let mockGame = params.get('game') || 'recompia';   // &game=<recompia|coop|zonith> opens that game
 let mockOnline = { online_asked: false, online_name: '', online_salt: 'mock-salt' };   // the switch itself is pkp.online_presence
 let mockRepair = null;
@@ -195,8 +204,8 @@ const mockBackups = [
 // long (long names) | mismatch (the last start found a host with other mods) | build (another version)
 const coopState = params.get('coop') || 'many';
 const ASH = { id: 'a1', name: 'Ash' }, MISTY = { id: 'b2', name: 'Misty' }, BROCK = { id: 'c3', name: 'Brock' }, DAWN = { id: 'd4', name: 'Dawn' };
-const coopView = (name, members, me, { hostId = members[0].id, peers = false, savedAt = 0 } = {}) => ({
-  profile: { version: 1, id: `c${name.replace(/\W/g, '').toLowerCase()}`, name, account_uid: '0'.repeat(32), room_code: 'K7QM-2XRA-9DPH-TV4E', relay: '192.0.2.10:47610', members, me },
+const coopView = (name, members, me, { hostId = members[0].id, split = false, peers = split, savedAt = 0 } = {}) => ({
+  profile: { version: 1, id: `c${name.replace(/\W/g, '').toLowerCase()}`, name, account_uid: '0'.repeat(32), room_code: 'K7QM-2XRA-9DPH-TV4E', relay: split ? '' : '192.0.2.10:47610', members, me, split },
   host: { host: hostId, role: hostId === me ? 'host' : 'visit', own: { seq: 0, saved_at: savedAt }, peers_known: peers },
   folder: `D:/Games/coop-saves/c${name}`, creator: members[0].id === me, saved_at: savedAt, created: 1763300000,
 });
@@ -516,12 +525,18 @@ function handle(cmd, args) {
       console.info('[mock] open', cmd, args);
       return null;
     case 'save_log_bundle': return { path: 'C:/Users/Player/Downloads/recompia-logs-20260101-120000.zip' };
-    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, picked_version: mockPicked, mods_auto_update: modsAutoUpdate, achievements_unlocked: !mockLocks.kept, achievements_sharing_unlocked: !mockLocks.sharing, ...mockOnline, cloud_islands: mockCloud, signin_skipped: mockSkipped, game: mockGame };
+    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, picked_version: mockPicked, mods_auto_update: modsAutoUpdate, achievements_unlocked: !mockLocks.kept, achievements_sharing_unlocked: !mockLocks.sharing, ...mockOnline, cloud_islands: mockCloud, signin_skipped: mockSkipped, game: mockGame, theme: mockTheme };
     case 'save_config': modsAutoUpdate = !!args.config.mods_auto_update; looseShaders = !!args.config.loose_shaders; mockChannel = args.config.channel || 'stable'; mockPicked = args.config.picked_version ?? ''; mockGame = args.config.game ?? mockGame;
       mockSkipped = !!args.config.signin_skipped; mockCloud = !!args.config.cloud_islands;
       mockOnline = { online_asked: !!args.config.online_asked, online_name: args.config.online_name ?? '', online_salt: args.config.online_salt ?? '' };
       return null;
     case 'apply_branding': return null;
+    case 'list_themes': return { packs: mockPacks };
+    case 'add_theme': mockPacks.push({ folder: 'added-pack', name: 'Added Pack', version: 2, error: null, themes: [{ key: 'added-pack/one', name: 'One', background: null, background_position: null, colors: { accent: '#ff8fd0', base: '#240a1c' }, logo: null, mark: null }] }); return { name: 'Added Pack', themes: 1 };
+    case 'remove_theme_pack': { const i = mockPacks.findIndex((p) => p.folder === args.pack); if (i >= 0) mockPacks.splice(i, 1); if (mockTheme.startsWith(`${args.pack}/`)) mockTheme = ''; return null; }
+    case 'set_theme': mockTheme = args.theme; return null;
+    case 'open_themes_dir': return null;
+    case 'pick_theme_file': return 'D:/Downloads/pack.zip';
     case 'get_overview': return { game_dir: GAME_DIR, default_game_dir: GAME_DIR, exe_exists: sc.exe_exists, builds_exe: true };
     case 'pick_folder': return 'D:/Dumps/Game';
     case 'pick_package': return 'D:/Downloads/game-2.0.1a.nup';
@@ -569,7 +584,7 @@ function handle(cmd, args) {
       return runUpdate();
     }
     case 'steam_status': return { ...mockSteam, game_name: mockChannel === 'experimental' ? 'Recompia (Testing)' : 'Recompia', launcher_name: mockChannel === 'experimental' ? 'Recompia Launcher (Testing)' : 'Recompia Launcher' };
-    case 'steam_add': mockSteam.launcher_added = 1; return `Added "Recompia Launcher" to Steam for 1 account. Start Steam again to see it, with its artwork.`;
+    case 'steam_add': mockSteam.launcher_added = 1; mockSteam.launcher_other_name = 0; return `Added "Recompia Launcher" to Steam for 1 account. Start Steam again to see it, with its artwork.`;
     case 'cloud_signin_state': return accountState();
     case 'cloud_signin_begin': mockSignin = { method: args.method || 'browser', at: Date.now() }; return accountState();
     case 'cloud_signin_cancel': mockSignin = null; return accountState();
@@ -586,14 +601,20 @@ function handle(cmd, args) {
     case 'backup_restore': return { restored: mockBackups.find((b) => b.name === args.name), safety: null };
     case 'open_backup_dir': console.info('[mock] open backups'); return null;
     case 'coop_list': return structuredClone(mockCoop);
-    case 'coop_create': {
+    case 'coop_create':
+    case 'coop_create_split': {
       if (mockCoop.some((c) => c.profile.name.toLowerCase() === args.name.toLowerCase())) throw `There is already a co-op save called ${args.name}.`;
-      mockCoop.push(coopView(args.name, [{ id: `m${mockCoop.length}a`, name: args.myName }], `m${mockCoop.length}a`));
+      const split = cmd === 'coop_create_split';
+      const members = (split ? args.players : [args.myName]).map((name, i) => ({ id: `m${mockCoop.length}${split ? i : 'a'}`, name }));
+      mockCoop.push(coopView(args.name, members, members[0].id, { split }));
       return structuredClone(mockCoop);
     }
     case 'coop_add_member': mockCoop.find((c) => c.profile.id === args.id).profile.members.push({ id: `m${Date.now()}`, name: args.name }); return structuredClone(mockCoop);
     case 'coop_remove_member': { const m = mockCoop.find((c) => c.profile.id === args.id).profile.members; m.splice(m.findIndex((x) => x.id === args.member), 1); return structuredClone(mockCoop); }
-    case 'coop_invite': return { long: `${MOCK_LONG_INVITE}${args.id}`, short: inviteState === 'long' ? null : MOCK_SHORT };
+    case 'coop_invite': {
+      if (mockCoop.find((c) => c.profile.id === args.id)?.profile.split) throw 'A split screen save is played on this PC only: it has no invite.';
+      return { long: `${MOCK_LONG_INVITE}${args.id}`, short: inviteState === 'long' ? null : MOCK_SHORT };
+    }
     case 'coop_resolve_invite': {
       const code = args.text.replace(/[-\s]/g, '').toUpperCase();
       if (!/^[2-9A-HJKMNP-TV-Z]{6}$/.test(code)) return args.text.trim();
@@ -605,6 +626,7 @@ function handle(cmd, args) {
     case 'coop_accept': {
       if (!args.invite.startsWith('PKCOOP1.')) throw 'This is not a co-op invite.';
       const have = mockCoop.find((c) => c.profile.id === MOCK_INVITE.id);
+      if (have?.profile.split) throw 'A split screen save is played on this PC only: it has no invite.';
       if (have) { have.profile.members = structuredClone(MOCK_INVITE.members); return structuredClone(mockCoop); }
       mockCoop.push({ ...coopView("Gary's island", structuredClone(MOCK_INVITE.members), args.member), profile: { ...coopView('x', MOCK_INVITE.members, args.member).profile, id: MOCK_INVITE.id, name: "Gary's island" } });
       return structuredClone(mockCoop);
