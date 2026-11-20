@@ -77,6 +77,7 @@ constexpr Route kRoutes[] = {
     // friendship
     {wire::Type::FriendAsk, Path::ToAuthority, &friendship::on_ask_message},
     {wire::Type::FriendState, Path::FromAuthority, &friendship::on_state_message},
+    {wire::Type::CreatureEvent, Path::ToAuthority, &feed::on_event_message},
 };
 
 struct State {

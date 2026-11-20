@@ -131,6 +131,9 @@ enum class Site : uintptr_t {
     // ---- the challenges: per-player claims (pkp_coop_money.cpp), a member's actions counted (pkp_coop_challenges.cpp) ----
     ClaimVisitor,     // the PC's claim after its visitor test: a member's own claim pays it its coins (kPay's ledger keeps it to once)
     BuyCount,         // the "buy items" challenge count after its visitor test: a member's buy counts for the group
+    // ---- the creature events (pkp_coop_feed.cpp) ----
+    TalkedTo,         // the contents scheduler's "talked to" notice, which skips a visitor: a member's talk is posted on the
+                      // authority, so content records waiting on that talk run for the group
 };
 
 struct CoopSite {
@@ -217,6 +220,8 @@ constexpr CoopSite kSites[] = {
     // the challenges
     {{0x645d18, 0x37000080u, false}, Site::ClaimVisitor},    // tbnz w0, #0, 0x645d28 (w0 = the visitor test 0x376c4; kPay at 0x645d24)
     {{0x643938, 0x37001220u, false}, Site::BuyCount},        // tbnz w0, #0, 0x643b7c (w0 = the visitor test 0x376c4)
+    // the creature events (pkp_coop_feed.cpp)
+    {{0x1355ec, kPacibsp, true}, Site::TalkedTo},
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -289,6 +294,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::FriendTag: return coop::friendship::on_name_tag(c);
         case Site::ClaimVisitor: return coop::money::on_claim_visitor(c);
         case Site::BuyCount: return coop::challenges::on_buy_visitor(c);
+        case Site::TalkedTo: return coop::feed::on_talked_to(c);
         default: return 0;
     }
 }
@@ -378,6 +384,7 @@ void game_frame(::Ctx* c) {
     coop::records::tick(s.in_game.load(std::memory_order_relaxed));
     coop::answers::tick();
     coop::friendship::tick(c);
+    coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
 }
 
 void remove() {   // the registry has removed the hooks
@@ -416,6 +423,7 @@ void remove() {   // the registry has removed the hooks
     coop::placement::reset();
     coop::contents::reset();
     coop::friendship::reset();
+    coop::feed::reset();
     coop::session::reset();
     coop::records::reset();
     coop::answers::reset();
