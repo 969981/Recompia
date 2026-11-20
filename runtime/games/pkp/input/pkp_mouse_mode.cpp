@@ -4,6 +4,7 @@
 #include "input/pkp_play_internal.h"
 #include "input/pkp_play.h"
 
+#include <algorithm>
 #include <cstdint>
 
 #include "nxrt/jc2_mouse.h"
@@ -48,13 +49,36 @@ int hook_mm_start(::Ctx* c, uint64_t, void*) {
     return 0;
 }
 
-// The game's screen size for the pointer, 0 when it is not there yet.
-void mm_pointer_space(State& s) {
-    const uint64_t a = rd<uint64_t>(s.base + kMmScreen), b = a && mem::is_mapped(a + 0xf0, 8) ? rd<uint64_t>(a + 0xf0) : 0,
+// The game's screen size (its render size), 0 x 0 when it is not there yet.
+void mm_screen(const State& s, int* w, int* h) {
+    const uint64_t a = s.base ? rd<uint64_t>(s.base + kMmScreen) : 0, b = a && mem::is_mapped(a + 0xf0, 8) ? rd<uint64_t>(a + 0xf0) : 0,
                    scr = b && mem::is_mapped(b + 0x18, 8) ? rd<uint64_t>(b + 0x18) : 0;
+    *w = *h = 0;
+    if (scr && mem::is_mapped(scr + 0x4340, 8)) *w = rd<int32_t>(scr + 0x4340), *h = rd<int32_t>(scr + 0x4344);
+}
+
+void mm_pointer_space(State& s) {
     int w = 0, h = 0;
-    if (scr && mem::is_mapped(scr + 0x4340, 8)) w = rd<int32_t>(scr + 0x4340), h = rd<int32_t>(scr + 0x4344);
+    mm_screen(s, &w, &h);
     hid::jc2_mouse_set_pointer_space(w, h);
+    const bool ok = w > 0 && h > 0 && w <= 16384 && h <= 16384;    // what hid accepts; else it keeps the pointer range
+    s.mm_space.store(ok ? (static_cast<uint64_t>(w) << 32) | static_cast<uint32_t>(h) : 0, std::memory_order_relaxed);
+}
+
+// The pointer sprite (#806). Its UI element's frame (0x7100ebf7e0) reads the same mouse x, y as the cursor ray, converts them to floats
+// (s9 = x, s8 = y) and places the sprite's pane with them (0x7100a7a210) as pixels of the 1920x1080 UI canvas. mm_pointer_space makes x, y
+// pixels of the render size for the ray, so above 1080p the sprite was drawn at x, y * render / 1080 (4/3 too far at 1440p). The mid hook
+// after the conversion undoes exactly the space handed to hid (none: x, y are already in the pointer range): the canvas is centred over
+// the picture at the scale of its shorter fit (pkp_aspect.cpp's UI camera keeps 16:9 layouts 16:9 and centred on other shapes), so at
+// 16:9 this is x * 1920 / w, y * 1080 / h.
+int hook_mm_sprite(::Ctx* c, uint64_t, void*) {
+    const uint64_t space = st().mm_space.load(std::memory_order_relaxed);
+    const int w = static_cast<int>(space >> 32), h = static_cast<int>(space & 0xffffffffu);
+    if (!space || (w == 1920 && h == 1080)) return 0;
+    const float k = std::max(1920.f / static_cast<float>(w), 1080.f / static_cast<float>(h));   // canvas units per render pixel
+    c->v[9].f[0] = 960.f + (c->v[9].f[0] - static_cast<float>(w) * 0.5f) * k;
+    c->v[8].f[0] = 540.f + (c->v[8].f[0] - static_cast<float>(h) * 0.5f) * k;
+    return 0;
 }
 
 // ---- Joy-Con 2 mouse mode ----
@@ -127,9 +151,7 @@ void play_frame(bool in_game, double, play::GameFrame*) {
         s.mm_diag_ns = mono_ns();
         s.mm_diag_logs++;
         int w = 0, h = 0;
-        const uint64_t a = rd<uint64_t>(s.base + kMmScreen), b = a && mem::is_mapped(a + 0xf0, 8) ? rd<uint64_t>(a + 0xf0) : 0,
-                       scr = b && mem::is_mapped(b + 0x18, 8) ? rd<uint64_t>(b + 0x18) : 0;   // the checks of mm_pointer_space
-        if (scr && mem::is_mapped(scr + 0x4340, 8)) w = rd<int32_t>(scr + 0x4340), h = rd<int32_t>(scr + 0x4344);
+        mm_screen(s, &w, &h);
         NXLOG_I(kTag, "mouse mode: screen %dx%d, pointer cell %d,%d,%d (valid %u), swing pos %.0f,%.0f (valid %u), player %.0f,%.0f heading %.2f",
                 w, h, rd<int16_t>(ch + kMmHitCell), rd<int16_t>(ch + kMmHitCell + 2), rd<int16_t>(ch + kMmHitCell + 4), rd<uint8_t>(ch + kMouseHitValid),
                 static_cast<double>(rd<float>(ch + kMouseSwingPos)), static_cast<double>(rd<float>(ch + kMouseSwingPos + 8)), rd<uint8_t>(ch + kMouseSwingValid),

@@ -137,6 +137,8 @@ midhook 0x7100088e04
 midhook 0x71002fa6f8
 midhook 0x71002fa8a0
 midhook 0x71002fa8ec
+#   its pointer sprite (#806): 0x7100ebf7e0 after it converted the mouse x, y to floats (s9, s8), before it places the sprite's pane
+midhook 0x7100ebf93c
 #   render resolution: the dynamic-resolution level table getters (level 30 = 1920x1080 is the docked full size) and their fallbacks,
 #   and the per-frame copy of the render-size parameters (forces the full size while the game's dynamic resolution is off)
 entryhook 0x7101129990
