@@ -186,9 +186,11 @@ constexpr CoopSite kSites[] = {
     {{0x13596c, 0x12003c29u, true}, Site::PlacedNotice},     // and w9, w1, #0xffff
     {{0x12b544, 0xb9400408u, true}, Site::PlayScene},        // ldr w8, [x0, #4]
     {{0x5c05c0, 0x37000140u, false}, Site::AreaGateRecord},  // tbnz w0, #0, 0x5c05e8 (w0 = IsOnline's answer)
-    // ---- the role answers (pkp_coop_role.cpp): one midhook per row, at the instruction after its `bl` ----
+    // ---- the role answers (pkp_coop_role.cpp): one midhook per row (after its `bl`, or at its session-bit test) ----
 #define PKP_ROLE_ROW(ret, getter, word, tag, what) {{ret, word, false}, Site::RoleAnswer},
+#define PKP_ROLE_BIT(site, reg, bit, word, tag, what) {{site, word, false}, Site::RoleAnswer},
 #include "core/pkp_coop_role_table.inc"
+#undef PKP_ROLE_BIT
 #undef PKP_ROLE_ROW
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];

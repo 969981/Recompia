@@ -465,8 +465,9 @@ void reset();
 
 // ---- the role answers (pkp_coop_role.cpp) ----
 namespace answers {
-// The hook sites (pkp_coop.cpp): one midhook per row of pkp_coop_role_table.inc, at the instruction after a `bl` to a role getter
-// (site: its main offset). A member in a session gets the host's answer in x0; returns 0 (the game's code runs on).
+// The hook sites (pkp_coop.cpp): one midhook per row of pkp_coop_role_table.inc, after a `bl` to a role getter or at a test of the
+// session bits (site: its main offset). A member in a session gets the host's answer (x0, or the tested register); returns 0 (the
+// game's code runs on).
 int on_answer(::Ctx* c, uint64_t site);
 void tick();    // once a frame: the marks of the rows logged this session clear when the session closes
 void reset();
