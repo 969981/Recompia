@@ -28,11 +28,12 @@
 //   - a member's claim pays here at once (ClaimVisitor: the visitor answer at 0x645d18 reads 0); the claim still goes to the host,
 //     which records it for this player as the game does;
 //   - kPay on a member runs only for an id not in the ledger, and marks it: one challenge pays a member once, by whichever path;
-//   - a member's view of every listed challenge the host has done (+0xd 3 or 4) is its own: +0xc 4 when the ledger has it, else 3,
+//   - a member's view of every listed challenge the host has done (+0xd 3 or 4, or in the host's ChallengesClaimed set: a goal the
+//     host claimed before this member joined may have had no goal update here) is its own: +0xc 4 when the ledger has it, else 3,
 //     every frame (the PC reads it while open). The host's own claim no longer pays the members;
 //   - the authority still sends the ids claimed in its save (ChallengesClaimed): members on older builds pay themselves from it (their
-//     ledger keeps that to once). This build ignores it, so a challenge an older build paid stays claimed (its ledger has it), and one
-//     it did not is claimable here;
+//     ledger keeps that to once). This build only reads it as "the host has done it", so a challenge an older build paid stays
+//     claimed (its ledger has it), and one it did not is claimable here;
 //   - Cloud Island (stage 0x11) keeps its own challenges: nothing is sent, paid or changed there.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
@@ -52,13 +53,16 @@ constexpr const char* kTag = "pkp";
 constexpr uint32_t kIdMax = layout::kChallengeMax;
 constexpr double kAllEvery = 30.0;        // the authority's whole set again (a member that missed one)
 constexpr uint64_t kFromClaim = 0x645d28;  // kPay's return address when the PC's claim calls it (0x645d24)
-constexpr uint8_t kViewFrom = 2;          // mirror +0xc below this (0 none, 1 open or reopened by 0x6371b0) is the game's alone
+constexpr uint8_t kViewFrom = 2;          // mirror +0xc below this (0 none, 1 open or reopened by 0x6371b0) is the game's alone,
+                                          // except 0 on a goal the host claimed (no goal update came here)
 
 struct State {
     // the authority (for members on older builds)
     std::bitset<kIdMax + 1> sent;      // claimed at the last send
     bool send_all = true;
     double all_at = 0.0;
+    // a member
+    std::bitset<kIdMax + 1> host_claimed;   // claimed in the authority's save, as it last said
 };
 State& st() {
     static State s;
@@ -119,8 +123,9 @@ void own_view(uint64_t recs) {
         const uint64_t m = cm + id * layout::kChallengeMirrorSize;
         const uint8_t host = guest::rd<uint8_t>(m + layout::kMirrorHostState);
         const uint8_t mine = guest::rd<uint8_t>(m + layout::kMirrorState);
-        if (host < layout::kChallengeDone || host > layout::kChallengeClaimed) continue;
-        if (mine < kViewFrom || mine > layout::kChallengeClaimed) continue;
+        const bool claimed_there = st().host_claimed.test(id);
+        if (!claimed_there && (host < layout::kChallengeDone || host > layout::kChallengeClaimed)) continue;
+        if (mine > layout::kChallengeClaimed || (mine < kViewFrom && !(claimed_there && mine == 0))) continue;
         const uint8_t want = claimed_here(recs, id) ? layout::kChallengeClaimed : layout::kChallengeDone;
         if (mine != want) guest::wr<uint8_t>(m + layout::kMirrorState, want);
     }
@@ -148,7 +153,19 @@ int on_claim_visitor(::Ctx* c) {
     return 0;
 }
 
-void on_claimed_message(::Ctx*, int, uint8_t, wire::Reader&) {}   // for older builds; a member here claims its own
+// Older builds pay from it; here it only says which challenges the host has done (a member claims its own).
+void on_claimed_message(::Ctx*, int, uint8_t, wire::Reader& r) {
+    State& s = st();
+    const uint16_t n = r.u16();
+    if (!r.ok()) return;
+    std::bitset<kIdMax + 1> now;
+    for (uint16_t k = 0; k < n; ++k) {
+        const uint16_t id = r.u16();
+        if (!r.ok()) return;
+        if (id >= 1 && id <= kIdMax) now.set(id);
+    }
+    s.host_claimed = now;
+}
 
 void tick(::Ctx*, bool) {
     if (!in_play()) return;
@@ -165,6 +182,7 @@ void on_session_change() {
     State& s = st();
     s.sent.reset();
     s.send_all = true;
+    s.host_claimed.reset();
 }
 
 void on_member_joined() { st().send_all = true; }
