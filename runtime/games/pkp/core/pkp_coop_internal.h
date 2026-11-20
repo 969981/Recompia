@@ -34,6 +34,8 @@
 //   pkp_coop_bag.cpp      a member's bag stays its own at a join: the host's stored copy of it is never sent
 //   pkp_coop_wirelog.cpp  every message sent, received, passed on or dropped, in the journal (pkp_journal.h area Sync)
 //   pkp_coop_digest.cpp   the shared state's digests: the authority's, compared by every member; the entries that differ, logged on both
+//   pkp_coop_bag.cpp      the game's own bag writers that fight the records (the join hand-back, stage-load clears and moves, host
+//                         saves into its per-user table, a refusal's bag reset), switched off
 //   pkp_coop_bags.cpp     every member's bag kept as a record of ours (a file per member key in the co-op save), written into the bag
 //                         the game selects and given back at every join
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
@@ -274,9 +276,12 @@ void reset();
 }  // namespace linkqueue
 
 namespace bag {
-// The hook site (pkp_coop.cpp): midhook 0x5728b4, the host's side of a join's bag sync (0x5727c0): the found flag is cleared, so the
-// joiner keeps its own bag.
-int on_join_bag_send(::Ctx* c);
+// The hook sites (pkp_coop.cpp); each returns what the site's hook returns.
+int on_join_bag_send(::Ctx* c);    // midhook 0x5728b4, the host's side of a join's bag sync: no stored bag is sent
+int on_stage_bag_clear(::Ctx* c);  // entry 0x5afee0: the stage load's clear of the online bag, skipped
+int on_bag_to_storage(::Ctx* c);   // entry 0x5affe0 / 0x5b0d60 (holder): the move of the bag into the PC, skipped; the share bit cleared
+int on_host_bag_store(::Ctx* c);   // entry 0x5b0a60 / 0x5af6a0: the host's moves between its per-user table and a bag, skipped
+int on_refusal_reset(::Ctx* c, bool releases_wait);   // midhooks in 0x226280: a member's bag reset to the host's copy, skipped
 }  // namespace bag
 
 namespace bags {

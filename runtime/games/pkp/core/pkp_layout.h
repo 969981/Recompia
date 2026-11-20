@@ -105,6 +105,8 @@ constexpr uint32_t kBagSlots = 120;
 constexpr uint64_t kBagOnline = 0x10;           // common block: the bag's slots in a Link Play visit and on Cloud Island (R+0x13d4930)
 constexpr uint32_t kBagWholeSlots = 130;        // a whole bag: the 120 slots, then inventory kind 4's 10 (bag + 0x780); 0x820 bytes, as
                                                 // the game copies one (its per-user table, the host's visitor mirror)
+constexpr uint64_t kCommonFlags = 0xc074;       // common block: u8; bit 1 set while a second local player (GameShare) has the online bag
+constexpr uint8_t kCommonFlagShare = 2;
 constexpr uint64_t kStageContainerStore = 0x13ea9a8; // save root: stage item slots (pkp_items.h)
 constexpr uint64_t kCabinetRecords = 0xa0ee28;   // save root: stage cabinet records (m_gimmickSaveData)
 constexpr uint32_t kCabinetRecordCount = 0x610;
@@ -124,6 +126,8 @@ constexpr uint64_t kHeldItem = 0x3684310;        // per player (stride 0x18): th
 constexpr uint64_t kHeldItemSize = 0x18;
 constexpr uint64_t kStagedBag = 0x3684340;       // per player (stride 0x838): the bag's temp copy while an item is held {data, len, cap, slots}
 constexpr uint64_t kStagedBagSize = 0x838;
+constexpr uint64_t kResourceWaitEnd = 0x46aa6c;  // (): clears the two wait bytes of the object at main+0x35650f8 that a request kind 0xb
+                                                 // reply releases on either answer
 
 // ---- movement component ----
 constexpr uint64_t kController = 0xbc0;          // the movement controller (embedded)
