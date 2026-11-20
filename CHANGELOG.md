@@ -9,6 +9,7 @@
 - Mouse mode: the game's pointer is drawn where the mouse really is at render sizes other than 1920x1080 (it drifted away from the mouse at 1440p and above) (#806)
 
 ### Co-op
+- Something a teammate was using when they left the session (the lighthouse, for one) can be used again by everyone else. Before, it said "Someone else is using this right now." until the world was loaded again
 - The Shop on the PC menu is no longer greyed out for teammates who join the host
 - A teammate who joins after a story step no longer keeps hearing an old step's music (Kyogre's music kept playing after Kyogre had left). The host's music for the area now reaches every teammate, which also fixes saves that kept the wrong music
 - Teammates now get Life Coins: each challenge the host claims pays every teammate its coins into their own wallet, once, including the challenges claimed before they joined (a teammate's PC showed 0). Coins stay each player's own, as in the game's Link Play. Still not: a teammate's own claim at the PC does nothing; the host claims for the group. Use **Set up again** once after updating to relink the game. Your shaders are kept.
