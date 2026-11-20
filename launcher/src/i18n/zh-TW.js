@@ -690,7 +690,7 @@ export default {
   'Close Steam first (Steam, Exit), then press the button again.': '請先關閉 Steam（Steam，結束），然後再次按該按鈕。',
   'It was not in Steam.': '它不在 Steam 中。',
   'Removed "{1}" from Steam. Start Steam again.': '已從 Steam 中移除「{1}」。請重新啟動 Steam。',
-  'The launcher\'s file was renamed Recompia.exe (Recompia.AppImage on Linux, Recompia on macOS) in 0.15.0. An older version goes back to the old file name, so Steam shortcuts that start the new name stop working: use Add to Steam again after going back.': '啟動器的檔案在 0.15.0 中改名為 Recompia.exe（Linux 上為 Recompia.AppImage，macOS 上為 Recompia）。舊版本會改回舊檔名，因此啟動新名稱的 Steam 捷徑將無法使用：退回後請再次使用「新增到 Steam」。',
+  'The launcher\'s file was renamed Recompia.exe (Recompia.AppImage on Linux, Recompia on macOS) in 0.16.0. An older version goes back to the old file name, so Steam shortcuts that start the new name stop working: use Add to Steam again after going back.': '啟動器的檔案在 0.16.0 中改名為 Recompia.exe（Linux 上為 Recompia.AppImage，macOS 上為 Recompia）。舊版本會改回舊檔名，因此啟動新名稱的 Steam 捷徑將無法使用：退回後請再次使用「新增到 Steam」。',
   'Profiles (a separate save and name for each player) arrived in 0.8.0. An older version ignores profiles.json and uses one save, so a second player\'s save may not be found.': '設定檔（每位玩家各有獨立的存檔和名稱）在 0.8.0 中推出。舊版本會忽略 profiles.json 並使用一個存檔，因此可能找不到第二位玩家的存檔。',
   'The one-click updater arrived in 0.7.5. An older launcher cannot update itself, so moving forward again would mean extracting a release by hand.': '一鍵更新程式在 0.7.5 中推出。舊版啟動器無法自行更新，因此再次升級就需要手動解壓縮版本。',
   'That version could not be compared with the one you have.': '無法將該版本與你目前的版本進行比較。',

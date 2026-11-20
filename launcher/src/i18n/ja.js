@@ -690,7 +690,7 @@ export default {
   'Close Steam first (Steam, Exit), then press the button again.': '先にSteamを閉じて（Steam、終了）、もう一度ボタンを押してください。',
   'It was not in Steam.': 'Steamにはありませんでした。',
   'Removed "{1}" from Steam. Start Steam again.': '「{1}」をSteamから削除しました。Steamを再起動してください。',
-  'The launcher\'s file was renamed Recompia.exe (Recompia.AppImage on Linux, Recompia on macOS) in 0.15.0. An older version goes back to the old file name, so Steam shortcuts that start the new name stop working: use Add to Steam again after going back.': 'ランチャーのファイル名は 0.15.0 で Recompia.exe（Linux では Recompia.AppImage、macOS では Recompia）に変わりました。古いバージョンは古いファイル名に戻るため、新しい名前を起動する Steam のショートカットは動かなくなります。戻した後にもう一度「Steamに追加」を使ってください。',
+  'The launcher\'s file was renamed Recompia.exe (Recompia.AppImage on Linux, Recompia on macOS) in 0.16.0. An older version goes back to the old file name, so Steam shortcuts that start the new name stop working: use Add to Steam again after going back.': 'ランチャーのファイル名は 0.16.0 で Recompia.exe（Linux では Recompia.AppImage、macOS では Recompia）に変わりました。古いバージョンは古いファイル名に戻るため、新しい名前を起動する Steam のショートカットは動かなくなります。戻した後にもう一度「Steamに追加」を使ってください。',
   'Profiles (a separate save and name for each player) arrived in 0.8.0. An older version ignores profiles.json and uses one save, so a second player\'s save may not be found.': 'プロファイル（プレイヤーごとに別のセーブと名前）は0.8.0で登場しました。それより古いバージョンは profiles.json を無視してセーブを1つだけ使うため、2人目のセーブが見つからないことがあります。',
   'The one-click updater arrived in 0.7.5. An older launcher cannot update itself, so moving forward again would mean extracting a release by hand.': 'ワンクリックアップデートは0.7.5で登場しました。それより古いランチャーは自分自身を更新できないため、再び新しくするにはリリースを手動で展開する必要があります。',
   'That version could not be compared with the one you have.': 'そのバージョンを現在のものと比較できませんでした。',
