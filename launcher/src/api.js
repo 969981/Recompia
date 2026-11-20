@@ -101,6 +101,11 @@ export const api = {
   // Steam
   steamStatus: () => invoke('steam_status'),
   applyBranding: () => invoke('apply_branding'),
+  listThemes: () => invoke('list_themes'),   // { packs: [{ folder, name, version, themes: [...], error }] } (themes.rs)
+  addTheme: (args) => invoke('add_theme', args),   // { path }: a pack folder or .zip; { name, themes }
+  removeThemePack: (args) => invoke('remove_theme_pack', args),   // { pack }: the pack's folder name
+  openThemesDir: () => invoke('open_themes_dir'),
+  pickThemeFile: () => invoke('pick_theme_file'),   // a .zip; null when the dialog is closed
   steamAdd: () => invoke('steam_add'),   // the launcher shortcut
   steamRemove: (args) => invoke('steam_remove', args),   // { target: 'launcher' | 'game' } (game: the old shortcut)
 
