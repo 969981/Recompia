@@ -13,7 +13,7 @@ Rules:
 
 | Section | Key | Default | Environment variable | Read by | Meaning |
 |---|---|---|---|---|---|
-| `log` | `path` | `nxrt.log` | `NXRT_LOG_PATH` | `src/diag/log.cpp` | Log file. An empty value writes no file. |
+| `log` | `path` | `nxrt.log` | `NXRT_LOG_PATH` | `src/diag/log.cpp` | Log file. An empty value writes no file. The logs of the last five launches are kept: the one before this launch is `<path>.prev`, older ones `<path>.prev2` to `<path>.prev4`; anything older is deleted at the start. |
 | `log` | `level` | `info` | `NXRT_LOG_LEVEL` | `src/diag/log.cpp` | Lowest level written: `error`, `warn`, `info`, `debug`, `trace`, or `0` to `4`. An unrecognised value keeps the level set in code. |
 | `config` | `cache` | `true` | `NXRT_CONFIG_CACHE` | `src/diag/config.cpp` | The game exe caches each config lookup per thread once start-up is done (`InitOptions.cache_env`), so the render thread no longer walks the environment and takes the config lock for every key it reads per frame. Ini changes made in the running game (settings pages) are still seen at once; environment variables are read once. `false` reads every key afresh, as before. Unit tests and other hosts that do not set `cache_env` never cache. |
 | `NXRT_MENUMOUSE_LOG` | `src/gfx/play/menu_mouse.cpp` | Menu pointer debugging: `1` logs what the pointer hits and does, `2` also every widget it looks at, `3` also the parts of each button's box. |

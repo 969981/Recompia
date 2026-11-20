@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! "Save logs for a bug report": one zip a player attaches to a public issue. What goes in (every file optional, a missing one is skipped):
 //!
-//!   logs/pkp.log, logs/pkp.log.prev       the game's log and the one before it (the last 4 MiB of each)
+//!   logs/pkp.log, logs/pkp.log.prev..4    the game's logs of the last five launches, newest first (the last 8 MiB of each)
 //!   logs/pkp_crash.txt, _freeze, _fatal   the game's crash, freeze and fatal reports
 //!   logs/setup.log                        the launcher's setup log
 //!   settings/pkp.ini                      the game's settings, private values blanked (SECRET_KEYS, commented-out lines too)
@@ -25,7 +25,7 @@ use crate::zipout::ZipOut;
 use crate::{coop_save, profiles, saveimport};
 
 /// The most of one file that goes in: its end, where the failure is.
-pub const MAX_FILE: u64 = 4 << 20;
+pub const MAX_FILE: u64 = 8 << 20;
 const REDACTED: &str = "[removed]";
 const IP: &str = "[ip]";
 const UID: &str = "[uid]";
@@ -36,8 +36,10 @@ const SECRET_KEYS: [&str; 12] =
     ["password", "token", "secret", "invite", "room_code", "passphrase", "salt", "nickname", "server", "relay", "private_room", "account_id"];
 /// Names shorter than this are not cut out of the text: as whole words they would take ordinary words with them.
 const MIN_WORD: usize = 3;
-/// What the launcher opens from the game folder as reports (play.rs REPORT_FILES), plus the previous log.
-const LOGS: [&str; 5] = ["pkp.log", "pkp.log.prev", "pkp_crash.txt", "pkp_freeze.txt", "pkp_fatal.txt"];
+/// What the launcher opens from the game folder as reports (play.rs REPORT_FILES), plus the logs of the four launches before
+/// (the game keeps five: nxrt log.h `LogOptions::keep_launches`).
+const LOGS: [&str; 8] =
+    ["pkp.log", "pkp.log.prev", "pkp.log.prev2", "pkp.log.prev3", "pkp.log.prev4", "pkp_crash.txt", "pkp_freeze.txt", "pkp_fatal.txt"];
 
 /// What a bundle must not give away. `Private::of` gathers it from this PC; tests make their own.
 #[derive(Default)]
