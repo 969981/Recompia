@@ -2,8 +2,7 @@
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer and co-op's Life Coins; saves and shaders are kept, no shader is translated again).
-**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer and the co-op PC menu; saves and shaders are kept, no shader is translated again).
+**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, co-op's Life Coins, the co-op PC menu and the logs; saves and shaders are kept, no shader is translated again).
 
 ### Game
 - Mouse mode: the game's pointer is drawn where the mouse really is at render sizes other than 1920x1080 (it drifted away from the mouse at 1440p and above) (#806)
@@ -13,6 +12,11 @@
 - The Shop on the PC menu is no longer greyed out for teammates who join the host
 - A teammate who joins after a story step no longer keeps hearing an old step's music (Kyogre's music kept playing after Kyogre had left). The host's music for the area now reaches every teammate, which also fixes saves that kept the wrong music
 - Teammates now get Life Coins: each challenge the host claims pays every teammate its coins into their own wallet, once, including the challenges claimed before they joined (a teammate's PC showed 0). Coins stay each player's own, as in the game's Link Play. Still not: a teammate's own claim at the PC does nothing; the host claims for the group. Use **Set up again** once after updating to relink the game. Your shaders are kept.
+
+### Logs
+- pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five
+- pkp.log now records much more for bug reports: quests and quest steps, talks, bags and storage boxes, area trips step by step, events, area levels and every co-op message, with the expected result next to the real one
+- In co-op, the log says when a teammate's quests, dex, recipes, unlocks, scenes or area levels differ from the host's, and which entries
 
 ### Launcher
 - Pausing Set up on Windows now stops all of the compiler's work. Before, part of it kept running until the launcher closed, and the next **Set up again** could sit at "Linking pkp.exe"
