@@ -6,6 +6,8 @@
 #include <volk.h>
 
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -18,8 +20,9 @@ VkFormat hdr_promote_target(VkFormat chosen, int nvn_texture_flags, bool is_2d, 
 // SPIR-V of the HDR variant of the fragment shader `words` (hash for the log), or false when it is not the tone-map shader / the HDR scene is off.
 bool hdr_tonemap_variant(const std::vector<uint32_t>& words, const std::string& hash, std::vector<uint32_t>& out);
 
-// True when `words` is the game's tone-map fragment shader (the structural match of hdr_tonemap_patch.h); cached by hash. Independent of the HDR scene.
-bool hdr_is_tonemap(const std::vector<uint32_t>& words, const std::string& hash);
+// True when the fragment shader `hash` is the game's tone-map fragment shader (the structural match of hdr_tonemap_patch.h); cached by hash, so
+// `words` (its SPIR-V, which may have to be read from disk; null: not the tone-map shader) is asked once per hash. Independent of the HDR scene.
+bool hdr_is_tonemap(const std::string& hash, const std::function<std::shared_ptr<const std::vector<uint32_t>>()>& words);
 
 // Scene upscaler (S14, #571): the game renders the 3D scene below the output size ([upscale] scene_scale, the game's dynamic-resolution path)
 // into the top-left part of its targets, and one copy draw the game names (game::Render::scene_stretch) stretches that part over the frame.

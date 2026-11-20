@@ -362,6 +362,7 @@ static const ShaderInfo* passthrough_tcs_for(const ShaderInfo* vs, const ShaderI
         const bool clip = uses(vs->refl.builtins_used_out, kBuiltInClip) && uses(tes->refl.builtins_used_in, kBuiltInClip);
         const bool cull = uses(vs->refl.builtins_used_out, kBuiltInCull) && uses(tes->refl.builtins_used_in, kBuiltInCull);
         si->spirv = tessgen::passthrough_tcs(copies, per_patch, n, 7, 1, clip, cull);
+        si->spirv_words = static_cast<uint32_t>(si->spirv.size());
         si->push_bytes = tessgen::kPushBytes;
         std::string err;
         if (!reflect_spirv(si->spirv.data(), si->spirv.size(), si->refl, &err)) {
@@ -430,7 +431,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
         // (hdr_is_tonemap: a mutex and a map of hash strings), at its first draw into a colour target.
         const ShaderInfo* fs = S.stage[kFragment];
         const bool colour = fs && S.ncolor > 0 && S.color_tex[0];
-        if (colour && g_cmd.fs_tonemap < 0) g_cmd.fs_tonemap = extras::hdr_is_tonemap(fs->spirv, fs->hash) ? 1 : 0;
+        if (colour && g_cmd.fs_tonemap < 0) g_cmd.fs_tonemap = extras::hdr_is_tonemap(fs->hash, [fs] { return shader_words(fs); }) ? 1 : 0;
         if (colour && g_cmd.fs_stretch < 0) g_cmd.fs_stretch = extras::is_scene_stretch(fs->hash) ? 1 : 0;
         if (colour && g_cmd.fs_tonemap > 0) tonemap_for_draw(*pl);
         else if (colour && g_cmd.fs_stretch > 0) scene_stretch_for_draw(*pl);

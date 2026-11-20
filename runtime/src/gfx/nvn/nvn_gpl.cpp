@@ -453,11 +453,17 @@ std::unordered_map<const ShaderInfo*, std::vector<SpvIntSlot>> g_pred_cache;
 void predict_int_attributes(GraphicsKey& k) {
     if (!k.stage[0]) return;
     std::vector<SpvIntSlot> slots;
+    bool known = false;
     {
         std::lock_guard<std::mutex> lk(g_pred_mu);
         auto it = g_pred_cache.find(k.stage[0]);
-        if (it == g_pred_cache.end()) it = g_pred_cache.emplace(k.stage[0], spirv_predict_int_inputs(k.stage[0]->spirv)).first;
-        slots = it->second;
+        if (it != g_pred_cache.end()) slots = it->second, known = true;
+    }
+    if (!known) {     // the words are read outside the lock (shader_words may read them from disk)
+        const SpirvWords w = shader_words(k.stage[0]);
+        if (w) slots = spirv_predict_int_inputs(*w);
+        std::lock_guard<std::mutex> lk(g_pred_mu);
+        g_pred_cache.emplace(k.stage[0], slots);
     }
     const bool sg = g_pred_signed.load(std::memory_order_relaxed);
     for (const SpvIntSlot& sl : slots)
@@ -1154,11 +1160,8 @@ bool gpl_prepare(const PrepareOptions& o, PrepareResult* res) {
     for (size_t base = 0; base < progs.size() && !cancel.load(); base += kBatch) {
         const size_t end = std::min(progs.size(), base + kBatch);
         std::atomic<size_t> next{base};
-        std::vector<const ShaderInfo*> used;
-        std::mutex used_mu;
         auto work = [&] {
             set_compile_thread_priority(false);
-            std::vector<const ShaderInfo*> mine;
             for (;;) {
                 if (cancel.load()) break;
                 const size_t i = next.fetch_add(1);
@@ -1170,8 +1173,6 @@ bool gpl_prepare(const PrepareOptions& o, PrepareResult* res) {
                 if (!vs || !fs || (ph.gs && !gs)) {
                     missing.fetch_add(1);
                 } else {
-                    mine.push_back(vs); mine.push_back(fs);
-                    if (gs) mine.push_back(gs);
                     const ShaderInfo* st6[6] = {vs, fs, gs, nullptr, nullptr, nullptr};
                     const ProgLayout* pl = prog_layout(st6);
                     GraphicsKey k;
@@ -1196,8 +1197,6 @@ bool gpl_prepare(const PrepareOptions& o, PrepareResult* res) {
                 done.fetch_add(1);
                 report();
             }
-            std::lock_guard<std::mutex> lk(used_mu);
-            used.insert(used.end(), mine.begin(), mine.end());
         };
         std::vector<BigThread> pool;
         for (int t = 1; t < threads; ++t) {
@@ -1206,13 +1205,12 @@ bool gpl_prepare(const PrepareOptions& o, PrepareResult* res) {
         }
         work();
         for (auto& t : pool) t.join();
-        // between batches nothing is creating pipelines: drop the batch's modules, parts and SPIR-V
+        // between batches nothing is creating pipelines: drop the batch's modules and parts (a stub keeps no SPIR-V: SpirvFrom)
         module_cache_clear();
         {
             std::lock_guard<std::mutex> lk(g_mu);
             g_libs.clear();
         }
-        for (const ShaderInfo* si : used) shader_cache().release_stub_spirv(si);
     }
     g_discard.store(false);
     if (g_prepare_cache.load() && !cancel.load()) pipeline_cache_save();
