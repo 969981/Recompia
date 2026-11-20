@@ -22,8 +22,8 @@
 //   pkp_coop_events.cpp   what an ended talk or scene leaves in the save (scenes played, conversations seen, story lines moved on)
 //                         kept by every member
 //   pkp_coop_held.cpp     the story events a member's game holds for Link Play's request counters: let through once they are stuck
-//   pkp_coop_linkqueue.cpp Link Play's request queue on a member: a strict request left out by an earlier session is cleared at the next
-//                         session start
+//   pkp_coop_linkqueue.cpp Link Play's request queue on a member: a talk-end record the busy queue would drop is kept and sent once it
+//                         is idle; a strict request left out by an earlier session is cleared at the next session start
 //   pkp_coop_travel.cpp   the group's trips: a move to another area runs only after the game's poll passed, and the host makes it for all
 //   pkp_coop_discovery.cpp the Pokédex entries and habitats any member found, found by every member, with the game's own scenes
 //   pkp_coop_placement.cpp a member's "object placed" notice to the contents, raised once the host has put the object in its world
@@ -236,8 +236,12 @@ int on_visitor_sync(::Ctx* c);
 void reset();
 }  // namespace held
 namespace linkqueue {
-// The hook site (pkp_coop.cpp): entry 0x214954, the visitor's request queue reset at session start.
-int on_session_reset(::Ctx* c);
+// The hook sites (pkp_coop.cpp).
+int on_send_record(::Ctx* c);     // entry 0x2159c0: the talk-end record's send, from the talk-end walk 0x480b60
+int on_session_reset(::Ctx* c);   // entry 0x214954: the visitor's request queue reset at session start
+// Sends a kept record once the queue is idle and the player walks (once a frame).
+void tick(::Ctx* c, bool in_game);
+void reset();
 }  // namespace linkqueue
 
 namespace bag {

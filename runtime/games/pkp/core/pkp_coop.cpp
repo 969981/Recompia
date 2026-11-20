@@ -86,6 +86,7 @@ enum class Site : uintptr_t {
                       // group, so every member gets it too (pkp_coop_purchases.cpp)
     VisitorSync,      // the visitor's "every Link Play request answered" test, from the event queue's ready test: a member's story events
                       // are not held for counters that stopped meeting (pkp_coop_held.cpp)
+    RecordSend,       // the talk-end record's send: one with items the busy queue would drop is kept and sent later (pkp_coop_linkqueue.cpp)
     QueueReset,       // the visitor's request queue reset at session start: also clears a strict request an earlier session left out,
                       // which refused every talk-end record with items (pkp_coop_linkqueue.cpp)
     OfflineGoods,     // "this shop row is for offline play only" (the bag upgrades among them): no row is, in a session, so the shop
@@ -148,6 +149,7 @@ constexpr CoopSite kSites[] = {
     {{0x3b9060, kPacibsp, true}, Site::DexScene},
     {{0x45f2a0, 0x12003c28u, true}, Site::HabitatScene},     // and w8, w1, #0xffff
     {{0x313418, kPacibsp, true}, Site::VisitorSync},
+    {{0x2159c0, 0x90019a68u, true}, Site::RecordSend},       // adrp x8, 0x3561000
     {{0x214954, 0xb0019a68u, true}, Site::QueueReset},       // adrp x8, 0x3561000
     {{0x13596c, 0x12003c29u, true}, Site::PlacedNotice},     // and w9, w1, #0xffff
     {{0x12b544, 0xb9400408u, true}, Site::PlayScene},        // ldr w8, [x0, #4]
@@ -200,6 +202,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::DexScene: return coop::discovery::on_dex_scene(c);
         case Site::HabitatScene: return coop::discovery::on_habitat_scene(c);
         case Site::VisitorSync: return coop::held::on_visitor_sync(c);
+        case Site::RecordSend: return coop::linkqueue::on_send_record(c);
         case Site::QueueReset: return coop::linkqueue::on_session_reset(c);
         case Site::PlacedNotice: return coop::placement::on_placed_notice(c);
         case Site::PlayScene: return coop::contents::on_play_scene(c);
@@ -275,6 +278,7 @@ void game_frame(::Ctx* c) {
     coop::talk::tick();
     coop::travel::tick(c);
     coop::catchup::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::linkqueue::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::notice::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::placement::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::contents::tick(c, s.in_game.load(std::memory_order_relaxed));
@@ -308,6 +312,7 @@ void remove() {   // the registry has removed the hooks
     coop::gate::reset();
     coop::trace::reset();
     coop::held::reset();
+    coop::linkqueue::reset();
     coop::placement::reset();
     coop::contents::reset();
     coop::session::reset();

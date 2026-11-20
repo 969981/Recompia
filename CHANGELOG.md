@@ -5,7 +5,7 @@
 **Update:** press **Update** in the launcher, then **Set up again** once (co-op gets a new game hook point; saves and shaders are kept).
 
 ### Co-op
-- A teammate who talks to a character for its reward now gets the reward item too, instead of it going to the host's bag (and the host's own reward items reach teammates as well). A teammate who dropped while the game was waiting on the host no longer loses the items of every later talk in the next session. Use **Set up again** once after updating to relink the game. Your shaders are kept.
+- A teammate's talks with characters that give, take or make things now always reach the host: a talk that ended while the game was still waiting on another request was lost, so the teammate got nothing and the character stayed tied to them (its work stopped and others could not use it). A teammate who talks to a character for its reward now gets the reward item too, instead of it going to the host's bag (and the host's own reward items reach teammates as well). Use **Set up again** once after updating to relink the game. Your shaders are kept.
 - Fixed the beach scene with Kyogre never playing, which left Kyogre with nothing to say and the story stuck. A story scene the game could not start at that moment is now asked for again until it plays, instead of being lost. Worlds already stuck there get the scene when the host walks onto the beach
 - A teammate who leaves or drops and joins again keeps their own bag: the host no longer hands back its old copy of it, which emptied the bag on a rejoin. Use **Set up again** once after updating to relink the game. Your shaders are kept.
 
