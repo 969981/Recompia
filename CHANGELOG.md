@@ -17,6 +17,10 @@
 - Teammates get every unlock the group has in the game's own checks too: the Environment Level panel on the PC menu, for one, was missing for a teammate when the group unlocked it after they joined
 - The host's town and story records (who lives in town, a character's current work, the weather and light the story set, a wild creature's visit) now reach every teammate's own save, so a teammate's world no longer lags behind the host's
 - One more creature request, one the story reads, is now closed for the whole group once anyone finishes it, as the story requests are
+- In the town, teammates see the Requests app as the host does: the tabs of every opened area, every mission and request in the list, and the "new" badge for them
+- Teammates can craft the four recipes that showed "cannot craft" for a visitor
+- Teammates now see the effects of gimmicks being used and changing state, as the host does
+- Creatures the story keeps busy (in a scene, at work it set, or held by a town rule) are busy for teammates too, as for the host: teammates no longer get talks, offers or presents the host would not
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

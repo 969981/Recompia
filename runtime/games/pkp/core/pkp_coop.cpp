@@ -117,6 +117,9 @@ enum class Site : uintptr_t {
     // ---- the ability check (pkp_coop_story.cpp) ----
     AbilityCheck,     // the ability check's "a visitor reads the host's record" branch: a member reads its own bits, which hold the
                       // group's abilities (the Environment Level panel on a teammate's PC menu)
+    // ---- the role answers (pkp_coop_role.cpp) ----
+    RoleAnswer,       // a role getter's call listed in pkp_coop_role_table.inc (a permission or display check): a member gets the host's
+                      // answer there, every other caller the game's own
 };
 
 struct CoopSite {
@@ -188,6 +191,12 @@ constexpr CoopSite kSites[] = {
     {{0x5c05c0, 0x37000140u, false}, Site::AreaGateRecord},  // tbnz w0, #0, 0x5c05e8 (w0 = IsOnline's answer)
     // the ability check (pkp_coop_story.cpp)
     {{0x1140e8, 0x3617fb08u, false}, Site::AbilityCheck},    // tbz w8, #2, 0x114048 (w8 = GM+0x90, the session bits)
+    // ---- the role answers (pkp_coop_role.cpp): one midhook per row (after its `bl`, or at its session-bit test) ----
+#define PKP_ROLE_ROW(ret, getter, word, tag, what) {{ret, word, false}, Site::RoleAnswer},
+#define PKP_ROLE_BIT(site, reg, bit, word, tag, what) {{site, word, false}, Site::RoleAnswer},
+#include "core/pkp_coop_role_table.inc"
+#undef PKP_ROLE_BIT
+#undef PKP_ROLE_ROW
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -208,7 +217,7 @@ State& st() {
 
 // Every co-op site (user: its Site), once the frame callback armed the hooks: the part of co-op that owns the site does its work there.
 // A site no part owns yet passes through (returns 0: the game's own code runs).
-int hook(::Ctx* c, uint64_t, void* user) {
+int hook(::Ctx* c, uint64_t addr, void* user) {
     if (!st().armed.load(std::memory_order_acquire)) return 0;
     switch (static_cast<Site>(reinterpret_cast<uintptr_t>(user))) {
         case Site::MaskStart: return coop::story::on_mask_start(c);
@@ -253,6 +262,7 @@ int hook(::Ctx* c, uint64_t, void* user) {
         case Site::PlayScene: return coop::contents::on_play_scene(c);
         case Site::AreaGateRecord: return coop::unlocks::on_area_gate_record(c);
         case Site::AbilityCheck: return coop::story::on_ability_check(c);
+        case Site::RoleAnswer: return coop::answers::on_answer(c, addr - st().base);
         default: return 0;
     }
 }
@@ -340,6 +350,7 @@ void game_frame(::Ctx* c) {
     coop::trace::tick(s.in_game.load(std::memory_order_relaxed));
     coop::digest::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::records::tick(s.in_game.load(std::memory_order_relaxed));
+    coop::answers::tick();
 }
 
 void remove() {   // the registry has removed the hooks
@@ -379,6 +390,7 @@ void remove() {   // the registry has removed the hooks
     coop::contents::reset();
     coop::session::reset();
     coop::records::reset();
+    coop::answers::reset();
 }
 
 }  // namespace

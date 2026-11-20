@@ -40,6 +40,8 @@
 //                         the game selects and given back at every join; the host's copy of each visitor's bag fed from it
 //   pkp_coop_records.cpp  the authority's story records (effect-command record, town flags and targets, stage flags, hint groups)
 //                         written into every member's own save
+//   pkp_coop_role.cpp     the role answers: at the listed permission and display checks (pkp_coop_role_table.inc) a member gets the
+//                         host's answer from the game's role getters
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -480,5 +482,14 @@ void on_session_change();   // this process joined or left: copies forgotten, al
 void on_member_joined();    // another member joined: all records sent again
 void reset();
 }  // namespace records
+// ---- the role answers (pkp_coop_role.cpp) ----
+namespace answers {
+// The hook sites (pkp_coop.cpp): one midhook per row of pkp_coop_role_table.inc, after a `bl` to a role getter or at a test of the
+// session bits (site: its main offset). A member in a session gets the host's answer (x0, or the tested register); returns 0 (the
+// game's code runs on).
+int on_answer(::Ctx* c, uint64_t site);
+void tick();    // once a frame: the marks of the rows logged this session clear when the session closes
+void reset();
+}  // namespace answers
 
 }  // namespace nxrt::games::pkp::coop
