@@ -2,7 +2,18 @@
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once (co-op gets a new game hook point; saves and shaders are kept).
+## 0.16.0 (build T: Tapir)
+
+**Update:** press **Update** in the launcher, then **Set up again** once (co-op gets a new game hook point and split screen a new window setup; saves and shaders are kept, no shader is translated again).
+
+### Highlights
+- **Split screen:** 2 to 4 players on one PC in one co-op story, each in a window of their own with their own character and controller. Open **Co-op**, then **Split screen on this PC**
+- **The launcher is now called Recompia:** Recompia.exe (Recompia.AppImage on Linux, Recompia on macOS). Shortcuts to PokopiaLauncher keep working and Steam shortcuts are moved over by themselves
+- About 1 GB less memory on every platform, and up to 2 GB less on Linux and the Steam Deck
+- Your own launcher themes: colours, background, logo and icons from a theme pack on your PC
+
+### Known issues
+- Downloading by hand: the download is now Recompia-0.16.0-<platform> and its folder Recompia-0.16.0, so extracting it over an old PokopiaRecomp folder no longer replaces that install. Use **Update** in the launcher, or move your files to the new folder. PokopiaLauncher.exe in an install keeps working
 
 ### Co-op
 - Co-op: split screen. **Split screen on this PC** on the Co-op page makes a co-op save for 2 to 4 players on one PC, each in a window of their own with their own character, controller (or the keyboard and mouse) and copy of the world. The windows share one story as in online co-op and meet on their own, with no internet. Each window needs about 7 GB of memory.
