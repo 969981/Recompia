@@ -19,6 +19,7 @@
 
 #include "nxrt/hooks.h"
 #include "nxrt/log.h"
+#include "nxrt/notices.h"
 
 namespace nxrt::games::pkp {
 
@@ -26,6 +27,8 @@ namespace {
 
 constexpr const char* kTag = "pkp";
 constexpr size_t kMemberDigits = 32;
+constexpr const char* kOffNotice = "pkp.coop";   // the notice of co-op turning itself off at the site check
+constexpr double kOffNoticeSeconds = 12.0;       // long enough to read; shown at start-up and again at the first gameplay frame
 
 
 // What the game does at a site; the hook's user value.
@@ -234,6 +237,7 @@ struct State {
     std::atomic<bool> armed{false};
     std::atomic<bool> checked{false};
     std::atomic<bool> in_game{false};   // play mode's, from its frame (main thread) for the game-frame tick
+    const char* off_text = nullptr;     // the site check turned co-op off: the notice's text, posted again once gameplay starts (frame only)
 };
 State& st() {
     static State s;
@@ -336,17 +340,30 @@ void install(const FeatureInstall& in) {
 }
 
 // Play mode's frame (main is loaded): the first call checks the sites and arms the hooks or removes them.
+// Co-op off at the check tells the player too (a start-up notice can be missed behind the title, so it is posted again once, at the
+// first gameplay frame); otherwise they only find their own world and no host.
 void frame(bool in_game, double, play::GameFrame*) {
     State& s = st();
     s.in_game.store(in_game, std::memory_order_relaxed);
+    if (s.off_text && in_game) {
+        notices::post(kOffNotice, s.off_text, kOffNoticeSeconds);
+        s.off_text = nullptr;
+    }
     if (!s.ids[0] || s.checked.exchange(true)) return;
     HookSite at[kSiteCount];
     for (size_t i = 0; i < kSiteCount; ++i) at[i] = kSites[i].at;
     uint32_t word = 0;
     if (const HookSite* bad = first_bad_site(s.base, at, kSiteCount, &word)) {
         remove_hooks(s);
-        NXLOG_W(kTag, "Co-op: off: main+0x%llx is not the expected hook site (word %08x, expected %08x)",
-                static_cast<unsigned long long>(bad->site), word, bad->word);
+        const bool relink = site_missing_from_lift(*bad, word);
+        NXLOG_W(kTag, "Co-op: off: main+0x%llx is not the expected hook site (word %08x, expected %08x)%s",
+                static_cast<unsigned long long>(bad->site), word, bad->word,
+                relink ? " (the lift has no hook site there: Set up again)"
+                       : " (this game build or dump is not the one co-op was made for)");
+        s.off_text = relink ? "Co-op is off: press Set up again in the launcher, then start the game again"
+                            : "Co-op is off: this game version doesn't match this Recompia build";
+        notices::post(kOffNotice, s.off_text, kOffNoticeSeconds);
+        if (in_game) s.off_text = nullptr;   // already in gameplay: this showing is the gameplay one
         return;
     }
     s.armed.store(true, std::memory_order_release);
@@ -392,6 +409,7 @@ void remove() {   // the registry has removed the hooks
     s.armed.store(false);
     s.checked.store(false);
     s.in_game.store(false);
+    s.off_text = nullptr;
     for (uint32_t& h : s.ids) h = 0;
     s.hooks = nullptr;
     coop::bags::reset();   // first: it writes its records' files under this player's member key

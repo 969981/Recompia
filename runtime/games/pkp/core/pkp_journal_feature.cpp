@@ -73,7 +73,7 @@ void frame(bool in_game, double, play::GameFrame*) {
         if (first_bad_site(s.base, &a->site->at, 1, &word)) {
             NXLOG_W("pkp", "Journal: site %s (main+0x%llx) skipped: word %08x, expected %08x%s", a->site->name,
                     static_cast<unsigned long long>(a->site->at.site), word, a->site->at.word,
-                    a->site->at.entry || word != a->site->at.word ? "" : " (the lift has no hook site there: Set up again)");
+                    site_missing_from_lift(a->site->at, word) ? " (the lift has no hook site there: Set up again)" : "");
             continue;
         }
         a->on.store(true, std::memory_order_release);
