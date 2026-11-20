@@ -293,6 +293,7 @@ void game_frame(::Ctx* c) {
     coop::unlocks::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::purchases::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::money::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::bags::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::talk::tick();
     coop::gimmicks::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::travel::tick(c);
@@ -313,6 +314,7 @@ void remove() {   // the registry has removed the hooks
     s.in_game.store(false);
     for (uint32_t& h : s.ids) h = 0;
     s.hooks = nullptr;
+    coop::bags::reset();   // first: it writes its records' files under this player's member key
     s.launch = {};
     for (uint8_t& b : s.key) b = 0;
     coop::link::reset();

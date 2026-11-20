@@ -34,6 +34,8 @@
 //   pkp_coop_bag.cpp      a member's bag stays its own at a join: the host's stored copy of it is never sent
 //   pkp_coop_wirelog.cpp  every message sent, received, passed on or dropped, in the journal (pkp_journal.h area Sync)
 //   pkp_coop_digest.cpp   the shared state's digests: the authority's, compared by every member; the entries that differ, logged on both
+//   pkp_coop_bags.cpp     every member's bag kept as a record of ours (a file per member key in the co-op save), written into the bag
+//                         the game selects and given back at every join
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -276,6 +278,18 @@ namespace bag {
 // joiner keeps its own bag.
 int on_join_bag_send(::Ctx* c);
 }  // namespace bag
+
+namespace bags {
+// Applies this player's record to the bag the game selects, takes the bag's changes into it (or refuses a wipe), sends a member's to
+// the authority and writes the records' files (once a frame, after the channel's handlers). reset() writes what changed first.
+void tick(::Ctx* c, bool in_game);
+void reset();
+// Another member joined (its node): the authority answers its first record of the session again.
+void on_member_joined(int node);
+// The messages (pkp_coop_link.cpp).
+void on_record_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);    // the authority: a member's record
+void on_restore_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: the authority's copy of its record
+}  // namespace bags
 
 namespace placement {
 // The hook site (pkp_coop.cpp): entry 0x13596c, the "object placed" notice, from the placement 0x593120 only. On a member it waits
