@@ -57,6 +57,9 @@
 //   BagRestore  +2 u8[16] member key, +18 u8 1 when the authority has a record for it (0: none, the rest is 0), +19 u64 sequence,
 //               +27 kBagRecordSlots x 16 bytes   (the authority's answer to a member's first BagRecord of a session, or to one older than
 //               its own copy; a member ignores one for another member's key)
+//   StoryRecord +2 u8 record (1 effect commands, 2 town flags, 3 town targets, 4 stage flags, 5 hint groups; another is skipped),
+//               +3 u8 the authority's area (stage), +4 u16 length n (the record's size; another is skipped), n bytes: the record as the
+//               authority's save holds it   (when it changed, and all of them on a join and every so often; pkp_coop_records.cpp)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -118,6 +121,7 @@ enum class Type : uint32_t {
     StateReport = 31,
     BagRecord = 32,
     BagRestore = 33,
+    StoryRecord = 34,   // the story records (pkp_coop_records.cpp)
 };
 
 // Builds one payload: the header, then the fields in order.

@@ -221,4 +221,18 @@ constexpr uint32_t kMemberCount = 4;
 constexpr uint64_t kOwnMemberIndexRef = 0x3484d68, kOwnMemberIndex = 0xb3381;
 constexpr size_t kUserIdSize = 16;
 
+// ---- the story records (pkp_coop_records.cpp; modding-docs coop-v2/role-census/followup/STORY-RECORDS.md) ----
+// Save root +: m_effectCommandSaveData (STGDAT, m_saveStage R+0x7419b0 + 0x2311f0 = R+0x972ba0, serializer 0x5f82ec): its fields
+// m_flags +0x8 .. m_sRealTimer +0x1c4..+0x1eb; +0x0..+0x7 is the field object's vtable pointer, not data.
+constexpr uint64_t kSaveEffectCommands = 0x972ba8;
+constexpr size_t kEffectCommandsBytes = 0x1e4;
+// CMNDAT m_story (R+0x4a26a0) +0x12c m_charaTownFlag and +0xc40 m_targetStageForEnableMoveStage (u8 per chara index, raw 0x400 each),
+// +0x2c m_storyStageUniqueFlag (8 bytes per stage 0..31); m_PokemonHintOpenGroupFlag (128 group bits).
+constexpr uint64_t kSaveTownFlags = 0x4a27cc, kSaveTownTargets = 0x4a32e0;
+constexpr size_t kTownRecordBytes = 0x400;
+constexpr uint64_t kSaveStageFlags = 0x4a26cc;
+constexpr size_t kStageFlagsBytes = 0x100;
+constexpr uint64_t kSaveHintGroups = 0x7416bc;
+constexpr size_t kHintGroupsBytes = 0x10;
+
 }  // namespace nxrt::games::pkp::layout

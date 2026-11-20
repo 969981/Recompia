@@ -38,6 +38,8 @@
 //                         saves into its per-user table, a refusal's bag reset), switched off
 //   pkp_coop_bags.cpp     every member's bag kept as a record of ours (a file per member key in the co-op save), written into the bag
 //                         the game selects and given back at every join; the host's copy of each visitor's bag fed from it
+//   pkp_coop_records.cpp  the authority's story records (effect-command record, town flags and targets, stage flags, hint groups)
+//                         written into every member's own save
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -467,5 +469,16 @@ namespace story {
 // member in the session takes the own-bits branch instead.
 int on_ability_check(::Ctx* c);
 }  // namespace story
+
+// ---- the story records (pkp_coop_records.cpp): the authority's story records, written into every member's save ----
+namespace records {
+// The message (pkp_coop_link.cpp): a member keeps the authority's copy of one record.
+void on_record_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// The authority sends the records that changed; a member writes the authority's copies into its save at a safe moment (once a frame).
+void tick(bool in_game);
+void on_session_change();   // this process joined or left: copies forgotten, all records sent again
+void on_member_joined();    // another member joined: all records sent again
+void reset();
+}  // namespace records
 
 }  // namespace nxrt::games::pkp::coop

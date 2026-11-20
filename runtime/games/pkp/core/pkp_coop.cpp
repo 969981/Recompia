@@ -339,6 +339,7 @@ void game_frame(::Ctx* c) {
     coop::gate::tick(s.in_game.load(std::memory_order_relaxed));
     coop::trace::tick(s.in_game.load(std::memory_order_relaxed));
     coop::digest::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::records::tick(s.in_game.load(std::memory_order_relaxed));
 }
 
 void remove() {   // the registry has removed the hooks
@@ -377,6 +378,7 @@ void remove() {   // the registry has removed the hooks
     coop::placement::reset();
     coop::contents::reset();
     coop::session::reset();
+    coop::records::reset();
 }
 
 }  // namespace
