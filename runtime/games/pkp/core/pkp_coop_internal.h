@@ -25,6 +25,7 @@
 //   pkp_coop_travel.cpp   the group's trips: a move to another area runs only after the game's poll passed, and the host makes it for all
 //   pkp_coop_discovery.cpp the Pokédex entries and habitats any member found, found by every member, with the game's own scenes
 //   pkp_coop_placement.cpp a member's "object placed" notice to the contents, raised once the host has put the object in its world
+//   pkp_coop_bag.cpp      a member's bag stays its own at a join: the host's stored copy of it is never sent
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -231,6 +232,12 @@ namespace held {
 int on_visitor_sync(::Ctx* c);
 void reset();
 }  // namespace held
+
+namespace bag {
+// The hook site (pkp_coop.cpp): midhook 0x5728b4, the host's side of a join's bag sync (0x5727c0): the found flag is cleared, so the
+// joiner keeps its own bag.
+int on_join_bag_send(::Ctx* c);
+}  // namespace bag
 
 namespace placement {
 // The hook site (pkp_coop.cpp): entry 0x13596c, the "object placed" notice, from the placement 0x593120 only. On a member it waits
