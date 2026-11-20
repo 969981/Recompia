@@ -132,6 +132,15 @@ let relay = null;
 let mockSteam = { found: true, running: false, accounts: 1, game_added: 0, launcher_added: 0 };
 let mockChannel = 'stable';
 let mockPicked = '';
+let mockTheme = params.get('usertheme') || '';   // &usertheme=<pack>/<id> starts with one of the mock packs chosen
+// the player's theme packs (themes.rs): one good pack with two themes, and one that cannot be used
+const mockPacks = [
+  { folder: 'camp-pack', name: 'Camp Pack', version: 1, error: null, themes: [
+    { key: 'camp-pack/camp', name: 'Camp', background: 'camp-pack/bg.webp', background_position: '50% 56%', colors: { accent: '#ffc23d', base: '#1c1006' }, logo: 'camp-pack/logo.png', mark: 'camp-pack/mark.png' },
+    { key: 'camp-pack/night', name: 'Night', background: null, background_position: null, colors: { accent: '#9fd8ff', base: '#08122a' }, logo: null, mark: null },
+  ] },
+  { folder: 'broken-pack', name: 'Broken Pack', version: 0, themes: [], error: 'theme.json: the file bg.png is not in the pack.' },
+];
 let mockGame = params.get('game') || 'recompia';   // &game=<recompia|coop|zonith> opens that game
 let mockOnline = { online_asked: false, online_name: '', online_salt: 'mock-salt' };   // the switch itself is pkp.online_presence
 let mockRepair = null;
@@ -516,12 +525,18 @@ function handle(cmd, args) {
       console.info('[mock] open', cmd, args);
       return null;
     case 'save_log_bundle': return { path: 'C:/Users/Player/Downloads/recompia-logs-20260101-120000.zip' };
-    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, picked_version: mockPicked, mods_auto_update: modsAutoUpdate, achievements_unlocked: !mockLocks.kept, achievements_sharing_unlocked: !mockLocks.sharing, ...mockOnline, cloud_islands: mockCloud, signin_skipped: mockSkipped, game: mockGame };
+    case 'get_config': return { dump_dir: dumpDir, game_dir: '', minimize_on_play: false, discord_presence: false, gentle_build: false, loose_shaders: looseShaders, channel: mockChannel, picked_version: mockPicked, mods_auto_update: modsAutoUpdate, achievements_unlocked: !mockLocks.kept, achievements_sharing_unlocked: !mockLocks.sharing, ...mockOnline, cloud_islands: mockCloud, signin_skipped: mockSkipped, game: mockGame, theme: mockTheme };
     case 'save_config': modsAutoUpdate = !!args.config.mods_auto_update; looseShaders = !!args.config.loose_shaders; mockChannel = args.config.channel || 'stable'; mockPicked = args.config.picked_version ?? ''; mockGame = args.config.game ?? mockGame;
       mockSkipped = !!args.config.signin_skipped; mockCloud = !!args.config.cloud_islands;
       mockOnline = { online_asked: !!args.config.online_asked, online_name: args.config.online_name ?? '', online_salt: args.config.online_salt ?? '' };
       return null;
     case 'apply_branding': return null;
+    case 'list_themes': return { packs: mockPacks };
+    case 'add_theme': mockPacks.push({ folder: 'added-pack', name: 'Added Pack', version: 2, error: null, themes: [{ key: 'added-pack/one', name: 'One', background: null, background_position: null, colors: { accent: '#ff8fd0', base: '#240a1c' }, logo: null, mark: null }] }); return { name: 'Added Pack', themes: 1 };
+    case 'remove_theme_pack': { const i = mockPacks.findIndex((p) => p.folder === args.pack); if (i >= 0) mockPacks.splice(i, 1); if (mockTheme.startsWith(`${args.pack}/`)) mockTheme = ''; return null; }
+    case 'set_theme': mockTheme = args.theme; return null;
+    case 'open_themes_dir': return null;
+    case 'pick_theme_file': return 'D:/Downloads/pack.zip';
     case 'get_overview': return { game_dir: GAME_DIR, default_game_dir: GAME_DIR, exe_exists: sc.exe_exists, builds_exe: true };
     case 'pick_folder': return 'D:/Dumps/Game';
     case 'pick_package': return 'D:/Downloads/game-2.0.1a.nup';

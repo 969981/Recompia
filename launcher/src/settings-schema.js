@@ -806,6 +806,34 @@ export const SECTIONS = [
         ],
       },
       {
+        // the launcher's colours and pictures (themes.js, src-tauri/src/themes.rs); per PC, so no row has an `at`
+        title: t('Themes'),
+        rows: [
+          {
+            id: 'themes_note', type: 'note',
+            note: () => ({ text: t('A theme changes the colours, the background and the logo, and also the icon of this window, of the exes and of the Steam shortcut. Add a theme pack as a folder or a .zip that holds a theme.json. The pictures stay on this PC.') }),
+          },
+          { id: 'theme_pick', label: t('Theme'), type: 'theme' },
+          {
+            id: 'theme_add', label: t('Add a theme pack'), type: 'info',
+            actions: (env) => [
+              { act: 'theme-add-folder', label: t('Folder'), icon: 'folder-open', disabled: env.themeBusy },
+              { act: 'theme-add-zip', label: t('Zip file'), icon: 'plus', disabled: env.themeBusy },
+            ],
+          },
+          {
+            id: 'theme_packs', label: t('Your theme packs'), type: 'info', when: (v, env) => env.themePacks.length > 0,
+            value: (env) => env.themePacks.map((p) => p.name).join(', '),
+            actions: (env) => env.themePacks.map((p) => ({ act: 'theme-remove', arg: p.folder, name: p.name, label: t('Remove {name}', { name: p.name }), icon: 'trash-2', disabled: env.themeBusy })),
+          },
+          {
+            id: 'theme_errors', type: 'note', when: (v, env) => env.themePacks.some((p) => p.error),
+            note: (env) => ({ kind: 'danger', text: env.themePacks.filter((p) => p.error).map((p) => `${p.name}: ${p.error}`).join(' ') }),
+          },
+          { id: 'theme_folder', label: t('Themes folder'), type: 'info', actions: [{ act: 'theme-open-folder', label: t('Open folder'), icon: 'folder-open' }] },
+        ],
+      },
+      {
         title: t('Troubleshooting'), games: SINGLEPLAYER,
         rows: [
           {

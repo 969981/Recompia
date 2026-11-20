@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "name": "Example colours",
+  "themes": [
+    {
+      "id": "plum",
+      "name": "Plum",
+      "colors": { "accent": "#ff8fd0", "base": "#240a1c" }
+    },
+    {
+      "id": "ocean",
+      "name": "Ocean",
+      "colors": { "accent": "#7fd1ff", "base": "#06182c", "color-warn": "#ffc47e" }
+    }
+  ]
+}

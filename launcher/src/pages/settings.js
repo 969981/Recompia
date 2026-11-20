@@ -20,6 +20,8 @@ import { createSaveActions } from './settings/saves.js';
 import { createSteamActions } from './settings/steam.js';
 import { createRepairActions } from './settings/repair-actions.js';
 import { createUpdateActions } from './settings/updates.js';
+import { createThemeActions } from './settings/themes.js';
+import { chooseTheme } from '../themes.js';
 import { createGameActions } from './settings/game.js';
 import { loadPromptIcons } from './settings/prompt-icons.js';
 import { loadPicker, onPicker, onPickerChange } from './version-picker.js';
@@ -60,7 +62,7 @@ export async function render(el, ctx) {
   const dlssModule = createDlss(h);
   const controls = createControls(h, dlssModule);
   const modules = [controls, dlssModule, createProfileActions(h), createSaveActions(h), createSteamActions(h),
-    createRepairActions(h), createUpdateActions(h), createGameActions(h), createOnlineActions(h)];
+    createRepairActions(h), createUpdateActions(h), createGameActions(h), createOnlineActions(h), createThemeActions(h)];
   const ACTIONS = Object.assign({}, ...modules.map((m) => m.actions));
 
   el.addEventListener('change', (e) => {
@@ -73,6 +75,7 @@ export async function render(el, ctx) {
       return;
     }
     if (t.id === 'language') return setLanguage(t.value);   // reloads: every string is read once at start
+    if (t.id === 'theme-pick') return void chooseTheme(t.value).catch((err) => toast(errText(err), 'error')).then(() => h.draw());
     if (onPickerChange(t)) return;   // the channel and version dropdowns save (and install) by themselves
     controls.onChange(t);
   });

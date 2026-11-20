@@ -21,7 +21,7 @@ export function createRepairActions(h) {
         const r = await runRepair();
         if (!r) return;
         if (r.launcher) {
-          try { localStorage.removeItem('theme'); localStorage.removeItem('pkp.linkplay'); localStorage.removeItem('language'); } catch { /* nothing to clear */ }
+          try { localStorage.removeItem('theme'); localStorage.removeItem('userTheme'); localStorage.removeItem('pkp.linkplay'); localStorage.removeItem('language'); } catch { /* nothing to clear */ }
           location.reload();
           return;
         }

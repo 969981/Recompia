@@ -18,16 +18,28 @@ const GAME_ART = {
 };
 
 let currentGame = 'recompia';
+/** The player's theme (themes.js): { game: { kind: address } }. Only Recompia and Co-op are ever listed; Zonith keeps its own. */
+let themeArt = {};
 
 /** The picture of `kind` (logo, mark, mark-testing) of the current game; `game` asks for another game's. */
-export const brandUrl = (kind, game = currentGame) => (GAME_ART[game] ?? RECOMPIA_ART)[kind];
+export const brandUrl = (kind, game = currentGame) => themeArt[game]?.[kind] ?? (GAME_ART[game] ?? RECOMPIA_ART)[kind];
 
 /** An <img> of `kind` that setBrandGame keeps up to date. `attrs`: the rest of the tag (class, alt). `game`: a fixed game's picture
  *  instead of the current game's. */
 export const brandImg = (kind, attrs = '', game = '') => `<img data-brand="${kind}"${game ? ` data-brand-game="${game}"` : ''} src="${brandUrl(kind, game || currentGame)}" ${attrs} />`;
 
+function repaint() {
+  for (const img of document.querySelectorAll('img[data-brand]')) img.src = brandUrl(img.dataset.brand, img.dataset.brandGame || currentGame);
+}
+
 /** Shows game `id`'s pictures (games.js) on every picture already on screen. */
 export function setBrandGame(id) {
   currentGame = id;
-  for (const img of document.querySelectorAll('img[data-brand]')) img.src = brandUrl(img.dataset.brand, img.dataset.brandGame || currentGame);
+  repaint();
+}
+
+/** The pictures of the chosen theme (themes-model.js brandOf), null for none; every picture already on screen follows. */
+export function setBrandTheme(art) {
+  themeArt = art ?? {};
+  repaint();
 }

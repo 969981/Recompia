@@ -32,3 +32,10 @@ pub async fn pick_nsp(app: AppHandle) -> Option<String> {
     let dlg = app.dialog().file().set_title("Choose your DLC .nsp").add_filter("NSP package", &["nsp"]);
     dlg.blocking_pick_file().and_then(|p| p.into_path().ok()).map(|p| dump::fwd(&p))
 }
+
+/// Asks for a theme pack as a .zip; None when the dialog is closed. (A pack folder is chosen with pick_folder.)
+#[tauri::command]
+pub async fn pick_theme_file(app: AppHandle) -> Option<String> {
+    let dlg = app.dialog().file().set_title("Choose a theme pack (.zip)").add_filter("Theme pack", &["zip"]);
+    dlg.blocking_pick_file().and_then(|p| p.into_path().ok()).map(|p| dump::fwd(&p))
+}

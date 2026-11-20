@@ -26,6 +26,44 @@ Home's Play, the right stick scrolls. A bar along the bottom shows these while a
 Gamepad API, the launcher reads the pad itself while its window has the focus (`src-tauri/src/pad.rs`, gilrs; building it needs
 `libudev-dev`).
 
+## Themes
+
+The launcher has three looks of its own (Sunrise, Dusk, Meadow; the palette button on the rail cycles them). A player can add their own
+themes: **Settings > About > Themes > Add a theme pack** takes a folder or a .zip, checks it and keeps it in the launcher's data folder
+(`themes/`, **Open folder** shows it). The Theme row, and the palette button, then offer every theme of every pack. The launcher ships no
+theme art and no theme: every picture comes from the player's PC. Themes colour Recompia and Co-op; Zonith keeps its own look.
+
+A pack is a folder (or a .zip holding one folder) with a `theme.json` and the pictures it names. `examples/theme-example/` is a starting
+point (colours only). Only `format`, `name` and each theme's `id` and `name` are required; whatever a theme leaves out stays the
+launcher's own.
+
+```json
+{
+  "format": 1,
+  "name": "My pack",
+  "themes": [{
+    "id": "camp", "name": "Camp",
+    "background": "bg.webp", "background_position": "50% 56%",
+    "colors": { "accent": "#ffc23d", "base": "#1c1006", "color-warn": "#ffb35c" },
+    "logo": "logo.png", "mark": "mark.png", "icon": "icon.png",
+    "steam": { "wide": "wide.png", "portrait": "portrait.png", "hero": "hero.png", "logo": "logo-steam.png", "icon": "icon-steam.png" }
+  }]
+}
+```
+
+- **Colours**: `accent` and `base` (the window's dark colour) make the rest (hover, text on the accent, glass, scrims). Any token of
+  `src/theme.css` in the list at `TOKENS` in `src/themes-model.js` (for example `color-warn`, `glass-tint`) can be named to override it. A
+  colour is `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(...)` or `rgba(...)`; nothing else is accepted.
+- **Pictures** (inside the window): `background` (behind the pages; the launcher makes its soft copy), `logo` (Recompia's wordmark; Co-op
+  keeps its own) and `mark` (the rail's tile). PNG, WebP or JPEG, no SVG.
+- **Icon and Steam** (outside the window, through `src-tauri/src/branding.rs`): `icon` is a square PNG up to 256 x 256, used for this
+  window, the launcher's exe and the game's exe (Windows; the game must be closed for its exe), on both channels. `steam` replaces the
+  pictures **Add to Steam** writes (PNG; the Steam icon falls back to `icon`). A picture a theme does not name stays the launcher's own.
+  Every picture a theme writes into Steam is noted by its hash in `themes/.steam-art.json`, so the launcher may replace or remove it
+  later and never touches art the player chose in Steam.
+- **Limits**: 16 MB a file, 64 MB and 200 files a pack, 16 themes a pack, plain file names (letters, digits, `. _ -` and spaces), no
+  links. A pack that fails a check is listed with the reason and is never applied.
+
 ## First run
 
 1. **Game files**: pick the dump folder (`<dump>\base\{exefs,romfs}` and/or `<dump>\updates\<version>\{exefs,romfs}`).

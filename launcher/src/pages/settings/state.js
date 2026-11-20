@@ -8,6 +8,7 @@ import { gameOf } from '../../games.js';
 import { backupDetail, backupText } from '../backups.js';
 import { pickerChannel, pickerVersion } from '../version-picker.js';
 import { pickerNote } from '../../version-model.js';
+import { getPacks } from '../../themes.js';
 
 let lastSection = 'display';   // coming back to Settings lands where the player was
 
@@ -35,6 +36,7 @@ export function createState({ dump, cfg, dlss, overview, promptIcons }, ctx) {
     repairBackup: null,   // the last repair's backup (name, files), when Undo has something to put back
     backups: null,        // savebackup.rs Status: the settings, how many copies and the newest
     steamBusy: false,
+    themeBusy: false,     // a theme pack is being added or removed (themes.js actions)
     steam: null,          // steam.rs Status: Steam found and running, and whether the game and the launcher shortcuts are in it
     section: openingSection(game, store.state.dlss ? 'graphics' : ctx.section || lastSection),
     customOpen: new Set(),   // choice rows showing their number field although the value is a preset
@@ -70,6 +72,8 @@ export function env(st) {
     backupLine: backupText(st.backups),
     steam: st.steam,
     steamBusy: st.steamBusy,
+    themePacks: getPacks(),
+    themeBusy: st.themeBusy,
     backupDetail: backupDetail(st.backups),
     importing: st.importing,
     importResult: st.importResult,
