@@ -62,6 +62,7 @@ constexpr Route kRoutes[] = {
     {wire::Type::HabitatScene, Path::Shared, &discovery::on_habitat_scene_message},
     {wire::Type::UnlockKnown, Path::Shared, &unlocks::on_known_message},
     {wire::Type::AbilityCleared, Path::Shared, &story::on_cleared_message},
+    {wire::Type::AreaMusic, Path::FromAuthority, &story::on_music_message},
 };
 
 struct State {
