@@ -50,6 +50,7 @@
 //   pkp_coop_doors.cpp    the session's doors in the menus: the PC's Link Play screen makes no session call, the pause menu never
 //                         sends a teammate home or rejects one; Save and Quit stays
 //   pkp_coop_title.cpp    a co-op start goes past the title screen on its own, with no "did not disconnect correctly" message
+//   pkp_coop_drop.cpp     a dropped player is waited for: the group holds while it comes back through the normal join
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -630,5 +631,18 @@ int on_remove_store(::Ctx* c);
 void tick(::Ctx* c);
 void reset();
 }  // namespace takeout
+// ---- a dropped player is waited for (pkp_coop_drop.cpp) ----
+namespace drop {
+// The channel's member events (pkp_coop_link.cpp): the authority tells a member's drop from its leave.
+void on_member(int node, bool joined, bool self);
+// The messages (pkp_coop_link.cpp).
+void on_here_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);      // the authority: a member's key, it is in the world
+void on_leaving_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // the authority: a member's own leave is filed
+// The hook sites (pkp_coop.cpp): the entries of the trip filers (site: its main offset). A filed leave is announced; returns 0.
+int on_trip_file(::Ctx* c, uint64_t site);
+// Announces this member to the authority; the authority's waits and their ends (once a frame, after the channel's handlers).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace drop
 
 }  // namespace nxrt::games::pkp::coop

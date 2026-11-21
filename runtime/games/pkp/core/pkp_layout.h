@@ -284,5 +284,15 @@ constexpr uint8_t kSaveUncleanExit = 0x2;
 // ---- gimmick ownership, the tester log (pkp_coop_owner.cpp) ----
 constexpr uint64_t kPlacedObjects = 0x35616f0;      // [main+]: the placed-object manager (its map at +0x46d0)
 constexpr uint64_t kPlacedObjectAt = 0x753200;      // (manager, x, y, z) -> the placed object at the cell, 0 when none
+// ---- a dropped player is waited for (pkp_coop_drop.cpp; modding-docs coop-session/LEAVE-DOORS-RE.md, DISCONNECT-RE.md) ----
+// The trip filers (main offsets of their entries): 0xbd45c(record, reason, member, flag) files a leave or a send-home, 0xbdc68(record)
+// the host's Close the Connection; both file only while the record's u32 phase (game state + kTripRecord) is >= kTripRecordReady.
+constexpr uint64_t kFileTrip = 0xbd45c, kCloseTrip = 0xbdc68;
+constexpr uint64_t kTripRecord = 0x3bb600;
+constexpr uint32_t kTripRecordReady = 5;
+// Return addresses into the filers' callers: the pause menu's 0xbd45c call (state 0x10: reason 0 the host disbands, 4 a teammate
+// leaves; doors refuse reason 2) and the kick handler 0x5483a0's (RequestRejectMember: reason 1, kind 8 home).
+constexpr uint64_t kPauseFileReturn = 0xfba740, kKickFileReturn = 0x54841c;
+constexpr uint32_t kTripDisband = 0, kTripLeave = 4;
 
 }  // namespace nxrt::games::pkp::layout

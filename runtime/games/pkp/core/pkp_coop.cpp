@@ -407,6 +407,8 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::OwnerNotice: return coop::owner::on_notice(c);
         case Site::OwnerRefused: return coop::owner::on_grant_reply(c);
         case Site::TakeoutStore: return coop::takeout::on_remove_store(c);
+        // a dropped player is waited for (pkp_coop_drop.cpp)
+        case Site::TripFile: return coop::drop::on_trip_file(c, addr - st().base);
         default: return 0;
     }
 }
@@ -512,6 +514,7 @@ void game_frame(::Ctx* c) {
     coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::newcomer::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::takeout::tick(c);
+    coop::drop::tick(c, s.in_game.load(std::memory_order_relaxed));
 }
 
 void remove() {   // the registry has removed the hooks
@@ -561,6 +564,7 @@ void remove() {   // the registry has removed the hooks
     coop::doors::reset();
     coop::title::reset();
     coop::takeout::reset();
+    coop::drop::reset();
 }
 
 }  // namespace
