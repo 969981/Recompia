@@ -78,8 +78,10 @@ enum class Site : uintptr_t {
     GateEntry,        // an area gate's entry (its passage): in a session it waits for the group's poll, before anything fades
     StateReset,       // the state reset after a drop: does not run
     Error3103,        // error 3103 (the session was lost): held back while the session waits for a reconnect
-    LinkMenu,         // the PC's Link Play menu: shut, the co-op session is the launcher's
-    MemberScreen,     // the member screen: shut likewise
+    LinkMenu,         // the PC's Link Play screen's state entry: in a session, a state that makes a session call is refused, the
+                      // co-op session is the launcher's (pkp_coop_doors.cpp)
+    PauseMenu,        // the pause menu's state entry: in a session, the host's "send this member home" and a member's rejection are
+                      // refused; Save and Quit (the host closes the session, a teammate leaves it) stays (pkp_coop_doors.cpp)
     // ---- the save ----
     SaveWrite,        // a member's own save write (three writers): held, the authority writes the co-op save
     // ---- the bags: each member's is a record of ours (pkp_coop_bags.cpp); the game's writers that fight it are off (pkp_coop_bag.cpp) ----
@@ -195,7 +197,7 @@ constexpr CoopSite kSites[] = {
     {{0xb0d74, kPacibsp, true}, Site::StateReset},
     {{0x547278, kPacibsp, true}, Site::Error3103},
     {{0xf282a8, kPacibsp, true}, Site::LinkMenu},
-    {{0xfb9ea0, kPacibsp, true}, Site::MemberScreen},
+    {{0xfb9ea0, kPacibsp, true}, Site::PauseMenu},
     {{0x241324, kPacibsp, true}, Site::SaveWrite},
     {{0x245200, kPacibsp, true}, Site::SaveWrite},
     {{0x5a8a34, kPacibsp, true}, Site::SaveWrite},
@@ -352,6 +354,9 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::SharedLeave: return coop::gimmicks::on_shared_leave(c, addr - st().base);
         case Site::TalkOwn: return coop::talk::on_talk_own(c);
         case Site::GrantNoUse: return coop::owner::on_grant_no_use(c);
+        // the session's doors in the menus (pkp_coop_doors.cpp)
+        case Site::LinkMenu: return coop::doors::on_link_menu(c);
+        case Site::PauseMenu: return coop::doors::on_pause_menu(c);
         default: return 0;
     }
 }
@@ -502,6 +507,7 @@ void remove() {   // the registry has removed the hooks
     coop::jobs::reset();
     coop::owner::reset();
     coop::newcomer::reset();
+    coop::doors::reset();
 }
 
 }  // namespace

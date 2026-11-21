@@ -262,5 +262,10 @@ constexpr uint64_t kGimmickOwnerApply = 0x538f60;   // (&kind, x, y, z, &idx, ta
 constexpr uint64_t kGimmickOwnerMsg = 0x74fd48;     // (msg): builds a SyncGimmickOwnership message
 constexpr uint64_t kSendToHostForced = 0x30c69c;    // (msg): sends a message to the host, past the NM+0xb3348 send gate
 constexpr uint64_t kSendGate = 0x25af7c;            // () -> u8 NM+0xb3348, the gate 0x2cb584 drops a message at
-
+// ---- the session's doors in the menus (pkp_coop_doors.cpp) ----
+// The PC's Link Play screen: u32 +kLinkMenuState its state; kLinkMenuEnter(screen, state) enters one (it calls the entry 0xf282a8).
+constexpr uint64_t kLinkMenuEnter = 0xf266d0, kLinkMenuState = 0xa4;
+// The pause menu (UI class 0xba): u32 +kPauseMenuState its state, u8 +kPauseMenuMember the member a choice names (0xff: none);
+// kPauseMenuEnter(menu, state, 1) enters one (it calls the entry 0xfb9ea0).
+constexpr uint64_t kPauseMenuEnter = 0xfb8f58, kPauseMenuState = 0xa4, kPauseMenuMember = 0x108;
 }  // namespace nxrt::games::pkp::layout

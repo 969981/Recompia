@@ -47,6 +47,8 @@
 //   pkp_coop_challenges.cpp what a member does counts toward the group's challenges (its shop buys)
 //   pkp_coop_feed.cpp     what a member's player did to a creature (talked to it), posted to the authority's contents scheduler
 //   pkp_coop_newcomer.cpp a member's first talk with a new creature (it moves in) made on the authority, as the host's own talk
+//   pkp_coop_doors.cpp    the session's doors in the menus: the PC's Link Play screen makes no session call, the pause menu never
+//                         sends a teammate home or rejects one; Save and Quit stays
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -578,5 +580,15 @@ void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace newcomer
+// ---- the session's doors in the menus (pkp_coop_doors.cpp) ----
+namespace doors {
+// The hook site (pkp_coop.cpp): entry 0xf282a8, the PC's Link Play screen's state entry. In a session, a state that makes a session call
+// is refused (the screen goes back to its first state) and the step does not run (returns 1); otherwise returns 0.
+int on_link_menu(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0xfb9ea0, the pause menu's state entry. In a session, the host's "send this member home" and
+// the rejection of a member are refused (the menu goes back to its first state; returns 1); otherwise returns 0.
+int on_pause_menu(::Ctx* c);
+void reset();
+}  // namespace doors
 
 }  // namespace nxrt::games::pkp::coop
