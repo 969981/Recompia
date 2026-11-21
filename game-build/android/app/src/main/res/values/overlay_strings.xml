@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<resources>
+    <string name="overlay_menu_title">Touch controls</string>
+    <string name="overlay_menu_hide">Hide touch controls</string>
+    <string name="overlay_menu_show">Show touch controls</string>
+    <string name="overlay_menu_edit">Edit layout</string>
+    <string name="overlay_menu_exit">Exit to Recompia</string>
+    <string name="overlay_menu_close">Back to the game</string>
+    <string name="overlay_edit_smaller">Smaller</string>
+    <string name="overlay_edit_bigger">Bigger</string>
+    <string name="overlay_edit_reset">Reset</string>
+    <string name="overlay_edit_done">Done</string>
+    <string name="overlay_edit_hint">Drag a control to move it. Tap one, then Smaller or Bigger to resize it.</string>
+</resources>

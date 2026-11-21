@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x403000" android:required="true" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+    <uses-feature android:name="android.hardware.type.pc" android:required="false" />
+
+    <!-- Data root /sdcard/Recompia (special access, granted once in settings or with grant-storage.sh) -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- Co-op over LAN -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- Rumble -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Only used by SDL's HIDAPI Bluetooth LE path (Steam Controller); ordinary Bluetooth gamepads work without it -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- On-device build service: long local work with no time limit -> specialUse -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application
+        android:label="Recompia"
+        android:icon="@mipmap/ui_ic_launcher"
+        android:roundIcon="@mipmap/ui_ic_launcher"
+        android:isGame="true"
+        android:appCategory="game"
+        android:hasFragileUserData="false"
+        android:allowBackup="false"
+        android:hardwareAccelerated="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+        <!-- The UI. The alias keeps the stable name org.recompia.pkp.MainActivity. -->
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboard|keyboardHidden|navigation|uiMode"
+            android:windowSoftInputMode="adjustResize" />
+        <activity-alias
+            android:name=".MainActivity"
+            android:targetActivity=".ui.MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- The game (SDL). Own process: SDL's statics and the runtime's address reservation start fresh each launch.
+             Not exported: only the app's own Home starts the game. Test builds (src/debug manifest) export it for adb runs. -->
+        <activity
+            android:name=".GameActivity"
+            android:process=":game"
+            android:exported="false"
+            android:label="Recompia"
+            android:screenOrientation="sensorLandscape"
+            android:launchMode="singleInstance"
+            android:alwaysRetainTaskState="true"
+            android:resizeableActivity="true"
+            android:preferMinimalPostProcessing="true"
+            android:configChanges="layoutDirection|locale|grammaticalGender|fontScale|fontWeightAdjustment|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|density"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" />
+
+        <!-- On-device build -->
+        <service
+            android:name=".build.BuildService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local compilation of the user's own game files, runs for tens of minutes" />
+        </service>
+    </application>
+</manifest>
