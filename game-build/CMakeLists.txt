@@ -86,8 +86,8 @@ endforeach()
 # separately links against. On Windows pkp.exe is linked on the player's PC from the libraries lifted out of their own dump and
 # src/pkp_stub.cpp (tools/build/pkp_build.py in the package, with the bundled Zig); on macOS and Linux the same pair is built here,
 # because the exe needs the Mach-O __GUEST segment / the lift already ran. Nothing lifted is imported into the runtime library itself.
-if(PKP_RT_DLL AND NOT WIN32 AND NOT APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    message(FATAL_ERROR "PKP_RT_DLL is the Windows, macOS and Linux release model (b)")
+if(PKP_RT_DLL AND NOT WIN32 AND NOT APPLE AND NOT ANDROID AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "PKP_RT_DLL is the Windows, macOS, Linux and Android release model (b)")
 endif()
 if(PKP_RT_DLL)
     if(WIN32)
@@ -162,6 +162,16 @@ if(PKP_RT_DLL)
             "${PKP_RUNTIME_DIR}/assets/prompts/prompt_icons.pak" "$<TARGET_FILE_DIR:pkp>/prompts/prompt_icons.pak")
         add_custom_command(TARGET pkp POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${NXRT_MOLTENVK_LIBRARY}" "$<TARGET_FILE_DIR:pkp>/libvulkan.1.dylib")
+    elseif(ANDROID)
+        # Android: the game is the shared library libpkpgame.so (src/pkp_stub_android.cpp gives it the SDL_main that SDLActivity
+        # calls, src/pkp_stub.cpp the module tables), linked against libpkp_rt.so; the app loads libSDL3.so and libpkp_rt.so from
+        # its APK and this library from app-private storage. The version script keeps the lifted functions out of the dynamic
+        # symbol table (pkp_build.py --target android-arm64 links the same way).
+        add_library(pkpgame SHARED src/pkp_stub_android.cpp src/pkp_stub.cpp)
+        set_source_files_properties(src/pkp_stub.cpp PROPERTIES COMPILE_DEFINITIONS "PKP_VERSION=\"${PKP_VERSION}\";main=pkp_stub_main")
+        target_include_directories(pkpgame PRIVATE "${PKP_GEN_INCLUDE}")
+        target_link_libraries(pkpgame PRIVATE ${PKP_MODULE_LIBS} pkp_rt)
+        target_link_options(pkpgame PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/pkpgame_android.ver" "-Wl,--strip-debug")
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         # The same pair on Linux: src/pkp_stub.cpp and the lifted modules, linked against libpkp_rt.so, which the executable finds
         # next to itself ($ORIGIN). No __GUEST segment: the guest ranges are reserved by the runtime (mmap MAP_FIXED_NOREPLACE), and
