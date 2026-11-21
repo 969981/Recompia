@@ -82,3 +82,10 @@ PKP_ROLE_BIT(0x13b294, 8, 2, 0x37100068u, "talk", "the present limit: no present
 // reads only what the member has (the actor's own talk record +0x10, 0x332c80 / 0x3bad4c on the member's copy of the friend
 // records, the species talk table), as the TalkKind path already does for every other creature.
 PKP_ROLE_ROW(0x4c03e4, IsVisitor, 0x36000ac0u, "talk", "the first talk with a new creature of species 0x46 / 0x95 is the host's talk, not the visitor's own one")
+
+// ---- the Star Piece swap (coop-s7-starpiece) ----
+// Script callback slot 119 0x4a17fc (talk 0x1b3: a creature takes the held Star Piece and gives its item), online, off Cloud Island,
+// GM+0x11 bit 0 clear: `bl IsHost` at 0x4a1b6c, then `eor w8, w0, #1` is the flag that queues line 438 ("not a good time") instead
+// of the swap. w0 is read by the `eor` alone. The swap's give (slot 27) and receive (slot 28) are the member's own bag; the give's
+// friendship reaches the authority by its talk-end apply (0x21c46c, pkp_coop_friendship.cpp). Its parent term: TalkSwapParent.
+PKP_ROLE_ROW(0x4a1b70, IsHost, 0x52000008u, "talk", "a creature takes a teammate's Star Piece and gives its item, as for the host")

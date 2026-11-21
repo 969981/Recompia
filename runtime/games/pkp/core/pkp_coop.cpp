@@ -177,6 +177,8 @@ enum class Site : uintptr_t {
     // ---- a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp) ----
     TakeoutStore,     // the shared move's choice of the store a taken item is removed from: the take-out screen's removal of a
                       // member's ordered item or gift uses the own store it listed, not the visitor's temp list
+    // ---- the Star Piece swap in a member's talk (pkp_coop_talk.cpp) ----
+    TalkSwapParent,   // script callback slot 119's parent term: a member's is the group's record of the creature, as for the host
 };
 
 struct CoopSite {
@@ -310,6 +312,8 @@ constexpr CoopSite kSites[] = {
     {{0x539620, kPacibsp, true}, Site::OwnerRefused},
     // a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp)
     {{0x2eea74, 0x12000003u, false}, Site::TakeoutStore},    // and w3, w0, #0x1 (w0 = IsVisitor's answer, w21 = the container kind)
+    // the Star Piece swap in a member's talk (pkp_coop_talk.cpp)
+    {{0x4a1adc, 0x2a0802d8u, false}, Site::TalkSwapParent},  // orr w24, w22, w8 (w8 = the parent term, w24 = the data id, in 0x4a17fc)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -407,6 +411,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::OwnerNotice: return coop::owner::on_notice(c);
         case Site::OwnerRefused: return coop::owner::on_grant_reply(c);
         case Site::TakeoutStore: return coop::takeout::on_remove_store(c);
+        case Site::TalkSwapParent: return coop::talk::on_swap_parent(c);
         default: return 0;
     }
 }
