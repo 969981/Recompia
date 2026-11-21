@@ -23,6 +23,11 @@
 //     cut short (the session ends, no chunk for kChunkWait, a write fails) is dropped: this PC keeps its previous whole copy and
 //     stamp. A copy that fails its check is asked for once more (SaveHave status 2), then given up until the next one.
 //   - each applied copy is told back (SaveHave status 1), so the authority knows every member's stamp.
+// What every PC knows of the copies (peers.json, read by the launcher's choose_host): the authority learns each member's stamp from
+// its SaveHave, and every offer carries all the stamps the authority knows (an announce of a new copy reaches every member before
+// its bytes, so a session cut short mid-copy still leaves every launcher knowing who has the newest). Each PC keeps the stamps of the
+// others (its own is stamp.json), the ones it knew before this session merged in, and writes peers.json whenever one changes (not
+// only at the session's end: a closed window or a crash ends a session too), and once more at the end.
 // The hold (a member): its game must not write its own world over the group's copy. Its world writes are dropped at the runtime's
 // commit (services fsapi::set_save_commit_hold), at the file layer rather than at the three save writers: the commit sees exactly
 // the files, whichever writer and whatever kind of request made them (autosave kind 3 writes SCSHDAT, the arrival save at home after
@@ -151,6 +156,7 @@ struct State {
     ss::Stamp own;
     std::vector<ss::File> own_files;
     std::map<std::string, ss::Stamp> table;
+    std::map<std::string, ss::Stamp> peers_written;   // what peers.json holds (the table without this PC)
     // the authority
     std::vector<ss::Seen> seen;
     bool seen_init = false, dirty = false;
@@ -229,6 +235,17 @@ uint64_t highest_seq() {
     uint64_t m = st().own.seq;
     for (const auto& [id, stamp] : st().table) m = std::max(m, stamp.seq);
     return m;
+}
+
+// peers.json follows the table (the other members' stamps) whenever they changed.
+void save_peers() {
+    State& s = st();
+    std::map<std::string, ss::Stamp> peers = s.table;
+    peers.erase(member_key());
+    if (peers.empty() || peers == s.peers_written) return;
+    std::string why;
+    if (ss::write_peers(peers, &why)) s.peers_written = std::move(peers);
+    else NXLOG_W(kTag, "Co-op save: peers.json was not written: %s", why.c_str());
 }
 
 // ---- the authority -----------------------------------------------------------------------------------------------------------
@@ -545,6 +562,7 @@ void install() {
     s.own = ss::own_stamp();
     s.stamped = ss::has_stamp();
     s.table = ss::read_peers();
+    s.peers_written = s.table;
     s.table[member_key()] = s.own;
     refresh_own_files();
     hold().root = norm(save_files::u8(ss::account_dir()));
@@ -574,6 +592,7 @@ void tick(::Ctx*) {
     if (authority) tick_authority();
     else tick_member();
     hold().on.store(!authority && (s.stamped || s.job_kind == Job::Apply), std::memory_order_release);
+    save_peers();
 }
 
 void on_member(int node, bool joined, bool self) {
@@ -583,6 +602,7 @@ void on_member(int node, bool joined, bool self) {
         s.offered = false;
         s.hello_at = -1e9;
         if (!joined && !job_busy()) drop_transfer("the session ended");
+        if (!joined) save_peers();
         return;
     }
     if (!joined) s.nodes.erase(node);
@@ -591,6 +611,7 @@ void on_member(int node, bool joined, bool self) {
 void reset() {
     State& s = st();
     if (s.job.valid()) s.job.wait();
+    if (s.installed) save_peers();
     hold().on.store(false);
     if (s.installed) services::fsapi::set_save_commit_hold(nullptr);
     s = State{};

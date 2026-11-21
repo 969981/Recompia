@@ -48,6 +48,7 @@
 - A talk that depends on the item a player holds now picks the same lines for a teammate as for the host
 - Teammates no longer get a visitor's greeting from two special creatures where the host gets the creature's usual talk
 - A chest or other object a teammate closes is now always free again for everyone. Before, a close while the game was still waiting on the host could leave it held by that teammate, and everyone else got "Someone else is using this right now." for the rest of the session
+- A co-op save is now one world for the whole group: each time the host's game saves, the island (its areas and photos) is copied to every teammate's co-op save, and a teammate's own game no longer writes its island over that copy. Bags, Life Coins, the look and the Ordered Items and Gifts boxes stay each player's own. Every player's launcher then knows who has the newest copy, so the next session is hosted from it
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five
