@@ -3,7 +3,7 @@
 //
 // Every site the co-op phases need is registered here, in coop mode only, so the game libraries are lifted once with all of them
 // (recomp/games/pkp/main.sites). Each hook hands its site to the part of co-op that owns it (pkp_coop_internal.h); the comment of each
-// site says what that part does there. The session and save sites pass through until their parts land (returns 0: the game's own code
+// site says what that part does there. The sites marked "reserved" have no part yet and pass through (returns 0: the game's own code
 // runs). The sites are checked once main is loaded (pkp_site_check.h): one that is
 // not the expected instruction, or a midhook site the lifted libraries lack, removes every co-op hook.
 #include "core/pkp_coop.h"
@@ -71,20 +71,24 @@ enum class Site : uintptr_t {
     // ---- the session ----
     PastTitle,        // the title's result getter: while the title waits for a press, the co-op save continues with no press, and its
                       // "did not disconnect correctly" mark is cleared (pkp_coop_title.cpp)
-    SimStep,          // the simulation step: skipped while the session waits for a dropped member (the network tick keeps running)
-    TripFile,         // a trip is filed (five filers): every door out of the session is shut, except the stage moves the group makes
-                      // together
-    DropCheck,        // the drop check: a drop files no trip home; the session pauses and waits for the member instead
+    SimStep,          // the simulation step 0x231890: reserved for the pause while the session waits for a dropped member; not handled
+                      // yet, the game's own code runs
+    TripFile,         // the trip filers (0xbd45c, 0xbdc68, 0xbdd28, the kick 0x5483a0, the host's StageMove 0xbe5f0): reserved for
+                      // shutting the doors out of the session other than Save and Quit and the group's own moves; not handled yet,
+                      // the game's own code runs
+    DropCheck,        // the drop check 0xbca8c: reserved for the pause (a drop filing no trip home); not handled yet, the game's own
+                      // code runs (a visitor whose session ended is sent home, and pkp_coop_session.cpp joins again)
     AreaMove,         // the area move by destination index: in a session it waits for the group's poll (pkp_coop_travel.cpp)
     GateEntry,        // an area gate's entry (its passage): in a session it waits for the group's poll, before anything fades
-    StateReset,       // the state reset after a drop: does not run
-    Error3103,        // error 3103 (the session was lost): held back while the session waits for a reconnect
+    Error3103,        // the online error display 0x547278 (error 3103, the session was lost): reserved for holding it back while the
+                      // session waits for a reconnect; not handled yet, the game's own code runs
     LinkMenu,         // the PC's Link Play screen's state entry: in a session, a state that makes a session call is refused, the
                       // co-op session is the launcher's (pkp_coop_doors.cpp)
     PauseMenu,        // the pause menu's state entry: in a session, the host's "send this member home" and a member's rejection are
                       // refused; Save and Quit (the host closes the session, a teammate leaves it) stays (pkp_coop_doors.cpp)
     // ---- the save ----
-    SaveWrite,        // a member's own save write (three writers): held, the authority writes the co-op save
+    SaveWrite,        // a save write (0x241324, 0x245200, 0x5a8a34): reserved for holding a member's own writes once the authority
+                      // writes the shared co-op save; not handled yet, the game's own code runs (every member saves its own copy)
     // ---- the bags: each member's is a record of ours (pkp_coop_bags.cpp); the game's writers that fight it are off (pkp_coop_bag.cpp) ----
     JoinBagSend,      // the host's side of a join's bag sync: it sends "no stored bag", so a member keeps its own bag instead of the
                       // host's stale copy
@@ -195,7 +199,6 @@ constexpr CoopSite kSites[] = {
     {{0xbca8c, kPacibsp, true}, Site::DropCheck},
     {{0xbda20, kPacibsp, true}, Site::AreaMove},
     {{0x7b0d80, kPacibsp, true}, Site::GateEntry},
-    {{0xb0d74, kPacibsp, true}, Site::StateReset},
     {{0x547278, kPacibsp, true}, Site::Error3103},
     {{0xf282a8, kPacibsp, true}, Site::LinkMenu},
     {{0xfb9ea0, kPacibsp, true}, Site::PauseMenu},
