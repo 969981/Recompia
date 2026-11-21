@@ -1,7 +1,14 @@
-# Builds the player zip (game-build/scripts/make-release.ps1). A tag v<x.y.z> publishes it as a GitHub release, its notes taken from
-# that version's section of CHANGELOG.md. Manual runs only build it (artifact), unless they name a release tag: run on main with
-# release_tag = v<x.y.z>, they publish it the same way and GitHub creates the tag on the commit that was built. No test or pull
-# request checks.
+# The release in four columns. release creates the GitHub release (title and notes from the tag's section of CHANGELOG.md)
+# and publishes the version every other job reads; twelve build jobs then run at once — payload (the shader translator),
+# runtime (pkp_rt) and launcher (the Tauri app) for Windows, macOS, Linux x64 and Linux arm64 — each on its own runner with
+# only the toolchain it needs; four package jobs put a platform's three artifacts together; publish uploads every archive and
+# writes one SHA256SUMS.txt. Each package job makes two archives of one tree (release_names.rs in the launcher): Recompia-<v>-<token>
+# with Recompia(.exe|.AppImage) and the starter under the old name, and the old-name copy PokopiaRecomp-<v>-<old token> with the full
+# launcher under the old name, the only archive a launcher from before the rename can match (shipped for three releases after it). The two Linux architectures are separate jobs on their own runners (ubuntu-22.04 and
+# ubuntu-22.04-arm): nothing is cross-compiled, so a native arm64 package is built by the same commands as the x64 one.
+# A tag v<x.y.z> does this; a manual run without release_tag only builds (artifacts).
+# Manual runs with release_tag = v<x.y.z> publish the same way and GitHub creates the tag on the commit that was built. No test
+# or pull request checks.
 # Testing channel: a tag v<x.y.z>-alpha.N, -beta.N or -rc.N (run on the `testing` branch) publishes a GitHub PRERELEASE. The launcher's
 # Stable channel never offers it; players who chose Testing do. Its notes come from its own CHANGELOG section if there is one, else from
 # the Unreleased section, else a short generic text.
@@ -17,7 +24,7 @@ on:
         required: false
         default: ''
       sync_snapshot:
-        description: 'Mirror-only: permit numeric RC prereleases on main following an upstream sync.'
+        description: 'Mirror-only: upstream RC snapshot build from the synchronization workflow'
         required: false
         type: boolean
         default: false
@@ -25,9 +32,16 @@ on:
 permissions:
   contents: write
 
+# One release per ref: a re-push or a manual dispatch cancels the run it replaces instead of queueing a second one behind it.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   LLVM_VERSION: 23.1.4
   RYUBING_COMMIT: a82350bb774f70fcbd41c9987bf67a3775409963
+  # MoltenVK, the Vulkan driver of the macOS package: the release archive the runtime links against and the package ships
+  MOLTENVK_VERSION: v1.4.2
   # package the third-party payload comes from (make-release.ps1): the upstream v0.1.1 repository is gone, so our own last release
   BASE_REPO: Dittobyte/Recompia
   BASE_RELEASE: v0.8.2
@@ -36,38 +50,177 @@ env:
   SYNC_SNAPSHOT: ${{ inputs.sync_snapshot && 'true' || 'false' }}
 
 jobs:
+
   release:
+    # A few seconds of work (parse CHANGELOG.md, one gh call): a Linux runner starts sooner and costs half a Windows one.
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: v
+        run: |
+          if [ -n "$REL_TAG" ] && [ "$GITHUB_REF_TYPE" != tag ]; then
+            if [ "$SYNC_SNAPSHOT" = true ]; then
+              [ "$GITHUB_REF" = refs/heads/main ] || { echo '::error::mirror snapshots require main'; exit 1; }
+              printf '%s' "$REL_TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' || { echo '::error::mirror snapshot tag must be vX.Y.Z-rc.N'; exit 1; }
+            elif printf '%s' "$REL_TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$'; then
+              [ "$GITHUB_REF" = refs/heads/testing ] || { echo "::error::a Testing release_tag publishes from the testing branch only (this run: $GITHUB_REF)"; exit 1; }
+            else
+              [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::release_tag publishes from main only (this run: $GITHUB_REF)"; exit 1; }
+              printf '%s' "$REL_TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::release_tag '$REL_TAG' is not v<x.y.z> or v<x.y.z>-beta.N"; exit 1; }
+            fi
+          fi
+          v=${REL_TAG#v}; v=${v:-0.0.0}
+          case "$v" in *-*) pre=true ;; *) pre=false ;; esac
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          echo "PRERELEASE=$pre" >> "$GITHUB_ENV"
+          # every other job reads these: one place validates the ref and parses the tag
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+
+      - name: Create the release
+        if: env.REL_TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # the version's own section of CHANGELOG.md; a Testing build may have none and falls back to Unreleased
+          notes=$(awk -v v="$VERSION" '
+            { sub(/\r$/, "") }
+            $0 ~ "^## " v "([ \t(]|$)" {inside=1; next}
+            inside && /^## / {exit}
+            inside {print}
+          ' CHANGELOG.md)
+          if [ -z "${notes//[[:space:]]/}" ] && [ "$PRERELEASE" = true ]; then
+            notes=$(awk '{ sub(/\r$/, "") } $0 ~ "^## Unreleased" {inside=1; next} inside && /^## / {exit} inside {print}' CHANGELOG.md)
+          fi
+          if [ -z "${notes//[[:space:]]/}" ]; then
+            if [ "$PRERELEASE" = true ]; then
+              notes="A Testing build: newer than the latest stable release and less tested. Please report problems on GitHub with pkp.log and say you were on Testing."
+            else
+              echo "::error::CHANGELOG.md has no section '## $VERSION'"; exit 1
+            fi
+          fi
+          printf '%s\n' "$notes" > build-notes.md
+          if [ "$PRERELEASE" = true ]; then
+            # what was merged since the previous release; a failure here never blocks the release
+            if prev=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null) && [ -n "$prev" ]; then
+              { git fetch --quiet --unshallow origin 2>/dev/null || true; git fetch --quiet origin "+refs/tags/$prev:refs/tags/$prev" 2>/dev/null || true; } || true
+              changes=$(git log --merges --format='%H' "$prev..HEAD" 2>/dev/null | while read -r h; do
+                subject=$(git show -s --format='%s' "$h")
+                title=$(git show -s --format='%b' "$h" | awk 'NF{print; exit}')
+                n=$(printf '%s' "$subject" | grep -oE '#[0-9]+' | head -1 | tr -d '#')
+                [ -n "$n" ] && [ -n "$title" ] && echo "- #$n $title"
+              done || true)
+              if [ -n "$changes" ]; then
+                { echo "### Changes in this build"; printf '%s\n\n' "$changes"; cat build-notes.md; } > build-notes.new
+                mv build-notes.new build-notes.md
+              fi
+            fi
+            printf '\n\n### How to report\nOpen [a bug report](https://github.com/Dittobyte/Recompia/issues/new?template=bug_report.yml), choose **Testing** as the channel, say which version you have, and attach `pkp.log` (and `setup.log` if Set up ran). Thank you for testing.\n' >> build-notes.md
+          fi
+          build=$(grep -m1 -E "^## ${VERSION//./\\.} \(build ([^)]+)\)" CHANGELOG.md | tr -d '\r' | sed -E 's/^## [^(]*\(build ([^)]+)\).*/\1/' || true)
+          title="Recompia $VERSION"
+          if [ -n "$build" ]; then title="$title (build $build)"; elif [ "$PRERELEASE" = true ]; then title="$title (Testing)"; fi
+          args=()
+          [ "$PRERELEASE" = true ] && args+=(--prerelease)
+          # A platform job that fails after this one leaves a release behind, so a re-run must not die here: update the release
+          # it finds. A manual re-run builds a newer commit, and the release's source archives come from the tag, so the tag
+          # moves with it (a pushed tag never moves: that run is the release).
+          if gh release view "$REL_TAG" >/dev/null 2>&1; then
+            echo "release $REL_TAG exists: updating its title and notes"
+            if [ "$GITHUB_REF_TYPE" != tag ]; then
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$REL_TAG" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            fi
+            gh release edit "$REL_TAG" --title "$title" --notes-file build-notes.md "${args[@]}"
+          else
+            gh release create "$REL_TAG" --target "$GITHUB_SHA" --title "$title" --notes-file build-notes.md "${args[@]}"
+          fi
+
+  # The shader translator as a self-contained win-x64 publish: Set up runs it once per game folder to translate the shader
+  # corpus, so every package carries it. Its own job, because the clone and the publish share nothing with the two compiles.
+  windows-payload:
+    needs: release
+    outputs:
+      version: ${{ needs.release.outputs.version }}
     runs-on: windows-2025
-    timeout-minutes: 120
+    timeout-minutes: 40
     defaults:
       run:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
 
-      - name: Version
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Ryujinx sources cache
+        uses: actions/cache@v4
+        with:
+          path: refs/ryubing
+          key: ryujinx-${{ env.RYUBING_COMMIT }}
+
+      - name: Shader translator
         run: |
-          if ($env:REL_TAG -and $env:GITHUB_REF_TYPE -ne 'tag') {
-            if ($env:SYNC_SNAPSHOT -eq 'true') {
-              if ($env:GITHUB_REF -ne 'refs/heads/main') { throw 'Mirror snapshots must be built from main' }
-              if ($env:REL_TAG -notmatch '^v\d+\.\d+\.\d+-rc\.\d+$') { throw 'Mirror snapshot tag must match vX.Y.Z-rc.N' }
-            } elseif ($env:REL_TAG -match '^v\d+\.\d+\.\d+-(alpha|beta|rc)\.\d+$') {
-              if ($env:GITHUB_REF -ne 'refs/heads/testing') { throw "a Testing release_tag publishes from the testing branch only (this run: $env:GITHUB_REF)" }
-            } else {
-              if ($env:GITHUB_REF -ne 'refs/heads/main') { throw "release_tag publishes from main only (this run: $env:GITHUB_REF)" }
-              if ($env:REL_TAG -notmatch '^v\d+\.\d+\.\d+$') { throw "release_tag '$env:REL_TAG' is not v<x.y.z> or v<x.y.z>-beta.N" }
-            }
-          }
-          $v = if ($env:REL_TAG) { $env:REL_TAG -replace '^v', '' } else { '0.0.0' }
-          "VERSION=$v" >> $env:GITHUB_ENV
-          "PRERELEASE=$(if ($v -match '-') { 'true' } else { 'false' })" >> $env:GITHUB_ENV
+          if (-not (Test-Path refs/ryubing/.git)) { git clone --filter=blob:none https://git.ryujinx.app/ryubing/ryujinx.git refs/ryubing }
+          git -C refs/ryubing checkout -f $env:RYUBING_COMMIT
+          ./tools/shaders/scripts/setup_ryujinx.ps1
+          dotnet publish -c Release -r win-x64 --self-contained true tools/shaders/harness/SpirvHarness.csproj -o build/harness
+          if ($LASTEXITCODE) { exit 1 }
+          ./build/harness/spirv_harness.exe --help > $null
+          if ($LASTEXITCODE) { exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win-payload
+          path: build/harness
+          compression-level: 6
+
+  # The Windows runtime: clang-cl against the MSVC SDK, ~600 translation units, the long pole of the platform.
+  windows-runtime:
+    needs: release
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Third-party sources cache
+        uses: actions/cache@v4
+        with:
+          path: build/deps
+          key: nxrt-deps-win-v1
+
+      # The MSI is a 400 MB download and install every run; the extracted tree is the same for a given version.
+
+      - name: LLVM ${{ env.LLVM_VERSION }} (cache)
+        id: llvm
+        uses: actions/cache@v4
+        with:
+          path: C:\Program Files\LLVM
+          key: llvm-${{ env.LLVM_VERSION }}-win64-v1
 
       - name: LLVM ${{ env.LLVM_VERSION }}
+        if: steps.llvm.outputs.cache-hit != 'true'
         run: |
           $msi = "$env:RUNNER_TEMP\llvm.msi"
           Invoke-WebRequest "https://github.com/llvm/llvm-project/releases/download/llvmorg-$env:LLVM_VERSION/LLVM-$env:LLVM_VERSION-win64.msi" -OutFile $msi -MaximumRetryCount 5 -RetryIntervalSec 30   # GitHub answers this large download with a 504 now and then
           Start-Process msiexec -Wait -ArgumentList '/i', $msi, '/qn'
           & 'C:\Program Files\LLVM\bin\clang-cl.exe' --version
+
+      - name: LLVM on PATH
+        run: |
           'C:\Program Files\LLVM\bin' >> $env:GITHUB_PATH
 
       - uses: ilammy/msvc-dev-cmd@v1
@@ -96,11 +249,12 @@ jobs:
       # github.com's direct release-asset downloads answered 504 for hours on 2026-11-08 while the release API kept working. CMake's FetchContent
       # reuses a file in NXRT_DEPS_DIR (%LOCALAPPDATA%\nxrt\deps) when its SHA-256 matches, so the two release assets are put there first through the API.
       # A failure here is not fatal: CMake then downloads them itself, as before.
+
       - name: Pre-fetch release assets (API route)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $d = Join-Path $env:LOCALAPPDATA 'nxrt\deps'
+          $d = Join-Path $env:GITHUB_WORKSPACE 'build\deps'
           New-Item -ItemType Directory -Force $d | Out-Null
           gh release download release-3.4.18 -R libsdl-org/SDL -p SDL3-3.4.18.tar.gz -D $d --clobber
           if ($LASTEXITCODE) { Write-Warning 'SDL3 pre-fetch failed; CMake will download it' }
@@ -111,6 +265,7 @@ jobs:
       # The four archive dependencies (runtime/cmake/gfx_deps.cmake) come from codeload.github.com, which kept working while github.com/.../archive
       # answered 503 on 2026-11-08. Each is checked against the same SHA-256 that CMake pins, extracted, and handed to CMake as its source
       # (FETCHCONTENT_SOURCE_DIR_*). Any problem here leaves that dependency to CMake's own download, as before.
+
       - name: Pre-fetch dependency sources (codeload)
         run: |
           $root = Join-Path $PWD 'build/depsrc'
@@ -137,20 +292,65 @@ jobs:
           Write-Output "dependency overrides: $($dargs.Count) of $($deps.Count)"
           exit 0
 
+      - name: sccache (the GitHub Actions cache)
+        uses: mozilla-actions/sccache-action@v0.0.9
+
       - name: pkp_rt.dll
         run: |
           $depArgs = @()
           if ($env:CMAKE_DEP_ARGS) { $depArgs = @($env:CMAKE_DEP_ARGS -split ' ' | Where-Object { $_ }) }
           cmake -S game-build -B build/rtdll -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl `
-                -DPKP_RT_DLL=ON -DPKP_RELEASE=ON "-DPKP_VERSION=$env:VERSION" @depArgs
+                -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
+                -DPKP_RT_DLL=ON -DPKP_RELEASE=ON "-DPKP_VERSION=$env:VERSION" `
+                "-DNXRT_DEPS_DIR=$env:GITHUB_WORKSPACE\build\deps" @depArgs
           if ($LASTEXITCODE) { exit 1 }
           cmake --build build/rtdll --target pkp_rt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win-rt
+          path: |
+            build/rtdll/pkp_rt.dll
+            build/rtdll/pkp_rt.lib
+            build/rtdll/libusb-1.0.dll
+          compression-level: 6
+
+  # The launcher: a Tauri app whose dependency tree is most of its build time.
+  windows-launcher:
+    needs: release
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher/src-tauri
+
+      # The pinned third-party archives (SDL3, zstd, Vulkan-Headers, volk, VMA, ImGui): CMake reuses a file whose SHA-256
+      # matches, so a hit skips the downloads entirely.
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: launcher/package-lock.json
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # The Save Editor (#666): PokoHex into launcher/public/pokohex/ before the launcher is built (a launcher built without it
+      # shows only a note on the page), and its data tool, pokohex-extract, for the package's tools/pokohex/.
+      - name: Save editor (PokoHex)
+        shell: bash
+        run: sh launcher/scripts/build-pokohex.sh --extractor win-x64 work/pokohex
 
       - name: Launcher
         working-directory: launcher
@@ -169,113 +369,230 @@ jobs:
           if ($LASTEXITCODE) { exit 1 }
           npm run tauri build
           if ($LASTEXITCODE) { exit 1 }
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Shader translator
-        run: |
-          git clone --filter=blob:none https://git.ryujinx.app/ryubing/ryujinx.git refs/ryubing
-          git -C refs/ryubing checkout $env:RYUBING_COMMIT
-          ./tools/shaders/scripts/setup_ryujinx.ps1
-          dotnet publish -c Release -r win-x64 --self-contained true tools/shaders/harness/SpirvHarness.csproj -o build/harness
+          # the starter under the old file name (launcher/stub), after the icon copy above so a Testing build's has its icon too
+          cargo build --release --locked --manifest-path stub/Cargo.toml
           if ($LASTEXITCODE) { exit 1 }
+          # one folder: an artifact of two paths would be rooted at their common parent
+          New-Item -ItemType Directory -Force ../work/win-launcher | Out-Null
+          Copy-Item src-tauri/target/release/recompia.exe, stub/target/release/recompia-stub.exe ../work/win-launcher/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win-pokohex
+          path: work/pokohex
+          compression-level: 6
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win-launcher
+          path: work/win-launcher
+          compression-level: 6
+
+  # The Windows zip: the three artifacts around the base package (make-release.ps1), which carries the unchanged third-party
+  # payload — Zig, embedded Python, the FSR/Streamline DLLs, astcdec, fonts, icons and licences.
+  windows-package:
+    needs: [windows-payload, windows-runtime, windows-launcher, licenses]
+    runs-on: windows-2025
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: ${{ needs.windows-payload.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Runtime from windows-runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: win-rt
+          path: build/rtdll
+
+      - name: Launcher and starter from windows-launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: win-launcher
+          path: build/launcher
+
+      - name: Shader translator from windows-payload
+        uses: actions/download-artifact@v4
+        with:
+          name: win-payload
+          path: build/harness
+
+      - name: Save editor data tool from win-launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: win-pokohex
+          path: build/pokohex
+
+      - name: Licence notices from licenses
+        uses: actions/download-artifact@v4
+        with:
+          name: release-licenses
+          path: build/licenses
 
       - name: Package
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download $env:BASE_RELEASE -R $env:BASE_REPO -p '*-win64.zip' -D build/base
+          # the base release's own zip by its exact name scheme, one file
+          gh release download $env:BASE_RELEASE -R $env:BASE_REPO -p 'PokopiaRecomp-*-win64.zip' -D build/base
           ./game-build/scripts/make-release.ps1 -Version $env:VERSION -Base (Get-Item build/base/*.zip).FullName -RtDir build/rtdll `
-              -Launcher launcher/src-tauri/target/release/pokopia-launcher.exe -Harness build/harness -Out build/rel
+              -Launcher build/launcher/recompia.exe -Stub build/launcher/recompia-stub.exe -Harness build/harness -PokoHex build/pokohex `
+              -Crates build/licenses/THIRD_PARTY_CRATES.txt -Out build/rel
 
-      - name: Checksums
+      - name: Check the packages
         run: |
-          $z = Get-Item build/rel/*.zip
-          $h = (Get-FileHash -Algorithm SHA256 $z.FullName).Hash.ToLower()
-          [IO.File]::WriteAllText("$PWD/build/rel/SHA256SUMS.txt", "$h *$($z.Name)`n")
-          Get-Content build/rel/SHA256SUMS.txt
+          # make-release.ps1 already compared each launcher file with the one built for it; here: the two layouts
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          function Names([string]$zip) { $a = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $zip).Path); try { $a.Entries.FullName } finally { $a.Dispose() } }
+          $new = Names "build/rel/Recompia-$env:VERSION-windows-x64.zip"
+          $old = Names "build/rel/PokopiaRecomp-$env:VERSION-win64.zip"
+          foreach ($f in 'Recompia.exe', 'PokopiaLauncher.exe', 'pkp_rt.dll', 'README.txt', 'tools/build/pkp_build.py') {
+            if ("Recompia-$env:VERSION/$f" -notin $new) { throw "missing $f in the Recompia zip" }
+          }
+          foreach ($f in 'PokopiaLauncher.exe', 'pkp_rt.dll', 'README.txt', 'tools/build/pkp_build.py') {
+            if ("PokopiaRecomp-$env:VERSION/$f" -notin $old) { throw "missing $f in the old-name zip" }
+          }
+          if ("PokopiaRecomp-$env:VERSION/Recompia.exe" -in $old) { throw 'the old-name zip carries Recompia.exe' }
+          if ($new.Count -ne $old.Count + 1) { throw "the two zips differ by more than the starter ($($new.Count) and $($old.Count) entries)" }
+          Get-ChildItem build/rel/*.zip | ForEach-Object { "{0}  {1:N0} MiB" -f $_.Name, ($_.Length / 1MB) }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PokopiaRecomp-${{ env.VERSION }}-win64
-          path: |
-            build/rel/*.zip
-            build/rel/SHA256SUMS.txt
+          name: Recompia-${{ env.VERSION }}-windows-x64
+          path: build/rel/*.zip
           compression-level: 0
 
-      - name: Publish
-        if: env.REL_TAG != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $log = Get-Content -Raw CHANGELOG.md
-          $m = [regex]::Match($log, "(?ms)^## $([regex]::Escape($env:VERSION))[^\r\n]*\r?\n(.*?)(?=^## |\z)")
-          if (-not $m.Success -and $env:PRERELEASE -eq 'true') {   # a Testing build may have no section of its own: the Unreleased one, else a short text
-            $m = [regex]::Match($log, "(?ms)^## Unreleased[^\r\n]*\r?\n(.*?)(?=^## |\z)")
-          }
-          if ($m.Success) { $m.Groups[1].Value.Trim() | Set-Content build/notes.md }
-          elseif ($env:PRERELEASE -eq 'true') { "A Testing build: newer than the latest stable release and less tested. Please report problems on GitHub with pkp.log and say you were on Testing." | Set-Content build/notes.md }
-          else { throw "CHANGELOG.md has no section '## $env:VERSION'" }
-          if ($env:PRERELEASE -eq 'true') {   # a Testing build lists what was merged into testing since the previous release; a failure here never blocks the release
-            try {
-              $prev = gh release list --limit 1 --json tagName --jq '.[0].tagName'
-              if ($prev) {
-                git fetch --quiet --unshallow origin 2>$null
-                git fetch --quiet origin "+refs/tags/${prev}:refs/tags/${prev}"
-                $changes = @()
-                foreach ($h in (git log --merges --format='%H' "$prev..HEAD")) {
-                  $subject = git show -s --format='%s' $h
-                  $title = git show -s --format='%b' $h | Where-Object { $_.Trim() } | Select-Object -First 1
-                  $n = [regex]::Match($subject, '#(\d+)').Groups[1].Value
-                  if ($n -and $title) { $changes += "- #$n $($title.Trim())" }
-                }
-                if ($changes.Count) {
-                  $body = Get-Content -Raw build/notes.md
-                  ("### Changes in this build`n" + ($changes -join "`n") + "`n`n" + $body) | Set-Content build/notes.md
-                }
-              }
-            } catch { Write-Host "Changes in this build: skipped ($_)" }
-            try {   # and how to report, so the release page says it too
-              $report = "`n`n### How to report`nOpen [a bug report](https://github.com/featureJosh/pokopia-recomp/issues/new?template=bug_report.yml), choose **Testing** as the channel, say which version you have, and attach ``pkp.log`` (and ``setup.log`` if Set up ran). Thank you for testing."
-              Add-Content -Path build/notes.md -Value $report
-            } catch { Write-Host "How to report: skipped ($_)" }
-          }
-          $env:BUILD = [regex]::Match($log, "(?m)^## $([regex]::Escape($env:VERSION)) \(build ([^)\r\n]+)\)").Groups[1].Value
-          $title = "Pokopia Recomp $env:VERSION" + $(if ($env:BUILD) { " (build $env:BUILD)" } elseif ($env:PRERELEASE -eq 'true') { " (Testing)" } else { "" })
-          if ($env:PRERELEASE -eq 'true') {
-            gh release create $env:REL_TAG --target $env:GITHUB_SHA (Get-Item build/rel/*.zip).FullName build/rel/SHA256SUMS.txt --title $title --notes-file build/notes.md --prerelease
-          } else {
-            gh release create $env:REL_TAG --target $env:GITHUB_SHA (Get-Item build/rel/*.zip).FullName build/rel/SHA256SUMS.txt --title $title --notes-file build/notes.md
-          }
-
-  # The Linux package: the Windows zip above (the runtime, the build kit, the shader translator: they run through Proton) with the
-  # Linux launcher as an AppImage in place of PokopiaLauncher.exe, which does not start under Proton (no WebView2). A tag adds it
-  # to the release; manual runs without release_tag only build it (artifact).
-  linux:
+  # The shader translator as a self-contained linux-x64 publish.
+  linux-payload:
     needs: release
-    # Ubuntu 22.04: the AppImage then needs glibc 2.35 (Ubuntu 22.04, Debian 12, Mint 21, SteamOS), not 24.04's 2.39
+    outputs:
+      version: ${{ needs.release.outputs.version }}
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
-      - name: Version
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Ryujinx sources cache
+        uses: actions/cache@v4
+        with:
+          path: refs/ryubing
+          key: ryujinx-${{ env.RYUBING_COMMIT }}
+
+      - name: Shader translator
         run: |
-          if [ -n "$REL_TAG" ]; then v=${REL_TAG#v}; else v=0.0.0; fi
-          echo "VERSION=$v" >> "$GITHUB_ENV"
+          [ -d refs/ryubing/.git ] || git clone --filter=blob:none https://git.ryujinx.app/ryubing/ryujinx.git refs/ryubing
+          git -C refs/ryubing checkout -f "$RYUBING_COMMIT"
+          bash tools/shaders/scripts/setup_ryujinx.sh
+          dotnet publish -c Release -r linux-x64 --self-contained true tools/shaders/harness/SpirvHarness.csproj -o build/harness
+          build/harness/spirv_harness --help > /dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-payload
+          path: build/harness
+          compression-level: 6
+
+  # The Linux runtime: libpkp_rt.so, the same sources as the other two, plus the export check the game exe links against.
+  linux-runtime:
+    needs: release
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Third-party sources cache
+        uses: actions/cache@v4
+        with:
+          path: build/deps
+          key: nxrt-deps-linux-v1
+
+      # 22.04 ships Python 3.10 and CMake 3.22; nxrecomp needs 3.11+ (find_package(Python3 3.11) in recomp/cmake/NxRecomp.cmake)
+      # and the runtime needs CMake 3.25 (docs/linux-port.md §4).
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
       - name: Packages
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev file
+          sudo apt-get install -y -q --no-install-recommends g++ ninja-build pkg-config libvulkan-dev libx11-dev libxext-dev \
+            libxrandr-dev libxi-dev libxcursor-dev libxfixes-dev libxss-dev libxtst-dev libwayland-dev libwayland-bin \
+            libxkbcommon-dev libdrm-dev libudev-dev libasound2-dev libpulse-dev libgbm-dev libdbus-1-dev \
+            libgl1-mesa-dev libfribidi-dev libthai-dev fonts-dejavu-core
 
-      - uses: actions/setup-node@v4
+      - name: CMake
+        run: |
+          python3 -m pip install --upgrade "cmake>=3.28" pillow
+          cmake --version
+          python3 --version
+
+      - name: sccache (the GitHub Actions cache)
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Runtime (libpkp_rt.so)
+        run: |
+          cmake -S game-build -B build/rtdll -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+                -DPython3_EXECUTABLE="$(command -v python3)" \
+                "-DNXRT_DEPS_DIR=$PWD/build/deps" \
+                -DPKP_RT_DLL=ON -DPKP_RELEASE=ON "-DPKP_VERSION=$VERSION"
+          cmake --build build/rtdll --target pkp_rt
+          file build/rtdll/libpkp_rt.so
+          # the exe resolves its exports through this list; a missing one links nothing at the player's Set up. The symbols carry
+          # the version script's default version (pkp_rt_main@@PKP_RT_1), so the suffix comes off before comparing. The list is a
+          # Mach-O one: two comment lines, a leading underscore per symbol, and CRLF line ends (git stores it that way).
+          nm -D --defined-only build/rtdll/libpkp_rt.so | awk '{print $NF}' | sed 's/@.*//' | sort -u > build/exports.txt
+          while IFS= read -r s; do
+            s=${s%$'\r'}
+            case "$s" in ''|'#'*) continue ;; esac
+            grep -qx "${s#_}" build/exports.txt || { echo "::error::libpkp_rt.so does not export $s"; exit 1; }
+          done < game-build/src/pkp_rt.exports
+
+      - uses: actions/upload-artifact@v4
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: launcher/package-lock.json
+          name: linux-rt
+          path: build/rtdll/libpkp_rt.so
+          compression-level: 6
+
+  # The launcher as an AppImage, bundled with the static type2 runtime so it needs no libfuse2.
+  linux-launcher:
+    needs: release
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher/src-tauri
+
+      - name: Packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev libudev-dev \
+            file g++ pkg-config
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # The Save Editor (#666): PokoHex into launcher/public/pokohex/ before the launcher is built (a launcher built without it
+      # shows only a note on the page), and its data tool, pokohex-extract, for the package's tools/pokohex/.
+      - name: Save editor (PokoHex)
+        run: sh launcher/scripts/build-pokohex.sh --extractor linux-x64 work/pokohex
 
       - name: Launcher (AppImage)
         working-directory: launcher
@@ -317,51 +634,795 @@ jobs:
           chmod 755 "$ai.new" && mv "$ai.new" "$ai"
           "$ai" --appimage-offset
 
-      - uses: actions/download-artifact@v4
+      - name: Library notices of the AppImage
+        # The AppImage bundles GTK, WebKitGTK, GLib, libsoup and more from this runner's Ubuntu packages (mostly LGPL). Only here do
+        # dpkg and /usr/share/doc know them, so the list, the copyright files and SOURCES.txt are made here and travel with the
+        # launcher artifact; make-linux.sh puts them into the package as licenses/appimage/.
+        run: sh launcher/scripts/appimage-notices.sh "$(ls launcher/src-tauri/target/release/bundle/appimage/*.AppImage)" work/appimage-notices
+
+      - name: Launcher artifact
+        run: |
+          ai=$(ls launcher/src-tauri/target/release/bundle/appimage/*.AppImage)
+          mkdir -p work/play && cp "$ai" work/play/
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: PokopiaRecomp-${{ env.VERSION }}-win64
-          path: build/win
+          name: linux-appimage-notices
+          path: work/appimage-notices
+          compression-level: 6
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-pokohex
+          path: work/pokohex
+          compression-level: 6
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-launcher
+          path: |
+            work/play/*.AppImage
+          compression-level: 0
+
+  # The Linux tar.gz: the AppImage, the runtime, the build kit and the shader translator, staged from this checkout (nothing
+  # comes from another platform's build), then started once under Xvfb to prove it finds tools/.
+  linux-package:
+    needs: [linux-payload, linux-runtime, linux-launcher, licenses]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    env:
+      VERSION: ${{ needs.linux-payload.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Python packages
+        run: python3 -m pip install --upgrade pillow   # make-linux.sh draws the keyboard and mouse prompt icons with it
+
+      - name: Runtime from linux-runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-rt
+          path: build/rtdll
+
+      - name: Shader translator from linux-payload
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-payload
+          path: build/harness
+
+      - name: Launcher from linux-launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-launcher
+          path: work/play
+
+      - name: Save editor data tool from linux-launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-pokohex
+          path: build/pokohex
+
+      - name: Library notices of the AppImage from linux-launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-appimage-notices
+          path: build/appimage-notices
+
+      - name: Licence notices from licenses
+        uses: actions/download-artifact@v4
+        with:
+          name: release-licenses
+          path: build/licenses
+
+      - name: Restore executable bits
+        run: |
+          mkdir -p launcher/src-tauri/target/release/bundle/appimage
+          mv work/play/*.AppImage launcher/src-tauri/target/release/bundle/appimage/
+          chmod +x launcher/src-tauri/target/release/bundle/appimage/*.AppImage
+          # an artifact carries no modes, and the launcher execs this apphost itself
+          chmod +x build/harness/spirv_harness build/pokohex/pokohex-extract
 
       - name: Package
         run: |
-          mkdir -p build/stage build/rel
-          unzip -q build/win/PokopiaRecomp-$VERSION-win64.zip -d build/stage
-          pkg=build/stage/PokopiaRecomp-$VERSION
-          test -d "$pkg/tools/build" || { echo "unexpected zip layout"; ls build/stage; exit 1; }
-          # Windows-only parts: the launcher, the start script, the embedded Python and Zig (Set up fetches the Linux ones)
-          rm -rf "$pkg/PokopiaLauncher.exe" "$pkg/Play.bat" "$pkg/tools/python" "$pkg/tools/build/zig"
-          sed "s/@VERSION@/$VERSION/g" game-build/release_b/README.linux.txt > "$pkg/README.txt"
-          # machine translations of that README (README.<lang>.txt), when the repository has them
-          for t in game-build/release_b/README.linux.*.txt; do
-            [ -f "$t" ] || continue
-            lang="${t#game-build/release_b/README.linux.}"; lang="${lang%.txt}"
-            sed "s/@VERSION@/$VERSION/g" "$t" > "$pkg/README.$lang.txt"
+          mkdir -p build/rel
+          sh launcher/scripts/make-linux.sh build/rel "$VERSION"
+          # what the launcher and Set up look for: a missing one is a broken package, not a slow one
+          # both trees (make-linux.sh leaves them unpacked next to the archives)
+          new="build/rel/Recompia-$VERSION"
+          old="build/rel/PokopiaRecomp-$VERSION"
+          for pkg in "$new" "$old"; do
+            for f in PokopiaLauncher.AppImage libpkp_rt.so README.txt tools/build/pkp_build.py tools/build/dump_hashes.json \
+                     tools/build/sdk/libpkp_rt.so tools/build/sdk/pkp_stub.cpp tools/build/sdk/pkp_rt_api.h \
+                     tools/build/sdk/fonts/DejaVuSans.ttf tools/build/sdk/kbm_icons tools/build/recomp/nxrecomp/__main__.py \
+                     tools/harness/spirv_harness tools/pokohex/pokohex-extract tools/shaders/extract_corpus.py assets/prompts/prompt_icons.pak \
+                     LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt licenses/THIRD_PARTY_NOTICES.md \
+                     licenses/appimage/SOURCES.txt licenses/appimage/LIBRARIES.txt; do
+              test -e "$pkg/$f" || { echo "::error::missing $f in $pkg"; find "$pkg" -maxdepth 3 | head -40; exit 1; }
+            done
+            test -x "$pkg/tools/harness/spirv_harness"
+            test -x "$pkg/PokopiaLauncher.AppImage"
           done
-          install -m 755 launcher/src-tauri/target/release/bundle/appimage/*.AppImage "$pkg/PokopiaLauncher.AppImage"
-          tar -C build/stage -czf build/rel/PokopiaRecomp-$VERSION-linux-x64.tar.gz PokopiaRecomp-$VERSION
-          (cd build/rel && sha256sum -b PokopiaRecomp-$VERSION-linux-x64.tar.gz | tee linux.sha256)
+          # the new tree: the AppImage under the new name, the starter script under the old one; the old-name copy: the AppImage
+          # under the old name and no starter
+          test -x "$new/Recompia.AppImage"
+          [ "$(head -c 2 "$new/PokopiaLauncher.AppImage")" = '#!' ] || { echo "::error::the starter is not a script"; exit 1; }
+          cmp -s "$new/Recompia.AppImage" "$old/PokopiaLauncher.AppImage" || { echo "::error::the old-name copy's launcher differs"; exit 1; }
+          test ! -e "$old/Recompia.AppImage" || { echo "::error::the old-name copy carries Recompia.AppImage"; exit 1; }
           ls -la build/rel
 
       - name: Smoke test (the AppImage starts and finds tools/)
         run: |
-          sudo apt-get install -y -q --no-install-recommends xvfb
-          cd build/stage/PokopiaRecomp-$VERSION
+          # The AppImage leaves the graphics stack to the host on purpose (linuxdeploy excludes libEGL/libGL: they have to
+          # match the driver). A desktop has them through mesa; this runner does not, and webkit's GStreamer GL plugin is
+          # linked against libEGL, so the launcher dies at load time with "libEGL.so.1: cannot open shared object file".
+          # The host supplies the whole graphics/GL dispatch stack (glvnd + mesa), which is what a desktop has and this
+          # runner does not: webkit's GL and ANGLE paths dlopen libEGL/libGL/libGLESv1_CM/libGLESv2/libGLX.
+          sudo apt-get install -y -q --no-install-recommends xvfb libegl1 libgl1 libgles1 libgles2 libgl1-mesa-dri libvulkan1
+          # through the starter: it execs Recompia.AppImage beside it, so this starts both the way an old shortcut does
+          cd "build/rel/Recompia-$VERSION"
           (APPIMAGE_EXTRACT_AND_RUN=1 timeout 20 xvfb-run -a ./PokopiaLauncher.AppImage > ../launch.log 2>&1; echo "exit $?" >> ../launch.log) || true
           cat ../launch.log
           grep -q "exit 124" ../launch.log || { echo "the launcher did not keep running"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PokopiaRecomp-${{ env.VERSION }}-linux-x64
+          name: Recompia-${{ env.VERSION }}-linux-x86_64
           path: build/rel/*.tar.gz
           compression-level: 0
 
-      - name: Publish
-        if: env.REL_TAG != ''
+  # Linux arm64: the same three builds and the same package as the x64 jobs above, run natively on GitHub's arm64 runners
+  # (ubuntu-22.04-arm, the same image family as ubuntu-22.04). Nothing is cross-compiled: the runtime picks the NEON astcenc
+  # from CMAKE_SYSTEM_PROCESSOR, the launcher bundles an arm64 AppImage, and pkp_build.py picks the aarch64 Zig target on the
+  # player's machine. The cache keys carry the architecture: an x64 build tree must never be reused here.
+  linux-arm64-payload:
+    needs: release
+    outputs:
+      version: ${{ needs.release.outputs.version }}
+    runs-on: ubuntu-22.04-arm
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Ryujinx sources cache
+        uses: actions/cache@v4
+        with:
+          path: refs/ryubing
+          key: ryujinx-${{ env.RYUBING_COMMIT }}
+
+      - name: Shader translator
+        run: |
+          [ -d refs/ryubing/.git ] || git clone --filter=blob:none https://git.ryujinx.app/ryubing/ryujinx.git refs/ryubing
+          git -C refs/ryubing checkout -f "$RYUBING_COMMIT"
+          bash tools/shaders/scripts/setup_ryujinx.sh
+          dotnet publish -c Release -r linux-arm64 --self-contained true tools/shaders/harness/SpirvHarness.csproj -o build/harness
+          build/harness/spirv_harness --help > /dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64-payload
+          path: build/harness
+          compression-level: 6
+
+  # The arm64 runtime: libpkp_rt.so from the same sources, with the same export check.
+  linux-arm64-runtime:
+    needs: release
+    runs-on: ubuntu-22.04-arm
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Third-party sources cache
+        uses: actions/cache@v4
+        with:
+          path: build/deps
+          key: nxrt-deps-linux-arm64-v1
+
+      # 22.04 ships Python 3.10 and CMake 3.22; nxrecomp needs 3.11+ and the runtime CMake 3.25 (the same as linux-runtime).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends g++ ninja-build pkg-config libvulkan-dev libx11-dev libxext-dev \
+            libxrandr-dev libxi-dev libxcursor-dev libxfixes-dev libxss-dev libxtst-dev libwayland-dev libwayland-bin \
+            libxkbcommon-dev libdrm-dev libudev-dev libasound2-dev libpulse-dev libgbm-dev libdbus-1-dev \
+            libgl1-mesa-dev libfribidi-dev libthai-dev fonts-dejavu-core
+
+      - name: CMake
+        run: |
+          python3 -m pip install --upgrade "cmake>=3.28" pillow
+          cmake --version
+          python3 --version
+
+      - name: sccache (the GitHub Actions cache)
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Runtime (libpkp_rt.so)
+        run: |
+          cmake -S game-build -B build/rtdll -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+                -DPython3_EXECUTABLE="$(command -v python3)" \
+                "-DNXRT_DEPS_DIR=$PWD/build/deps" \
+                -DPKP_RT_DLL=ON -DPKP_RELEASE=ON "-DPKP_VERSION=$VERSION"
+          cmake --build build/rtdll --target pkp_rt
+          file build/rtdll/libpkp_rt.so
+          # the same export check as linux-runtime: the exe resolves its exports through this list
+          nm -D --defined-only build/rtdll/libpkp_rt.so | awk '{print $NF}' | sed 's/@.*//' | sort -u > build/exports.txt
+          while IFS= read -r s; do
+            s=${s%$'\r'}
+            case "$s" in ''|'#'*) continue ;; esac
+            grep -qx "${s#_}" build/exports.txt || { echo "::error::libpkp_rt.so does not export $s"; exit 1; }
+          done < game-build/src/pkp_rt.exports
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64-rt
+          path: build/rtdll/libpkp_rt.so
+          compression-level: 6
+
+  # The arm64 launcher as an AppImage, with the arm64 static type2 runtime.
+  linux-arm64-launcher:
+    needs: release
+    runs-on: ubuntu-22.04-arm
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher/src-tauri
+
+      - name: Packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev libudev-dev \
+            file g++ pkg-config
+
+      # The same steps and the same reasons as linux-launcher: linuxdeploy is an AppImage itself (no FUSE on the runner), and
+      # its downloads fail now and then, so the bundling retries. The AppImage is arm64 because the runner is.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # The Save Editor (#666): PokoHex into launcher/public/pokohex/ before the launcher is built (a launcher built without it
+      # shows only a note on the page), and its data tool, pokohex-extract, for the package's tools/pokohex/.
+      - name: Save editor (PokoHex)
+        run: sh launcher/scripts/build-pokohex.sh --extractor linux-arm64 work/pokohex
+
+      - name: Launcher (AppImage)
+        working-directory: launcher
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          NO_STRIP: true
+        run: |
+          if [ -n "$REL_TAG" ]; then
+            sed -i -E "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+            sed -i -E "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+          fi
+          if [ "$GITHUB_REF" = "refs/heads/testing" ]; then
+            cp -f src-tauri/icons-testing/* src-tauri/icons/
+          fi
+          npm ci --no-audit --no-fund
+          for try in 1 2 3; do
+            if npm run tauri build -- --bundles appimage --config '{"bundle":{"active":true}}'; then break; fi
+            [ "$try" = 3 ] && { echo "::error::the AppImage could not be bundled after 3 tries"; exit 1; }
+            echo "::warning::AppImage bundling failed (try $try of 3), trying again in 30 s"
+            rm -rf src-tauri/target/release/bundle/appimage
+            sleep 30
+          done
+          ls -la src-tauri/target/release/bundle/appimage/
+
+      # linuxdeploy's runtime needs libfuse2; the static arm64 type2 runtime (pinned) needs none. The AppImage is that
+      # runtime followed by the same squashfs.
+      - name: AppImage runtime without FUSE 2
+        env:
+          RUNTIME_URL: https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-aarch64
+          RUNTIME_SHA256: 00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444
+        run: |
+          curl -fsSL --retry 3 -o runtime-aarch64 "$RUNTIME_URL"
+          echo "$RUNTIME_SHA256  runtime-aarch64" | sha256sum -c -
+          ai=$(ls launcher/src-tauri/target/release/bundle/appimage/*.AppImage)
+          off=$(APPIMAGE_EXTRACT_AND_RUN=1 "$ai" --appimage-offset)
+          { cat runtime-aarch64; tail -c +$((off + 1)) "$ai"; } > "$ai.new"
+          chmod 755 "$ai.new" && mv "$ai.new" "$ai"
+          "$ai" --appimage-offset
+
+      - name: Library notices of the AppImage
+        # The AppImage bundles GTK, WebKitGTK, GLib, libsoup and more from this runner's Ubuntu packages (mostly LGPL). Only here do
+        # dpkg and /usr/share/doc know them, so the list, the copyright files and SOURCES.txt are made here and travel with the
+        # launcher artifact; make-linux.sh puts them into the package as licenses/appimage/.
+        run: sh launcher/scripts/appimage-notices.sh "$(ls launcher/src-tauri/target/release/bundle/appimage/*.AppImage)" work/appimage-notices
+
+      - name: Launcher artifact
+        run: |
+          ai=$(ls launcher/src-tauri/target/release/bundle/appimage/*.AppImage)
+          mkdir -p work/play && cp "$ai" work/play/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64-appimage-notices
+          path: work/appimage-notices
+          compression-level: 6
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64-pokohex
+          path: work/pokohex
+          compression-level: 6
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64-launcher
+          path: |
+            work/play/*.AppImage
+          compression-level: 0
+
+  # The arm64 tar.gz: the same content and checks as the x64 package, started once under Xvfb.
+  linux-arm64-package:
+    needs: [linux-arm64-payload, linux-arm64-runtime, linux-arm64-launcher, licenses]
+    runs-on: ubuntu-22.04-arm
+    timeout-minutes: 40
+    env:
+      VERSION: ${{ needs.linux-arm64-payload.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Python packages
+        run: python3 -m pip install --upgrade pillow
+
+      - name: Runtime from linux-arm64-runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-arm64-rt
+          path: build/rtdll
+
+      - name: Shader translator from linux-arm64-payload
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-arm64-payload
+          path: build/harness
+
+      - name: Launcher from linux-arm64-launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-arm64-launcher
+          path: work/play
+
+      - name: Save editor data tool from linux-arm64-launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-arm64-pokohex
+          path: build/pokohex
+
+      - name: Library notices of the AppImage from linux-arm64-launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-arm64-appimage-notices
+          path: build/appimage-notices
+
+      - name: Licence notices from licenses
+        uses: actions/download-artifact@v4
+        with:
+          name: release-licenses
+          path: build/licenses
+
+      - name: Restore executable bits
+        run: |
+          mkdir -p launcher/src-tauri/target/release/bundle/appimage
+          mv work/play/*.AppImage launcher/src-tauri/target/release/bundle/appimage/
+          chmod +x launcher/src-tauri/target/release/bundle/appimage/*.AppImage
+          chmod +x build/harness/spirv_harness build/pokohex/pokohex-extract
+
+      - name: Package
+        run: |
+          mkdir -p build/rel
+          # arm64: the third argument names the tarballs (-linux-aarch64.tar.gz and the old-name copy's -linux-arm64.tar.gz, the
+          # suffixes release_names.rs looks for); make-linux.sh auto-detects only on a native run, and this job must not depend on
+          # what uname says.
+          sh launcher/scripts/make-linux.sh build/rel "$VERSION" arm64
+          # what the launcher and Set up look for: a missing one is a broken package, not a slow one
+          # both trees (make-linux.sh leaves them unpacked next to the archives)
+          new="build/rel/Recompia-$VERSION"
+          old="build/rel/PokopiaRecomp-$VERSION"
+          for pkg in "$new" "$old"; do
+            for f in PokopiaLauncher.AppImage libpkp_rt.so README.txt tools/build/pkp_build.py tools/build/dump_hashes.json \
+                     tools/build/sdk/libpkp_rt.so tools/build/sdk/pkp_stub.cpp tools/build/sdk/pkp_rt_api.h \
+                     tools/build/sdk/fonts/DejaVuSans.ttf tools/build/sdk/kbm_icons tools/build/recomp/nxrecomp/__main__.py \
+                     tools/harness/spirv_harness tools/pokohex/pokohex-extract tools/shaders/extract_corpus.py assets/prompts/prompt_icons.pak \
+                     LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt licenses/THIRD_PARTY_NOTICES.md \
+                     licenses/appimage/SOURCES.txt licenses/appimage/LIBRARIES.txt; do
+              test -e "$pkg/$f" || { echo "::error::missing $f in $pkg"; find "$pkg" -maxdepth 3 | head -40; exit 1; }
+            done
+            test -x "$pkg/tools/harness/spirv_harness"
+            test -x "$pkg/PokopiaLauncher.AppImage"
+          done
+          # the new tree: the AppImage under the new name, the starter script under the old one; the old-name copy: the AppImage
+          # under the old name and no starter
+          test -x "$new/Recompia.AppImage"
+          [ "$(head -c 2 "$new/PokopiaLauncher.AppImage")" = '#!' ] || { echo "::error::the starter is not a script"; exit 1; }
+          cmp -s "$new/Recompia.AppImage" "$old/PokopiaLauncher.AppImage" || { echo "::error::the old-name copy's launcher differs"; exit 1; }
+          test ! -e "$old/Recompia.AppImage" || { echo "::error::the old-name copy carries Recompia.AppImage"; exit 1; }
+          ls -la build/rel
+
+      - name: Smoke test (the AppImage starts and finds tools/)
+        run: |
+          # the same reason as linux-package: the AppImage leaves libEGL/libGL to the host, and this runner has no desktop stack
+          sudo apt-get install -y -q --no-install-recommends xvfb libegl1 libgl1 libgles1 libgles2 libgl1-mesa-dri libvulkan1
+          # through the starter: it execs Recompia.AppImage beside it, so this starts both the way an old shortcut does
+          cd "build/rel/Recompia-$VERSION"
+          (APPIMAGE_EXTRACT_AND_RUN=1 timeout 20 xvfb-run -a ./PokopiaLauncher.AppImage > ../launch.log 2>&1; echo "exit $?" >> ../launch.log) || true
+          cat ../launch.log
+          grep -q "exit 124" ../launch.log || { echo "the launcher did not keep running"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Recompia-${{ env.VERSION }}-linux-aarch64
+          path: build/rel/*.tar.gz
+          compression-level: 0
+
+  # Everything the macOS package carries except the two files only macOS can build: the shader harness as a self-contained
+  # osx-arm64 publish, MoltenVK, the lifter, the SDK sources and the prompt icons. Linux does it, so the macOS runners only
+  # compile.
+  macos-payload:
+    needs: release
+    outputs:
+      version: ${{ needs.release.outputs.version }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Ryujinx sources cache
+        uses: actions/cache@v4
+        with:
+          path: refs/ryubing
+          key: ryujinx-${{ env.RYUBING_COMMIT }}
+
+      - name: Shader harness (self-contained osx-arm64)
+        run: |
+          mkdir -p work
+          [ -d refs/ryubing/.git ] || git clone --filter=blob:none https://git.ryujinx.app/ryubing/ryujinx.git refs/ryubing
+          git -C refs/ryubing checkout -f "$RYUBING_COMMIT"
+          bash tools/shaders/scripts/setup_ryujinx.sh          # the same staging the Linux package uses
+          dotnet publish -c Release -r osx-arm64 --self-contained true tools/shaders/harness/SpirvHarness.csproj -o work/harness
+          test -x work/harness/spirv_harness                   # a macOS binary: it cannot run here, only the publish can be checked
+
+      - name: MoltenVK
+        run: |
+          curl -fsSL --retry 3 --retry-delay 5 -o work/moltenvk.tar \
+            "https://github.com/KhronosGroup/MoltenVK/releases/download/$MOLTENVK_VERSION/MoltenVK-macos.tar"
+          test -s work/moltenvk.tar
+          tar -xf work/moltenvk.tar -C work
+          mkdir -p work/moltenvk
+          cp work/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib work/MoltenVK/LICENSE work/moltenvk/
+          test -s work/moltenvk/libMoltenVK.dylib
+
+      - name: Prompt icons
+        run: |
+          python3 -m pip install --user --break-system-packages pillow   # tools/kbm_icons.py draws them
+          sudo apt-get update -qq && sudo apt-get install -y -qq fonts-dejavu-core
+
+      - name: Payload
+        run: sh launcher/scripts/make-payload.sh work/payload work/harness work/moltenvk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-payload
+          # work/moltenvk rides along: the macOS runner links the runtime against it, so it never downloads MoltenVK itself
+          path: |
+            work/payload
+            work/moltenvk
+          compression-level: 6
+
+  # The macOS runtime dylib against the SDK's frameworks. It fetches MoltenVK itself rather than waiting for the payload job,
+  # so all twelve build jobs stay siblings.
+  macos-runtime:
+    needs: release
+    runs-on: macos-latest          # arm64, the port's target (macos-14 was x64 and its image was retired on 2 November 2026)
+    timeout-minutes: 60
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Third-party sources cache
+        uses: actions/cache@v4
+        with:
+          path: work/deps
+          key: nxrt-deps-macos-v1
+
+      # The dylib links MoltenVK; the cache keeps the download off every run after the first.
+      - name: MoltenVK cache
+        id: mvk
+        uses: actions/cache@v4
+        with:
+          path: work/moltenvk
+          key: moltenvk-${{ env.MOLTENVK_VERSION }}-v1
+
+      - name: MoltenVK
+        if: steps.mvk.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p work/mvk-src work/moltenvk   # not work/MoltenVK: macOS volumes are case-insensitive
+          curl -fsSL --retry 3 --retry-delay 5 -o work/moltenvk.tar \
+            "https://github.com/KhronosGroup/MoltenVK/releases/download/$MOLTENVK_VERSION/MoltenVK-macos.tar"
+          test -s work/moltenvk.tar
+          tar -xf work/moltenvk.tar -C work/mvk-src
+          cp work/mvk-src/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib work/mvk-src/MoltenVK/LICENSE work/moltenvk/
+          test -s work/moltenvk/libMoltenVK.dylib
+
+      - name: sccache (the GitHub Actions cache)
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Runtime dylib (libpkp_rt.dylib)
+        run: |
+          cmake -S game-build -B work/build/rtb -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+                "-DNXRT_DEPS_DIR=$PWD/work/deps" "-DNXRT_MOLTENVK_DIR=$PWD/work/moltenvk" \
+                -DPKP_RT_DLL=ON -DNXRT_BUILD_GFX=ON -DNXRT_GAMES=pkp
+          cmake --build work/build/rtb --target pkp_rt -j 4
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-rt
+          path: work/build/rtb/libpkp_rt.dylib
+          compression-level: 6
+
+  # The launcher binary (no bundler: the release is a plain folder, not a .app).
+  macos-launcher:
+    needs: release
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher/src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: launcher/package-lock.json
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # The Save Editor (#666): PokoHex into launcher/public/pokohex/ before the launcher is built (a launcher built without it
+      # shows only a note on the page), and its data tool, pokohex-extract, for the package's tools/pokohex/.
+      - name: Save editor (PokoHex)
+        run: sh launcher/scripts/build-pokohex.sh --extractor osx-arm64 work/pokohex
+
+      - name: Launcher
+        working-directory: launcher
+        run: |
+          if [ -n "$REL_TAG" ]; then   # the launcher window and the bundle show the release's version
+            sed -i '' -E "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+            sed -i '' -E "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+          fi
+          npm ci --no-audit --no-fund
+          npm run tauri build -- --no-bundle   # the release is a plain folder, not a .app: only the binary is needed
+          mkdir -p ../work/play
+          cp src-tauri/target/release/recompia ../work/play/Recompia
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-pokohex
+          path: work/pokohex
+          compression-level: 6
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-launcher
+          path: work/play/Recompia
+          compression-level: 6
+
+  # The macOS zip: the payload the Linux job staged, the dylib and the launcher, in one folder — no .app, no signature.
+  macos-package:
+    needs: [macos-payload, macos-runtime, macos-launcher, licenses]
+    runs-on: macos-latest
+    timeout-minutes: 40
+    env:
+      VERSION: ${{ needs.macos-payload.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Payload (built on Linux)
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-payload
+          path: work          # restores work/payload and work/moltenvk
+
+      - name: Runtime dylib from macos-runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-rt
+          path: work/build/rtb
+
+      - name: Launcher from macos-launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-launcher
+          path: work/play
+
+      # an artifact is a zip: the executable bit does not survive it
+
+      - name: Save editor data tool from macos-launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-pokohex
+          path: work/payload/tools/pokohex
+
+      - name: Licence notices from licenses
+        uses: actions/download-artifact@v4
+        with:
+          name: release-licenses
+          path: work/licenses
+
+      - name: Launcher is executable
+        run: chmod +x work/play/Recompia work/payload/tools/pokohex/pokohex-extract
+
+      - name: Package (zip)
+        run: launcher/scripts/make-mac.sh work/play work/payload "$VERSION"
+
+      - name: Check the packages
+        run: |
+          new_zip="work/play/Recompia-$VERSION-macos-aarch64.zip"
+          old_zip="work/play/PokopiaRecomp-$VERSION-macos-arm64.zip"
+          rm -rf work/check && mkdir -p work/check
+          for zip in "$new_zip" "$old_zip"; do
+            test -s "$zip"
+            unzip -q "$zip" -d work/check
+            # no .app and no signature: the zip is unpacked and the launcher started from there (the note explains Open Anyway)
+            if unzip -Z1 "$zip" | grep -q '\.app/'; then echo "$zip carries an app bundle"; exit 1; fi
+            du -h "$zip"
+          done
+          new="work/check/Recompia-$VERSION"
+          old="work/check/PokopiaRecomp-$VERSION"
+          # the in-place updater's package: update.rs takes the top folder as the install root
+          unzip -Z1 "$new_zip" | grep -qx "Recompia-$VERSION/tools/build/pkp_build.py" || { echo "the Recompia zip has no tools/build at its root"; exit 1; }
+          unzip -Z1 "$old_zip" | grep -qx "PokopiaRecomp-$VERSION/tools/build/pkp_build.py" || { echo "the old-name zip has no tools/build at its root"; exit 1; }
+          for root in "$new" "$old"; do
+            for f in tools/build/sdk/libpkp_rt.dylib tools/build/sdk/libvulkan.1.dylib tools/build/sdk/kbm_icons \
+                     tools/build/sdk/fonts tools/build/pkp_build.py tools/pokohex/pokohex-extract \
+                     libpkp_rt.dylib "How to open Recompia.txt" LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt; do
+              test -e "$root/$f" || { echo "missing $f in $root"; ls -R "$root" | head -60; exit 1; }
+            done
+            # the launcher execs the apphost directly (host.rs), so presence is not enough
+            test -x "$root/tools/harness/spirv_harness" || { echo "the shader harness in $root is not executable"; exit 1; }
+            test -x "$root/PokopiaLauncher"
+          done
+          # the new tree: the binary under the new name, the starter script under the old one; the old-name copy: the binary under
+          # the old name and no starter
+          test -x "$new/Recompia"
+          file "$new/Recompia" | grep -q arm64
+          [ "$(head -c 2 "$new/PokopiaLauncher")" = '#!' ] || { echo "the starter is not a script"; exit 1; }
+          cmp -s "$new/Recompia" "$old/PokopiaLauncher" || { echo "the old-name copy's launcher differs"; exit 1; }
+          test ! -e "$old/Recompia" || { echo "the old-name copy carries Recompia"; exit 1; }
+
+      - name: Checksums
+        run: |
+          cd work/play
+          shasum -a 256 "Recompia-$VERSION-macos-aarch64.zip" "PokopiaRecomp-$VERSION-macos-arm64.zip" | sed -E 's/  / */' > macos.sha256
+          cat macos.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Recompia-${{ env.VERSION }}-macos-aarch64
+          path: |
+            work/play/Recompia-${{ env.VERSION }}-macos-aarch64.zip
+            work/play/PokopiaRecomp-${{ env.VERSION }}-macos-arm64.zip
+            work/play/macos.sha256
+          compression-level: 0
+
+  # The licence notices of the Rust crates the launcher is built from (every package ships them in licenses/), generated from
+  # Cargo.lock with a pinned cargo-about (launcher/about.toml, launcher/about.hbs).
+  licenses:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: cargo-about
+        run: cargo install cargo-about --locked --version 0.9.3 --features cli
+
+      - name: Crate notices
+        run: |
+          mkdir -p work/licenses
+          cargo about generate --locked -c launcher/about.toml --manifest-path launcher/src-tauri/Cargo.toml \
+              launcher/about.hbs -o work/licenses/THIRD_PARTY_CRATES.txt
+          test -s work/licenses/THIRD_PARTY_CRATES.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-licenses
+          path: work/licenses
+          compression-level: 6
+
+  # The source the GPL and LGPL components of the packages are built from, attached to the release next to the archives: PokoHex
+  # at the commit in launcher/pokohex/PIN with the patch and the script that build the Save Editor, and the libusb 1.0.30 source
+  # release (the Windows package carries its unchanged libusb-1.0.dll).
+  sources:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Source archives
+        run: |
+          set -euo pipefail
+          pin=$(tr -d ' \r\n' < launcher/pokohex/PIN)
+          short=$(printf '%s' "$pin" | cut -c1-12)
+          top="work/stage/PokoHex-source-$short"
+          mkdir -p "$top/PokoHex" work/sources
+          git -c core.autocrlf=false clone -q https://github.com/berichan/PokoHex work/pokohex-src
+          git -C work/pokohex-src archive --format=tar "$pin" | tar -x -C "$top/PokoHex"
+          cp launcher/pokohex/PIN launcher/pokohex/launcher.patch launcher/scripts/build-pokohex.sh "$top/"
+          tar -C work/stage -czf "work/sources/PokoHex-source-$short.tar.gz" "PokoHex-source-$short"
+          curl -fsSL -o work/sources/libusb-1.0.30.tar.bz2 https://github.com/libusb/libusb/releases/download/v1.0.30/libusb-1.0.30.tar.bz2
+          echo "fea36f34f9156400209595e300840767ab1a385ede1dc7ee893015aea9c6dbaf  work/sources/libusb-1.0.30.tar.bz2" | sha256sum -c -
+          ls -la work/sources
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Recompia-sources
+          path: work/sources
+          compression-level: 0
+
+  # The one place that writes into the release: it takes the archives the four package jobs produced (both names of each
+  # platform) and the sources, uploads them, and writes one SHA256SUMS.txt over all of them. A platform job that failed leaves its archive out instead of failing this one.
+  publish:
+    needs: [windows-package, linux-package, linux-arm64-package, macos-package, sources]
+    if: always() && !cancelled() && (github.ref_type == 'tag' || inputs.release_tag != '')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Recompia-*
+          path: build/assets
+          merge-multiple: true
+
+      - name: Upload
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}
         run: |
-          gh release download "$REL_TAG" -R "$GITHUB_REPOSITORY" -p SHA256SUMS.txt -D build/sums
-          sed -E 's/^([0-9a-f]+) \*?(.*)$/\1 *\2/' build/rel/linux.sha256 >> build/sums/SHA256SUMS.txt
-          cat build/sums/SHA256SUMS.txt
-          gh release upload "$REL_TAG" -R "$GITHUB_REPOSITORY" build/rel/PokopiaRecomp-$VERSION-linux-x64.tar.gz build/sums/SHA256SUMS.txt --clobber
+          set -euo pipefail
+          shopt -s nullglob
+          cd build/assets
+          ls -la
+          rm -f SHA256SUMS.txt
+          archives=(./*.zip ./*.tar.gz ./*.tar.bz2)
+          sha256sum -b "${archives[@]}" | sed -E 's#\./##' > SHA256SUMS.txt || true
+          cat SHA256SUMS.txt
+          test -s SHA256SUMS.txt || { echo "::error::no release archives were built"; exit 1; }
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" "${archives[@]}" SHA256SUMS.txt --clobber
