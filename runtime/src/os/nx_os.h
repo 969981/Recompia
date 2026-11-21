@@ -475,6 +475,7 @@ SIZE_T VirtualQuery(LPCVOID addr, MEMORY_BASIC_INFORMATION* mbi, SIZE_T len);
 SIZE_T VirtualQueryEx(HANDLE proc, LPCVOID addr, MEMORY_BASIC_INFORMATION* mbi, SIZE_T len);
 // macOS: [start, end) of the executable's __GUEST segment (cmake/guest_segment.py, 0x7000000000 + 72 GiB, slid by dyld).
 // False when the binary has none (a dylib, a unit test). The guest layout must fit inside it: see src/mem/memory.cpp.
+// Android: the whole guest layout (nxrt/memory.h), reserved PROT_NONE by the first question. Linux: none.
 bool nxos_guest_reservation(uint64_t* start, uint64_t* end);
 
 // Gives this thread a signal stack (64 KiB), so a handler can run when the thread's own stack is exhausted. Without it a

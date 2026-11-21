@@ -30,6 +30,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#if defined(__ANDROID__)
+#include "nxrt/memory.h"   // the guest layout this platform reserves up front (guest_range)
+#endif
+
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
@@ -57,7 +61,9 @@ struct SectionObj : Obj {
     explicit SectionObj() : Obj(Kind::Section) {}
     ~SectionObj() override {
         if (fd >= 0) ::close(fd);
+#if !defined(__ANDROID__)   // a memfd has no name (CreateFileMappingW)
         if (!name.empty()) ::shm_unlink(name.c_str());
+#endif
     }
 };
 
@@ -302,6 +308,26 @@ GuestRange guest_range() {
                 }
             }
             p += lc->cmdsize;
+        }
+        return g;
+    }();
+    return r;
+#elif defined(__ANDROID__)
+    // Android: the runtime reserves the whole layout itself, once, on the first question (mem::init's first fixed reservation,
+    // before SDL video, the Vulkan driver or the game library's modules map anything): [kGuestBase, kLayoutEnd) is free in an app
+    // process (ART's heaps end under 4 GiB, other mappings grow down from 0x7f..), but a later allocation without an address could
+    // land in it, which a region-by-region reservation would only notice when that region fails. PROT_NONE and MAP_NORESERVE: no
+    // memory is charged. Inside it VirtualAlloc and MapViewOfFileEx replace the placeholder with MAP_FIXED after the shim's own
+    // overlap check, as on macOS.
+    static const GuestRange r = [] {
+        GuestRange g;
+        void* const want = reinterpret_cast<void*>(nxrt::mem::kGuestBase);
+        void* p = ::mmap(want, nxrt::mem::kLayoutSize, PROT_NONE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
+        if (p == want) {
+            g.lo = static_cast<uintptr_t>(nxrt::mem::kGuestBase);
+            g.hi = static_cast<uintptr_t>(nxrt::mem::kLayoutEnd);
+        } else if (p != MAP_FAILED) {
+            ::munmap(p, nxrt::mem::kLayoutSize);   // a kernel without MAP_FIXED_NOREPLACE took it as a hint
         }
         return g;
     }();
@@ -688,9 +714,11 @@ BOOL GlobalMemoryStatusEx(LPMEMORYSTATUSEX ms) {
 // ==================================================================================================================
 // sections
 // ==================================================================================================================
+#if !defined(__ANDROID__)
 namespace {
 std::atomic<uint32_t> g_section_seq{1};
 }
+#endif
 
 HANDLE CreateFileMappingW(HANDLE file, void*, DWORD protect, DWORD hi, DWORD lo, LPCWSTR) {
     if (file != INVALID_HANDLE_VALUE) {
@@ -707,6 +735,25 @@ HANDLE CreateFileMappingW(HANDLE file, void*, DWORD protect, DWORD hi, DWORD lo,
         SetLastError(ERROR_INVALID_PARAMETER);
         return nullptr;
     }
+#if defined(__ANDROID__)
+    // bionic has no shm_open. A memfd is the same object without a name: sparse after ftruncate (SEC_RESERVE), shared by every
+    // MAP_SHARED view, gone with its last fd.
+    const int fd = ::memfd_create("nxrt-section", MFD_CLOEXEC);
+    if (fd < 0) {
+        nxos_set_error_from_errno(errno);
+        return nullptr;
+    }
+    if (::ftruncate(fd, static_cast<off_t>(size)) != 0) {
+        const int e = errno;
+        ::close(fd);
+        nxos_set_error_from_errno(e);
+        return nullptr;
+    }
+    auto* s = new SectionObj();
+    s->fd = fd;
+    s->size = size;
+    return s;
+#else
     char name[64];
     for (int attempt = 0; attempt < 8; attempt++) {
         const uint32_t id = g_section_seq.fetch_add(1, std::memory_order_relaxed);
@@ -737,6 +784,7 @@ HANDLE CreateFileMappingW(HANDLE file, void*, DWORD protect, DWORD hi, DWORD lo,
     }
     SetLastError(ERROR_ALREADY_EXISTS);
     return nullptr;
+#endif
 }
 
 HANDLE CreateFileMappingA(HANDLE file, void* sa, DWORD protect, DWORD hi, DWORD lo, LPCSTR) {
@@ -769,7 +817,23 @@ LPVOID MapViewOfFileEx(HANDLE section, DWORD access, DWORD hi, DWORD lo, SIZE_T 
 #else
     const int fixed_flag = MAP_FIXED;
 #endif
+#if defined(__ANDROID__)
+    // Inside the guest range reserved up front (guest_range()) the address is mapped PROT_NONE already, which MAP_FIXED_NOREPLACE
+    // refuses: there the shim's own region list says whether the range is taken, and MAP_FIXED replaces the placeholder. The lock
+    // is held from that check to the region insert below.
+    const bool guest = want && in_guest_range(want, bytes);
+    std::unique_lock<std::mutex> guest_lock(g_reg_mu, std::defer_lock);
+    if (guest) {
+        guest_lock.lock();
+        if (region_overlaps(want, bytes)) {
+            SetLastError(ERROR_INVALID_ADDRESS);
+            return nullptr;
+        }
+    }
+    const int flags = MAP_SHARED | (want ? (guest ? MAP_FIXED : fixed_flag) : 0);
+#else
     const int flags = MAP_SHARED | (want ? fixed_flag : 0);
+#endif
 
     // The requested protection is applied per view: the pages are already backed by the section, and a view of pages
     // the owner has not committed yet reads as zeros, which is what MapViewOfFile guarantees on Windows too.
@@ -793,7 +857,11 @@ LPVOID MapViewOfFileEx(HANDLE section, DWORD access, DWORD hi, DWORD lo, SIZE_T 
         return nullptr;
     }
 
+#if defined(__ANDROID__)
+    if (!guest_lock.owns_lock()) guest_lock.lock();
+#else
     std::lock_guard<std::mutex> guard(g_reg_mu);
+#endif
     Region r;
     r.base = reinterpret_cast<uintptr_t>(p);
     r.size = bytes;
