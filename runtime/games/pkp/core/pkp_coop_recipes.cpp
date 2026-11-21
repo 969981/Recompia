@@ -25,6 +25,7 @@
 // Each process reads bit 1 of every record each frame and sends the ids that became known (one that could not be sent goes at the
 // next frame), and its whole known list every kAllEvery seconds and when it or another member joins, through the authority.
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 
@@ -111,11 +112,8 @@ bool share(uint64_t recs, bool all) {
 void batch_line() {
     State& s = st();
     if (!s.quiet_count) return;
-    char text[160];
-    std::snprintf(text, sizeof text, "%s knows %u recipe%s you did not. You know %s now!",
-                  notice::name_of(static_cast<uint8_t>(s.quiet_origin)).c_str(), s.quiet_count, s.quiet_count == 1 ? "" : "s",
-                  s.quiet_count == 1 ? "it" : "them");
-    notice::post(text);
+    notice::post(strings::fmt(base(), s.quiet_count == 1 ? strings::Str::CoopRecipesOne : strings::Str::CoopRecipesMany,
+                              notice::name_of(static_cast<uint8_t>(s.quiet_origin)), s.quiet_count));
     s.quiet_count = 0;
     s.quiet_origin = -1;
 }

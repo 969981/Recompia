@@ -81,6 +81,7 @@
 // The refusal's line goes to the game's message log through notice::line (pkp_coop_notice.cpp), on the talker's slot; the slot of
 // this player's own talk starts is handed to the notices.
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_journal.h"
 #include "core/pkp_layout.h"
@@ -110,8 +111,6 @@ constexpr uint64_t kRunners = 0x35650f8, kRunnerSize = 0x2010, kRunnerSlot = 0x2
 constexpr uint64_t kQueue = 0x3565100, kQueueSlot = 0x20fa0, kQueuePending = 0x20e08;
 constexpr uint32_t kRunnerIdle = 9;
 constexpr uint8_t kSlots = 2;
-
-constexpr const char* kBusyLine = "This NPC is in a conversation with someone.";
 
 constexpr uint64_t kFlagsReg = 3;       // 0x3180e0's w3: bit 0 clear, a talk started from inside a running event (0x48fd50)
 constexpr uint64_t kIsHostReg = 0;      // at 0x4c06d8: IsHost's answer, or'd into the "take the host's path" bit (also at 0x4d35f8)
@@ -229,7 +228,7 @@ int on_talk_start(::Ctx* c) {
     const uint8_t self = link::self();
     const auto it = s.holders.find(chara);
     if (it != s.holders.end() && it->second != self) {
-        notice::line(c, slot, kBusyLine);
+        notice::line(c, slot, strings::get(base(), strings::Str::CoopTalkBusy));
         journal::Rec(journal::Area::Talk, "lock").in("character=0x%08x (data id %u, idx %u) slot=%u", chara, chara >> 16 & 0x7fff,
                                                      chara & 0xffff, slot)
             .refused("held by n%u", it->second);
