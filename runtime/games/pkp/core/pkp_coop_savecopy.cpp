@@ -117,10 +117,11 @@ bool has(const std::vector<ss::File>& files, const ss::File& f) { return std::fi
 // A worker's result, taken on the game thread.
 struct JobResult {
     bool ok = false;
+    bool ready = false;  // an apply: the copy is ready on disk, its moves wait (finish)
     std::string why;
     ss::Snapshot snap;   // a save point's read
 };
-enum class Job : uint8_t { None, Read, Apply };
+enum class Job : uint8_t { None, Read, Apply, Finish };
 
 // The authority's view of one member.
 struct Node {
@@ -170,6 +171,9 @@ struct State {
     Transfer t;
     uint64_t failed_seq = 0;
     uint32_t fails = 0;
+    bool pending = false;           // a ready copy in incoming/ whose moves did not all run: only finish() touches incoming/ now
+    double finish_at = -1e9;
+    uint32_t held_logged = 0;
 };
 State& st() {
     static State s;
@@ -181,6 +185,7 @@ bool acting_authority() { return link::in_session() ? link::is_authority() : rol
 // The hold's state, read on the committing thread (not part of State: the filter may run while a reset clears State).
 struct Hold {
     std::atomic<bool> on{false};
+    std::atomic<uint32_t> count{0};   // file changes held since the launch (the log shows the hold matches)
     std::string root;   // the account folder, norm()ed; fixed before the filter is registered
 };
 Hold& hold() {
@@ -198,8 +203,10 @@ std::string norm(const std::string& u8path) {
 
 // fsapi::set_save_commit_hold's filter: a world file of this co-op save's account folder, while the hold is on.
 bool held(const std::string& root, const std::string& rel) {
-    const Hold& h = hold();
-    return h.on.load(std::memory_order_acquire) && ss::world_name(rel, true) && norm(root) == h.root;
+    Hold& h = hold();
+    if (!h.on.load(std::memory_order_acquire) || !ss::world_name(rel, true) || norm(root) != h.root) return false;
+    h.count.fetch_add(1, std::memory_order_relaxed);
+    return true;
 }
 
 bool job_busy() { return st().job_kind != Job::None; }
@@ -224,7 +231,21 @@ void start_apply() {
     hold().on.store(true, std::memory_order_release);   // before the first file moves: the game's next commit leaves them alone
     s.job = std::async(std::launch::async, [stamp = t.stamp, by = t.by, files = t.files, received] {
         JobResult r;
-        r.ok = ss::apply(stamp, by, files, received, &r.why);
+        r.ok = ss::apply(stamp, by, files, received, &r.ready, &r.why);
+        return r;
+    });
+}
+
+constexpr double kFinishEvery = 5.0;   // seconds between two tries to complete a ready copy
+
+void start_finish() {
+    State& s = st();
+    s.job_kind = Job::Finish;
+    s.finish_at = qpc::seconds();
+    s.job = std::async(std::launch::async, [] {
+        JobResult r;
+        r.ok = ss::finish(&r.why);
+        r.ready = !r.ok && ss::ready_pending();
         return r;
     });
 }
@@ -304,7 +325,7 @@ void on_read_done(JobResult r) {
     const bool first = !s.have;
     s.copy = std::move(r.snap);
     s.have = true;
-    if (first && ss::has_stamp() && s.copy.newest <= static_cast<int64_t>(s.own.saved_at)) {
+    if (first && ss::has_stamp() && s.copy.newest <= static_cast<int64_t>(s.own.saved_at) && highest_seq() == s.own.seq) {
         s.own_files = s.copy.files;   // nothing saved since this copy was stamped
         s.table[member_key()] = s.own;
     } else {
@@ -361,6 +382,7 @@ void stream(int node, Node& n) {
 
 void tick_authority() {
     State& s = st();
+    if (s.pending) return;   // the world on disk is not whole until the ready copy is completed
     poll_world();
     for (auto& [node, n] : s.nodes) stream(node, n);
 }
@@ -407,6 +429,12 @@ void on_apply_done(const JobResult& r) {
         send_have(HaveStatus::Applied);
         return;
     }
+    if (r.ready) {   // nothing may drop it now: the moves are completed from incoming/ (here, or at the next start)
+        s.pending = true;
+        NXLOG_W(kTag, "Co-op save: copy %llu is ready but not all in place (%s); it is completed as soon as it can be",
+                static_cast<unsigned long long>(t.stamp.seq), r.why.c_str());
+        return;
+    }
     ss::drop_incoming();
     s.fails = s.failed_seq == t.stamp.seq ? s.fails + 1 : 1;
     s.failed_seq = t.stamp.seq;
@@ -414,6 +442,22 @@ void on_apply_done(const JobResult& r) {
             r.why.c_str(), static_cast<unsigned long long>(s.own.seq), s.fails < kMaxFails ? ", asked for again" : "");
     refresh_own_files();
     if (s.fails < kMaxFails) send_have(HaveStatus::Failed);
+}
+
+void on_finish_done(const JobResult& r) {
+    State& s = st();
+    if (!r.ok) {
+        s.pending = r.ready;   // still ready: tried again later; none left (it was not ready and is dropped): nothing waits
+        if (!s.pending) refresh_own_files();
+        return;
+    }
+    s.pending = false;
+    s.own = ss::own_stamp();
+    s.stamped = true;
+    refresh_own_files();
+    s.table[member_key()] = s.own;
+    NXLOG_I(kTag, "Co-op save: copy %llu of the group's world is this PC's copy now (completed)", static_cast<unsigned long long>(s.own.seq));
+    if (link::in_session() && !link::is_authority()) send_have(HaveStatus::Applied);
 }
 
 void tick_member() {
@@ -501,7 +545,7 @@ void on_offer_message(::Ctx*, int, uint8_t, wire::Reader& r) {
         if (id != member_key()) s.table[id] = stamp;
     if (!(s.own < t.stamp)) return;                                   // not newer than this PC's copy
     if (s.t.active && s.t.stamp == t.stamp) return;                   // being received
-    if (job_busy()) return;                                           // a copy is being applied: its answer asks for this one
+    if (job_busy() || s.pending) return;                              // a copy is being put in place: its answer asks for this one
     if (s.failed_seq == t.stamp.seq && s.fails >= kMaxFails) return;  // given up
     drop_transfer("a newer copy came");
     ss::drop_incoming();
@@ -535,6 +579,7 @@ void on_chunk_message(::Ctx*, int, uint8_t, wire::Reader& r) {
     if (!r.ok() || !t.active || job_busy() || seq != t.stamp.seq) return;   // a copy this PC is not receiving (any more)
     if (idx >= t.files.size() || !t.sent[idx] || off != t.got[idx] || off + uint64_t{len} > t.files[idx].size) {
         drop_transfer("its parts came out of order");
+        s.offered = false;   // hello again: the authority sends it anew
         return;
     }
     std::vector<uint8_t> b(len);
@@ -542,6 +587,7 @@ void on_chunk_message(::Ctx*, int, uint8_t, wire::Reader& r) {
     std::string why;
     if (!r.ok() || !ss::incoming_append(t.files[idx].name, b.data(), len, &why)) {
         drop_transfer(r.ok() ? why.c_str() : "a part was cut short");
+        s.offered = false;
         return;
     }
     t.got[idx] += len;
@@ -559,6 +605,7 @@ void install() {
     std::string why;
     if (ss::finish(&why)) NXLOG_I(kTag, "Co-op save: a received copy left half moved by the last run was completed");
     else if (!why.empty()) NXLOG_W(kTag, "Co-op save: a received copy is still waiting: %s", why.c_str());
+    s.pending = ss::ready_pending();
     s.own = ss::own_stamp();
     s.stamped = ss::has_stamp();
     s.table = ss::read_peers();
@@ -580,18 +627,25 @@ void tick(::Ctx*) {
         s.job_kind = Job::None;
         JobResult r = s.job.get();
         if (kind == Job::Read) on_read_done(std::move(r));
-        else on_apply_done(r);
+        else if (kind == Job::Apply) on_apply_done(r);
+        else on_finish_done(r);
     }
+    if (s.pending && !job_busy() && qpc::seconds() - s.finish_at >= kFinishEvery) start_finish();
     const bool authority = acting_authority();
     if (authority != s.authority_mode) {   // the side changed (a launch role the session did not keep)
         s.authority_mode = authority;
         s.nodes.clear();
-        if (!job_busy()) drop_transfer("this process is the authority now");
+        if (!job_busy() && !s.pending) drop_transfer("this process is the authority now");
         s.offered = false;
     }
     if (authority) tick_authority();
     else tick_member();
-    hold().on.store(!authority && (s.stamped || s.job_kind == Job::Apply), std::memory_order_release);
+    hold().on.store(!authority && (s.stamped || s.pending || s.job_kind == Job::Apply || s.job_kind == Job::Finish),
+                    std::memory_order_release);
+    if (const uint32_t n = hold().count.load(std::memory_order_relaxed); n != s.held_logged) {
+        s.held_logged = n;
+        NXLOG_I(kTag, "Co-op save: this member's own world writes kept off the group's copy: %u file change(s) so far", n);
+    }
     save_peers();
 }
 
@@ -601,7 +655,7 @@ void on_member(int node, bool joined, bool self) {
         s.nodes.clear();
         s.offered = false;
         s.hello_at = -1e9;
-        if (!joined && !job_busy()) drop_transfer("the session ended");
+        if (!joined && !job_busy() && !s.pending) drop_transfer("the session ended");
         if (!joined) save_peers();
         return;
     }
@@ -610,8 +664,7 @@ void on_member(int node, bool joined, bool self) {
 
 void reset() {
     State& s = st();
-    if (s.job.valid()) s.job.wait();
-    if (s.installed) save_peers();
+    if (s.job.valid()) s.job.wait();   // a copy being put in place finishes (or stays ready for the next start)
     hold().on.store(false);
     if (s.installed) services::fsapi::set_save_commit_hold(nullptr);
     s = State{};

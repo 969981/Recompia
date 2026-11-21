@@ -99,11 +99,14 @@ bool incoming_append(const std::string& name, const uint8_t* p, size_t n, std::s
 // writer and every file of it) first; then, file by file, the old G00 file goes to B00 (this PC's previous copy) and the received
 // one takes its place; G00 world files the copy does not have go to B00 too; stamp.json last; then incoming/ is emptied. A process
 // stopped half way leaves ready.json, and finish() at the next start completes the same steps (each one can run twice). `received`:
-// the files whose bytes are in incoming/; the others of `all` must be in G00 as they are.
+// the files whose bytes are in incoming/; the others of `all` must be in G00 as they are. False with *ready false: nothing was moved
+// (incoming/ may be dropped); with *ready true: the copy is ready but its moves did not all run (incoming/ must stay: finish()).
 bool apply(const Stamp& s, const std::string& by, const std::vector<File>& all, const std::vector<std::string>& received,
-           std::string* why);
-// At install, before the game opens its save: a ready copy is completed (apply's steps), anything else in incoming/ dropped. True when
-// a copy was completed.
+           bool* ready, std::string* why);
+// Completes a ready copy (apply's moves, then stamp.json); with no ready copy, drops whatever is in incoming/. True when a copy was
+// completed. At install (before the game opens its save), and again while a ready copy waits.
 bool finish(std::string* why);
+// incoming/ holds a ready copy whose moves have not all run.
+bool ready_pending();
 
 }  // namespace nxrt::games::pkp::coop::saveset

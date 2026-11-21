@@ -370,8 +370,9 @@ bool incoming_append(const std::string& name, const uint8_t* p, size_t n, std::s
 }
 
 bool apply(const Stamp& s, const std::string& by, const std::vector<File>& all, const std::vector<std::string>& received,
-           std::string* why) {
+           bool* ready, std::string* why) {
     const Paths& p = paths();
+    *ready = false;
     Ready r{s, by, {}, received};
     for (const File& f : all) {
         if (!world_name(f.name, false)) {
@@ -392,7 +393,13 @@ bool apply(const Stamp& s, const std::string& by, const std::vector<File>& all, 
         return false;
     }
     if (!write_ready(r, why)) return false;
+    *ready = true;
     return run_moves(r, why);
+}
+
+bool ready_pending() {
+    Ready r;
+    return read_ready(&r);
 }
 
 bool finish(std::string* why) {
@@ -401,8 +408,8 @@ bool finish(std::string* why) {
         drop_incoming();
         return false;
     }
-    if (save_files::commit_pending()) {   // the runtime finishes the game's own commit when the save opens; ours waits for the next start
-        *why = "the game's save has an interrupted commit";
+    if (save_files::commit_pending()) {   // the game's own commit first (the runtime finishes an interrupted one when the save opens)
+        *why = "the game's save has a commit pending";
         return false;
     }
     return run_moves(r, why);
