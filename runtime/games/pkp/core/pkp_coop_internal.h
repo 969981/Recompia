@@ -578,10 +578,11 @@ void reset();
 // A member: gives the object (kind, packed cell as the release record and SyncGimmickOwnership carry it) back with the forced Sync.
 void give_back_cell(::Ctx* c, uint16_t kind, uint32_t cell);
 // The hook sites (pkp_coop.cpp), logging only (each returns 0): entry 0x538f60, the ownership apply; midhook 0x313eb4, the player's
-// press; entry 0xa8fba0, the message log's post (the busy line).
+// press; entry 0xa8fba0, the message log's post (the busy line); entry 0x539620, a member's grant reply (a refused take).
 int on_owner_apply(::Ctx* c);
 int on_press(::Ctx* c);
 int on_notice(::Ctx* c);
+int on_grant_reply(::Ctx* c);
 }  // namespace owner
 // ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----
 namespace newcomer {

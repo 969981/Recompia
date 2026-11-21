@@ -705,6 +705,8 @@ midhook 0x710083bec0
 midhook 0x710083c288
 midhook 0x710083e310
 #   Seamless co-op, the ownership log (pkp_coop_owner.cpp): the ownership apply 0x7100538f60 (&kind, x, y, z, &idx, take, quiet,
-#   slot) and the message log's post 0x7100a8fba0 (the busy line); the press 0x7100313eb4 is declared above (journal interact)
+#   slot), the message log's post 0x7100a8fba0 (the busy line) and the member's grant reply 0x7100539620 (reply, granted: a refused
+#   take); the press 0x7100313eb4 is declared above (journal interact)
 entryhook 0x7100538f60
 entryhook 0x7100a8fba0
+entryhook 0x7100539620

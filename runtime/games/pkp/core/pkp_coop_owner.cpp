@@ -86,7 +86,10 @@
 // x1 = {u32 +0 0x44, u16 +8 0x10d} at every gimmick 0x10d site, e.g. 0x7b997c..0x7b998c), with the object this player pressed last
 // (midhook 0x313eb4, the player's call of an object's interaction handler: x0 the object; a gimmick's busy line comes from inside
 // that call). An object is named only once the placed-object lookup 0x753200([main+0x35616f0], x, y, z), the game's own lookup in
-// the grant reply (0x539b00), finds a gimmick of that kind at its cell: then its vt+0x2c8 (owner of a slot) is safe to call.
+// the grant reply (0x539b00), finds a gimmick of that kind at its cell: then its vt+0x2c8 (owner of a slot) is safe to call. A
+// member also logs each take the host turned down: entry hook 0x539620, the grant reply (x0 the reply, w1 bit 0 the grant; 0 goes
+// to 0x539754, which never takes the byte and, for kind 0x93, tests the object's free check again; the take is 0x539adc, reached
+// only with w1 set).
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -106,6 +109,7 @@ constexpr const char* kTag = "pkp";
 constexpr int kAnswerReg = 0, kGimmickReg = 19, kSlotReg = 21;
 constexpr int kReplyReg = 19, kGrantGimmickReg = 23;    // at 0x539b44
 constexpr uint64_t kReplySlot = 0x10;                   // reply +: the granted slot (u8)
+constexpr uint64_t kReplyKind = 0xc, kReplyCell = 0;     // reply +: the kind (u16), the packed cell (u32)
 constexpr uint64_t kNoGrantUseClass = 0x326dc98;        // main +: the vtable of the class that runs no use from a grant
 constexpr uint64_t kKindOf = 0x50;                      // gimmick vtable +: its kind (u16)
 constexpr uint64_t kCellLo = 0x18, kCellHi = 0x1c;      // gimmick +: u32 x | y << 16, u16 z
@@ -162,7 +166,7 @@ struct State {
     alignas(16) uint8_t msg[kMsgBytes] = {};   // guest addresses are host addresses
     alignas(8) uint16_t kind = 0;
     alignas(8) uint8_t index = 0;
-    Limit takes, releases, busy;
+    Limit takes, releases, busy, refusals;
     uint64_t press = 0;       // the object this player pressed last, and when
     double press_at = -1e9;
 };
@@ -332,6 +336,21 @@ int on_owner_apply(::Ctx* c) {
     return 0;
 }
 
+int on_grant_reply(::Ctx* c) {
+    if (!link::in_session() || link::is_authority() || (c->x[1] & 1)) return 0;
+    const uint64_t reply = c->x[0];
+    if (!guest::ok(reply, kReplySlot + 1) || !allow(st().refusals, "refusal")) return 0;
+    const uint32_t cell = guest::rd<uint32_t>(reply + kReplyCell);
+    const uint16_t kind = guest::rd<uint16_t>(reply + kReplyKind);
+    const uint8_t slot = guest::rd<uint8_t>(reply + kReplySlot);
+    const uint32_t x = cell & 0xfff, y = (cell >> 12) & 0xff, z = cell >> 20;
+    const uint8_t here = owner_now(c, gimmick_at(c, kind, x, y, z), slot);
+    NXLOG_I(kTag, "Co-op owner: the host refused the take of kind %u at (%u,%u,%u) slot %u (owner here %u%s; this process index %u, "
+            "member)", kind, x, y, z, slot, here, here == kAnySlot ? " free" : here == kUnknown ? " unknown" : "",
+            static_cast<uint8_t>(guest::call(c, base() + layout::kOwnIndexOf, 0)));
+    return 0;
+}
+
 int on_press(::Ctx* c) {
     if (!link::in_session()) return 0;
     st().press = c->x[0];
@@ -373,7 +392,7 @@ int on_notice(::Ctx* c) {
 void reset() {
     for (bool& b : st().logged) b = false;
     for (bool& b : st().grant_logged) b = false;
-    st().takes = st().releases = st().busy = Limit{};
+    st().takes = st().releases = st().busy = st().refusals = Limit{};
     st().press = 0;
     st().press_at = -1e9;
 }

@@ -161,6 +161,7 @@ enum class Site : uintptr_t {
     OwnerApply,       // the ownership apply (take / release): logged; a member's new take drops a kept release of the same object
     OwnerPress,       // the player's press on an object: remembered for the busy line's log
     OwnerNotice,      // the message log's post: "Someone else is using this right now." logged with the object
+    OwnerRefused,     // a member's grant reply: a take the host turned down is logged
 };
 
 struct CoopSite {
@@ -287,6 +288,7 @@ constexpr CoopSite kSites[] = {
     {{0x538f60, 0x79400008u, true}, Site::OwnerApply},       // ldrh w8, [x0]
     {{0x313eb4, 0xd63f0100u, false}, Site::OwnerPress},      // blr x8 (x0 = the object, x8 its slot 5 handler)
     {{0xa8fba0, kPacibsp, true}, Site::OwnerNotice},
+    {{0x539620, kPacibsp, true}, Site::OwnerRefused},
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -374,6 +376,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::OwnerApply: return coop::owner::on_owner_apply(c);
         case Site::OwnerPress: return coop::owner::on_press(c);
         case Site::OwnerNotice: return coop::owner::on_notice(c);
+        case Site::OwnerRefused: return coop::owner::on_grant_reply(c);
         default: return 0;
     }
 }

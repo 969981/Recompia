@@ -148,12 +148,25 @@ void clear(::Ctx* c, const char* why) {
 
 const char* name(Kind k) { return k == Kind::Release ? "gimmick release" : "talk-end"; }
 
+// A release record about to be dropped unsent: the object is given back by Sync first (unless that was done already), so no release
+// is ever lost.
+void give_back_unsent(::Ctx* c, Held& h, const char* why) {
+    if (h.kind != Kind::Release || h.given) return;
+    h.given = true;
+    const uint32_t cell = field<uint32_t>(h, kRecordCell);
+    const uint16_t kind = field<uint16_t>(h, kRecordKind);
+    NXLOG_W(kTag, "Co-op Link Play queue: a gimmick release %s; kind %u at (%u,%u,%u) is given back by Sync", why, kind, cell & 0xfff,
+            (cell >> 12) & 0xff, cell >> 20);
+    owner::give_back_cell(c, kind, cell);
+}
+
 // Keeps the record (and, for a talk-end record, its entries) at the back of the queue.
 void keep(::Ctx* c, Kind kind, uint64_t q, uint64_t rec, uint64_t entries) {
     State& s = st();
     if (s.held.size() >= kHeldMax) {
         NXLOG_W(kTag, "Co-op Link Play queue: more than %zu records waiting; the oldest (%s) is dropped", kHeldMax,
                 name(s.held.front().kind));
+        give_back_unsent(c, s.held.front(), "is dropped from a full queue");
         drop_ref(c, counted(s.held.front()));
         s.held.pop_front();
     }
@@ -179,18 +192,12 @@ void keep(::Ctx* c, Kind kind, uint64_t q, uint64_t rec, uint64_t entries) {
     }
 }
 
-// A release kept for kReleaseWait: the object is given back by Sync now (once), so the others can use it while the record waits.
+// A release kept for kReleaseWait while the queue stays busy: the object is given back by Sync now (once), so the others can use it
+// while the record waits.
 void give_back_waiting(::Ctx* c) {
     const double now = qpc::seconds();
-    for (Held& h : st().held) {
-        if (h.kind != Kind::Release || h.given || now - h.since < kReleaseWait) continue;
-        h.given = true;
-        const uint32_t cell = field<uint32_t>(h, kRecordCell);
-        const uint16_t kind = field<uint16_t>(h, kRecordKind);
-        NXLOG_W(kTag, "Co-op Link Play queue: a gimmick release waited %.0f s for the queue; kind %u at (%u,%u,%u) is given back by Sync",
-                now - h.since, kind, cell & 0xfff, (cell >> 12) & 0xff, cell >> 20);
-        owner::give_back_cell(c, kind, cell);
-    }
+    for (Held& h : st().held)
+        if (now - h.since >= kReleaseWait) give_back_unsent(c, h, "waited for a busy queue");
 }
 
 }  // namespace
@@ -266,10 +273,10 @@ void tick(::Ctx* c, bool in_game) {
     State& s = st();
     if (s.held.empty()) return;
     if (!member_in_session()) return clear(c, "the session ended");
-    give_back_waiting(c);
     const uint64_t q = queue();
-    if (!q || !session::can_walk(in_game)) return;
+    if (!q) return;
     if (!idle(q)) {
+        give_back_waiting(c);
         if (!s.logged_wait && qpc::seconds() - s.since > kWaitLog) {
             s.logged_wait = true;
             NXLOG_W(kTag, "Co-op Link Play queue: %zu kept records wait %.0f s for the queue (requests %u sent / %u answered, strict "
@@ -279,6 +286,8 @@ void tick(::Ctx* c, bool in_game) {
         return;
     }
     Held& h = s.held.front();
+    // A talk-end record waits until the player walks (its answer starts the host's job); a release goes at once, as the close sends it.
+    if (h.kind == Kind::TalkEnd && !session::can_walk(in_game)) return;
     s.rec = h.rec;
     s.entries = h.entries;
     const uint16_t before = guest::rd<uint16_t>(q + kSent);
@@ -289,8 +298,10 @@ void tick(::Ctx* c, bool in_game) {
         guest::call(c, base() + kSendRecord, q, reinterpret_cast<uint64_t>(s.rec.data()), reinterpret_cast<uint64_t>(s.entries.data()));
     s.sending = false;
     if (guest::rd<uint16_t>(q + kSent) == before && ++h.tries < kTries) return;
-    if (guest::rd<uint16_t>(q + kSent) == before)
+    if (guest::rd<uint16_t>(q + kSent) == before) {
         NXLOG_W(kTag, "Co-op Link Play queue: a kept %s record was not sent after %d tries; dropped", name(h.kind), kTries);
+        give_back_unsent(c, h, "could not be sent");
+    }
     else
         NXLOG_I(kTag, "Co-op Link Play queue: kept %s record sent after %.1f s (%zu left)", name(h.kind), qpc::seconds() - h.since,
                 s.held.size() - 1);
