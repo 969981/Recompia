@@ -177,6 +177,9 @@ enum class Site : uintptr_t {
     // ---- a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp) ----
     TakeoutStore,     // the shared move's choice of the store a taken item is removed from: the take-out screen's removal of a
                       // member's ordered item or gift uses the own store it listed, not the visitor's temp list
+    // ---- a story follow on a member (pkp_coop_follow.cpp) ----
+    StoryFollow,      // a story content's "follow this player" attach (0x2a1ed4, local only): on a member it is the game's own join
+                      // request to the host instead, so the host's creature follows the member and no follow is taken away
 };
 
 struct CoopSite {
@@ -310,6 +313,8 @@ constexpr CoopSite kSites[] = {
     {{0x539620, kPacibsp, true}, Site::OwnerRefused},
     // a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp)
     {{0x2eea74, 0x12000003u, false}, Site::TakeoutStore},    // and w3, w0, #0x1 (w0 = IsVisitor's answer, w21 = the container kind)
+    // a story follow on a member (pkp_coop_follow.cpp)
+    {{0x2a1ed4, 0xf0018f09u, true}, Site::StoryFollow},      // adrp x9, 0x3484000 (x0 = &the creature's actor id, w1 the flag)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -407,6 +412,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::OwnerNotice: return coop::owner::on_notice(c);
         case Site::OwnerRefused: return coop::owner::on_grant_reply(c);
         case Site::TakeoutStore: return coop::takeout::on_remove_store(c);
+        case Site::StoryFollow: return coop::follow::on_story_follow(c);
         default: return 0;
     }
 }

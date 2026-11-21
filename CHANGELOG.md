@@ -48,6 +48,7 @@
 - A talk that depends on the item a player holds now picks the same lines for a teammate as for the host
 - Teammates no longer get a visitor's greeting from two special creatures where the host gets the creature's usual talk
 - A chest or other object a teammate closes is now always free again for everyone. Before, a close while the game was still waiting on the host could leave it held by that teammate, and everyone else got "Someone else is using this right now." for the rest of the session
+- A creature the story asks to follow a teammate now really follows them. Before, the fire starter creature at the start of the story could stop following anyone and just wander around instead of going to the campfire, until the host restarted the game
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

@@ -50,6 +50,7 @@
 //   pkp_coop_doors.cpp    the session's doors in the menus: the PC's Link Play screen makes no session call, the pause menu never
 //                         sends a teammate home or rejects one; Save and Quit stays
 //   pkp_coop_title.cpp    a co-op start goes past the title screen on its own, with no "did not disconnect correctly" message
+//   pkp_coop_follow.cpp   a story content's "follow this player" on a member asked of the host with the game's own join request
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -630,5 +631,12 @@ int on_remove_store(::Ctx* c);
 void tick(::Ctx* c);
 void reset();
 }  // namespace takeout
+// ---- a story follow on a member (pkp_coop_follow.cpp) ----
+namespace follow {
+// The hook site (pkp_coop.cpp): entry 0x2a1ed4, the contents' "follow this player" attach (command 0xdac mode 3, through 0x117b18).
+// On a member in the session the game's local-only attach does not run (returns 1): a creature that follows nobody here is asked
+// of the host with 0x404e34 (the game's visitor-aware attach: RequestPartyNPC as a join); 0 elsewhere.
+int on_story_follow(::Ctx* c);
+}  // namespace follow
 
 }  // namespace nxrt::games::pkp::coop

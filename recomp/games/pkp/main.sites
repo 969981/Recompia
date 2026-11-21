@@ -723,3 +723,6 @@ entryhook 0x7100539620
 #   Seamless co-op, a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp): in the shared move 0x71002ee774, the
 #   `and w3, w0, #0x1` after IsVisitor that picks the store the taken item is removed from (w21 = the container kind)
 midhook 0x71002eea74
+#   Seamless co-op, a story follow on a member (pkp_coop_follow.cpp): the contents' "follow this player" attach 0x71002a1ed4
+#   (&npc actor id, flag; only caller 0x7100117b18, command 0xdac mode 3), the game's join request 0x7100404e34 on a member instead
+entryhook 0x71002a1ed4
