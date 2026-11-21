@@ -403,6 +403,7 @@ midhook 0x71001f0f84
 midhook 0x710029dcc8
 midhook 0x71004a1b70
 midhook 0x71004c03e4
+midhook 0x710063e450
 midhook 0x71007596cc
 midhook 0x71007fca2c
 midhook 0x71007fd1ac
@@ -421,6 +422,8 @@ midhook 0x710081f270
 midhook 0x710081f290
 midhook 0x710098906c
 midhook 0x7100ab5ad8
+midhook 0x7100e85e0c
+midhook 0x7100e86520
 midhook 0x7100fa9e00
 midhook 0x7100faa3d0
 midhook 0x7100faa3e4

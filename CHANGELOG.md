@@ -10,6 +10,7 @@
 ### Co-op
 - Something a teammate was using when they left the session (the lighthouse, for one) can be used again by everyone else. Before, it said "Someone else is using this right now." until the world was loaded again
 - The Shop on the PC menu is no longer greyed out for teammates who join the host
+- A teammate who opens the PC after finishing the challenges, before the host does, is no longer stuck on the PC screen: the Shop can be picked there as on the host
 - A teammate who joins after a story step no longer keeps hearing an old step's music (Kyogre's music kept playing after Kyogre had left). The host's music for the area now reaches every teammate, which also fixes saves that kept the wrong music
 - Teammates now get Life Coins, and each player claims their own: every player can claim each finished challenge at the PC for themselves and gets its coins into their own wallet, once, including challenges the host claimed first (a teammate's PC showed 0, and only the host could claim). Coins stay each player's own, as in the game's Link Play. Use **Set up again** once after updating to relink the game. Your shaders are kept.
 - A teammate's shop buys now count toward the town's "buy items" challenges
