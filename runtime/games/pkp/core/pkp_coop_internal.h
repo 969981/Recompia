@@ -626,6 +626,9 @@ namespace takeout {
 // the store the moved item is removed from. Called by the take-out screen for kinds 0x14 / 0x1a, a visitor's answer becomes 0 (the
 // own store, the one listed); returns 0.
 int on_remove_store(::Ctx* c);
+// Asks the game's autosave to save after each such take until a save written after it holds the emptied box (once a frame).
+void tick(::Ctx* c);
+void reset();
 }  // namespace takeout
 
 }  // namespace nxrt::games::pkp::coop

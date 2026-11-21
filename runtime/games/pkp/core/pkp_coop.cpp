@@ -511,6 +511,7 @@ void game_frame(::Ctx* c) {
     coop::friendship::tick(c);
     coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::newcomer::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::takeout::tick(c);
 }
 
 void remove() {   // the registry has removed the hooks
@@ -559,6 +560,7 @@ void remove() {   // the registry has removed the hooks
     coop::newcomer::reset();
     coop::doors::reset();
     coop::title::reset();
+    coop::takeout::reset();
 }
 
 }  // namespace

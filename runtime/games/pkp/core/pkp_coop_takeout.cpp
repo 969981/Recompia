@@ -20,13 +20,29 @@
 // address: 0xe8d870 or 0xe8db18). Every other kind and caller keeps the game's answer. A non-visitor already gets the own store, so
 // single player and the host see no change; on a member the own store is the one listed in every state (in or out of a session), so
 // the hook asks nothing of the link.
+// The save: the box is emptied in the member's game save (CMNDAT), the item goes into its bag record (pkp_coop_bags.cpp, on disk within
+// kWriteEvery). A visitor's game save is written only by the autosave (600 s timer, and only while the world-dirty byte is set; leaving
+// a session does not save), so a quit or crash in between would bring the box back full with the item also in the record. After each
+// such take (on a member only) the game's autosave is asked to save now, the way the game's Save and Quit asks it (0x4577e4(AS, 1, 0),
+// as ui/pkp_save_now.cpp does), with the world-dirty byte set first so its step 1 does not stop at "nothing changed" (0x5adc94). A
+// visitor's autosave writes CMNDAT and the screenshot, never the island (0x5ae78c kind 3). The take counts as saved only when a save
+// that started after it wrote: its step went past 1 (the snapshot, 0x5ae428, and the job queued) and, back at idle, the save manager's
+// last job has result 0 (or none), the test the autosave's own step 2 makes before it reports an error. A save the game stops (its gate
+// 0x5ae060 refuses, or nothing to save: step 1 straight to 5) or one whose job failed is asked for again kRetry later. A take while a
+// save runs gets a save of its own after it (the save holds the takes made before its last idle frame, a lower bound).
+// The call is made here, not through ui/pkp_save_now.cpp: that feature can be off ([pkp] save_now), and it posts notices; the game
+// call and the two autosave words are the same (pkp_layout.h). The bag record is not held back until the save is written (as bags
+// hold for an unanswered request): an apply at a selection change does not wait for a hold, and the session can end before the save,
+// so a record without the item would later be written over the bag that has it.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
+#include "core/pkp_layout.h"
 
 #include <atomic>
 #include <cstdint>
 
 #include "nxrt/log.h"
+#include "nxrt/qpc.h"
 
 namespace nxrt::games::pkp::coop::takeout {
 
@@ -39,6 +55,35 @@ constexpr uint8_t kOrdered = 0x14, kGifts = 0x1a;
 constexpr int kKindReg = 21;                  // 0x2ee774 keeps its w5 (the source's container kind) in w21 to the end
 constexpr int kFpReg = 29;
 constexpr uint64_t kCallerReturn = 8;         // 0x2ee774's frame record (x29 = sp + 0x40): +8 the caller's x30
+constexpr double kRetry = 1.0;                // seconds between two asks while a save is still owed
+constexpr double kOwedLog = 30.0;             // seconds a save may stay owed before it is logged (again)
+
+struct State {
+    std::atomic<uint32_t> taken{0};   // takes made on the own box (the hook)
+    uint32_t saved = 0;               // the takes a written save holds
+    uint32_t idle_taken = 0;          // taken, at the last frame the autosave was idle (a save that starts after it holds at least these)
+    uint32_t snap = 0;                // the running save's idle_taken
+    bool watching = false;            // an autosave runs: is it written?
+    bool wrote = false;               // it went past step 1 (the snapshot taken, the job queued)
+    bool judged = false;              // its job's result was read at its step 5 (the job is done there)
+    bool ok = false;                  // that result: written
+    double next_ask = 0;
+    double owed_since = -1.0;
+    double owed_logged = 0;
+};
+State& st() {
+    static State s;
+    return s;
+}
+
+// The save manager's last job wrote (the autosave's own test in its step 2: no job, or result 0).
+bool job_written() {
+    const uint64_t mgr = guest::rd<uint64_t>(base() + layout::kSaveManager);
+    if (!guest::ok(mgr, layout::kSaveMgrJob + 8)) return false;
+    const uint64_t job = guest::rd<uint64_t>(mgr + layout::kSaveMgrJob);
+    if (!job) return true;
+    return guest::ok(job, layout::kSaveJobResult + 4) && guest::rd<uint32_t>(job + layout::kSaveJobResult) == 0;
+}
 
 }  // namespace
 
@@ -51,11 +96,71 @@ int on_remove_store(::Ctx* c) {
     const uint64_t from = guest::rd<uint64_t>(rec) - base();
     if (from != kFromTakeAll && from != kFromTakeOne) return 0;
     c->x[0] = 0;
-    static std::atomic<bool> logged{false};
-    if (!logged.exchange(true, std::memory_order_relaxed))
-        NXLOG_I(kTag, "Co-op take-out: %s taken out of this player's own box (%s); removed there, as listed",
-                kind == kOrdered ? "an ordered item" : "a gift", from == kFromTakeAll ? "take all" : "take one");
+    const uint32_t n = st().taken.fetch_add(1, std::memory_order_relaxed) + 1;
+    NXLOG_I(kTag, "Co-op take-out: %s taken out of this player's own box (%s, take %u); removed there, as listed; the game save is "
+                  "asked for", kind == kOrdered ? "an ordered item" : "a gift", from == kFromTakeAll ? "take all" : "take one", n);
     return 0;
+}
+
+void tick(::Ctx* c) {
+    State& s = st();
+    const uint32_t taken = s.taken.load(std::memory_order_relaxed);
+    if (s.saved == taken && !s.watching) return;
+    const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
+    if (!guest::ok(game, layout::kStateAutosaveFlags + 4)) return;
+    const uint32_t step = guest::rd<uint32_t>(game + layout::kStateAutosave);
+    const uint32_t flags = guest::rd<uint32_t>(game + layout::kStateAutosaveFlags);
+    const double now = qpc::seconds();
+    if (s.watching) {
+        s.wrote |= step >= 2 && step <= 4;
+        if (step == 5 && s.wrote && !s.judged) {   // the job is done at step 5: its result is read before anything else replaces it
+            s.judged = true;
+            s.ok = job_written();
+        }
+        if (step != 0) return;
+        s.watching = false;
+        if (s.wrote && (s.judged ? s.ok : job_written())) {
+            if (s.snap > s.saved) {
+                s.saved = s.snap;
+                NXLOG_I(kTag, "Co-op take-out: the game save holds the box after take %u%s", s.saved,
+                        s.saved == taken ? "" : "; a later take is saved next");
+            }
+        } else {
+            s.next_ask = now + kRetry;   // the game stopped it (its gate, nothing to save, or the write failed): asked again
+            NXLOG_W(kTag, "Co-op take-out: the game's autosave ended without writing; it is asked again");
+        }
+    } else if (step != 0) {   // a save started (ours or the game's): it holds the takes made before its last idle frame
+        s.watching = true;
+        s.wrote = step >= 2 && step <= 4;
+        s.judged = s.ok = false;
+        s.snap = s.idle_taken;
+        return;
+    }
+    s.idle_taken = taken;
+    if (s.saved == taken) {
+        s.owed_since = -1.0;
+        return;
+    }
+    if (s.owed_since < 0) s.owed_since = s.owed_logged = now;
+    if (now - s.owed_logged >= kOwedLog) {
+        s.owed_logged = now;
+        NXLOG_W(kTag, "Co-op take-out: the game has allowed no save for %.0f s; the box's take %u is not on disk yet", now - s.owed_since,
+                taken);
+    }
+    if (now < s.next_ask || !(flags & 1)) return;   // the autosave is off (title, loading): it is asked once it is on
+    s.next_ask = now + kRetry;
+    guest::wr<uint8_t>(base() + layout::kWorldDirty, 1);
+    guest::call(c, base() + layout::kAutosaveNow, game + layout::kStateAutosaveObj, 1, 0);
+}
+
+void reset() {
+    State& s = st();
+    s.taken.store(0, std::memory_order_relaxed);
+    s.saved = s.idle_taken = s.snap = 0;
+    s.watching = s.wrote = s.judged = s.ok = false;
+    s.next_ask = 0;
+    s.owed_since = -1.0;
+    s.owed_logged = 0;
 }
 
 }  // namespace nxrt::games::pkp::coop::takeout
