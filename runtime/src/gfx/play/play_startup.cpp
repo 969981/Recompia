@@ -8,6 +8,8 @@
 #include "nxrt/text.h"
 #include "nxrt/vi_sinks.h"
 
+#include <atomic>
+
 namespace nxrt::play {
 using namespace detail;
 
@@ -34,6 +36,12 @@ using namespace detail;
 namespace detail {
 
 [[noreturn]] void quit_now(const char* why) { exit_process(0, "pass", why); }
+
+std::atomic<const char*> g_quit_why{nullptr};   // play::request_quit's reason; null: not asked
+
+void quit_if_requested() {
+    if (const char* why = g_quit_why.load()) quit_now(why);
+}
 
 // The game's ini and the environment override the settings file for the display extras. A key that is set there ([hdr] mode in the ini, or
 // NXRT_HDR_MODE) replaces the file's value with the one extras::settings_from_config() reads; other keys keep the file's value (the F1 page
@@ -63,6 +71,8 @@ extras::Settings merge_env(const extras::Settings& from_file) {
 }
 
 }  // namespace detail
+
+void request_quit(const char* why) { g_quit_why.store(why ? why : "asked by the game layer"); }
 
 // ---- public API ---------------------------------------------------------------------------------------------------------------------------
 bool load() {

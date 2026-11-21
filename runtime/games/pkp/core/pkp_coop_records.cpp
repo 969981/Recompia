@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Game layer: seamless co-op's story records (pkp_coop_internal.h). The authority's story records reach every member's own save.
 //
-// Six records of the save (pkp_layout.h; modding-docs coop-v2/role-census/followup/STORY-RECORDS.md sections 1-2, QUEST-EFFECTS-RE C3)
+// Seven records of the save (pkp_layout.h; modding-docs coop-v2/role-census/followup/STORY-RECORDS.md sections 1-2, QUEST-EFFECTS-RE C3)
 // hold story state that the game writes only where co-op lets the story's world part run, the authority:
 //   1 m_effectCommandSaveData (STGDAT, R+0x972ba8, 0x1e4 bytes): the quest effects 0x13 0x17 0x1b 0x1c 0x1d 0x21 0x2a 0x2e 0x31 0x32
 //     0x33 (world kinds: on_quest_effect skips them on a member), the wild pop runtime (+0xb8 timer, +0xc1 popped: 0x1b44e0 / 0x1b8540
@@ -15,6 +15,9 @@
 //   6 the story's materials drop (m_rocketHouse, CMNDAT, R+0x73b258, 0x20): its cell, electricity and stage (+0xc, which quest
 //     condition 9 reads on each process). The drop's close steps it on the process whose screen confirmed (pkp_coop_deposit.cpp: a
 //     member's deposit is stepped on the authority), and 0x7e70bc / 0x7e711c set the electricity from that process's own power.
+//   7 the event campaign history (m_eventCampaignHistory, R+0x6cec38, 15 slots of 6 bytes): which campaigns this save has seen
+//     (bit 0) and closed (bit 3). The campaign creatures' talk test 0x29d910 and the area test 0x284660 read it on each process;
+//     the group's is the authority's (owner decision), so a member's test answers as the host's (role row 0x29dcc8).
 // Nothing carries any of them, so a member's copy never was the group's: the host's town register, an NPC's specialty-work flag, the
 // stage-2 start's clear of chara 0x5d's +0xc (0xb4b60 clears it only on a visitor), request 73's slot clear (0x13a9b0) stayed apart.
 // Every field is copied: each is save data the game keeps per save, none a pointer or a handle of this process (the record's own
@@ -91,11 +94,12 @@ constexpr Record kRecords[] = {
     {4, "stage flags", layout::kSaveStageFlags, layout::kStageFlagsBytes, false},
     {5, "hint groups", layout::kSaveHintGroups, layout::kHintGroupsBytes, false},
     {6, "materials drop", layout::kSaveDrop, layout::kDropRecordBytes, false},
+    {7, "campaign history", layout::kSaveCampaignHistory, layout::kCampaignHistoryBytes, false},
 };
 constexpr size_t kCount = sizeof kRecords / sizeof kRecords[0];
 constexpr size_t kMaxBytes = layout::kTownRecordBytes;
 static_assert(layout::kEffectCommandsBytes <= kMaxBytes && layout::kStageFlagsBytes <= kMaxBytes && layout::kHintGroupsBytes <= kMaxBytes &&
-                  layout::kDropRecordBytes <= kMaxBytes,
+                  layout::kDropRecordBytes <= kMaxBytes && layout::kCampaignHistoryBytes <= kMaxBytes,
               "every record fits a copy");
 
 constexpr double kSendEvery = 5.0;   // the authority's look for changes: the story digest's period (pkp_coop_story.cpp)
@@ -131,11 +135,11 @@ struct State {
     // A member.
     Copy theirs[kCount];               // the authority's latest copy
     Copy written[kCount];              // what this save held right after the last write or check (the own-writes baseline)
-    double logged_at[kCount] = {-1e9, -1e9, -1e9, -1e9, -1e9, -1e9};
+    double logged_at[kCount] = {-1e9, -1e9, -1e9, -1e9, -1e9, -1e9, -1e9};
     unsigned unlogged[kCount] = {};    // writes since the last line
     Check checks[kCount];
 };
-static_assert(kCount == 6, "logged_at has one start value per record");
+static_assert(kCount == 7, "logged_at has one start value per record");
 State& st() {
     static State s;
     return s;

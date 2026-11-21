@@ -59,6 +59,9 @@
 - Teammates now see the comfort-level notice of their own house in every area
 - Teammates can give a creature a Star Piece and get its item in exchange, as the host can. Before, the creature always said it wasn't a good time
 - When a teammate's connection drops, the others no longer lose the session: the world pauses and waits up to 2:00 for them, with a countdown that names who is awaited ((+) stops waiting), and the teammate who dropped rejoins in place through the normal join, bag and all. Save and Quit always stays possible, and the host closing the session is told apart from a drop
+- A teammate is never left playing alone in a copy of the group's island: when the host ends the session, when a teammate leaves with Save and Quit, or when the connection is lost and the host's session can't be found again, the teammate's game says so and closes. Start co-op again from the launcher to play on. The host's game stays open
+- The record of event campaigns is the group's: teammates get the host's, so a campaign creature can be talked to by a teammate whenever the host could
+
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

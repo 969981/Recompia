@@ -301,6 +301,8 @@ constexpr uint64_t kStoreHolder = 0x13d4920;        // save root +: the item hol
 constexpr uint64_t kFlagTest = 0x377cc;             // (flag) -> bit 0: the save's flag is set
 constexpr uint64_t kDropTest = 0x5b8e34, kDropTestArg = 0x1718bb0;   // (save root + arg) -> bit 0: stage 8's condition (category 0x13)
 constexpr uint64_t kSaveDrop = 0x73b258;            // save root +: m_rocketHouse (2 x 16 B): +0 u32 x | y << 16, +4 u16 z,
+constexpr uint64_t kSaveCampaignHistory = 0x6cec38; // save root +: m_eventCampaignHistory, 15 slots x 6 B (slot 0 unused, areas 1..14):
+constexpr size_t kCampaignHistoryBytes = 0x5a;      //   byte 0 bit 0 / bit 3 read by the campaign creatures' talk test 0x29d910 / 0x284660
 constexpr size_t kDropRecordBytes = 0x20;           //   +8 u32 electricity (category 1), +0xc u16 the stage
 constexpr uint64_t kDropStagesTable = 0xa20;        // data-table manager +0x10 +: #1108, the stages (16 B rows)
 constexpr uint64_t kDropItemsTable = 0x3d0;         // data-table manager +0x10 +: #514, u16 item and u8 category per row (101 rows)

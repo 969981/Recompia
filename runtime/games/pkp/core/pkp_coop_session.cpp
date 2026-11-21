@@ -116,7 +116,9 @@ void start(::Ctx* c, State& s, uint64_t sm, double now) {
 // A finished search: joins the first result (the relay room holds only this group's session), or searches again later.
 void searched(::Ctx* c, State& s, uint64_t sm, double now) {
     const uint32_t results = guest::rd<uint32_t>(sm + kSmResults);
-    if (!(guest::rd<uint32_t>(sm + kSmFlags) & kSmSearched) || results == 0) return retry_later(s, now, "no session found yet", false);
+    const bool found = (guest::rd<uint32_t>(sm + kSmFlags) & kSmSearched) && results != 0;
+    drop::on_search(found);   // a member that lost its session and finds none closes (pkp_coop_drop.cpp)
+    if (!found) return retry_later(s, now, "no session found yet", false);
     if (!(guest::call(c, base() + kJoin, 0) & 1)) return retry_later(s, now, "the session manager refused to join");
     s.step = Step::Joining;
     s.started = now;
@@ -242,6 +244,7 @@ void tick(::Ctx* c, bool in_game) {
     const bool idle = guest::rd<uint32_t>(sm + kSmState) == 0;
     switch (s.step) {
         case Step::Wait:
+            if (drop::closing()) return;   // a member's game is about to close: no new session
             if (now >= s.next_try && idle && can_walk(in_game)) start(c, s, sm, now);
             return;
         case Step::Opening:
