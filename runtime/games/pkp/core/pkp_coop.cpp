@@ -155,6 +155,8 @@ enum class Site : uintptr_t {
     // ---- gimmick ownership, a grant that starts no use (pkp_coop_owner.cpp) ----
     GrantNoUse,       // a member's ownership grant after which no use runs (its data apply vt+0x2f8 failed, or the class runs none
                       // from a grant): the object is given back
+    // ---- gimmick ownership, the host's own use of the story's materials drop ends (pkp_coop_owner.cpp) ----
+    HostUseEnd,       // class 0x326dc98's close: the host's own use is given back, which nothing in the class does
 };
 
 struct CoopSite {
@@ -270,6 +272,8 @@ constexpr CoopSite kSites[] = {
     {{0x4c0574, 0x36000140u, false}, Site::TalkOwn},         // tbz w0, #0, 0x4c059c (w0 = 0x332c80's answer)
     // gimmick ownership, a grant that starts no use (pkp_coop_owner.cpp)
     {{0x539b44, 0x36000120u, false}, Site::GrantNoUse},      // tbz w0, #0, 0x539b68 (w0 = vt+0x2f8's answer, x23 the gimmick)
+    // gimmick ownership, the host's own use of the story's materials drop ends (pkp_coop_owner.cpp)
+    {{0x7e67c0, kPacibsp, true}, Site::HostUseEnd},          // class 0x326dc98's close (x0 = the gimmick)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -352,6 +356,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::SharedLeave: return coop::gimmicks::on_shared_leave(c, addr - st().base);
         case Site::TalkOwn: return coop::talk::on_talk_own(c);
         case Site::GrantNoUse: return coop::owner::on_grant_no_use(c);
+        case Site::HostUseEnd: return coop::owner::on_host_use_end(c);
         default: return 0;
     }
 }
