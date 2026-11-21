@@ -52,6 +52,7 @@
 - Teammates can put materials into the story's materials drop (the lighthouse) and move its building on: the host's world checks the step once for the whole group, every teammate sees the new stage, and if the step can't be taken the materials stay in the drop to take back. Before, pressing it did nothing for a teammate
 - A teammate's shop purchase or story catch-up item that arrives while their bag is being put back (after the host refused a box store, at an area change or when joining) is no longer lost
 - A creature the story asks to follow a player no longer ends up following nobody when the story step ran for a teammate: it follows the host. Before, the fire starter creature at the start of the story could stop following anyone and just wander around, until the host restarted the game
+- A co-op save is now one world for the whole group: each time the host's game saves, the island (its areas and photos) is copied to every teammate's co-op save, and a teammate's own game no longer writes its island over that copy. Bags, Life Coins, the look and the Ordered Items and Gifts boxes stay each player's own. Every player's launcher then knows who has the newest copy, so the next session is hosted from it
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

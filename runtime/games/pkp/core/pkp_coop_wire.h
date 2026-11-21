@@ -86,6 +86,15 @@
 //   StoryFollow +2 u8 the origin's stage, +3 u16 the creature's data id (1..0x3ff), +5 u8 the attach's flag   (a member's story
 //               content asked the creature to follow its player; the authority attaches its own copy to its own player unless it
 //               follows someone already; pkp_coop_follow.cpp)
+// The shared save (pkp_coop_savecopy.cpp, pkp_coop_saveset.h). A file list is u8 count n (<= 32), then n times: u8 name length L
+// (1..40), L bytes of the name relative to the account folder ("G00/STGDAT01.BIN"; only world files), u32 size, u64 hash
+// (saveset::hash), and in a SaveOffer one more u8: 1 when its bytes follow in SaveChunks to this member.
+//   SaveHave    +2 u8[16] the member key, +18 u64 its copy's seq, +26 u64 its saved_at, +34 u8 status (0 hello, 1 applied the offered
+//               copy, 2 a copy failed its check), +35 a file list: its copy's world files   (a member to the authority)
+//   SaveOffer   +2 u64 seq, +10 u64 saved_at, +18 u8[16] the authority's member key (the copy's writer), +34 a file list (with the sent
+//               byte), then u8 count m, m times: u8[16] member key, u64 seq, u64 saved_at (every copy the authority knows, its own too)
+//   SaveChunk   +2 u64 the copy's seq, +10 u8 file index (in the offer's list), +11 u32 offset, +15 u32 length n, +19 n bytes of the
+//               file   (in order, after the offer; a member writes them into incoming/)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -162,6 +171,10 @@ enum class Type : uint32_t {
     DepositState = 45,
     // ---- a story follow on a member (pkp_coop_follow.cpp) ----
     StoryFollow = 39,
+    // ---- the shared save (pkp_coop_savecopy.cpp); 51 is kept for its next kind of message ----
+    SaveHave = 48,
+    SaveOffer = 49,
+    SaveChunk = 50,
 };
 
 // Builds one payload: the header, then the fields in order.

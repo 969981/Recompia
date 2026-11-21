@@ -952,6 +952,8 @@ void romfs_game_release() {
 
 void set_save_commit_listener(void (*fn)()) { st().commit_listener.store(fn, std::memory_order_release); }
 
+void set_save_commit_hold(bool (*fn)(const std::string& root, const std::string& rel)) { fs::Volume::set_commit_hold(fn); }
+
 uint32_t ensure_account_save(uint64_t uid_hi, uint64_t uid_lo, bool* created) {
     if (created) *created = false;
     SaveAttr a;

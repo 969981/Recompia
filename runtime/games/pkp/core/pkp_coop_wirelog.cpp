@@ -4,8 +4,8 @@
 // received, received and dropped (why), received by the authority and passed on to which members, applied (the part's own line).
 //   j.sync: send DexKnown to n0 | in: 9 bytes 03 01 01 00 19 00 03 | out: queued
 //   j.sync: recv DexKnown from n2 origin n2 | in: 9 bytes ... | out: applied here, passed on to n1 n3
-// A payload is shown as hex (its first kHexMax bytes), except MemberName and the purchase types, which carry a player's name or member
-// key: the log bundle hides names and keys in text, not in hex, so those show their size alone.
+// A payload is shown as hex (its first kHexMax bytes), except MemberName, the purchase types and the save types, which carry a player's
+// name, member keys or save file bytes: the log bundle hides names and keys in text, not in hex, so those show their size alone.
 // The periodic types (StoryDigest, PurchaseAsk) are sent every few seconds with the same bytes: a payload equal to the last one of its
 // type and peer is counted, not written, and the count goes on the next line that differs (at most kQuietFor seconds later).
 // Also the journal's "who": this process's node and role in the session.
@@ -31,6 +31,9 @@ bool private_payload(uint32_t type) {
     case wire::Type::MemberName:
     case wire::Type::Purchase:
     case wire::Type::PurchaseLog:
+    case wire::Type::SaveHave:    // member keys
+    case wire::Type::SaveOffer:
+    case wire::Type::SaveChunk:   // save file bytes
         return true;
     default:
         return false;
@@ -131,6 +134,9 @@ const char* type_name(uint32_t type) {
     case wire::Type::DepositAsk: return "DepositAsk";
     case wire::Type::DepositState: return "DepositState";
     case wire::Type::StoryFollow: return "StoryFollow";
+    case wire::Type::SaveHave: return "SaveHave";
+    case wire::Type::SaveOffer: return "SaveOffer";
+    case wire::Type::SaveChunk: return "SaveChunk";
     }
     return "?";
 }
