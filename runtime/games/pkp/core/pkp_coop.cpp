@@ -147,6 +147,9 @@ enum class Site : uintptr_t {
                       // event does not start
     // ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----
     Befriend,         // the talk end step's befriend call: a member's first talk with a new creature is made on the authority
+    // ---- a member's later talks with a resident (pkp_coop_talk.cpp) ----
+    TalkOwn,          // the talk handler's "this player is the creature's own" test: a member is, for a creature living in the
+                      // town, so its talks go on to the host's later stages instead of the stranger's talk
 };
 
 struct CoopSite {
@@ -255,6 +258,8 @@ constexpr CoopSite kSites[] = {
     {{0x808d68, 0x360003a0u, false}, Site::UseRefused},      // tbz w0, #0, 0x808ddc (class 0x3271340)
     {{0x83d0b0, 0x36000580u, false}, Site::UseRefused},      // tbz w0, #0, 0x83d160 (class 0x3278b08)
     {{0x85eae0, 0x36000b20u, false}, Site::UseRefused},      // tbz w0, #0, 0x85ec44 (classes 0x327cf68 / 0x327d8d8 / 0x327e248)
+    // a member's later talks with a resident (pkp_coop_talk.cpp)
+    {{0x4c0574, 0x36000140u, false}, Site::TalkOwn},         // tbz w0, #0, 0x4c059c (w0 = 0x332c80's answer)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -334,6 +339,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::FriendGift: return coop::friendship::on_gift_apply(c);
         case Site::UseRefused: return coop::owner::on_use_refused(c, addr - st().base);
         case Site::Befriend: return coop::newcomer::on_befriend(c);
+        case Site::TalkOwn: return coop::talk::on_talk_own(c);
         default: return 0;
     }
 }
