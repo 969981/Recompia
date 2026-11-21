@@ -119,6 +119,17 @@ sys.path.insert(0, RECOMP)
 from nxrecomp import compile_flags, modheader, modplan   # noqa: E402
 from nxrecomp.config import load_game, reg_locals_mode   # noqa: E402
 GAME = load_game('pkp')
+# A kit whose runtime is built for another guest base than the canonical one has sdk/guest_base.txt (written by the runtime build,
+# runtime/cmake/guest_layout.cmake): the module table and the site lists are then moved there (guest_layout.py, next to this script).
+# Without the file nothing here changes: guest_layout.py is not even loaded.
+GUEST_SLIDE = 0
+if os.path.isfile(os.path.join(SDK, 'guest_base.txt')):
+    import importlib.util
+    _spec = importlib.util.spec_from_file_location('guest_layout', os.path.join(HERE, 'guest_layout.py'))
+    guest_layout = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(guest_layout)
+    GUEST_SLIDE = guest_layout.slide(GAME, guest_layout.read_base(os.path.join(SDK, 'guest_base.txt')))
+    GAME = guest_layout.placed(GAME, GUEST_SLIDE)
 # name, NSO file, guest base, NxModule.index, translation units
 MODULES = [(m.name, m.source, m.base, i, m.shards) for i, m in enumerate(GAME.modules)]
 # site lists per module, as paths under RECOMP (main's main.sites)
@@ -320,7 +331,9 @@ def runtime_abi():
 
 def tool_stamp():
     """The part of the build stamp this package decides: a release that changes any of it rebuilds pkp.exe."""
-    return {'lifter': tree_hash(RECOMP, LIFTER), 'sites': tree_hash(RECOMP, sorted(SITES.values())), 'sdk': tree_hash(SDK, SDK_FILES),
+    # with a guest base, guest_layout.py makes the lifter's inputs, so it counts as part of the lifter
+    lifter = tree_hash(RECOMP, LIFTER) + (' guest_layout ' + sha256(guest_layout.__file__) if GUEST_SLIDE else '')
+    return {'lifter': lifter, 'sites': tree_hash(RECOMP, sorted(SITES.values())), 'sdk': tree_hash(SDK, SDK_FILES),
             'runtime': runtime_abi(), 'cxxflags': CXXFLAGS, 'locals': LOCALS,
             'identity': IDENTITY if DARWIN else 0,
             'modules': [list(m) for m in MODULES],
@@ -560,6 +573,15 @@ class Runner:
         return rc, '\n'.join(tail)
 
 
+def game_sites(name, gen):
+    """The game's own site list of module `name` as the lift reads it: the file under RECOMP, or with a guest base (GUEST_SLIDE) its
+    copy moved there, in gen/guest-layout/."""
+    path = os.path.join(RECOMP, *SITES[name].split('/'))
+    if not GUEST_SLIDE:
+        return path
+    return guest_layout.move_sites(path, os.path.join(gen, 'guest-layout', name + '.sites'), GUEST_SLIDE)
+
+
 def mod_sites(plan, exefs, gen):
     """The mods' hook points as site lists, in gen/mod-hooks/: <module>.sites (the sites to lift with besides the game's own) and
     MOD_BUILT (the points built in). Kept for a resumed build (the record is written last); returns {module: site list path}."""
@@ -570,7 +592,7 @@ def mod_sites(plan, exefs, gen):
         progress('lift', 0, len(MODULES), "Checking the mods' hook points")
         new, built, refused = {}, [], []
         if plan is not None:
-            base = {n: [os.path.join(RECOMP, *p.split('/'))] for n, p in SITES.items()}
+            base = {n: [game_sites(n, gen)] for n in SITES}
             new, built, refused = modplan.plan_sites(plan, GAME, exefs, base, log=lambda t: print('mod hooks: ' + t, flush=True))
         for line, text, reason in refused:
             print('mod hooks: line %d refused (%s): %s' % (line, text.replace('\t', ' '), reason), flush=True)
@@ -610,7 +632,7 @@ def lift(runner, exefs, gen, jobs, extra_sites, skip=()):
         args = ['lift', os.path.join(exefs, nso), out, '--name', name, '--base', hex(base), '--shards', str(shards),
                 '--jobs', str(jobs), '--game', 'pkp', '--index', str(index), '--locals', LOCALS, '--progress']
         if name in SITES:
-            args += ['--sites', os.path.join(RECOMP, *SITES[name].split('/'))]
+            args += ['--sites', game_sites(name, gen)]
         if name in extra_sites:
             args += ['--sites', extra_sites[name]]
         cmd = [sys.executable, '-I', os.path.abspath(__file__), '--lift-one', json.dumps(args)]
