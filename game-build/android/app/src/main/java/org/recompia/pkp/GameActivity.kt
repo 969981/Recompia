@@ -32,6 +32,12 @@ class GameActivity : SDLActivity() {
             Log.i(Paths.TAG, "game start: too little free storage for the file-backed heap: the zram heap is used (may be less stable)")
             android.widget.Toast.makeText(this, R.string.ui_heap_file_short_toast, android.widget.Toast.LENGTH_LONG).show()
         }
+        // The network service account id (acc.cpp network_account_id): on a PC a hash of the machine id and the uid; a phone has no
+        // /etc/machine-id, so every phone fell back to uid hi ^ lo, the same for all phones of a co-op group (they share the save's
+        // account uid) and for every phone on the default uid: the game's session layer then refuses the second phone (error 9005).
+        // One random id per install (app-private), unless the player set [account] network_account_id.
+        if (org.recompia.pkp.ui.Ini.load(Paths.pkpIni).get("account", "network_account_id").isNullOrBlank())
+            runCatching { env["NXRT_ACCOUNT_NETWORK_ACCOUNT_ID"] = installId() }
         // Recompia: Co-op: the launcher's environment for this start (Coop.env, coop_launch.rs), from the group the app's Home picked. The
         // activity is not exported in release builds, so only this app starts it with the extra.
         intent?.getStringExtra(Coop.EXTRA_GROUP)?.let { id ->
@@ -58,6 +64,16 @@ class GameActivity : SDLActivity() {
             org.recompia.pkp.ui.GameSession.started(this)
             sessionStarted = true
         }
+    }
+
+    /** 16 hex digits, nonzero, made once from the OS random source and kept in the app's private files (never shared or logged). */
+    private fun installId(): String {
+        val f = java.io.File(filesDir, "network-account-id")
+        f.takeIf { it.isFile }?.readText()?.trim()?.takeIf { it.length == 16 && it.all { c -> c in '0'..'9' || c in 'a'..'f' } && it.any { c -> c != '0' } }?.let { return it }
+        var id: String
+        do { id = "%016x".format(java.security.SecureRandom().nextLong()) } while (id.all { it == '0' })
+        f.writeText(id)
+        return id
     }
 
     private fun checkGame(): String? {
