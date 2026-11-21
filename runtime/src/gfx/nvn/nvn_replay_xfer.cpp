@@ -74,7 +74,7 @@ void do_clear_depth_stencil(const P_ClearDepthStencil& p) {
     if (!ca.aspectMask) return;
     ++(P.draws ? P.clears_mid : P.clears_first);
     if (ca.aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) P.dclears++;
-    // The stencil is 8 bits: a mask with all of them set (the game passes 0xffffffff) is a full clear, not a masked one. Drawn as a masked
+    // The stencil is 8 bits: a mask with all of them set (a full mask, 0xffffffff) is a full clear, not a masked one. Drawn as a masked
     // clear it was a full-screen depth and stencil draw in a pass of its own (about 0.1 ms each on a phone, five a frame) instead of a
     // vkCmdClearAttachments. Phones only (facts::kPhone); desktop keeps the comparison it had.
     const bool masked = facts::kPhone ? ((p.stencil_mask & 0xffu) != 0 && (p.stencil_mask & 0xffu) != 0xffu)

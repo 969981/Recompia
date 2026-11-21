@@ -29,7 +29,7 @@ struct Tuning {
     std::atomic<int> ufs_block{-1};        // the uniform block (NVN index, the N of fp_cN)
     std::atomic<uint32_t> ufs_mask{0};     // bit i: the float at byte offset 4 * i of the block
     std::atomic<float> ufs_scale{1.0f};
-    // A game's screen-space reduction compute shader (the game: its exposure histogram) that the game dispatches over the full NVN size of a
+    // A game's screen-space reduction compute shader that the game dispatches over the full NVN size of a
     // scene image the back end renders smaller ([gfx] render_scale). The back end dispatches it over the scaled image instead: groups x/y
     // times the image's scale (rounded up), the floats of mask in the uniform block (the size the shader bounds-checks with) times the scale,
     // and texel fetches unscaled. Same result for a shader that bins every pixel of the image and whose consumer uses the bins' shares.

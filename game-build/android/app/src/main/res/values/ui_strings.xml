@@ -325,7 +325,7 @@
     <string name="ui_set_linkplay_relay">Relay address</string>
     <string name="ui_set_linkplay_lan_note">To host, leave the address empty. To visit, type the host\'s address (for example 192.168.1.20): phones do not find hosts on the network by themselves.</string>
     <string name="ui_set_linkplay_internet_note">Rooms on the relay show up in Visit a Friend. Leave the public relay, or type your own (IPv4 and port).</string>
-    <string name="ui_set_linkplay_applies">Applies the next time the game starts. In the game: the PC in your house, Link Play, Local connection.</string>
+    <string name="ui_set_linkplay_applies">Applies the next time the game starts. In the game: Link Play, Local connection.</string>
     <string name="ui_set_camera_group">Touch camera</string>
     <string name="ui_set_camera_drag">Drag to turn the camera</string>
     <string name="ui_set_camera_speed">Camera drag sensitivity</string>

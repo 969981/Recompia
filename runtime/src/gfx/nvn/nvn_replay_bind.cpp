@@ -460,7 +460,7 @@ static VkBufferView texel_copy_view(uint64_t addr, uint64_t bytes, VkFormat fmt)
 
 void prepare_texel_buffers(const ProgLayout& pl) {
     if constexpr (!facts::kPhone) return;   // phones only: desktop GPUs keep upstream's skipped view
-    // the game's texel buffers are 32-byte aligned: only a GPU that wants more needs copies (Adreno, some Intel); the rest skip the walk
+    // guest texel buffers may be aligned to as little as 32 bytes: only a GPU that wants more needs copies (Adreno, some Intel); the rest skip the walk
     static const bool needed = device().properties().limits.minTexelBufferOffsetAlignment > 32;
     if (!needed) return;
     if (g_tc_slot != F->slot || g_tc_serial != F->serial) {
