@@ -41,6 +41,7 @@
 - Two special creatures that a teammate could only greet with a visitor's talk now start the same first talk for a teammate as for the host
 - A creature that was with a teammate at an object several players use together, when that teammate left the session, is let go again, as when the teammate stops using it
 - A teammate's everyday talks with a creature that lives in the town now go the same way as the host's, instead of the talk the game gives a visitor
+- An object a teammate presses that doesn't open for them is free again right away. Before, nothing happened for the teammate, and from then on everyone got "Someone else is using this right now." there
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

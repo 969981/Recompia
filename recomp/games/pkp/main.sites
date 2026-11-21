@@ -690,3 +690,7 @@ entryhook 0x71007568f0
 #   Seamless co-op, a member's later talks with a resident (pkp_coop_talk.cpp): in the talk handler 0x71004c024c, the
 #   `tbz w0, #0, 0x71004c059c` after 0x7100332c80 ("this player is the creature's own"), false on a member for every resident
 midhook 0x71004c0574
+#   Seamless co-op, gimmick ownership, a grant that starts no use (pkp_coop_owner.cpp): in the member's grant reply 0x7100539620, the
+#   `tbz w0, #0` after the grant's data apply (vt+0x2f8; x23 = the gimmick, x19 = the reply), whose false skips the use, and after
+#   which class 0x326dc98 runs none
+midhook 0x7100539b44

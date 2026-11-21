@@ -561,6 +561,10 @@ namespace owner {
 // classes (site: its main offset). In a session, a press a content took gives the object back as the class's failed event start
 // does; returns 0.
 int on_use_refused(::Ctx* c, uint64_t site);
+// The hook site (pkp_coop.cpp): midhook 0x539b44 in the member's grant reply 0x539620, the `tbz w0` after the grant's data apply
+// (vt+0x2f8). In a session, on a member, a grant after which no use runs (the apply failed, or the class runs none from a grant)
+// gives the object back; returns 0.
+int on_grant_no_use(::Ctx* c);
 void reset();
 }  // namespace owner
 // ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----

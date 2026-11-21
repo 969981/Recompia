@@ -152,6 +152,9 @@ enum class Site : uintptr_t {
     // ---- a member's later talks with a resident (pkp_coop_talk.cpp) ----
     TalkOwn,          // the talk handler's "this player is the creature's own" test: a member is, for a creature living in the
                       // town, so its talks go on to the host's later stages instead of the stranger's talk
+    // ---- gimmick ownership, a grant that starts no use (pkp_coop_owner.cpp) ----
+    GrantNoUse,       // a member's ownership grant after which no use runs (its data apply vt+0x2f8 failed, or the class runs none
+                      // from a grant): the object is given back
 };
 
 struct CoopSite {
@@ -265,6 +268,8 @@ constexpr CoopSite kSites[] = {
     {{0x7568f0, kPacibsp, true}, Site::SharedLeave},         // class 0x3263160 (category 0x13)
     // a member's later talks with a resident (pkp_coop_talk.cpp)
     {{0x4c0574, 0x36000140u, false}, Site::TalkOwn},         // tbz w0, #0, 0x4c059c (w0 = 0x332c80's answer)
+    // gimmick ownership, a grant that starts no use (pkp_coop_owner.cpp)
+    {{0x539b44, 0x36000120u, false}, Site::GrantNoUse},      // tbz w0, #0, 0x539b68 (w0 = vt+0x2f8's answer, x23 the gimmick)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -346,6 +351,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::Befriend: return coop::newcomer::on_befriend(c);
         case Site::SharedLeave: return coop::gimmicks::on_shared_leave(c, addr - st().base);
         case Site::TalkOwn: return coop::talk::on_talk_own(c);
+        case Site::GrantNoUse: return coop::owner::on_grant_no_use(c);
         default: return 0;
     }
 }
