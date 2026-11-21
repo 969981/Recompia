@@ -282,6 +282,8 @@ int on_session_reset(::Ctx* c);   // entry 0x214954: the visitor's request queue
 // Sends a kept record once the queue is idle and the player walks (once a frame).
 void tick(::Ctx* c, bool in_game);
 void reset();
+// A member: a request went to the host and its answer is not taken yet (q[0] != q[1]); false with no world.
+bool unanswered();
 }  // namespace linkqueue
 
 namespace bag {
@@ -291,6 +293,7 @@ int on_stage_bag_clear(::Ctx* c);  // entry 0x5afee0: the stage load's clear of 
 int on_bag_to_storage(::Ctx* c);   // entry 0x5affe0 / 0x5b0d60 (holder): the move of the bag into the PC, skipped; the share bit cleared
 int on_host_bag_store(::Ctx* c);   // entry 0x5b0a60 / 0x5af6a0: the host's moves between its per-user table and a bag, skipped
 int on_refusal_reset(::Ctx* c, bool releases_wait);   // midhooks in 0x226280: a member's bag reset to the host's copy, skipped
+                                                      // (the record is written back instead, pkp_coop_bags.cpp; not in kind 0xb)
 }  // namespace bag
 
 namespace bags {
@@ -300,6 +303,9 @@ void tick(::Ctx* c);
 void reset();
 // Another member joined (its node): the authority answers its first record of the session again.
 void on_member_joined(int node);
+// A member: the host refused a request that took items out of the bag (pkp_coop_bag.cpp): the record, still the bag from before
+// that request, is written back into the bag once the bag / container screen is closed.
+void on_request_refused();
 // The hook sites (pkp_coop.cpp).
 int on_mirror_fill(::Ctx* c);   // entry 0x575644 (member index), the host at a join: the mirror fed from that member's record
 int on_bag_screen(::Ctx* c);    // entry 0xfeee78 (screen), the bag / container screen's frame: an apply waits while it is open

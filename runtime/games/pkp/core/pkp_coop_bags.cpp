@@ -33,6 +33,13 @@
 //     is open, so no panel shows a bag that is no longer there.
 //   - take: once a frame the selected bag is compared with the record; a change becomes the record, sequence + 1, and a member sends
 //     it to the authority (BagRecord, at most every kSendEvery).
+//   - a member's hold: its game takes items out of the bag before it asks the host (a container store moves them while the screen is
+//     open and asks at its close, kind 0x1a; a drop from the bag screen, kind 0x1d), and the host's request check takes them out of
+//     its mirror, refusing when they are not there (0x21eb58). So a member takes nothing while the bag / container screen is open or
+//     a Link Play request is unanswered (linkqueue::unanswered; a dropped answer stops the hold after kAnswerWait): the record and
+//     the mirror fed from it still hold the items when the host checks. A refused request writes the record back into the bag
+//     (pkp_coop_bag.cpp), as the game's own reset did with the mirror. Without the hold the mirror lacks the items, the host
+//     refuses every store and drop, and the items are in neither the bag nor the box.
 //   - safeguard: within kGrace of an apply or a selection change (a load, an area or session change: where the game's own wipes
 //     ran, and any not mapped would), a change that loses anything is not taken: the record is written back into the bag, and the
 //     refusal logged (an emptied bag and more than kMaxKindsGone item kinds gone are named in the line). In play every change is
@@ -84,6 +91,7 @@ constexpr uint32_t kMaxKindsGone = 8;
 constexpr double kRefuseLogEvery = 1.0;
 constexpr double kNotReadyLog = 15.0; // seconds in a session with the player in the world but the bag never ready: logged once
 constexpr double kScreenGap = 0.3;    // seconds without a bag / container screen frame: the screen is closed
+constexpr double kAnswerWait = 5.0;   // seconds a member's take waits for an unanswered request (the answer comes in well under 1 s)
 
 constexpr char kFileMagic[4] = {'C', 'B', 'A', 'G'};
 constexpr uint8_t kFormat = 1;
@@ -132,6 +140,9 @@ struct State {
     bool was_ready = false;   // the bag was ready once in this session (or its absence was logged)
     uint32_t greeted = 0;     // the authority: bit per node whose first record of its session was answered
     double screen_at = -1e9;  // the bag / container screen's last frame (its hook runs on the game thread, as the tick)
+    bool restore = false;     // a member: the host refused a request; the record waits to be written back into the bag
+    double unanswered_at = -1.0;   // a member: when the request now unanswered was first seen so (-1: none)
+    bool wait_logged = false; // that wait outlasted kAnswerWait and was logged
 };
 State& st() {
     static State s;
@@ -276,6 +287,25 @@ void put(::Ctx* c, uint64_t bag, const Record& r) {
 
 bool screen_open() { return qpc::seconds() - st().screen_at < kScreenGap; }
 
+// A member's hold (the header): its take waits while the bag / container screen is open or a request is unanswered.
+bool held(double now) {
+    State& s = st();
+    if (link::is_authority()) return false;
+    if (screen_open()) return true;
+    if (!linkqueue::unanswered()) {
+        s.unanswered_at = -1.0;
+        s.wait_logged = false;
+        return false;
+    }
+    if (s.unanswered_at < 0) s.unanswered_at = now;
+    if (now - s.unanswered_at < kAnswerWait) return true;
+    if (!s.wait_logged) {
+        s.wait_logged = true;
+        NXLOG_W(kTag, "Co-op bags: a Link Play request has no answer after %.0f s; the bag's changes are taken again", kAnswerWait);
+    }
+    return false;
+}
+
 // The authority: the mirror index of the member with this user id (its row in the member table), or -1.
 int mirror_index(const UserId& user) {
     if (user == UserId{}) return -1;
@@ -355,7 +385,8 @@ void send_restore(int node, const Key& k, const Record& r) {
 }
 
 // The authority: a member's record changed (or its user id became known): its mirror, if the member is in the member table, gets it.
-// Latest wins: the host's own request checks change the mirror in between, and the member's next record carries the same change.
+// Latest wins: the host's own request checks change the mirror in between, and the member's next record carries the same change;
+// the member's hold (the header) keeps a record that lacks what an unanswered request takes from reaching the mirror first.
 void on_member_record(const Key& k, const Kept& kept, int node) {
     const int idx = kept.rec.seq ? mirror_index(kept.user) : -1;
     if (idx >= 0) feed_mirror(idx, kept.rec);
@@ -377,6 +408,8 @@ void session_up() {
     s.looked = false;
     s.up_at = qpc::seconds();
     s.was_ready = false;
+    s.restore = false;
+    s.unanswered_at = -1.0;
     NXLOG_I(kTag, "Co-op bags: in a session as %s; this player's record %llu", s.answered ? "the authority" : "a member",
             static_cast<unsigned long long>(o.rec.seq));
 }
@@ -466,16 +499,22 @@ void tick(::Ctx* c) {
         NXLOG_W(kTag, "Co-op bags: the %s bag is not usable (slot %zu holds no slot vtable); its record is neither applied nor taken",
                 sel.online ? "online" : "offline", bad_slot);
     }
-    // An apply waits while the bag / container screen is open, and the take with it (a change made meanwhile is the apply's to
-    // overwrite: the record it brings is the newer one).
-    if (can && s.apply && !screen_open()) {
+    // An apply (or a refused request's write-back) waits while the bag / container screen is open, and the take with it (a change
+    // made meanwhile is the apply's to overwrite: the record it brings is the newer one, or the bag from before the refused request).
+    // No grace after a write-back: it is play, and a loss right after it is the player's own.
+    if (can && (s.apply || s.restore) && !screen_open()) {
         put(c, sel.bag, s.own.rec);
-        s.apply = false;
-        s.grace_until = now + kGrace;
         const auto [slots, count] = totals(s.own.rec);
-        NXLOG_I(kTag, "Co-op bags: record %llu written into the %s bag (%u slots, %u items)",
-                static_cast<unsigned long long>(s.own.rec.seq), sel.online ? "online" : "offline", slots, count);
-    } else if (can && !s.apply && s.answered) {
+        if (s.apply) {
+            s.grace_until = now + kGrace;
+            NXLOG_I(kTag, "Co-op bags: record %llu written into the %s bag (%u slots, %u items)",
+                    static_cast<unsigned long long>(s.own.rec.seq), sel.online ? "online" : "offline", slots, count);
+        } else {
+            NXLOG_I(kTag, "Co-op bags: the host refused a request; record %llu (the bag before it) is written back (%u slots, %u items)",
+                    static_cast<unsigned long long>(s.own.rec.seq), slots, count);
+        }
+        s.apply = s.restore = false;
+    } else if (can && !s.apply && !s.restore && s.answered && !held(now)) {
         take_or_refuse(c, sel, now);
     }
     if (s.send && s.answered && !link::is_authority() && now - s.sent_at >= kSendEvery) send_record();
@@ -484,6 +523,10 @@ void tick(::Ctx* c) {
 
 void on_member_joined(int node) {
     if (node >= 0 && node < 32) st().greeted &= ~(1u << node);
+}
+
+void on_request_refused() {
+    if (st().active && !link::is_authority()) st().restore = true;
 }
 
 int on_mirror_fill(::Ctx* c) {
