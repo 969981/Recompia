@@ -696,5 +696,11 @@ void on_armed_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void tick();
 void reset();
 }  // namespace talkrec
+// ---- the Star Piece swap in a member's talk (pkp_coop_talk.cpp) ----
+namespace talk {
+// The hook site (pkp_coop.cpp): midhook 0x4a1adc in script callback slot 119 0x4a17fc. A member's parent term is the group's record of
+// the creature (its copy of the host's has parents), as for the host; returns 0.
+int on_swap_parent(::Ctx* c);
+}  // namespace talk
 
 }  // namespace nxrt::games::pkp::coop

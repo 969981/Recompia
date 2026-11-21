@@ -118,3 +118,9 @@ PKP_ROLE_KEEP(0x4a3d0, 0x4a380, 0x1192b0, "stage start, creature 0x7d: writes th
 PKP_ROLE_KEEP(0x4a3d0, 0x4a380, 0x119310, "stage start, creature 0xdc: writes the own R+0x4a2fb8")
 PKP_ROLE_KEEP(0x1f0f84, 0x1f0f40, 0x49832c, "talk callback 75 changes the blocks it finds")
 #endif
+// ---- the Star Piece swap (coop-s7-starpiece) ----
+// Script callback slot 119 0x4a17fc (talk 0x1b3: a creature takes the held Star Piece and gives its item), online, off Cloud Island,
+// GM+0x11 bit 0 clear: `bl IsHost` at 0x4a1b6c, then `eor w8, w0, #1` is the flag that queues line 438 ("not a good time") instead
+// of the swap. w0 is read by the `eor` alone. The swap's give (slot 27) and receive (slot 28) are the member's own bag; the give's
+// friendship reaches the authority by its talk-end apply (0x21c46c, pkp_coop_friendship.cpp). Its parent term: TalkSwapParent.
+PKP_ROLE_ROW(0x4a1b70, IsHost, 0x52000008u, "talk", "a creature takes a teammate's Star Piece and gives its item, as for the host")

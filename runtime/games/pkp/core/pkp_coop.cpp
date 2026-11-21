@@ -187,6 +187,8 @@ enum class Site : uintptr_t {
                       // authority makes it for its own copy of the creature, so no member takes the host's follow away
     // ---- a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp) ----
     TalkRecArmed,     // script callback 195's set of the talk record's +0x10: a member's is set in the authority's record too
+    // ---- the Star Piece swap in a member's talk (pkp_coop_talk.cpp) ----
+    TalkSwapParent,   // script callback slot 119's parent term: a member's is the group's record of the creature, as for the host
 };
 
 struct CoopSite {
@@ -327,6 +329,8 @@ constexpr CoopSite kSites[] = {
     {{0x2a1ed4, 0xf0018f09u, true}, Site::StoryFollow},      // adrp x9, 0x3484000 (x0 = &the creature's actor id, w1 the flag)
     // a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp)
     {{0x4ae7e8, 0x940b4132u, false}, Site::TalkRecArmed},    // bl 0x77ecb0 (after strb w9, [x8, #0x10] off Cloud Island; w23 = chara)
+    // the Star Piece swap in a member's talk (pkp_coop_talk.cpp)
+    {{0x4a1adc, 0x2a0802d8u, false}, Site::TalkSwapParent},  // orr w24, w22, w8 (w8 = the parent term, w24 = the data id, in 0x4a17fc)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -428,6 +432,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::DepositConfirm: return coop::deposit::on_confirm(c);
         case Site::StoryFollow: return coop::follow::on_story_follow(c);
         case Site::TalkRecArmed: return coop::talkrec::on_armed(c);
+        case Site::TalkSwapParent: return coop::talk::on_swap_parent(c);
         default: return 0;
     }
 }
