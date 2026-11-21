@@ -73,6 +73,7 @@ constexpr uint64_t kRecordOf = 0x3b7708;      // (comp) -> its 0x180 record as t
 constexpr uint64_t kAddPoints = 0x3a89fc;     // (comp, s16 amount, w2 flag)
 constexpr uint64_t kStage11 = 0x77ecb0;       // () -> bit 0: Cloud Island
 constexpr uint64_t kCompHandle = 8, kCompChara = 0xc;
+constexpr uint64_t kGiftReturn = 0x46e7c4;   // the gift 0x46e308's bl 0x3a89fc returns here
 
 constexpr uint8_t kAskGain = 1, kAskFlag = 2;   // FriendAsk kinds
 constexpr size_t kQueueMax = 32;
@@ -209,6 +210,17 @@ void apply_gain(::Ctx* c, uint8_t origin, const Ask& a) {
 }  // namespace
 
 int on_add_points(::Ctx* c) {
+    if (authority_here() && link::in_session() && c->x[30] == base() + kGiftReturn) {
+        // A gift's gain on the authority (its own talk gift, or a member's re-run by on_gift_apply): logged with the points before it.
+        const uint64_t comp = c->x[0];
+        const bool real = comp != base() + kNoComponent && guest::ok(comp, kCompChara + 4);
+        const uint32_t chara = real ? guest::rd<uint32_t>(comp + kCompChara) : 0;
+        const uint64_t rec = real ? record(layout::kFriendOwn, chara) : 0;
+        if (rec)
+            NXLOG_I(kTag, "Co-op friendship: a gift's gain of %d with chara %u here (points %u before)", static_cast<int16_t>(c->x[1]),
+                    chara, guest::rd<uint16_t>(rec + layout::kFriendPoints));
+        return 0;
+    }
     if (!member_here()) return 0;
     const int16_t amount = static_cast<int16_t>(c->x[1]);
     const uint64_t comp = c->x[0];
@@ -264,9 +276,14 @@ int on_name_tag(::Ctx* c) {
 int on_gift_apply(::Ctx* c) {
     // Midhook 0x21c46c in the host's talk-end apply 0x2197a0 (reached only from the host receive step 0x216860, case 0xa / 0xb: another
     // player's talk record): `and w3, w0, #0x1` after 0x77ecb0, which becomes 0x46e308's w3 at 0x21c484. x0 bit 0 = Cloud Island; x0 is
-    // overwritten right after (0x21c470), so nothing else reads the changed value.
+    // overwritten right after (0x21c470), so nothing else reads the changed value. w23 = the gift's item (0x21c458) and w20 its count
+    // (0x21c464), both written to the context at the call 0x77ecb0 just before (callee-saved, unchanged by it).
+    // The story waits on this gain: quest 9's contents (#7136 record 0x47, condition 0x884 op 2: +0x2c >= n) need the points of data
+    // id 13 >= 10 or of data id 28 >= 15 before record 0x49 gives data id 44 the scene 103, whose end closes quest 9.
     if (!authority_here() || !link::in_session() || (c->x[0] & 1)) return 0;
     c->x[0] = 1;
+    NXLOG_I(kTag, "Co-op friendship: a member's talk gift (item %u x%u) is re-run here with its friendship part",
+            static_cast<unsigned>(c->x[23] & 0xffff), static_cast<unsigned>(c->x[20] & 0xff));
     return 0;
 }
 
