@@ -190,6 +190,9 @@ enum class Site : uintptr_t {
     TalkRecArmed,     // script callback 195's set of the talk record's +0x10: a member's is set in the authority's record too
     // ---- the Star Piece swap in a member's talk (pkp_coop_talk.cpp) ----
     TalkSwapParent,   // script callback slot 119's parent term: a member's is the group's record of the creature, as for the host
+    // ---- a content's scene refused by a character another player holds (pkp_coop_contents.cpp) ----
+    SceneTake,        // the event setup's "every character is ready" test: a remembered scene refused long enough starts anyway
+    SceneStart,       // the event start's IsMine of one character: the same scene takes a character another player holds
 };
 
 struct CoopSite {
@@ -332,6 +335,8 @@ constexpr CoopSite kSites[] = {
     {{0x4ae7e8, 0x940b4132u, false}, Site::TalkRecArmed},    // bl 0x77ecb0 (after strb w9, [x8, #0x10] off Cloud Island; w23 = chara)
     // the Star Piece swap in a member's talk (pkp_coop_talk.cpp)
     {{0x4a1adc, 0x2a0802d8u, false}, Site::TalkSwapParent},  // orr w24, w22, w8 (w8 = the parent term, w24 = the data id, in 0x4a17fc)
+    {{0x4774e8, 0x3600013cu, false}, Site::SceneTake},       // tbz w28, #0, 0x47750c (w28 = all characters ready, x19 = the runner)
+    {{0x47bfe4, 0x0a000318u, false}, Site::SceneStart},      // and w24, w24, w0 (w0 = IsMine, x20 = &actor id, x19 = the runner)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -434,6 +439,8 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::StoryFollow: return coop::follow::on_story_follow(c);
         case Site::TalkRecArmed: return coop::talkrec::on_armed(c);
         case Site::TalkSwapParent: return coop::talk::on_swap_parent(c);
+        case Site::SceneTake: return coop::contents::on_scene_take(c);
+        case Site::SceneStart: return coop::contents::on_scene_start(c);
         // a dropped player is waited for (pkp_coop_drop.cpp)
         case Site::TripFile: return coop::drop::on_trip_file(c, addr - st().base);
         case Site::SimStep: return coop::drop::on_sim_step(c);

@@ -348,6 +348,10 @@ void reset();
 namespace contents {
 // The hook site (pkp_coop.cpp): entry 0x12b544, a content's "play scene" command. A scene not played yet is remembered.
 int on_play_scene(::Ctx* c);
+// The hook sites (pkp_coop.cpp): midhooks 0x4774e8 (the event setup's "every character ready" test) and 0x47bfe4 (the start's IsMine
+// of one character). A remembered scene refused for a long time by a character another player holds takes its characters.
+int on_scene_take(::Ctx* c);
+int on_scene_start(::Ctx* c);
 // Asks the game again for a remembered scene at a safe moment until it plays (once a frame); on the authority, gives a quest a
 // scene it was waiting on that an older save lost.
 void tick(::Ctx* c, bool in_game);

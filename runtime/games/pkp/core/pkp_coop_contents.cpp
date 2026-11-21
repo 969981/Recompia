@@ -9,9 +9,16 @@
 // (Kyogre's talk) never comes.
 //   0x12b544 (entry hook): a scene not played yet in this save is remembered. Every kEvery seconds at a safe moment (in the group's
 //   world, can walk, no talk, slot 0's runner idle, no stage-change request) the game's own 0x12b544 is called again for it, until
-//   the scene is played (its
-//   played bit, 0x117650) or its event is seen running; the queue drops a second copy while one is queued or running. Dropped on a
-//   stage change or after kGiveUp seconds.
+//   the scene is played (its played bit, 0x117650) or its event is seen past its start (slot 0's runner in states 1..5); the queue
+//   drops a second copy while one is queued or running. Dropped on a stage change or after kGiveUp seconds.
+//   A queued scene's start can abort too: the runner's setup 0x476100 and its start state 0x47bf80 end the event (+0xc = 6) when one
+//   of its characters is held by another player (Link Play's event ownership: a teammate's talk with the professor, or a teammate's
+//   own scene with him). Its record is gone all the same, so a scene seen running only at its start is not done. Once it has been
+//   asked for again for kForceAfter seconds (long enough for another player's copy to play and share its played bit), its start
+//   takes its characters whoever holds them, as the authority does with a free one:
+//   0x4774e8 (midhook, in 0x476100)   `tbz w28, #0`: w28 = every character of the event is ready, x19 = the runner
+//   0x47bfe4 (midhook, in 0x47bf80)   `and w24, w24, w0`: w0 = the IsMine answer (vt+0x478) of the character whose u16 id is at x20
+//                                     (0 when it is not in the world), x19 = the runner. Only a character in the world is taken.
 //   Saves where it was lost already: a quest at 3 whose scene was lost is given it again when the player is where the record asked
 //   (kLost, the record's own condition from its content's data). Run on the authority only, like a quest step.
 #include "core/pkp_coop_internal.h"
@@ -43,6 +50,13 @@ constexpr uint32_t kEventMax = 0x18ff;
 constexpr double kFirst = 3.0;                // the first retry after the refusal
 constexpr double kEvery = 3.0;
 constexpr double kGiveUp = 600.0;
+constexpr double kForceAfter = 90.0;          // asked for again this long: its start takes its characters (0x4774e8, 0x47bfe4)
+constexpr uint64_t kRunners = 0x35650f8;      // main + : -> the event runners, one per slot (0x2010 each); slot 0 first
+constexpr uint64_t kRunNow = 8;               // u32: the runner's state (0 start, 1 wait, 2 setup, 3 script, 4 end, 5 callback, 6..8 end)
+constexpr uint64_t kRunEvent = 0x10;          // u16: the runner's event
+constexpr uint64_t kActors = 0x3483bd0;       // main + : -> the actor manager
+constexpr uint64_t kActorOf = 0x281360;       // (actors, &u16 actor id): the actor, or 0
+constexpr uint64_t kOwnerOf = 0x468;          // actor vt: the owner's net index (0xff free)
 constexpr size_t kMax = 8;
 
 // A scene a mode-0 record queued once and that was lost in a save already: the quest that waits on it, and the record's condition
@@ -61,6 +75,7 @@ struct Pending {
     uint8_t stage;
     double at, next;
     uint32_t tries;
+    bool forced;   // its start took a held character (logged once)
 };
 
 struct State {
@@ -117,13 +132,47 @@ uint16_t current_event(::Ctx* c) {
     return static_cast<uint16_t>(ev - 1) < kEventMax ? ev : 0;
 }
 
+// Slot 0's runner is past its start with this event: the start did not abort (0x47bf80 and 0x476100 end it at +0xc = 6).
+bool started(uint16_t event) {
+    const uint64_t got = base() + kRunners;
+    const uint64_t run = guest::ok(got, 8) ? guest::rd<uint64_t>(got) : 0;
+    if (!event || !run || !guest::ok(run + kRunEvent, 2)) return false;
+    const uint32_t now = guest::rd<uint32_t>(run + kRunNow);
+    return guest::rd<uint16_t>(run + kRunEvent) == event && now >= 1 && now <= 5;
+}
+
+// The remembered scene whose event this runner starts, when its start is to take its characters now; nullptr otherwise.
+Pending* forced_for(uint64_t runner) {
+    if (!link::in_session() || !runner || !guest::ok(runner + kRunEvent, 2)) return nullptr;
+    const uint16_t event = guest::rd<uint16_t>(runner + kRunEvent);
+    const double now = qpc::seconds();
+    for (Pending& p : st().pending)
+        if (p.event && p.event == event && p.tries >= 1 && now - p.at >= kForceAfter) return &p;
+    return nullptr;
+}
+
+void log_forced(::Ctx* c, Pending& p, uint64_t id) {
+    if (p.forced) return;
+    p.forced = true;
+    uint32_t owner = 0xff;
+    const uint64_t got = guest::rd<uint64_t>(base() + kActors);
+    const uint64_t actors = got && guest::ok(got, 8) ? guest::rd<uint64_t>(got) : 0;
+    const uint64_t actor = id && actors ? guest::call(c, base() + kActorOf, actors, id) : 0;
+    if (actor && guest::ok(actor, 8) && guest::ok(guest::rd<uint64_t>(actor) + kOwnerOf, 8))
+        owner = static_cast<uint32_t>(guest::call(c, guest::rd<uint64_t>(guest::rd<uint64_t>(actor) + kOwnerOf), actor)) & 0xff;
+    NXLOG_I(kTag,
+            "Co-op contents: scene %u (event %u) was refused %u times by a character another player holds; its start takes them "
+            "(character 0x%04x, held by %u)",
+            p.scene, p.event, p.tries, id ? guest::rd<uint16_t>(id) : 0, owner);
+}
+
 void remember(::Ctx* c, uint32_t scene, const char* why) {
     State& s = st();
     for (const Pending& p : s.pending)
         if (p.scene == scene) return;
     if (s.pending.size() >= kMax) return;
     const double now = qpc::seconds();
-    s.pending.push_back(Pending{scene, scene_event(c, scene), stage(), now, now + kFirst, 0});
+    s.pending.push_back(Pending{scene, scene_event(c, scene), stage(), now, now + kFirst, 0, false});
     uint32_t phase = 0, kind = 0;
     const bool refused = stage_request(&phase, &kind);
     NXLOG_I(kTag,
@@ -174,7 +223,7 @@ void tick(::Ctx* c, bool in_game) {
     const uint16_t running = current_event(c);
     for (size_t i = 0; i < s.pending.size();) {
         const Pending& p = s.pending[i];
-        const bool done = played(p.scene) || (p.event && running == p.event);
+        const bool done = played(p.scene) || started(p.event);
         if (done || p.stage != here || now - p.at >= kGiveUp) {
             NXLOG_I(kTag, "Co-op contents: scene %u %s after %u retries", p.scene,
                     done ? "is playing or played" : (p.stage != here ? "dropped (the stage changed)" : "given up"), p.tries);
@@ -202,6 +251,30 @@ void tick(::Ctx* c, bool in_game) {
         remember(c, l.scene, "was lost in this save (quest is still waiting on it)");
         return;
     }
+}
+
+int on_scene_take(::Ctx* c) {
+    if (c->x[28] & 1) return 0;   // every character is ready: the game's own start
+    Pending* p = forced_for(c->x[19]);
+    if (!p) return 0;
+    log_forced(c, *p, 0);
+    c->x[28] |= 1;
+    return 0;
+}
+
+int on_scene_start(::Ctx* c) {
+    if (c->x[0] & 1) return 0;    // this character is ours (or the game's own answer)
+    Pending* p = forced_for(c->x[19]);
+    const uint64_t id = c->x[20];
+    if (!p || !guest::ok(id, 2)) return 0;
+    const uint32_t kind = guest::rd<uint16_t>(id) >> 12;
+    if (kind < 2 || kind > 4) return 0;   // a player is never taken
+    const uint64_t got = guest::rd<uint64_t>(base() + kActors);
+    const uint64_t actors = got && guest::ok(got, 8) ? guest::rd<uint64_t>(got) : 0;
+    if (!actors || !guest::call(c, base() + kActorOf, actors, id)) return 0;   // not in the world: the game's abort
+    log_forced(c, *p, id);
+    c->x[0] = 1;
+    return 0;
 }
 
 void reset() { st() = State{}; }
