@@ -371,6 +371,7 @@ entryhook 0x710012b544
 midhook 0x7100016b70
 midhook 0x7100016c44
 midhook 0x7100031c84
+midhook 0x7100034c68
 midhook 0x710003f650
 midhook 0x710003f6e0
 midhook 0x710003f7a0
@@ -381,6 +382,7 @@ midhook 0x7100049f90
 midhook 0x710004a028
 midhook 0x710004a0a0
 midhook 0x710004a114
+midhook 0x710004a3d0
 midhook 0x710004a808
 midhook 0x710004a9c0
 midhook 0x710004a9f0
@@ -392,15 +394,20 @@ midhook 0x710011418c
 midhook 0x710013a774
 midhook 0x710013a834
 midhook 0x710013a8f4
+midhook 0x710013ab38
+midhook 0x710013aba8
 midhook 0x710013ae48
 midhook 0x710013af80
 midhook 0x710013b294
+midhook 0x71001ab158
+midhook 0x71001f0f84
 midhook 0x71004c03e4
 midhook 0x71007596cc
 midhook 0x71007fca2c
 midhook 0x71007fd1ac
 midhook 0x71007fd6b0
 midhook 0x71007fe00c
+midhook 0x71007fe42c
 midhook 0x71007fe450
 midhook 0x710081ce3c
 midhook 0x710081d584
@@ -411,6 +418,7 @@ midhook 0x710081dce8
 midhook 0x710081de30
 midhook 0x710081f270
 midhook 0x710081f290
+midhook 0x710098906c
 midhook 0x7100ab5ad8
 midhook 0x7100fa9e00
 midhook 0x7100faa3d0
