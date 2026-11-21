@@ -49,6 +49,7 @@
 //   pkp_coop_newcomer.cpp a member's first talk with a new creature (it moves in) made on the authority, as the host's own talk
 //   pkp_coop_doors.cpp    the session's doors in the menus: the PC's Link Play screen makes no session call, the pause menu never
 //                         sends a teammate home or rejects one; Save and Quit stays
+//   pkp_coop_title.cpp    a co-op start goes past the title screen on its own, with no "did not disconnect correctly" message
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -590,5 +591,12 @@ int on_link_menu(::Ctx* c);
 int on_pause_menu(::Ctx* c);
 void reset();
 }  // namespace doors
+// ---- a co-op start past the title (pkp_coop_title.cpp) ----
+namespace title {
+// The hook site (pkp_coop.cpp): entry 0xa88214, the title's result getter (only caller the save load sequence's state 7). Clears the
+// save's unclean-exit mark and, while the title waits for a press, answers it with "continue"; the getter runs on (returns 0).
+int on_past_title(::Ctx* c);
+void reset();
+}  // namespace title
 
 }  // namespace nxrt::games::pkp::coop

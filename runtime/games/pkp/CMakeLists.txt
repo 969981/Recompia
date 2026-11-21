@@ -67,6 +67,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop_owner.cpp"
         "${_pkp}/core/pkp_coop_newcomer.cpp"
         "${_pkp}/core/pkp_coop_doors.cpp"
+        "${_pkp}/core/pkp_coop_title.cpp"
         "${_pkp}/core/pkp_journal.cpp"
         "${_pkp}/core/pkp_journal_feature.cpp"
         "${_pkp}/core/pkp_journal_actor.cpp"

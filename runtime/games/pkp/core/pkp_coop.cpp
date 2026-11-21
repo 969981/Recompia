@@ -69,7 +69,8 @@ enum class Site : uintptr_t {
     GeneralGoal,      // a general request's completion, right before its town goal +1: a replay of another player's hand-in skips
                       // it, so each hand-in counts once; the talker's own hand-in shares its reward with the group
     // ---- the session ----
-    PastTitle,        // the title screen's continue: the co-op save loads without the title, and its unclean-exit mark is cleared
+    PastTitle,        // the title's result getter: while the title waits for a press, the co-op save continues with no press, and its
+                      // "did not disconnect correctly" mark is cleared (pkp_coop_title.cpp)
     SimStep,          // the simulation step: skipped while the session waits for a dropped member (the network tick keeps running)
     TripFile,         // a trip is filed (five filers): every door out of the session is shut, except the stage moves the group makes
                       // together
@@ -357,6 +358,8 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         // the session's doors in the menus (pkp_coop_doors.cpp)
         case Site::LinkMenu: return coop::doors::on_link_menu(c);
         case Site::PauseMenu: return coop::doors::on_pause_menu(c);
+        // a co-op start past the title (pkp_coop_title.cpp)
+        case Site::PastTitle: return coop::title::on_past_title(c);
         default: return 0;
     }
 }
@@ -508,6 +511,7 @@ void remove() {   // the registry has removed the hooks
     coop::owner::reset();
     coop::newcomer::reset();
     coop::doors::reset();
+    coop::title::reset();
 }
 
 }  // namespace
