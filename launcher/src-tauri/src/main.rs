@@ -37,6 +37,7 @@ mod ini;
 mod lan;
 mod logbundle;
 mod logbundle_cmds;
+mod managed;
 mod modtopia_ffi;
 mod mods;
 mod mods_additions;

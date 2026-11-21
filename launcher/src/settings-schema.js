@@ -742,6 +742,8 @@ export const SECTIONS = [
             // saved on leaving the field, not while typing: half a path would make the whole launcher think the game is gone
             id: 'game_dir', games: SINGLEPLAYER, label: t('Install folder'), type: 'path', at: config('game_dir'), pick: t('Choose the install folder'), open: 'game',
             placeholder: (env) => env.defaultGameDir, commit: 'blur', reloads: true,
+            // an install RecompLauncher keeps is always its own game folder (paths.rs game_dir_of): nothing to choose
+            when: (v, env) => !env.managed,
           },
           {
             // not the Mods page's Modtopia mods: files that replace the game's own romfs files

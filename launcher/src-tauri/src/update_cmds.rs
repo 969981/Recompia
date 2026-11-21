@@ -15,8 +15,12 @@ use crate::relay_cmds::stop_relay;
 use crate::releases::{self, Channel};
 use crate::{rollback, setuplog, update};
 
-/// The version updates compare with. None: a dev build, which takes none.
+/// The version updates compare with. None: a dev build, which takes none, or an install RecompLauncher keeps (managed.rs), which
+/// takes its updates from that launcher only.
 pub fn update_version(app: &AppHandle) -> Option<String> {
+    if crate::managed::by_recomplauncher() {
+        return None;
+    }
     #[allow(unused_mut)]
     let mut version = app.package_info().version.to_string();
     #[cfg(debug_assertions)]

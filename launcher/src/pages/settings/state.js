@@ -56,6 +56,7 @@ export function env(st) {
   return {
     gameDir: st.gameDir,
     defaultGameDir: st.overview?.default_game_dir ?? '',
+    managed: !!st.overview?.managed,   // readiness.rs Overview: RecompLauncher keeps this install
     gameFiles: st.src.config.dump_dir || s.app?.dump?.path || '',
     version: s.app?.version ?? '',
     gameBusy,
