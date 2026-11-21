@@ -73,6 +73,7 @@
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
+#include "core/pkp_strings.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -102,21 +103,10 @@ constexpr double kArrivalMax = 60.0;    // a node that joined during a wait runs
 constexpr double kFiledMax = 3.0;       // a leave or close filed whose trip has not started by then was refused
 constexpr uint8_t kWaiting = 1, kJoining = 2, kBack = 3, kGivenUp = 4;
 
-// Player-visible text: English here, one place (the co-op string table takes these lines at the merge). Each is a whole sentence;
-// %s takes a player's name or a time, in order.
-std::string say(const char* english, const std::string& a = {}, const std::string& b = {}) {
-    std::string out;
-    int arg = 0;
-    for (const char* q = english; *q; ++q) {
-        if (q[0] == '%' && q[1] == 's') {
-            out += arg++ == 0 ? a : b;
-            ++q;
-        } else {
-            out += *q;
-        }
-    }
-    return out;
-}
+// Player-visible text: the game layer's string table (pkp_strings.h), keys CoopDrop*; every line is drawn by the overlay (notices::post),
+// so Japanese, Korean and Chinese keep the English text.
+using strings::Str;
+std::string say(Str key, const std::string& a = {}, const std::string& b = {}) { return strings::fmt(base(), key, a, b); }
 
 struct Node {
     bool known = false;     // it said DropHere this session
@@ -235,7 +225,7 @@ void end_wait(State& s, size_t i, uint8_t how, const char* why) {
     s.awaited.erase(s.awaited.begin() + static_cast<std::ptrdiff_t>(i));
     a.state = how;
     NXLOG_I(kTag, "Co-op drop: %s (member %s) %s; %zu still awaited", a.name.c_str(), hex_key(a.key).c_str(), why, s.awaited.size());
-    notices::post(kNotice, how == kBack ? say("%s is back.", a.name) : say("Playing on without %s.", a.name), 4.0);
+    notices::post(kNotice, how == kBack ? say(Str::CoopDropBack, a.name) : say(Str::CoopDropGivenUp, a.name), 4.0);
     s.showing = false;
     s.ended.push_back(a);
     s.next_send = 0.0;
@@ -274,10 +264,10 @@ void show(State& s, double now) {
     s.posted = now;
     s.showing = true;
     const Awaited& a = s.awaited.front();
-    std::string text = a.state == kJoining ? say("%s is joining the group again: %s", a.name, clock_text(a.left))
-                                           : say("Waiting for %s to come back: %s", a.name, clock_text(a.left));
-    if (s.awaited.size() > 1) text += " " + say("(and %s more)", std::to_string(s.awaited.size() - 1));
-    text += " " + say("Press + to stop waiting.");
+    std::string text = a.state == kJoining ? say(Str::CoopDropJoining, a.name, clock_text(a.left))
+                                           : say(Str::CoopDropWaiting, a.name, clock_text(a.left));
+    if (s.awaited.size() > 1) text += " " + say(Str::CoopDropMore, std::to_string(s.awaited.size() - 1));
+    text += " " + say(Str::CoopDropStop);
     notices::post(kNotice, text, kNoticeSeconds);
 }
 
@@ -356,8 +346,7 @@ void lost_tick(State& s, double now) {
         NXLOG_W(kTag, "Co-op drop: not back in a session within %.0f s%s; the session part keeps trying", kLimit,
                 s.error_held ? " (error 3103 was held back)" : "");
         notices::post(kNotice,
-                      s.lost_authority ? say("The group did not come back in time. Your world goes on; they can join again at any time.")
-                                       : say("Could not rejoin the group in time. The game keeps trying, or start co-op again from the launcher."),
+                      s.lost_authority ? say(Str::CoopDropGaveUpAuthority) : say(Str::CoopDropGaveUpRejoin),
                       10.0);
         return;
     }
@@ -366,8 +355,7 @@ void lost_tick(State& s, double now) {
     s.showing = true;
     const unsigned left = static_cast<unsigned>(s.lost_until - now + 0.999);
     notices::post(kNotice,
-                  s.lost_authority ? say("Lost the connection to the group. Waiting for it to come back: %s", clock_text(left))
-                                   : say("Lost the connection to the group. Rejoining: %s", clock_text(left)),
+                  s.lost_authority ? say(Str::CoopDropLostWait, clock_text(left)) : say(Str::CoopDropLostRejoin, clock_text(left)),
                   kNoticeSeconds);
 }
 
@@ -379,7 +367,7 @@ void on_member(int node, bool joined, bool self) {
         if (joined) {
             if (s.lost) {
                 NXLOG_I(kTag, "Co-op drop: back in a session %.0f s after the connection was lost", kLimit - (s.lost_until - qpc::seconds()));
-                notices::post(kNotice, say("Back with the group."), 4.0);
+                notices::post(kNotice, say(Str::CoopDropBackGroup), 4.0);
                 s.lost = false;
                 s.showing = false;
             }
@@ -492,11 +480,11 @@ void on_wait_message(::Ctx*, int, uint8_t, wire::Reader& r) {
         std::string name(len, '\0');
         r.bytes(reinterpret_cast<uint8_t*>(name.data()), len);
         if (!r.ok()) break;
-        a.name = name.empty() ? say("Your teammate") : name;
+        a.name = name.empty() ? say(Str::CoopDropTeammate) : name;
         if (std::memcmp(a.key, member_key_bytes(), kMemberKeyBytes) == 0) continue;   // this player itself, coming back
         if (a.state == kBack || a.state == kGivenUp) {
             NXLOG_I(kTag, "Co-op drop: the authority says %s %s", a.name.c_str(), a.state == kBack ? "is back" : "is no longer awaited");
-            notices::post(kNotice, a.state == kBack ? say("%s is back.", a.name) : say("Playing on without %s.", a.name), 4.0);
+            notices::post(kNotice, a.state == kBack ? say(Str::CoopDropBack, a.name) : say(Str::CoopDropGivenUp, a.name), 4.0);
             s.showing = false;
             continue;
         }
