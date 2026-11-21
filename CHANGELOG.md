@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's shared rules for every player and the logs; saves and shaders are kept, no shader is translated again).
+**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's cleaning count, co-op's shared rules for every player and the logs; saves and shaders are kept, no shader is translated again).
 
 ### Game
 - Mouse mode: the game's pointer is drawn where the mouse really is at render sizes other than 1920x1080 (it drifted away from the mouse at 1440p and above) (#806)
@@ -12,6 +12,7 @@
 - A story scene is no longer lost when a teammate is talking to one of its characters, or is far away in a scene of their own with them: in the opening, watering the thirsty water creature while a teammate talks to the professor left it thirsty for good. The scene now waits while the teammate is really talking to or playing a scene with that character, and starts a few seconds after they are done, or within seconds when they are not busy with it
 - A teammate who meets the creature that comes to a new habitat goes straight on into its talk that asks to move in, as the host does. Before, that talk was dropped and the teammate had to press twice more to talk to it
 - A tip that waits for an action (a pop-up that stays until you did something) now closes for everyone once any player has done it, and a tip one player has seen counts as seen for all
+- Cleaning sludge in co-op counts toward a creature's cleaning request (the water creature that asks for the sludge to be cleaned): the host's world keeps the group's count, and teammates see it. Before, no cleaning done in co-op ever counted, so the request could never be finished
 - The Habitat Dex shows a teammate's habitat hints too: the creature silhouettes on a habitat's page that one player unlocked are there for everyone
 - Something a teammate was using when they left the session (the lighthouse, for one) can be used again by everyone else. Before, it said "Someone else is using this right now." until the world was loaded again
 - The Shop on the PC menu is no longer greyed out for teammates who join the host

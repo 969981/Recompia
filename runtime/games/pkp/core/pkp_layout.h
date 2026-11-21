@@ -27,6 +27,7 @@ constexpr size_t kGateHistoryBytes = 32;
 constexpr uint64_t kSaveLastGate = 0x13d3a59;         // u8 STGDAT m_lastGate (the current stage's)
 constexpr uint64_t kSaveSkitInGate = 0x7416d1;        // u8 m_playSkitInGateNum
 constexpr uint64_t kSaveTrainerLevel = 0x4a4400;      // u8 m_trainerLevel (the rank a gate asks for; own save, no visitor copy)
+constexpr uint64_t kSaveCleanCount = 0x4a4401;        // u8 the sludge cleanings counted (1..99; unique request type 0x2c reads it)
 constexpr uint64_t kGameState = 0x3561710;       // the game state (stage, session)
 constexpr uint64_t kStateStage = 0x18;           // game state: u8, the stage the player is in
 constexpr uint64_t kStateSession = 0x90;         // game state: u8 Link Play session bits (kSession*); 0 offline
