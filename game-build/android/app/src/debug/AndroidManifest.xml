@@ -3,7 +3,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <application>
         <activity android:name=".ui.MainActivity" android:showWhenLocked="true" android:turnScreenOn="true" />
-        <!-- test builds only: adb (tools/android/run, tools/android/test) starts the game directly; release keeps it unexported -->
+        <!-- test builds only: adb starts the game directly; release keeps it unexported -->
         <activity android:name=".GameActivity" android:showWhenLocked="true" android:turnScreenOn="true" android:exported="true" tools:replace="android:exported" />
     </application>
 </manifest>

@@ -172,7 +172,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * pkp.ini [fs] paths of the chosen dump, plus the phone's platform keys when they are missing (the same values as
-     * tools/android/push/push.sh). Unknown keys and the player's own values are kept (Ini line editor).
+     * a test setup that pushes them). Unknown keys and the player's own values are kept (Ini line editor).
      */
     private fun writePlayPaths(c: DumpScanner.Candidate, r: DumpScanner.Report) {
         val ini = Ini.load(Paths.pkpIni)
