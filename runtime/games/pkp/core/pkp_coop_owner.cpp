@@ -47,22 +47,23 @@
 // What the class is: the one placed kind 0x1d9 (#956 category 0x4f; the factory 0x76c248 maps category 0x4f to slot 0x2d, filled
 // by 0x76bcc0 with the creator table 0x32853b0, whose creator 0x9fd6b8 makes this class), container type 0x11 (0x773c80 into
 // +0x4b). It is not a store: it is the story's materials drop with ten stages (+0x4a, table slot 0x144 = #1108; a row's +8..+0xa
-// item categories and +0xc..+0xe counts, +0 / +4 scenes). Its close 0x7e67c0 needs this process's own container screen open
-// (0xa94bbc at 0x7e6938), checks the deposit against the row (0x78d050), queues the row's scenes for the local player (0x2e6ce0,
-// the scene queue), steps +0x4a and the record R+0x73b258 (+0xc = R+0x73b264, which quest condition 9 reads), and only then takes
-// the deposit out of the container (0x5b2f34). A member's use would make all of that on its own copies (the deposit in its copy of
-// the container record, the stage in its own common block), and no request carries a deposit to the host: the class has no
-// snapshot apply (vt+0x2f8 is the base) and sends nothing at its close, unlike the store chests (class 0x3268000's close 0x7b8960:
-// host release 0x538f60 take 0, a member's kind 0x1a / 0x19 / 0xf record through the request queue 0x214974, which the host's
-// handler checks against its copy of the member's bag and which releases the owner there, 0x221d80). So a member's grant stays
-// given back.
+// item categories and +0xc..+0xe counts, +0 / +4 scenes). Its close 0x7e67c0 goes on only when this process's container screen
+// manager flags it (0xa94bbc at 0x7e6938: [0x3561780]+0x11d8 u8 +0x5a), checks the deposit against the row (0x78d050), queues the
+// row's scenes for the local player (0x2e6ce0, the scene queue), steps +0x4a and the record R+0x73b258 (+0xc = R+0x73b264, which
+// quest condition 9 reads), and only then takes the deposit out of the container (0x5b2f34). A member's use would make all of that
+// on its own copies (the deposit in its copy of the container record, the stage in its own common block), and no request carries a
+// deposit to the host: the class has no snapshot apply (vt+0x2f8 is the base) and sends nothing at its close, unlike the store
+// chests (class 0x3268000's close 0x7b8960: host release 0x538f60 take 0, a member's kind 0x1a / 0x19 / 0xf record through the
+// request queue 0x214974, which the host's handler checks against its copy of the member's bag and which releases the owner there,
+// 0x221d80). So a member's grant stays given back.
 // The host's own use takes the byte (0x7e7884: take 1, its own index) and nothing frees it again: not the close, not the class's
-// per-frame slot 22 0x7e633c or the base gimmick tick 0x75cb60 it calls (no 0x538f60, vt+0x480 / +0x490 or Sync within five
-// calls; the vt slots that tick calls are leaves here), and no reader of the character's gimmick cell ch+0x5a96 (the gimmick state
-// 0x6ce540 releases categories 0x18, 0xc, 0x22, 0x43 only). After the host used it once, a member's press there was refused
-// for the rest of the session (0x10d once the host's take report reached it). Here, at the close's entry, on the authority in a session, the host gives the byte back as the store
-// chest's close does (0x7b8b34: 0x538f60 take 0, quiet 0, slot 0xff), once it is the owner. Not covered: a use whose open finds no
-// container record (0x7e6680 leaves +0x4c 0 and the close never runs).
+// per-frame slot 22 0x7e633c or the base gimmick tick 0x75cb60 it calls (no 0x538f60, vt+0x480 / +0x490 or Sync within five calls;
+// the vt slots that tick calls are leaves here), and no reader of the character's gimmick cell ch+0x5a96 (the gimmick state
+// 0x6ce540 and the player-mode entry 0x3ee8fc release categories 0x18, 0xc, 0x22, 0x43 only; 0x2de2a0 category 0xc). After the
+// host used it once, a member's press there was refused for the rest of the session (0x10d once the host's take report reached
+// it). Here, at the close's entry, on the authority in a session, the host gives the byte back as the store chest's close does
+// (0x7b8b34: 0x538f60 take 0, quiet 0, slot 0xff), once it is the owner. Not covered: a use whose open finds no container record
+// (0x7e6680 leaves +0x4c 0 and the close never runs).
 //
 // The game, 2.0.1a (x19 = the gimmick at every site, w0 = 0x765b54's answer):
 //   class 0x32688e0 slot 5 0x7c0be0   the use at 0x7c13d8: 0x765b54 at 0x7c1418, `tbz w0, #0` 0x7c141c returns; a failed event
