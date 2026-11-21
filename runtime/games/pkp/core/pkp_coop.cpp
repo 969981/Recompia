@@ -193,6 +193,9 @@ enum class Site : uintptr_t {
     // ---- an event's end on a member (pkp_coop_feed.cpp) ----
     EventEnded,       // the contents notifier, called by the three "event ended" notifiers: a member's is posted on the authority too,
                       // so content records waiting on a scene a member played run for the group
+    // ---- a content's scene refused by a character another player holds (pkp_coop_contents.cpp) ----
+    SceneTake,        // the event setup's "every character is ready" test: a remembered scene refused long enough starts anyway
+    SceneStart,       // the event start's IsMine of one character: the same scene takes a character another player holds
 };
 
 struct CoopSite {
@@ -337,6 +340,8 @@ constexpr CoopSite kSites[] = {
     {{0x4a1adc, 0x2a0802d8u, false}, Site::TalkSwapParent},  // orr w24, w22, w8 (w8 = the parent term, w24 = the data id, in 0x4a17fc)
     // an event's end on a member (pkp_coop_feed.cpp): the journal's entry site of the contents notifier, shared
     {{0x1353a0, kPacibsp, true}, Site::EventEnded},
+    {{0x4774e8, 0x3600013cu, false}, Site::SceneTake},       // tbz w28, #0, 0x47750c (w28 = all characters ready, x19 = the runner)
+    {{0x47bfe4, 0x0a000318u, false}, Site::SceneStart},      // and w24, w24, w0 (w0 = IsMine, x20 = &actor id, x19 = the runner)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -440,6 +445,8 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::TalkRecArmed: return coop::talkrec::on_armed(c);
         case Site::TalkSwapParent: return coop::talk::on_swap_parent(c);
         case Site::EventEnded: return coop::feed::on_event_ended(c);
+        case Site::SceneTake: return coop::contents::on_scene_take(c);
+        case Site::SceneStart: return coop::contents::on_scene_start(c);
         // a dropped player is waited for (pkp_coop_drop.cpp)
         case Site::TripFile: return coop::drop::on_trip_file(c, addr - st().base);
         case Site::SimStep: return coop::drop::on_sim_step(c);
@@ -539,6 +546,7 @@ void game_frame(::Ctx* c) {
     coop::linkqueue::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::notice::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::placement::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::scenes::tick(c);
     coop::contents::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::gate::tick(s.in_game.load(std::memory_order_relaxed));
     coop::trace::tick(s.in_game.load(std::memory_order_relaxed));
@@ -592,6 +600,7 @@ void remove() {   // the registry has removed the hooks
     coop::held::reset();
     coop::linkqueue::reset();
     coop::placement::reset();
+    coop::scenes::reset();
     coop::contents::reset();
     coop::friendship::reset();
     coop::feed::reset();

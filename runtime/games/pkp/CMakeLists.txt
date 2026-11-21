@@ -55,6 +55,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop_linkqueue.cpp"
         "${_pkp}/core/pkp_coop_placement.cpp"
         "${_pkp}/core/pkp_coop_contents.cpp"
+        "${_pkp}/core/pkp_coop_scenes.cpp"
         "${_pkp}/core/pkp_coop_travel.cpp"
         "${_pkp}/core/pkp_coop_wirelog.cpp"
         "${_pkp}/core/pkp_coop_digest.cpp"

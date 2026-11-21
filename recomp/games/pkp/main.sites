@@ -746,3 +746,8 @@ midhook 0x71004ae7e8
 #   Seamless co-op, the Star Piece swap in a member's talk (pkp_coop_talk.cpp): in script callback slot 119 0x71004a17fc, the
 #   `orr w24, w22, w8` that joins its row and parent terms (w24 = the data id off Cloud Island)
 midhook 0x71004a1adc
+#   Seamless co-op, a content's scene refused by a character another player holds (pkp_coop_contents.cpp): in the event setup
+#   0x7100476100 the `tbz w28, #0` after its per-character ownership loop (w28 = every character ready, x19 = the runner), and in
+#   the event start 0x710047bf80 the `and w24, w24, w0` after each character's IsMine (x20 = &actor id)
+midhook 0x71004774e8
+midhook 0x710047bfe4

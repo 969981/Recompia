@@ -366,6 +366,14 @@ bool talking() {
     return s.held && s.held->talking;
 }
 
+uint32_t character_key(::Ctx* c, uint64_t id) { return character_of(c, id); }
+
+bool held_elsewhere(uint32_t key) {
+    const State& s = st();
+    const auto it = key ? s.holders.find(key) : s.holders.end();
+    return it != s.holders.end() && it->second != link::self();
+}
+
 void on_ask(::Ctx*, int, uint8_t origin, wire::Reader& r) {
     State& s = st();
     const uint32_t chara = r.u32();
