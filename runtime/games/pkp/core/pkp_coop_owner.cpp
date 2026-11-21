@@ -20,6 +20,19 @@
 // press's walk of the placed-object map) and 0x78f82c / 0x78f890 (a script's start of a category 0xc / 0x18 gimmick). 0x74b484, the
 // shared tick 0x74b3d0 (also called by 0x74aee8 and 0x754684), is left alone: its false exit hands on to the class (vt+0x4b8(g, 0)).
 //
+// A member's grant is the same job: the host's grant reaches the member's reply handler 0x539620, which takes the byte locally
+// (0x538f60), applies the reply's data (vt+0x2f8) and only when that apply answers true runs the use (0x77e260 -> vt+0x340, the
+// class's event handler; action 4 re-runs its slot 5 with no player). A false apply skips the use and nothing gives the byte back
+// (the reply's other step, vt+0x430 on the reply's second cell, does nothing on a grant in these classes, and the handler's only
+// give-back, 0x539680..0x539750, runs before the take). The game's apply answers false in these classes only: 0x765f00 (the
+// online container snapshot apply; tailed by vt+0x2f8 of 0x3268000, 0x326d7e0, 0x32762f8, 0x3278b08, 0x3266040, 0x3272d50,
+// 0x3274430, called first by the 0x327cf68 classes' 0x85fe9c) answers 0 when the object's container type (vt+0x270) is outside
+// 1..0x1e or 0x753420 finds no container record of that type at the cell; 0x843e64 (0x32794c0) also when its +0x53 is clear;
+// 0x757178 (0x3263160) when the own index is 0xff or above 3. All of them are one-slot classes. Here, at that `tbz`, a false apply
+// gives the byte back with the data-less give-back below (not vt+0x490: its Sync carries the object's data, +0xa2 = 1, which
+// the host would apply although this process never applied the host's snapshot), once the presser owns it. A use that runs is
+// never reached here: the true answer goes on to the use.
+//
 // The game, 2.0.1a (x19 = the gimmick at every site, w0 = 0x765b54's answer):
 //   class 0x32688e0 slot 5 0x7c0be0   the use at 0x7c13d8: 0x765b54 at 0x7c1418, `tbz w0, #0` 0x7c141c returns; a failed event
 //                                     start (0x7c1838) releases with 0x7c1690(g, slot) (slot w21; +0x5d cleared, host 0x538f60
@@ -49,6 +62,10 @@
 //   0x74fd48(msg)                     SyncGimmickOwnership: +0x34 packed cell (x 12 bits, y 8, z 12), +0x38 kind, +0x9e member
 //                                     index, +0x9f slot, +0xa0 take, +0xa1 quiet; the host's handler 0x54cba4 applies it (0x538f60)
 //   0x30c69c(msg)                     the send to the host that passes the NM+0xb3348 send gate (0x2cb584 drops it there)
+//   0x539620(reply, granted, a, b)    the member's grant reply (x19 = reply: +0 packed cell, +0xc kind, +0x10 slot); at the `tbz w0`
+//                                     0x539b44, x23 = the gimmick found at the cell with the reply's kind, w0 = vt+0x2f8's answer.
+//                                     Kinds of categories 2 / 0x13 take with the host's index (NM+0xb3380), so the owner check
+//                                     leaves them alone
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -65,6 +82,8 @@ namespace {
 
 constexpr const char* kTag = "pkp";
 constexpr int kAnswerReg = 0, kGimmickReg = 19, kSlotReg = 21;
+constexpr int kReplyReg = 19, kGrantGimmickReg = 23;    // at 0x539b44
+constexpr uint64_t kReplySlot = 0x10;                   // reply +: the granted slot (u8)
 constexpr uint64_t kKindOf = 0x50;                      // gimmick vtable +: its kind (u16)
 constexpr uint64_t kCellLo = 0x18, kCellHi = 0x1c;      // gimmick +: u32 x | y << 16, u16 z
 constexpr uint64_t kMsgCell = 0x34, kMsgKind = 0x38, kMsgIndex = 0x9e, kMsgSlot = 0x9f, kMsgTake = 0xa0;
@@ -105,6 +124,7 @@ constexpr size_t kUseCount = sizeof kUses / sizeof kUses[0];
 
 struct State {
     bool logged[kUseCount] = {};
+    bool grant_logged = false;
     alignas(16) uint8_t msg[kMsgBytes] = {};   // guest addresses are host addresses
     alignas(8) uint16_t kind = 0;
     alignas(8) uint8_t index = 0;
@@ -182,8 +202,29 @@ int on_use_refused(::Ctx* c, uint64_t site) {
     return 0;
 }
 
+int on_grant_unapplied(::Ctx* c) {
+    if (c->x[kAnswerReg] & 1) return 0;   // the apply took: the use runs from 0x77e260
+    if (!link::in_session() || link::is_authority()) return 0;
+    const uint64_t g = c->x[kGrantGimmickReg], reply = c->x[kReplyReg];
+    if (!guest::ok(g, 0x60) || !guest::ok(reply + kReplySlot, 1)) return 0;
+    const uint8_t slot = guest::rd<uint8_t>(reply + kReplySlot);
+    const uint64_t owner_of = guest::deref(guest::deref(g) + kOwnerOf);
+    if (!owner_of) return 0;
+    const uint8_t own = static_cast<uint8_t>(guest::call(c, base() + layout::kOwnIndexOf, 0));
+    if (static_cast<uint8_t>(guest::call(c, owner_of, g, slot)) != own) return 0;   // not taken with our index (categories 2 / 0x13)
+    give_back(c, g, slot);
+    if (!st().grant_logged) {
+        st().grant_logged = true;
+        const uint64_t kind_of = guest::deref(guest::deref(g) + kKindOf);
+        NXLOG_I(kTag, "Co-op owner: a grant's data did not apply, so its use did not start; the kind %u object (slot %u) is given back",
+                kind_of ? static_cast<unsigned>(guest::call(c, kind_of, g) & 0xffff) : 0u, slot);
+    }
+    return 0;
+}
+
 void reset() {
     for (bool& b : st().logged) b = false;
+    st().grant_logged = false;
 }
 
 }  // namespace nxrt::games::pkp::coop::owner

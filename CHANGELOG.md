@@ -39,6 +39,7 @@
 - A newly discovered creature can now move in when a teammate talks to it first, not only the host: it becomes the town's resident for the whole group, and no longer asks the host again whether it can live here
 - The host's town and story records now reach teammates within seconds, also while the host is in a menu or a talk. Before, a teammate's world could wait a minute or two for them
 - Two special creatures that a teammate could only greet with a visitor's talk now start the same first talk for a teammate as for the host
+- An object the host lets a teammate use but whose use can't start for them (a storage object whose contents did not reach them, for one) is free again right away. Before, nothing opened for the teammate, and from then on everyone got "Someone else is using this right now." there
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five
