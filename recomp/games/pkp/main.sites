@@ -687,3 +687,6 @@ midhook 0x710048235c
 #   through 0x710077ece0)
 entryhook 0x710074cc60
 entryhook 0x71007568f0
+#   Seamless co-op, a member's later talks with a resident (pkp_coop_talk.cpp): in the talk handler 0x71004c024c, the
+#   `tbz w0, #0, 0x71004c059c` after 0x7100332c80 ("this player is the creature's own"), false on a member for every resident
+midhook 0x71004c0574
