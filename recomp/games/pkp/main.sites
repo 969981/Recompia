@@ -444,6 +444,15 @@ midhook 0x710079d558
 midhook 0x7100848eac
 midhook 0x710079b178
 midhook 0x71007e78f4
+#   and the same `tbz w0, #0` in class 0x3268000 0x71007b9460 and its deferred use 0x71007b7860, 0x32762f8 0x710082b4e0,
+#   0x326d7e0 0x71007e3fa0, 0x3271340 0x7100808640, 0x3278b08 0x710083ca20 and the 0x327cf68 classes' use 0x710085e600 (x19 = the gimmick)
+midhook 0x71007b9b0c
+midhook 0x71007b80d0
+midhook 0x710082b8e4
+midhook 0x71007e469c
+midhook 0x7100808d68
+midhook 0x710083d0b0
+midhook 0x710085eae0
 #   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): talk conditions
 #   0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0` after IsOnline), and condition 0x22, the one instruction `b IsOnline`;
 #   the quest pump 0x710011b600 at `tbz w0, #0` after the flag read; the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item

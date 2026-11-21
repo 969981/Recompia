@@ -261,5 +261,6 @@ constexpr uint64_t kOwnIndexOf = 0x25a480;          // () -> u8 this process's m
 constexpr uint64_t kGimmickOwnerApply = 0x538f60;   // (&kind, x, y, z, &idx, take, quiet, slot): an ownership take or release
 constexpr uint64_t kGimmickOwnerMsg = 0x74fd48;     // (msg): builds a SyncGimmickOwnership message
 constexpr uint64_t kSendToHostForced = 0x30c69c;    // (msg): sends a message to the host, past the NM+0xb3348 send gate
+constexpr uint64_t kSendGate = 0x25af7c;            // () -> u8 NM+0xb3348, the gate 0x2cb584 drops a message at
 
 }  // namespace nxrt::games::pkp::layout
