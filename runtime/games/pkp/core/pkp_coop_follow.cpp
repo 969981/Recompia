@@ -22,7 +22,10 @@
 //   of the creature (0x28cc60(player manager, data id)): when it already follows a player there (vt+0x1d8, then vt+0x410's party
 //   block +0x35e0 +0x10, the leader test 0x2a1f44 makes), nothing (the authority's own content or another member's ask came
 //   first); otherwise the game's own 0x2a1ed4(&its actor id, flag): the creature follows the authority's player, exactly the call
-//   the authority's own content makes, so the content's later records (0x20f's `dac 2f 1`) end it as the game does.
+//   the authority's own content makes, so the content's later records (0x20f's `dac 2f 1`) end it as the game does. An attach that
+//   leaves the creature with no leader (0x659280 returns silently when the player cannot lead) is made again every 2 s, up to 8 times
+//   and inside the ask's 60 s window. The leader is always the authority's own player: 0x6599c0 attaches only to a local player
+//   (vt+0x1e0), and a member's player on the authority is not one. RE: coop-v2/role-census/build/a14-follow.md.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -49,6 +52,8 @@ constexpr uint64_t kPartyBlock = 0x35e0;    // leader object + : its party block
 constexpr uint64_t kPartyLeaderId = 0x10;
 constexpr uint16_t kDataIdMax = 0x3ff;
 constexpr double kDrop = 60.0;              // an ask the authority found no safe moment for
+constexpr double kRetry = 2.0;              // an attach that left the creature with no leader is made again after this long
+constexpr uint8_t kTries = 8;
 constexpr size_t kQueue = 8;
 
 struct Ask {
@@ -57,6 +62,8 @@ struct Ask {
     uint8_t flag;    // 0x2a1ed4's w1 & 1
     double at;
     uint8_t origin;
+    uint8_t tries = 0;     // attaches made for this ask that left the creature with no leader
+    double retry_at = 0;   // not before this time
 };
 
 struct State {
@@ -101,23 +108,27 @@ void send() {
     s.outgoing.erase(s.outgoing.begin(), s.outgoing.begin() + static_cast<std::ptrdiff_t>(sent));
 }
 
-// The authority: the game's own attach for its copy of the creature, unless it follows a player already.
-void make(::Ctx* c, const Ask& a) {
+// The authority: the game's own attach for its copy of the creature, unless it follows a player already. True when the ask is settled
+// (the creature follows a player, or is not here); false when the attach left it with no leader (the game's attach returns without
+// a word when the authority's player cannot lead at that moment), so the ask is made again.
+bool make(::Ctx* c, const Ask& a) {
     const uint64_t pm = guest::rd<uint64_t>(base() + layout::kPlayerManager);
     const uint64_t actor = pm ? guest::call(c, base() + kFirstOf, pm, a.data) : 0;
     if (!actor || !guest::ok(actor + kActorId, 2)) {
         NXLOG_I(kTag, "Co-op follow: node %u's follow of character %u dropped (no such character here)", a.origin, a.data);
-        return;
+        return true;
     }
     const uint64_t npc = actor + kActorId;
     if (const uint16_t leader = leader_here(c, npc)) {
         NXLOG_I(kTag, "Co-op follow: node %u's follow of character %u (actor 0x%x): it follows player 0x%x already, left as it is",
                 a.origin, a.data, guest::rd<uint16_t>(npc), leader);
-        return;
+        return true;
     }
     guest::call(c, base() + kAttach, npc, a.flag);
-    NXLOG_I(kTag, "Co-op follow: node %u's follow of character %u (actor 0x%x) made here; it follows player 0x%x", a.origin, a.data,
-            guest::rd<uint16_t>(npc), leader_here(c, npc));
+    const uint16_t now = leader_here(c, npc);
+    NXLOG_I(kTag, "Co-op follow: node %u's follow of character %u (actor 0x%x) made here (try %u); it follows player 0x%x", a.origin,
+            a.data, guest::rd<uint16_t>(npc), a.tries + 1, now);
+    return now != 0;
 }
 
 void apply(::Ctx* c, bool in_game) {
@@ -135,9 +146,19 @@ void apply(::Ctx* c, bool in_game) {
         ++i;
     }
     if (s.incoming.empty() || !session::can_walk(in_game) || talk::talking()) return;
-    const Ask a = s.incoming.front();
-    s.incoming.erase(s.incoming.begin());
-    make(c, a);
+    size_t i = 0;
+    while (i < s.incoming.size() && s.incoming[i].retry_at > t) ++i;
+    if (i == s.incoming.size()) return;
+    Ask a = s.incoming[i];
+    s.incoming.erase(s.incoming.begin() + static_cast<std::ptrdiff_t>(i));
+    if (make(c, a)) return;
+    if (++a.tries >= kTries) {
+        NXLOG_I(kTag, "Co-op follow: node %u's follow of character %u dropped (the creature still follows nobody after %u tries)",
+                a.origin, a.data, a.tries);
+        return;
+    }
+    a.retry_at = t + kRetry;
+    s.incoming.push_back(a);
 }
 
 }  // namespace
@@ -166,6 +187,7 @@ void on_ask_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
     if (!r.ok() || static_cast<uint16_t>(data - 1) >= kDataIdMax || s.incoming.size() >= kQueue) return;
     for (const Ask& a : s.incoming)
         if (a.data == data) return;   // one ask per creature waits
+    NXLOG_I(kTag, "Co-op follow: node %u asks the authority to make character %u follow (stage %u)", origin, data, at);
     s.incoming.push_back(Ask{at, data, static_cast<uint8_t>(flag & 1), qpc::seconds(), origin});
 }
 
