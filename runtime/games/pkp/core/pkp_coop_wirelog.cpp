@@ -130,6 +130,7 @@ const char* type_name(uint32_t type) {
     case wire::Type::NewcomerAsk: return "NewcomerAsk";
     case wire::Type::DepositAsk: return "DepositAsk";
     case wire::Type::DepositState: return "DepositState";
+    case wire::Type::StoryFollow: return "StoryFollow";
     }
     return "?";
 }

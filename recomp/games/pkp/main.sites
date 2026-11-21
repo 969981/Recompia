@@ -728,3 +728,6 @@ midhook 0x71002eea74
 #   the `tbz w0, #0` after the screen's confirm flag 0x7100a94bbc (x19 = the gimmick, w20 = the container record's local id)
 entryhook 0x71005b1c84
 midhook 0x71007e693c
+#   Seamless co-op, a story follow on a member (pkp_coop_follow.cpp): the contents' "follow this player" attach 0x71002a1ed4
+#   (&npc actor id, flag; only caller 0x7100117b18, command 0xdac mode 3): on a member it is made on the authority instead
+entryhook 0x71002a1ed4

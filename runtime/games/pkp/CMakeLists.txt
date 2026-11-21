@@ -70,6 +70,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop_title.cpp"
         "${_pkp}/core/pkp_coop_takeout.cpp"
         "${_pkp}/core/pkp_coop_deposit.cpp"
+        "${_pkp}/core/pkp_coop_follow.cpp"
         "${_pkp}/core/pkp_journal.cpp"
         "${_pkp}/core/pkp_journal_feature.cpp"
         "${_pkp}/core/pkp_journal_actor.cpp"

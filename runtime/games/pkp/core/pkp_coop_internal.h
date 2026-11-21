@@ -50,6 +50,7 @@
 //   pkp_coop_doors.cpp    the session's doors in the menus: the PC's Link Play screen makes no session call, the pause menu never
 //                         sends a teammate home or rejects one; Save and Quit stays
 //   pkp_coop_title.cpp    a co-op start goes past the title screen on its own, with no "did not disconnect correctly" message
+//   pkp_coop_follow.cpp   a story content's "follow this player" on a member made on the authority, for the authority's creature
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -655,5 +656,18 @@ void on_state_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace deposit
+// ---- a story follow on a member (pkp_coop_follow.cpp) ----
+namespace follow {
+// The hook site (pkp_coop.cpp): entry 0x2a1ed4, the contents' "follow this player" attach (command 0xdac mode 3, through 0x117b18).
+// On a member in the session the game's local-only attach does not run (returns 1) and the creature is sent to the authority; 0
+// elsewhere.
+int on_story_follow(::Ctx* c);
+// The message (pkp_coop_link.cpp): a member's story follow, made on the authority at a safe moment unless the creature follows a
+// player there already.
+void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Sends a member's asks; the authority makes the waiting ones (once a frame, after the channel's handlers).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace follow
 
 }  // namespace nxrt::games::pkp::coop

@@ -182,6 +182,9 @@ enum class Site : uintptr_t {
     // ---- a member's deposit into the story's materials drop (pkp_coop_deposit.cpp) ----
     DepositStore,     // the container slice: a member's drop slice is its own store, so its screen, check and our clear share one
     DepositConfirm,   // the drop's close after the screen's confirm: a member's deposit is stepped on the authority, not here
+    // ---- a story follow on a member (pkp_coop_follow.cpp) ----
+    StoryFollow,      // a story content's "follow this player" attach (0x2a1ed4, local only): on a member it does not run and the
+                      // authority makes it for its own copy of the creature, so no member takes the host's follow away
 };
 
 struct CoopSite {
@@ -318,6 +321,8 @@ constexpr CoopSite kSites[] = {
     // a member's deposit into the story's materials drop (pkp_coop_deposit.cpp)
     {{0x5b1c84, kPacibsp, true}, Site::DepositStore},
     {{0x7e693c, 0x36001ac0u, false}, Site::DepositConfirm},  // tbz w0, #0, 0x7e6c94 (w0 = 0xa94bbc's confirm flag, x19 the gimmick)
+    // a story follow on a member (pkp_coop_follow.cpp)
+    {{0x2a1ed4, 0xf0018f09u, true}, Site::StoryFollow},      // adrp x9, 0x3484000 (x0 = &the creature's actor id, w1 the flag)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -417,6 +422,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::TakeoutStore: return coop::takeout::on_remove_store(c);
         case Site::DepositStore: return coop::deposit::on_store(c);
         case Site::DepositConfirm: return coop::deposit::on_confirm(c);
+        case Site::StoryFollow: return coop::follow::on_story_follow(c);
         default: return 0;
     }
 }
@@ -522,6 +528,7 @@ void game_frame(::Ctx* c) {
     coop::newcomer::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::takeout::tick(c);
     coop::deposit::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::follow::tick(c, s.in_game.load(std::memory_order_relaxed));
 }
 
 void remove() {   // the registry has removed the hooks
@@ -572,6 +579,7 @@ void remove() {   // the registry has removed the hooks
     coop::title::reset();
     coop::takeout::reset();
     coop::deposit::reset();
+    coop::follow::reset();
 }
 
 }  // namespace

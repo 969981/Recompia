@@ -83,6 +83,9 @@
 //               stage only, to every member; 1 accepted, 2 refused: the answer to one ask), +10 u8 reason (refused: 1 the stage
 //               differs, 2 the stage's needs are not met, 3 no drop at the cell), +11 u8[16] the asker's member key (0 for none),
 //               +27 u64 its ask id (0 for none)
+//   StoryFollow +2 u8 the origin's stage, +3 u16 the creature's data id (1..0x3ff), +5 u8 the attach's flag   (a member's story
+//               content asked the creature to follow its player; the authority attaches its own copy to its own player unless it
+//               follows someone already; pkp_coop_follow.cpp)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -157,6 +160,8 @@ enum class Type : uint32_t {
     // ---- a member's deposit into the story's materials drop (pkp_coop_deposit.cpp) ----
     DepositAsk = 44,
     DepositState = 45,
+    // ---- a story follow on a member (pkp_coop_follow.cpp) ----
+    StoryFollow = 39,
 };
 
 // Builds one payload: the header, then the fields in order.

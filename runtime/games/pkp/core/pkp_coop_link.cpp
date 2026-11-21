@@ -84,6 +84,8 @@ constexpr Route kRoutes[] = {
     // a member's deposit into the story's materials drop
     {wire::Type::DepositAsk, Path::ToAuthority, &deposit::on_ask_message},
     {wire::Type::DepositState, Path::FromAuthority, &deposit::on_state_message},
+    // a story follow on a member
+    {wire::Type::StoryFollow, Path::ToAuthority, &follow::on_ask_message},
 };
 
 struct State {
