@@ -42,6 +42,13 @@
 // state from which the group can be joined again. On a process that still has the session the game's drop check does not file
 // anything; if it ever runs during a wait (this process's own session is unusable after all), the wait ends first and the game
 // files as it would.
+//
+// The return. The dropped player comes back through the normal join (a relaunch, or the session part's own retries after its trip
+// home), as a new node. Its channel joins at the ldn connect, before the game's join sync and the host's world load: from then until
+// it says it is in the world (DropHere ready, or kArrivalMax) the simulation runs on every process again (the join's sync, its
+// arrival and the warp next to the host need the game's step; never pause the arriving process or the one it arrives in), the input
+// stays held and the countdown says it is joining. Its DropHere with an awaited key ends that wait: the bag and the catch-up are the
+// join's own (pkp_coop_bags.cpp and the other parts' on_member_joined).
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -70,6 +77,7 @@ constexpr double kSendEvery = 1.0;      // the authority's DropWait while anyone
 constexpr double kSilence = 5.0;        // a member that heard no DropWait for this long lets go
 constexpr double kNoticeSeconds = 2.5, kNoticeEvery = 1.0;
 constexpr double kLogEvery = 30.0;      // the countdown in the log
+constexpr double kArrivalMax = 60.0;    // a node that joined during a wait runs the world this long at most until it is in
 constexpr uint8_t kWaiting = 1, kJoining = 2, kBack = 3, kGivenUp = 4;
 
 // Player-visible text: English here, one place (the co-op string table takes these lines at the merge).
@@ -88,6 +96,7 @@ struct Awaited {
     std::string name;
     uint8_t state = kWaiting;
     double until = 0.0;     // the authority: its deadline on the authority's clock
+    bool joining = false;   // the authority: its player's process said DropHere again (arriving)
     unsigned left = 0;      // seconds left as the authority last said
 };
 
@@ -103,6 +112,7 @@ struct State {
     std::vector<Awaited> awaited;   // the authority's waits; a member's copy of the authority's word
     std::vector<Awaited> ended;     // the authority: ends (back / given up) not sent yet
     double next_send = 0.0, next_log = 0.0;
+    double arrival_at[kNodes] = {};   // a node joined during a wait at (0: none arriving)
     // a member
     double heard_at = 0.0;
     // the hold on this process
@@ -236,7 +246,17 @@ void show(State& s, double now) {
 void authority_tick(State& s, double now) {
     for (size_t i = s.awaited.size(); i-- > 0;)
         if (now >= s.awaited[i].until) end_wait(s, i, kGivenUp, "did not come back in time: the group plays on");
-    for (Awaited& a : s.awaited) a.left = seconds_left(a, now);
+    bool arrival = false;
+    for (int n = 0; n < kNodes; ++n) {
+        if (s.arrival_at[n] > 0.0 && (now - s.arrival_at[n] >= kArrivalMax || s.nodes[n].ready)) s.arrival_at[n] = 0.0;
+        if (s.arrival_at[n] > 0.0) arrival = true;
+    }
+    for (Awaited& a : s.awaited) {
+        a.left = seconds_left(a, now);
+        const uint8_t state = a.joining || arrival ? kJoining : kWaiting;
+        if (state != a.state) s.next_send = 0.0;
+        a.state = state;
+    }
     if ((!s.awaited.empty() || !s.ended.empty()) && now >= s.next_send) send_wait(s, now);
     if (!s.awaited.empty() && now >= s.next_log) {
         s.next_log = now + kLogEvery;
@@ -351,7 +371,15 @@ void on_member(int node, bool joined, bool self) {
         release(s, "this process is out of the session");
         return;
     }
-    if (joined || node < 0 || node >= kNodes || !s.in || s.member) return;
+    if (node < 0 || node >= kNodes || !s.in || s.member) return;
+    if (joined) {
+        if (!s.awaited.empty()) {
+            s.arrival_at[node] = qpc::seconds();
+            NXLOG_I(kTag, "Co-op drop: node %d joined during the wait; the world runs for its arrival", node);
+        }
+        return;
+    }
+    s.arrival_at[node] = 0.0;
     Node& n = s.nodes[node];
     if (!n.known)
         NXLOG_I(kTag, "Co-op drop: node %d left; it never said it waits for drops (an older build): no wait", node);
@@ -373,6 +401,19 @@ void on_here_message(::Ctx*, int from, uint8_t, wire::Reader& r) {
     n.known = true;
     n.ready = ready;
     std::memcpy(n.key, key, sizeof key);
+    State& s = st();
+    if (ready) s.arrival_at[from] = 0.0;
+    for (size_t i = 0; i < s.awaited.size(); ++i) {
+        Awaited& a = s.awaited[i];
+        if (std::memcmp(a.key, key, sizeof key) != 0) continue;
+        if (ready) {
+            end_wait(s, i, kBack, "is back in the world");
+        } else if (!a.joining) {
+            a.joining = true;
+            NXLOG_I(kTag, "Co-op drop: %s is joining again as node %d", a.name.c_str(), from);
+        }
+        break;
+    }
 }
 
 void on_leaving_message(::Ctx*, int from, uint8_t, wire::Reader& r) {
