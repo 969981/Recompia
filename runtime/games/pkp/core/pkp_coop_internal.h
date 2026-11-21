@@ -712,6 +712,10 @@ void on_here_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);      
 void on_leaving_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // the authority: a member's own leave is filed
 void on_wait_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);      // a member: who the authority waits for
 void on_closing_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: the host closes the session
+// A member whose session ended and whose game is about to close: the session part starts no search then.
+bool closing();
+// The session part's search finished (found: there is a session to join). A member that lost its session and finds none closes.
+void on_search(bool found);
 // The hook sites (pkp_coop.cpp): the entries of the trip filers (site: its main offset). A member's filed leave and the host's
 // close are announced (returns 0); the kick's filing on a member is refused (returns 1).
 int on_trip_file(::Ctx* c, uint64_t site);

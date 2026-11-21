@@ -142,6 +142,7 @@ int update_hook(::Ctx*, uint64_t, void*) {
     // Quit was chosen in the overlay's prompt (keyboard, pad or mouse; the mouse answers on the presenting thread): the process ends here,
     // on the main thread, the way the window's close button does it.
     if (st.overlay && st.overlay->take_quit_confirmed()) quit_now("quit from the menu");
+    quit_if_requested();
     // Settings was chosen in the same prompt: the F1 page opens here, on the main thread, as the F1 key does
     if (st.overlay && st.overlay->take_settings_wanted()) st.overlay->set_visible(true);
     const GamePlay* gp = game_play();
@@ -325,6 +326,7 @@ void keyboard_service() {
     }
     poll_pads(now);
     if (st.overlay->take_quit_confirmed()) quit_now("quit from the menu");
+    quit_if_requested();
     nvn::present_last_frame_again();
 }
 
