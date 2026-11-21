@@ -1,4 +1,4 @@
-// From pokopia-native (MIT) windows/src/coop/coop_mpnet.c @035bd9c, modified (marked "pokopia-recomp extension: relay UDP" and "room list")
+// From pokopia-native (MIT) windows/src/coop/coop_mpnet.c @035bd9c, modified (marked "pokopia-recomp extension: relay UDP", "room list" and "large datagrams on the link")
 // coop mpnet (MIT, our own code): the real transport, a star around the host (the LDN access point).
 // - Control: one TCP link per station and host, framed messages (u32 length, u8 type, body): HELLO / WELCOME (the coop protocol; the host's build and
 //   mods fingerprint), SCAN_REQ / SCAN_RESP (the host's NetworkInfo and identity), JOIN / ACCEPT / REFUSE (the host checks the network, passphrase,
@@ -21,6 +21,8 @@
 // relay pairs the two and copies bytes, and game datagrams then use the control link.
 // pokopia-recomp extension: relay UDP (coop_int.h RLY_X_*, the x_* functions): with a relay that supports it and our builds at both ends, game
 // datagrams go over UDP via the relay instead; anything else is unchanged.
+// pokopia-recomp extension: large datagrams on the link (UDP_SAFE_MAX): on either UDP path, a datagram whose packet would need IP fragments
+// rides the control link (M_DGRAM) instead, as every datagram does before the UDP path is up.
 #include "coop_int.h"
 #include <stdio.h>
 
@@ -57,6 +59,12 @@
 #define RELAY_PING_MS 5000       // the host's control link to the relay: a ping this often; silent for RELAY_TIMEOUT_MS, it is dialled again
 #define RELAY_TIMEOUT_MS 20000
 #define RELAY_RETRY_MS 2000      // a refused or lost control link: dialled again after this (and up to 15 s while it keeps failing)
+// pokopia-recomp extension: large datagrams on the link. The biggest UDP payload (our headers, the datagram and its tag) a game datagram may
+// take: with 8 bytes of UDP and 20 of IPv4 (48 of IPv6) the packet stays within 1,280 bytes, under every common internet path MTU (PPPoE,
+// VPNs, tunnels), so it is never IP-fragmented. Fragments are what some NATs, ISPs and relay paths drop: a 2.2 KB packet never arrived while
+// every smaller one did, and the co-op channel behind it stalled for good. A larger datagram rides the link's TCP stream (as M_DGRAM, the
+// parent protocol's own path, which every build accepts on a ready link)
+#define UDP_SAFE_MAX 1200
 
 static void conn_init(conn *c, csock s, int state) {
     free(c->rx); free(c->tx);
@@ -247,6 +255,13 @@ static void x_send(coop_node *n, conn *c, uint64_t token, size_t blen) {
     cplat_sendto(n->x_rsock, x, RLY_X_HDR + MP_UDP_HDR3 + blen + CAUTH_TAG, n->cfg.relay_ip, n->cfg.relay_port);
 }
 
+// pokopia-recomp extension: large datagrams on the link. Whether a built datagram (bl bytes at n->scratch + n->uhdr) fits UDP_SAFE_MAX as
+// send_udp (relay 0) or x_send (relay 1) would send it
+static int udp_fits(const coop_node *n, size_t bl, int relay) {
+    size_t hdr = relay ? RLY_X_HDR + MP_UDP_HDR3 + CAUTH_TAG : n->cfg.auth ? MP_UDP_HDR3 + CAUTH_TAG : MP_UDP_HDR;
+    return hdr + bl <= UDP_SAFE_MAX;
+}
+
 // ---------- routing ----------
 void cmp_route(coop_node *n, int from_node, uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint16_t dst_port, const uint8_t *p, size_t len) {
     int bc = vip_is_bcast(n, dst_ip);
@@ -258,8 +273,9 @@ void cmp_route(coop_node *n, int from_node, uint32_t src_ip, uint16_t src_port, 
             conn *c = &n->hc[i];
             if (c->state != CONN_READY || c->node <= 0 || c->accept_pending || c->closing || c->node == from_node || !(bc || dst_ip == vip_of(n, c->node))) continue;
             if (!bl) bl = dg_build(n, src_ip, src_port, dst_ip, dst_port, p, len);
-            if (!n->cfg.tcp_only && c->udp_port && n->husock != CSOCK_BAD) { send_udp(n, n->husock, c, U_DGRAM, c->token, c->udp_ip, c->udp_port, bl); n->st_udp_tx++; }
-            else if (c->x_on) { x_send(n, c, c->token, bl); n->st_udp_tx++; }   // pokopia-recomp extension: relay UDP
+            // pokopia-recomp extension: large datagrams on the link (udp_fits)
+            if (!n->cfg.tcp_only && c->udp_port && n->husock != CSOCK_BAD && udp_fits(n, bl, 0)) { send_udp(n, n->husock, c, U_DGRAM, c->token, c->udp_ip, c->udp_port, bl); n->st_udp_tx++; }
+            else if (c->x_on && udp_fits(n, bl, 1)) { x_send(n, c, c->token, bl); n->st_udp_tx++; }   // pokopia-recomp extension: relay UDP
             else { cmp_send_frame(n, c, M_DGRAM, n->scratch + n->uhdr, bl); n->st_tcp_tx++; }
         }
     } else if (n->ls == COOP_LS_STATION_CONNECTED) {   // a station: everything not for itself goes to the hub
@@ -267,8 +283,9 @@ void cmp_route(coop_node *n, int from_node, uint32_t src_ip, uint16_t src_port, 
         peer *up = cmp_up(n);
         if (!up) return;
         size_t bl = dg_build(n, src_ip, src_port, dst_ip, dst_port, p, len);
-        if (!n->cfg.tcp_only && n->udp_ok && n->susock != CSOCK_BAD) { send_udp(n, n->susock, &up->c, U_DGRAM, n->token, up->ip, up->udp_port, bl); n->st_udp_tx++; }
-        else if (up->c.x_on) { x_send(n, &up->c, n->token, bl); n->st_udp_tx++; }   // pokopia-recomp extension: relay UDP
+        // pokopia-recomp extension: large datagrams on the link (udp_fits)
+        if (!n->cfg.tcp_only && n->udp_ok && n->susock != CSOCK_BAD && udp_fits(n, bl, 0)) { send_udp(n, n->susock, &up->c, U_DGRAM, n->token, up->ip, up->udp_port, bl); n->st_udp_tx++; }
+        else if (up->c.x_on && udp_fits(n, bl, 1)) { x_send(n, &up->c, n->token, bl); n->st_udp_tx++; }   // pokopia-recomp extension: relay UDP
         else { cmp_send_frame(n, &up->c, M_DGRAM, n->scratch + n->uhdr, bl); n->st_tcp_tx++; }
     }
 }

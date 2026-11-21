@@ -209,6 +209,8 @@ void tick_gives(::Ctx* c) {
     }
 }
 
+}  // namespace
+
 // A give that ran on this process for its own player (a script's, or a reward list's): every other member gets it too.
 void share_give(uint16_t item, uint32_t count) {
     if (st().remote || purchases::replaying() || !link::in_session()) return;
@@ -222,8 +224,6 @@ void share_give(uint16_t item, uint32_t count) {
     }
     NXLOG_I(kTag, "Co-op catch-up: item %u x%u given here, shared", item, total);
 }
-
-}  // namespace
 
 int on_name_entry(::Ctx*) {
     State& s = st();

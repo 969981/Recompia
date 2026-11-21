@@ -122,7 +122,7 @@ What it cannot get past:
 
 With the launcher's relay and this port's build on both ends of a link, the game's packets go over UDP through the relay instead of the TCP
 link, which avoids stalls on lossy connections. With the parent project's relay, or a player of the parent project on the other end, they use the TCP
-link as the parent project does. Either way they are checked end to end by the players: the relay only forwards them. Nothing is encrypted.
+link as the parent project does. A packet too large to cross the internet in one piece (over about 1,200 bytes) always uses the TCP link. Either way they are checked end to end by the players: the relay only forwards them. Nothing is encrypted.
 
 ## Old protocol
 

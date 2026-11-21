@@ -41,6 +41,39 @@
 //               receiver clears them and never gives them back in this co-op run
 //   AreaMusic   +2 u8 the authority's area (stage), +3 u8 that area's quest music there (m_contentsBGM; 0: none), +4 u8 the play flag
 //               of the quest step that set it (1 when not known)   (with every digest; pkp_coop_story.cpp)
+//   ChallengesClaimed +2 u16 count n, then n u16 challenge ids (1..0x4b0) claimed in the authority's save (pkp_coop_money.cpp): a
+//               member on an older build pays itself their coins once; a newer member ignores it (each claims its own at the PC)
+//   StateDigest +2 u8 count n, then n times: u8 domain, u32 hash of the domain's entries, u16 how many entries are set
+//               (the authority's shared state, every kDigestEvery seconds; pkp_coop_digest.cpp: a member compares its own)
+//   StateAsk    +2 u8 domain                               (a member whose digest differed twice asks for the authority's entries)
+//   StateFull   +2 u8 domain, +3 u16 count n, then n times: u32 entry id, u32 its value   (the authority's set entries)
+//   StateReport +2 u8 domain, +3 u16 differing n, +5 u16 count m (m <= n), then m times: u32 entry id, u32 the authority's value,
+//               u32 the member's value                     (a member's differences, so the host's log shows them too)
+//               These four are logging only: a build without them drops them and plays on (no kVersion, no co-op rules change).
+//   BagRecord   +2 u8[16] the member key the bag belongs to, +18 u64 its record's sequence (0: this process has no record), +26
+//               u8[16] the player's user id as the game keeps it (its row in the host's member table), +42 kBagRecordSlots x 16
+//               bytes, the bag's slots (pkp_coop_bags.cpp; each slot's first 8 bytes are 0, its last 8 the game's payload)
+//               (a member's own record, to the authority: at session up, then at each change)
+//   BagRestore  +2 u8[16] member key, +18 u8 1 when the authority has a record for it (0: none, the rest is 0), +19 u64 sequence,
+//               +27 kBagRecordSlots x 16 bytes   (the authority's answer to a member's first BagRecord of a session, or to one older than
+//               its own copy; a member ignores one for another member's key)
+//   StoryRecord +2 u8 record (1 effect commands, 2 town flags, 3 town targets, 4 stage flags, 5 hint groups; another is skipped),
+//               +3 u8 the authority's area (stage), +4 u16 length n (the record's size; another is skipped), n bytes: the record as the
+//               authority's save holds it   (when it changed, and all of them on a join and every so often; pkp_coop_records.cpp)
+//   FriendAsk   +2 u8 kind, +3 u16 the creature's actor handle (kind 1; 0 for 2), +5 u32 its chara (< 0x41a), +9 s16 amount (kind 1,
+//               >= 1; 0 for 2), +11 u16 a record byte (kind 1: the caller's once-gate, 0 none / 0x175 / 0x177 / 0x17d; kind 2: 0x17a)
+//               (kind 1: a member's friendship gain with that creature; kind 2: a member set that friend record flag;
+//               pkp_coop_friendship.cpp)
+//   FriendState +2 u16 count n, then n times: u16 chara (< 0x41a), u16 friendship points (+0x2c), u16 meter (+0x2e), u8 the bytes
+//               +0x175, +0x177, +0x17a, +0x17d   (the authority's friend records that changed, or all set ones to a member that joins)
+//   CreatureEvent +2 u8 event kind (1: talked to, 29: fed), +3 u8 the origin's stage, +4 u16 the creature's data id (1..0x3ff), +6 u16
+//               the kind's argument (kind 1: 0; kind 29: bits 0..12 the item, bit 15 the feed's flag)   (pkp_coop_feed.cpp: a
+//               member's player did it; the authority makes it again for its own creature; a kind it does not post is dropped)
+//   CreatureEvent +2 u8 event kind (1: talked to), +3 u8 the origin's stage, +4 u16 the creature's data id (1..0x3ff), +6 u16 the
+//               kind's argument (kind 1: 0)   (pkp_coop_feed.cpp: a member's player did it; the authority posts it to its contents;
+//               a kind the authority does not post is dropped)
+//   NewcomerAsk +2 u16 the creature's actor handle, +4 u16 its chara (< 0x41a), +6 u8 the origin's stage   (a member's first talk
+//               with a creature no player had befriended; the authority makes the host's befriend for it; pkp_coop_newcomer.cpp)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -65,6 +98,8 @@ constexpr size_t kHeader = 2;
 constexpr size_t kEffectSize = 0x14;
 constexpr size_t kAbilityBytes = 0x20;   // ability ids 0..0xff, one bit each
 constexpr size_t kNameMax = 0x40;
+constexpr size_t kBagRecordSlots = 130;  // a whole bag as the game copies one (layout::kBagWholeSlots)
+constexpr size_t kBagSlotBytes = 16;
 
 enum class Type : uint32_t {
     StoryStates = 1,   // u16 count, then per quest: u16 id, u8 state
@@ -93,6 +128,23 @@ enum class Type : uint32_t {
     UnlockKnown = 23,
     AbilityCleared = 25,
     AreaMusic = 26,
+    ChallengesClaimed = 27,
+    StateDigest = 28,   // the shared-state digests (pkp_coop_digest.cpp), logging only
+    StateAsk = 29,
+    StateFull = 30,
+    StateReport = 31,
+    BagRecord = 32,
+    BagRestore = 33,
+    StoryRecord = 34,   // the story records (pkp_coop_records.cpp)
+    // ---- friendship (pkp_coop_friendship.cpp) ----
+    FriendAsk = 40,
+    FriendState = 41,
+    // the creature events (pkp_coop_feed.cpp); 37 is kept for its next kind of message
+    CreatureEvent = 36,
+    // the group travel (pkp_coop_travel.cpp): u8 the member's player index in the session, u8 the stage
+    TravelAsk = 42,
+    // ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----
+    NewcomerAsk = 38,
 };
 
 // Builds one payload: the header, then the fields in order.
@@ -105,6 +157,7 @@ public:
     }
     Writer& u16(uint16_t v) { return u8(static_cast<uint8_t>(v)).u8(static_cast<uint8_t>(v >> 8)); }
     Writer& u32(uint32_t v) { return u16(static_cast<uint16_t>(v)).u16(static_cast<uint16_t>(v >> 16)); }
+    Writer& u64(uint64_t v) { return u32(static_cast<uint32_t>(v)).u32(static_cast<uint32_t>(v >> 32)); }
     Writer& bytes(const uint8_t* p, size_t n) {
         b_.insert(b_.end(), p, p + n);
         return *this;
@@ -139,6 +192,10 @@ public:
     uint32_t u32() {
         const uint32_t lo = u16();
         return lo | static_cast<uint32_t>(u16()) << 16;
+    }
+    uint64_t u64() {
+        const uint64_t lo = u32();
+        return lo | static_cast<uint64_t>(u32()) << 32;
     }
     void bytes(uint8_t* out, size_t n) {
         if (at_ + n > n_) {

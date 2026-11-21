@@ -36,6 +36,7 @@
 // areas each frame and shares what grew, and all of it every kAllEvery seconds and when it or another member joins.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
+#include "core/pkp_journal.h"
 #include "core/pkp_layout.h"
 
 #include <bitset>
@@ -204,6 +205,13 @@ void apply_played(::Ctx* c, uint64_t root) {
         guest::call(c, base() + kQuestUi, id);
         if (played(root, id)) s.played_seen[id >> 3] |= static_cast<uint8_t>(1u << (id & 7));   // ours now: not sent back as new
         NXLOG_I(kTag, "Co-op events: scene %u from node %u marked played here", id, s.played_origin[id]);
+        const uint64_t gm = guest::rd<uint64_t>(base() + layout::kGameState);
+        journal::Rec(journal::Area::Event, "scene marked")
+            .in("scene=%u from n%u stage=%u", id, s.played_origin[id], gm ? guest::rd<uint8_t>(gm + layout::kStateStage) : 0xffu)
+            .out("marked only: played bit %s, quest UI row set", played(root, id) ? "set" : "NOT set")
+            .expect("played bit set")
+            .ok(played(root, id))
+            .note("the scene's own commands (world effects: doors, collision, objects) did not run here");
     }
 }
 
@@ -354,3 +362,16 @@ void on_member_joined() { st().send_all = true; }
 void reset() { st() = State{}; }
 
 }  // namespace nxrt::games::pkp::coop::events
+
+// The digests' reader (pkp_coop_digest.cpp): the scenes the save has played.
+namespace nxrt::games::pkp::coop::digest {
+
+bool scenes(Entries& out) {
+    const uint64_t root = coop::events::save_root();
+    if (!root) return false;
+    for (uint32_t id = 1; id <= coop::events::kSceneMax; ++id)
+        if (coop::events::played(root, id)) out.push_back({id, 1});
+    return true;
+}
+
+}  // namespace nxrt::games::pkp::coop::digest

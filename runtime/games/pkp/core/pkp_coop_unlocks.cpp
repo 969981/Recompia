@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Game layer: seamless co-op's shared unlocks (pkp_coop_internal.h): the moves and emotes any member learned, the areas the group
-// visited and the buildings it finished, unlocked for every member. The game keeps each of these first-time lists in the player's own
-// save and sets them on one process: a character's reward talk or an event's callback runs on the talker's process alone, an area
-// visit is recorded only when the player is not a Link Play visitor. So the others never learned the move or emote, and a member's
-// save never counted the areas the group went to. Each process shares what grew in its lists (UnlockKnown), and every member gets
-// the union (a member that is behind never takes one away).
+// visited, the buildings it finished and the area gates it opened, unlocked for every member. The game keeps each of these first-time
+// lists in the player's own save and sets them on one process: a character's reward talk or an event's callback runs on the talker's
+// process alone, an area visit is recorded only when the player is not a Link Play visitor. So the others never learned the move or
+// emote, and a member's save never counted the areas the group went to. Each process shares what grew in its lists (UnlockKnown), and
+// every member gets the union (a member that is behind never takes one away).
 //
 // The game, 2.0.1 (modding-docs coop-v2/UNLOCK-LISTS-RE.md). R = save root, `*(main+0x3561930)`; one byte an entry, the bit named:
 //   moves     R + 0x6d82f0 + id * 8, id 1..0x3c   m_pokeSkillHistory +4 bit 0 (learned). kMoveLearn(R + 0x108, id, notice) sets it
@@ -23,12 +23,21 @@
 //                                                the authority's areas are taken.
 //   buildings R + 0x73b1d4 + id, id 0..0x7f       m_buildingHistory bit 0 (built once: the building list shows its picture).
 //                                                kBuildingSet(id, 1) sets it (0 would clear it); no popup.
+//   gates     R + 0x73b1aa + id, id 0..0x1f       m_gateHistory bit 0 (layout::kSaveGateHistory; AREA-GATE-RE.md): an area gate
+//                                                opened. The door's first press opens it and records it (0x7b1040: the gate and its
+//                                                paired gate through the setter 0x5c059c), a press with the bit set enters. The setter
+//                                                refuses while a Link Play session is open, so in a session no gate was ever recorded
+//                                                and every press replayed the opening: on_area_gate_record lets it through. A visitor's
+//                                                getter (0x5c0504) reads the copy R + 0x1718470 + id (kSaveGateMirror), which no game
+//                                                code fills: on a visitor the entry is read there and both bytes are set.
 // The wheels (m_pokeSkillWheelHistory, m_communicationWheelHistory) are the player's own layout, filled by the learns above. The
 // other first-time lists stay per player (the RE notes: tutorials, items, cooking, collections, photo frames and filters).
 // Rules on a receiver: an entry another member has is set here at a safe moment (in the group's world, can walk, talks to no one),
 // kSettle seconds after it arrived and only if its bit is still clear (the game's own path, such as quest effect 2 on every process,
 // wins with its own scene). A few moves or emotes waiting: one a safe moment with the game's own event; more (a join's whole lists):
-// quietly, kApplyPerTick a frame, with one line in the message log. Areas and buildings are always quiet, with that line.
+// quietly, kApplyPerTick a frame, with one line in the message log. Areas, buildings and area gates are always quiet, with that line.
+// An area gate's door that is already loaded keeps its closed box until the next area load (0x7abe60 builds the open one from the
+// bit); its next press enters all the same (0x7b0c50 -> 0x7b0d80).
 // Each process reads its lists each frame and sends what grew, and every list every kAllEvery seconds and when it or another member
 // joins, through the authority.
 #include "core/pkp_coop_internal.h"
@@ -60,7 +69,10 @@ constexpr unsigned kLoudMax = 2;               // at most this many moves and em
 constexpr unsigned kApplyPerTick = 16;
 constexpr size_t kIds = 0x80;                  // every list's ids fit 0..0x7f
 
-enum class Set : uint8_t { Move, Emote, Area, Building };
+// The setter's `tbnz w0, #0` after its session test (0x207b0): w0 bit 0 the session, w20 the gate id (< 0x20, tested before).
+constexpr int kGateSessionReg = 0, kGateIdReg = 20;
+
+enum class Set : uint8_t { Move, Emote, Area, Building, AreaGate };
 
 struct List {
     uint8_t wire_id;                 // UnlockKnown +2
@@ -74,14 +86,19 @@ struct List {
     bool loud;                       // the game has an event for it
     const char* one;
     const char* many;
+    uint64_t visitor_field = 0;      // non-zero: on a Link Play visitor the game reads the entry at R + this + id * stride instead
 };
 constexpr List kLists[] = {
     {1, Set::Move, 0x6d82f0, 8, 0x01, 1, 0x3c, 0x14, 0x18, false, true, "move", "moves"},
     {2, Set::Emote, 0x6d84f4, 1, 0x01, 1, 0x64, 1, 0, false, true, "emote", "emotes"},
     {3, Set::Area, 0x6d7775, 0x34, 0x10, 1, 5, 1, 0, true, false, "area", "areas"},
     {4, Set::Building, 0x73b1d4, 1, 0x01, 0, 0x7f, 1, 0, false, false, "building", "buildings"},
+    {5, Set::AreaGate, layout::kSaveGateHistory, 1, 0x01, 0, layout::kGateCount - 1, 1, 0, false, false, "area gate", "area gates",
+     layout::kSaveGateMirror},
 };
 constexpr size_t kListCount = sizeof kLists / sizeof kLists[0];
+constexpr const List& kGateList = kLists[4];
+static_assert(kGateList.set == Set::AreaGate);
 
 struct ListState {
     std::bitset<kIds> seen;      // per id: set at the last read (and sent, once baseline_sent)
@@ -108,11 +125,19 @@ bool shared(const List& l, uint32_t id) { return id >= l.first && id <= l.last &
 uint64_t save_root() {
     const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
     if (!r) return 0;
-    for (const List& l : kLists)
-        if (!guest::ok(r + l.field, static_cast<uint64_t>(l.last) * l.stride + 1)) return 0;
+    for (const List& l : kLists) {
+        const uint64_t size = static_cast<uint64_t>(l.last) * l.stride + 1;
+        if (!guest::ok(r + l.field, size) || (l.visitor_field && !guest::ok(r + l.visitor_field, size))) return 0;
+    }
     return r;
 }
-bool has(uint64_t root, const List& l, uint32_t id) { return guest::rd<uint8_t>(root + l.field + id * l.stride) & l.bit; }
+// Where the game reads the entry here: the visitor's copy on a Link Play visitor (as 0x376c4 picks), else the own byte.
+uint64_t entry_at(uint64_t root, const List& l, uint32_t id) {
+    const bool visitor = l.visitor_field && (session_bits() & layout::kSessionVisitor);
+    return root + (visitor ? l.visitor_field : l.field) + id * l.stride;
+}
+bool has(uint64_t root, const List& l, uint32_t id) { return guest::rd<uint8_t>(entry_at(root, l, id)) & l.bit; }
+void set_bit(uint64_t at, uint8_t bit) { guest::wr<uint8_t>(at, static_cast<uint8_t>(guest::rd<uint8_t>(at) | bit)); }
 
 bool shared_here() { return (session_bits() & layout::kSessionOnline) && link::in_session(); }
 
@@ -187,13 +212,15 @@ bool set_entry(::Ctx* c, uint64_t root, const List& l, uint32_t id, bool loud) {
         guest::call(c, base() + kEmoteLearn, player, id, 0, loud ? 0u : 1u, 0);
         break;
     }
-    case Set::Area: {   // no setter for another stage (see the header)
-        const uint64_t at = root + l.field + id * l.stride;
-        guest::wr<uint8_t>(at, static_cast<uint8_t>(guest::rd<uint8_t>(at) | l.bit));
+    case Set::Area:   // no setter for another stage (see the header)
+        set_bit(root + l.field + id * l.stride, l.bit);
         break;
-    }
     case Set::Building:
         guest::call(c, base() + kBuildingSet, id, 1);
+        break;
+    case Set::AreaGate:   // the game's setter refuses in a session (see the header); the own byte, and the copy a visitor reads
+        set_bit(root + l.field + id * l.stride, l.bit);
+        set_bit(entry_at(root, l, id), l.bit);
         break;
     }
     return true;
@@ -252,6 +279,15 @@ void apply(::Ctx* c, uint64_t root) {
 
 }  // namespace
 
+int on_area_gate_record(::Ctx* c) {
+    if (!(c->x[kGateSessionReg] & 1)) return 0;   // no session: the game's own write
+    const uint32_t id = static_cast<uint32_t>(c->x[kGateIdReg]) & 0xff;
+    c->x[kGateSessionReg] = 0;                    // the guard lets the write of the own byte through
+    if (const uint64_t root = save_root(); root && id < layout::kGateCount) set_bit(entry_at(root, kGateList, id), kGateList.bit);
+    NXLOG_I(kTag, "Co-op unlocks: area gate %u recorded here in the session", id);
+    return 0;
+}
+
 void on_known_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
     State& s = st();
     const uint8_t list = r.u8();
@@ -301,3 +337,17 @@ void on_member_joined() { st().send_all = true; }
 void reset() { st() = State{}; }
 
 }  // namespace nxrt::games::pkp::coop::unlocks
+
+// The digests' reader (pkp_coop_digest.cpp): every shared list's set ids, as (list << 16) | id.
+namespace nxrt::games::pkp::coop::digest {
+
+bool unlocks(Entries& out) {
+    const uint64_t root = coop::unlocks::save_root();
+    if (!root) return false;
+    for (const coop::unlocks::List& l : coop::unlocks::kLists)
+        for (uint32_t id = l.first; id <= l.last; ++id)
+            if (coop::unlocks::shared(l, id) && coop::unlocks::has(root, l, id)) out.push_back({static_cast<uint32_t>(l.wire_id) << 16 | id, 1});
+    return true;
+}
+
+}  // namespace nxrt::games::pkp::coop::digest

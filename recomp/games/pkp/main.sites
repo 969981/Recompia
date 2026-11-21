@@ -312,11 +312,34 @@ entryhook 0x71005a8a34
 #   Seamless co-op, member bags (pkp_coop_bag.cpp): in the join sync's bag piece 0x71005727c0, the host's (writer's) `ldr x0, [x19, #8]`
 #   right before it writes the found flag [x29 + 0x1c]; cleared there, the joiner keeps its own bag
 midhook 0x71005728b4
+#   Seamless co-op, the bag records (pkp_coop_bags.cpp, pkp_coop_bag.cpp): the host's fill of a joining visitor's working copy of its
+#   bag from the host's per-user table 0x7100575644 (member index; only caller the join step 0x7100542994, state 3 -> 4), the stage
+#   load's clear of the online bag 0x71005afee0, the stage load's and the GameShare end's move of the bag into the PC 0x71005affe0 /
+#   0x71005b0d60 (common block), the host's Cloud Island bag from that table 0x71005b0a60 and its pre-save store into it 0x71005af6a0
+entryhook 0x7100575644
+entryhook 0x71005afee0
+entryhook 0x71005affe0
+entryhook 0x71005b0d60
+entryhook 0x71005b0a60
+entryhook 0x71005af6a0
+#   and in the member's handler of the host's request answers 0x7100226280, the `cbz x0` after the bag selector 0x71002ecc04 in the six
+#   refused-request bag resets (kinds 0xb, 0xf, 0x1a, 0x1d, 0x1e, 0x1f)
+midhook 0x71002288c4
+midhook 0x7100228f38
+midhook 0x710022a298
+midhook 0x71002267fc
+midhook 0x7100226684
+midhook 0x7100226868
 #   Seamless co-op, the shops (pkp_coop_purchases.cpp): a purchase's give 0x7100e889f8 (the shop's buy 0x7100e88868 tail-calls it; on a
 #   visitor the host's answer to its buy, 0x7100226280, calls it), and "this shop row is for offline play only" 0x7100e87260 (the bag
 #   upgrades; its callers, the listing tests 0x7100e86494 / 0x7100e87424, hide such rows whenever the game is online)
 entryhook 0x7100e889f8
 entryhook 0x7100e87260
+#   and the PC menu's "a visitor may open the shop" test 0x7100e8d428 (only caller the PC menu's tile test 0x7100eff7a0, entry 0)
+entryhook 0x7100e8d428
+#   Seamless co-op, Life Coins (pkp_coop_money.cpp): the coins of a claimed challenge 0x7100637480 (CM, id); its callers are the PC's
+#   claim 0x7100645c90 (not on a visitor) and, on a visitor, the host's goal update 0x71006355c0
+entryhook 0x7100637480
 #   Seamless co-op, the discoveries (pkp_coop_discovery.cpp): the "registered in the Pokédex" scene 0x71003b9060 (slot, &actor id; the
 #   talk-end registration 0x71003b88b4 calls it) and the "new habitat" scene 0x710045f2a0 (slot, habitat, placed habitat, flag; the
 #   habitat build 0x7100957588 and 0x71009598c0 call it)
@@ -334,9 +357,103 @@ entryhook 0x7100214954
 #   object, x, y, z, dir; the placement 0x7100593120 calls it right after 0x7100594da0, which on a visitor only sends the placement to
 #   the host)
 entryhook 0x710013596c
+#   Seamless co-op, area gates (pkp_coop_unlocks.cpp): in the gate record's setter 0x71005c059c (w0 gate id; only caller the door's
+#   record 0x71007b1040, for the gate and its paired gate), the `tbnz w0, #0` after IsOnline 0x71000207b0 that skips the write in a
+#   session (w20 the id, already tested < 0x20)
+midhook 0x71005c05c0
 #   Seamless co-op, contents scenes (pkp_coop_contents.cpp): a content record's "play scene" command 0x710012b544 (cmd; scene u16 at
 #   cmd +4), which queues the scene through 0x71002e6ce0 and does not see the queue refuse it
 entryhook 0x710012b544
+#   Seamless co-op, the role answers (pkp_coop_role.cpp): one midhook per row of runtime/games/pkp/core/pkp_coop_role_table.inc, at the
+#   instruction after a `bl` to IsVisitor 0x71000376c4 or IsHost 0x71000a40bc (the getters themselves are not hooked: a thousand and more
+#   call sites each, many every frame), or at the `tbz / tbnz` of an inline read of the session bits (GM+0x90); ascending
+midhook 0x7100016b70
+midhook 0x7100016c44
+midhook 0x7100031c84
+midhook 0x710003f650
+midhook 0x710003f6e0
+midhook 0x710003f7a0
+midhook 0x7100047b9c
+midhook 0x71000485d8
+midhook 0x7100048820
+midhook 0x7100049f90
+midhook 0x710004a028
+midhook 0x710004a0a0
+midhook 0x710004a114
+midhook 0x710004a808
+midhook 0x710004a9c0
+midhook 0x710004a9f0
+midhook 0x710004ab5c
+midhook 0x7100051494
+midhook 0x71000519e4
+midhook 0x71000526a0
+midhook 0x710011418c
+midhook 0x710013a774
+midhook 0x710013a834
+midhook 0x710013a8f4
+midhook 0x710013ae48
+midhook 0x710013af80
+midhook 0x710013b294
+midhook 0x71004c03e4
+midhook 0x71007596cc
+midhook 0x71007fca2c
+midhook 0x71007fd1ac
+midhook 0x71007fd6b0
+midhook 0x71007fe00c
+midhook 0x71007fe450
+midhook 0x710081ce3c
+midhook 0x710081d584
+midhook 0x710081d608
+midhook 0x710081d728
+midhook 0x710081d874
+midhook 0x710081dce8
+midhook 0x710081de30
+midhook 0x710081f270
+midhook 0x710081f290
+midhook 0x7100ab5ad8
+midhook 0x7100fa9e00
+midhook 0x7100faa3d0
+midhook 0x7100faa3e4
+midhook 0x7100faa3f8
+midhook 0x7100fab940
+#   ---- end of the role answers ----
+#   Seamless co-op, creature jobs (pkp_coop_jobs.cpp): in the item-making tick 0x71003b38f0, the `tbz w0, #0` after the actor's
+#   IsMine (vt+0x478) that returns when another member holds the creature (x19 = the job component)
+midhook 0x71003b39a8
+#   Seamless co-op, friendship (pkp_coop_friendship.cpp): every friendship gain with a creature 0x71003a89fc (comp, amount, flag), in
+#   script callback slot 175 0x71004ab268 the `tbz w0, #0` after the Cloud Island test before its friend record flag +0x17a (w19 the
+#   chara), and in the name tag's friendship test 0x71003b7bd8 the `tbz w0, #0` after the Cloud Island test that returns false on a
+#   visitor
+entryhook 0x71003a89fc
+midhook 0x71004ab358
+midhook 0x71003b7cd0
+#   Seamless co-op, challenges (pkp_coop_money.cpp, pkp_coop_challenges.cpp): in the PC's claim 0x7100645c90, the `tbnz w0, #0` after the
+#   visitor test 0x71000376c4 that skips the coins 0x7100637480 on a visitor; in the "buy items" count 0x71006438c0 (callers the shop's
+#   buy 0x7100e88868 and the host's request case 0x710021f38c), the `tbnz w0, #0` after the same test that returns before the pending add
+midhook 0x7100645d18
+midhook 0x7100643938
+#   Seamless co-op, creature events (pkp_coop_feed.cpp): the contents scheduler's "talked to" notice 0x71001355ec (SC, &actor id;
+#   only caller the A press 0x710031347c after a claimed talk), declared below under journal roles; and the "fed" notice 0x7100136548
+#   (SC, &actor id, item; only caller the field feed 0x7100597820, held-item command kind 9's execute)
+entryhook 0x7100136548
+#   only caller the A press 0x710031347c after a claimed talk), declared below under journal roles
+#   Seamless co-op, gimmick ownership (pkp_coop_owner.cpp): the `tbz w0, #0` after a gimmick use posts its press to the contents
+#   (0x7100765b54, or 0x71007659c8 that returns its answer), whose false (a content took it) returns without giving the object back, in class 0x32688e0 0x71007c0be0, 0x3265b20
+#   0x710079cf40, 0x327a3b8 0x7100848860, 0x3265668 0x710079aa80 and 0x326dc98's use 0x71007e77a4 (x19 = the gimmick)
+midhook 0x71007c141c
+midhook 0x710079d558
+midhook 0x7100848eac
+midhook 0x710079b178
+midhook 0x71007e78f4
+#   and the same `tbz w0, #0` in class 0x3268000 0x71007b9460 and its deferred use 0x71007b7860, 0x32762f8 0x710082b4e0,
+#   0x326d7e0 0x71007e3fa0, 0x3271340 0x7100808640, 0x3278b08 0x710083ca20 and the 0x327cf68 classes' use 0x710085e600 (x19 = the gimmick)
+midhook 0x71007b9b0c
+midhook 0x71007b80d0
+midhook 0x710082b8e4
+midhook 0x71007e469c
+midhook 0x7100808d68
+midhook 0x710083d0b0
+midhook 0x710085eae0
 #   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): talk conditions
 #   0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0` after IsOnline), and condition 0x22, the one instruction `b IsOnline`;
 #   the quest pump 0x710011b600 at `tbz w0, #0` after the flag read; the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item
@@ -413,3 +530,167 @@ entryhook 0x7100ead978
 # the set follows where the button sits on the player's pad
 inline 0x7100e77a30
 inline 0x7100e780c0
+
+# ==== the journal's watchers (runtime/games/pkp/core/pkp_journal_*.cpp): read-only hooks; each site is checked on its own ====
+
+# ---- journal events (pkp_journal_events.cpp) ----
+#   Also hooks co-op's 0x710012b544 (play scene) and 0x710047bd00 (chain end), declared above.
+# the event queue's enqueue (x0 queue, w1 slot, x2 record): every talk / scene / event offer, its refusal reason computed at entry
+entryhook 0x710045d5a0
+# a contents script record leaves its trigger list (x0 list, x1 record, w2): a one-shot record is gone for good
+entryhook 0x7100132f00
+# the contents notifier (x0 scheduler, x1 list, w2, w3): the notice kind at scheduler +0x11aae0 and its payload
+entryhook 0x71001353a0
+# event runner state 4 (x0 runner): the end writes of an event (played bit, rows, story bus, notices)
+entryhook 0x710047e140
+# ---- end of journal events ----
+
+# ---- journal talk (pkp_journal_talk.cpp) ----
+# 0x71003180e0, 0x71003181cc, 0x71004c06d8, 0x710047bd00 and the conditions 0x71004cfe20 / 0x71004d4860 / 0x71004d04fc are declared above
+# condition set of a candidate talk row (0x4c8ba0's candidates): entry (w1 slot, w2 set id, x3 &actor id)
+entryhook 0x71004cc1a8
+# its first ldrb w11, [x9, #0xc] (x9 the set record, w10 the key byte)
+midhook 0x71004cc280
+# its cmp w21, #0 after cond B (w21 cond A, w0 cond B)
+midhook 0x71004ccb7c
+# its cmp w21, #0 before the return (w21 the set's result)
+midhook 0x71004ccb88
+# condition set read by the selector stage 0x4be0a4: entry (w1 slot, w2 set id, x3 &actor id)
+entryhook 0x71004cd518
+# its first ldrb w11, [x9, #0x13] (x9 the set record, w10 the key byte)
+midhook 0x71004cd5f0
+# its cmp w21, #0 after cond B
+midhook 0x71004cdeec
+# its cmp w21, #0 before the return
+midhook 0x71004cdef8
+# talk selector stage 2: after each condition call (w19 the id - 1, w0 the result)
+midhook 0x71004c4820
+# ---- end of journal talk ----
+
+# ---- journal roles (pkp_journal_roles.cpp) ----
+# shop buy: `tbnz w0` on IsVisitor's answer, the bought bit skipped on a visitor
+midhook 0x7100e889ac
+# area-visit writer: returns at once on a visitor
+entryhook 0x710062f7e0
+# house arrival (w0 character): refused on a visitor
+entryhook 0x71009bdf50
+# create NPC: a visitor sends RequestCreateNPC instead
+entryhook 0x71002c2480
+# spawn character: a visitor sends a create message instead
+entryhook 0x71002c2e80
+# party NPC: a visitor sends RequestPartyNPC instead
+entryhook 0x7100659588
+# general progress type 3: returns on a visitor before counting
+entryhook 0x710062b3e0
+# general progress type 9: returns on a visitor before counting
+entryhook 0x710062b72c
+# general progress type 0x2d: returns on a visitor before counting
+entryhook 0x710062be5c
+# contents feed (GM+0xd8, &actor id): skipped on a visitor
+entryhook 0x71001355ec
+# ---- end of journal roles ----
+
+# ---- journal quests (pkp_journal_quests.cpp) ----
+#   also hooks 0x71005d865c, 0x71005d8774, 0x710011b214 (entry) and 0x710011b6a4 (mid), declared above for co-op
+#   a story line's step actions 0x710010afc0 (x0 the bus entry, +0 the line; callers 0x710010aaa8 line start, 0x710010b580 step advance)
+entryhook 0x710010afc0
+#   the story bus told a scene ended 0x710010d260 (bus GM+0xd0, w1 scene; caller runner state 4 0x710047e140)
+entryhook 0x710010d260
+#   a closed quest's follow-ups into list C 0x710011c220 (QL, w1 the closed quest; caller the pump 0x710011b600)
+entryhook 0x710011c220
+# ---- end of journal quests ----
+
+# ---- journal items (pkp_journal_items.cpp) ----
+#   No line of its own: every site it watches is declared above (no duplicate lines). The bag / container screen frame 0x7100feee78 and
+#   the cabinet allocator 0x7100776540 (box tabs), the world item pickup 0x71009cdba0 and removal 0x71009cb680 (the retired sites),
+#   the reward list give 0x71003bcbc0 and script give 0x710012c734 (co-op catch-up), the join bag piece midhook 0x71005728b4 (co-op bag)
+# ---- end of journal items ----
+
+# ---- journal interact (pkp_journal_interact.cpp) ----
+# the player's interaction claim: the call of the object's interaction handler (vtable slot 5, kind 4)
+midhook 0x7100313eb4
+# ---- end of journal interact ----
+
+# ---- journal travel (pkp_journal_travel.cpp) ----
+# area-move filer by stage
+entryhook 0x71000bd5a0
+# StageMove sender
+entryhook 0x71000bd84c
+# trip act step (fills the trip request)
+entryhook 0x71000bcde0
+# trip manager: submit a sequence
+entryhook 0x710113b460
+# trip manager: submit a sequence with a parameter
+entryhook 0x710113b490
+# stage loader sequence entry
+entryhook 0x7100241968
+# self-disconnect funnel
+entryhook 0x71005373b8
+# fade out
+entryhook 0x7100a9fcc4
+# fade in
+entryhook 0x7100a9fa34
+# map move end (event callback 0x7b)
+entryhook 0x71004b1b34
+# map poll result (event callback 0x7c)
+entryhook 0x71004a3f60
+# area gates (AREA-GATE-RE): door interact, open test, rank test, gate record, opening event, gate entry
+entryhook 0x71007b0420
+entryhook 0x71007b0f20
+entryhook 0x7100114970
+entryhook 0x71005c059c
+entryhook 0x7100463ae0
+entryhook 0x71007b0d80
+# ---- end of journal travel ----
+
+# ---- journal services (pkp_journal_services*.cpp) ----
+# Sites co-op already declares (0x2159c0, 0x61858c, 0x621be8, 0x619410, 0xe889f8, 0xe87260, 0x1240dc, 0x13596c) are watched without a line here.
+# Link Play's request queue: the receive-side sequence check (q, msg, &sender), the send (q, rec), the host's apply of a talk-end record (q, sender, rec)
+entryhook 0x71002148a0
+entryhook 0x7100214974
+entryhook 0x71002197a0
+# creature work: the talk-end walk (runner), service script callbacks 25 (offer) and 76 (start), the job start (comp, count, item, &user, flag)
+entryhook 0x7100480b60
+entryhook 0x710048fdac
+entryhook 0x71004984a0
+entryhook 0x710034dc64
+# general request state store in 0x628ec0 (`strb w21, [x8, #8]`): own / mirror copies, then the stage-0x11 copy
+midhook 0x7100629004
+midhook 0x71006290ac
+# the shop's stock: get (M, entry) and set (M, entry, n)
+entryhook 0x7100646864
+entryhook 0x7100646ae8
+# the dex setters (creature in w0): bits 0, 1, 2, 3; the habitat's found and scene-shown setters (hab in w0)
+entryhook 0x7100a982b0
+entryhook 0x7100a983d4
+entryhook 0x7100a984e4
+entryhook 0x7100a985c8
+entryhook 0x7100a96f5c
+entryhook 0x7100a9802c
+# recipe learn (player, id, quiet, ..), move learn (R+0x108, id, notice), emote learn (player, id, force, quiet, alt), building set (id, on)
+entryhook 0x71002e7240
+entryhook 0x71003bcca8
+entryhook 0x71002f5860
+entryhook 0x71005c04d4
+# ---- end of journal services ----
+#   Seamless co-op, the ability check (pkp_coop_story.cpp): in 0x7100113f10(id, member), the `tbz w8, #2, 0x7100114048` (w8 = GM+0x90)
+#   of the member-0xff branch, where a visitor goes on to read the host's join-time member record (0x71000b19d8) instead of its own bits
+midhook 0x71001140e8
+#   Seamless co-op, a member's talk gift (pkp_coop_friendship.cpp): in the host's talk-end apply 0x71002197a0, the `and w3, w0, #0x1`
+#   after the Cloud Island test that becomes the gift re-run 0x710046e308's w3 (its friendship part) at 0x710021c484
+midhook 0x710021c46c
+#   Seamless co-op, a newly met creature moving in (pkp_coop_newcomer.cpp): in the talk event's end step 0x7100481e2c, its
+#   `bl 0x71003b9674` (the befriend: x0 = the creature's component, x1 = &own user id), which on a member never reaches the host
+midhook 0x710048235c
+#   Seamless co-op, a shared object a member was using when it left (pkp_coop_gimmicks.cpp): the "member left" step vt+0x228 of the
+#   multi-user classes 0x3262c80 0x710074cc60 and 0x3263160 0x71007568f0 (x0 the object, w1 the member index; from MemberDelete 0x7100535c80
+#   through 0x710077ece0)
+entryhook 0x710074cc60
+entryhook 0x71007568f0
+#   Seamless co-op, a member's later talks with a resident (pkp_coop_talk.cpp): in the talk handler 0x71004c024c, the
+#   `tbz w0, #0, 0x71004c059c` after 0x7100332c80 ("this player is the creature's own"), false on a member for every resident
+midhook 0x71004c0574
+#   Seamless co-op, gimmick ownership, a grant that starts no use (pkp_coop_owner.cpp): in the member's grant reply 0x7100539620, the
+#   `tbz w0, #0` after the grant's data apply (vt+0x2f8; x23 = the gimmick, x19 = the reply), whose false skips the use, and after
+#   which class 0x326dc98 runs none
+midhook 0x7100539b44

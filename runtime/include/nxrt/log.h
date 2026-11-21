@@ -13,12 +13,16 @@ namespace nxrt {
 // frame-time problem needs every microsecond. Nothing defaults to Off: a pre-alpha build wants the log from players.
 enum class LogLevel : int { Off = -1, Error = 0, Warn = 1, Info = 2, Debug = 3, Trace = 4 };
 
+constexpr int kLogKeepMax = 20;   // the most launches LogOptions::keep_launches keeps; older ones up to this are deleted too
+
 struct LogOptions {
     const char* path = nullptr;      // null: "nxrt.log" in the current directory ("" = no file)
     LogLevel level = LogLevel::Info;
     bool to_stderr = true;           // mirror lines at Warn and above to stderr (everything with stderr_all)
     bool stderr_all = false;
-    bool keep_previous = true;       // rename an existing log to <path>.prev first
+    // Launches whose logs are kept, this one included (1..kLogKeepMax; 1 keeps none). An existing log moves to <path>.prev, the one
+    // before to <path>.prev2, and so on up to <path>.prev<keep - 1>; anything older is deleted.
+    int keep_launches = 5;
 };
 
 // Initialise (or re-initialise: closes the old file). Reads NXRT_LOG (path) and NXRT_LOG_LEVEL (error|warn|info|debug|trace
@@ -30,6 +34,7 @@ void log_flush();
 LogLevel log_level();
 bool log_enabled(LogLevel l);          // l <= current level
 const char* log_path();                // path of the file actually open ("" when none)
+double log_elapsed();                  // seconds since log_init: the first number of a line's prefix
 void log_set_thread_name(const char* name);   // copied; shown in the line prefix of this thread
 const char* log_thread_name();
 // Every name given with log_set_thread_name, for a reader on another thread: fn(host thread id, the thread's creation time as GetThreadTimes

@@ -13,9 +13,25 @@ constexpr uint64_t kManagerPlayer = 0x30;        // player manager: the local pl
 constexpr uint64_t kSaveRoot = 0x3561930;        // the save data (the save/options block)
 constexpr uint64_t kSaveStory = 0x4a26a0;         // save root: m_story, the story quest history (the story quest history)
 constexpr uint8_t kQuestDone = 4;                // m_story: a quest's state byte once it is completed
+// save root: the areas' progress (coop-v2 ENVIRONMENT-RE 3, AREA-GATE-RE; m_lastGate and m_playSkitInGateNum are likely, from
+// save_fields.tsv). The getter 0x58042c(stage) reads the mirror on a visitor (0x376c4) and the Cloud Island byte for its stage; the
+// setter is 0x5804ec(stage, level). Gates: setter 0x5c059c(id) sets bit 0 of history+id, but writes nothing while a session is open
+// (0x207b0); getter 0x5c0504(id) reads the visitor mirror on a visitor, else the history.
+constexpr uint64_t kSaveAreaLevel = 0x741494;         // u8[32] m_developmentLevel by stage (this save's own)
+constexpr uint64_t kSaveAreaLevelMax = 0x7414b4;      // u8[32] m_maxDevelopmentLevel by stage
+constexpr uint64_t kSaveAreaLevelMirror = 0x1718490;  // u8[32] the host's levels as a visitor sees them
+constexpr uint64_t kSaveCloudLevel = 0xfd84a7;        // u8 Cloud Island's level
+constexpr uint8_t kCloudStage = 0x11;
+constexpr size_t kAreaStages = 32;
+constexpr size_t kGateHistoryBytes = 32;
+constexpr uint64_t kSaveLastGate = 0x13d3a59;         // u8 STGDAT m_lastGate (the current stage's)
+constexpr uint64_t kSaveSkitInGate = 0x7416d1;        // u8 m_playSkitInGateNum
+constexpr uint64_t kSaveTrainerLevel = 0x4a4400;      // u8 m_trainerLevel (the rank a gate asks for; own save, no visitor copy)
 constexpr uint64_t kGameState = 0x3561710;       // the game state (stage, session)
 constexpr uint64_t kStateStage = 0x18;           // game state: u8, the stage the player is in
 constexpr uint64_t kStateSession = 0x90;         // game state: u8 Link Play session bits (kSession*); 0 offline
+constexpr uint64_t kStateOwnBag = 0x11;          // game state: u8, bit 0 set: the bag selectors 0x2ecc04 / 0x2e70e0 take the offline bag
+                                                 // even in a visit (coop-v2 P0-RE 0x2e70e0)
 constexpr uint8_t kSessionOnline = 0x01, kSessionHost = 0x02, kSessionVisitor = 0x04;
 constexpr uint64_t kInputMgr = 0x3561718;        // the input manager
 constexpr uint64_t kTables = 0x35618f0;          // the data-table manager (the sprite sheet lookups read it too)
@@ -84,6 +100,15 @@ constexpr uint64_t kSavePlayTime = 0x4a5418;     // double: the save's play time
 constexpr uint64_t kSaveCommon = 0x13d4920;      // the common block
 constexpr uint64_t kBagOffline = 0x830;          // common block: the bag's slots while offline (m_useItemInventoryOffline)
 constexpr uint32_t kBagSlots = 120;
+constexpr uint64_t kBagOnline = 0x10;           // common block: the bag's slots in a Link Play visit and on Cloud Island (R+0x13d4930)
+constexpr uint32_t kBagWholeSlots = 130;        // a whole bag: the 120 slots, then inventory kind 4's 10 (bag + 0x780); 0x820 bytes, as
+                                                // the game copies one (its per-user table, the host's visitor mirror)
+constexpr uint64_t kCommonFlags = 0xc074;       // common block: u8; bit 1 set while a second local player (GameShare) has the online bag
+constexpr uint8_t kCommonFlagShare = 2;
+// The host's working copy of each visitor's bag (save root +, kMemberCount whole bags by member table index; its getter 0x5bc840 has
+// none for the index at kOwnMirrorIndex): the host's request checks read and change it.
+constexpr uint64_t kBagMirror = 0x17154a8;
+constexpr uint64_t kOwnMirrorIndex = 0xb3380;   // u8 of **(main + kOwnMemberIndexRef): the member index 0x5bc840 has no mirror for
 constexpr uint64_t kStageContainerStore = 0x13ea9a8; // save root: stage item slots (pkp_items.h)
 constexpr uint64_t kCabinetRecords = 0xa0ee28;   // save root: stage cabinet records (m_gimmickSaveData)
 constexpr uint32_t kCabinetRecordCount = 0x610;
@@ -103,6 +128,10 @@ constexpr uint64_t kHeldItem = 0x3684310;        // per player (stride 0x18): th
 constexpr uint64_t kHeldItemSize = 0x18;
 constexpr uint64_t kStagedBag = 0x3684340;       // per player (stride 0x838): the bag's temp copy while an item is held {data, len, cap, slots}
 constexpr uint64_t kStagedBagSize = 0x838;
+constexpr uint64_t kBagScreenVtable = 0x333ba70; // the vtable pointer the bag / container screen object (UI class 0x8d) holds
+constexpr uint64_t kItemBarRefresh = 0xa8e724;   // (local player slot, 0, 0): the HUD's item bar reads the bag again
+constexpr uint64_t kResourceWaitEnd = 0x46aa6c;  // (): clears the two wait bytes of the object at main+0x35650f8 that a request kind 0xb
+                                                 // reply releases on either answer
 
 // ---- movement component ----
 constexpr uint64_t kController = 0xbc0;          // the movement controller (embedded)
@@ -128,6 +157,9 @@ constexpr uint64_t kLayoutOf = 0x9132fc;         // (source) -> layout
 constexpr uint64_t kChildOf = 0xa6f92c;          // (children (screen + 0x48), element id, u16* class) -> child widget
 constexpr uint64_t kTextString = 0xf35f20;       // (widget, text slot, text id, const char*): a text id with a string argument
 constexpr uint32_t kStringText = 0xa8;           // text id "<string;0(lstr1)>"
+// The role getters as co-op's role answers name them (pkp_coop_role.cpp; kOnline above is IsVisitor under its older name).
+constexpr uint64_t kIsVisitor = 0x376c4;         // () -> GM+0x90 bit 2: a Link Play visitor (0 with no game state)
+constexpr uint64_t kIsHost = 0xa40bc;            // () -> GM+0x90 bit 1: the Link Play host (0 with no game state)
 // The key guide widget's functions, offsets and tables are in pkp_key_guide.cpp, its one user.
 
 // ---- story and characters (read by co-op and its test probe) ----
@@ -151,6 +183,30 @@ constexpr uint64_t kRecipeSize = 6;              // record: +2 u16 the learn ord
 constexpr uint64_t kRecipeFlags = 4;
 constexpr uint8_t kRecipeKnown = 0x02;
 constexpr uint32_t kRecipeMax = 0x5db;          // the learn 0x2e7240 takes id < 0x5dc; its callers test id - 1 <= 0x5da
+// ---- area gates (modding-docs coop-v2/AREA-GATE-RE.md) ----
+// Save root + id: m_gateHistory, bit 0 per gate id 0..kGateCount-1 (opened; the door's second press enters). Setter 0x5c059c refuses
+// whenever a Link Play session is open; getter 0x5c0504 reads kSaveGateMirror + id on a visitor (0x376c4), which no game code fills.
+constexpr uint64_t kSaveGateHistory = 0x73b1aa;
+constexpr uint64_t kSaveGateMirror = 0x1718470;
+constexpr uint32_t kGateCount = 0x20;
+// ---- Life Coins and challenges (town goals; modding-docs coop-v2/MONEY-RE.md) ----
+constexpr uint64_t kSaveMoney = 0x7416ac;        // save root: u32 Life Coins (CMNDAT; getter 0x645ee8, setter 0x645ebc caps it)
+constexpr uint32_t kMoneyMax = 999999;
+constexpr uint64_t kChallengeManager = 0x3565170;   // *(main + this): CM, the challenge manager (a visitor's mirror: CM + id * 0x12)
+constexpr uint64_t kSaveChallenges = 0x6fb0ae;   // save root + id * kChallengeSize: u8 the state of challenge id 1..kChallengeMax,
+                                                 // the player's own (m_challengeStateHistory, CMNDAT; stage 0x11 has its own set)
+constexpr uint64_t kChallengeSize = 0xd8;
+constexpr uint32_t kChallengeMax = 0x4b0;
+constexpr uint8_t kChallengeClaimed = 4;         // 1..2 open, 3 done (to claim), 4 claimed: the coins were paid
+constexpr uint8_t kStageCloudIsland = 0x11;      // kStateStage: Cloud Island (0x77ecb0), whose challenges are its own
+// the per-player claims (pkp_coop_money.cpp): CM + id * kChallengeMirrorSize is a visitor's mirror of challenge id
+constexpr uint8_t kChallengeDone = 3;
+constexpr uint64_t kChallengeMirrorSize = 0x12;
+constexpr uint64_t kMirrorState = 0xc;           // u8 this player's view (the PC's list 0x645f20 offers a claim at 3)
+constexpr uint64_t kMirrorHostState = 0xd;       // u8 the host's own state, as its goal update 0x6355c0 last sent it (@0x635964)
+constexpr uint64_t kChallengeList = 0x18114;     // CM +: u16 ids of the listed challenges (the PC's; the kind 7 raise needs the id here)
+constexpr uint64_t kChallengeListCount = 0x18600;   // CM +: s16 how many
+constexpr int16_t kChallengeListMax = 0x276;
 constexpr uint64_t kCharaStatusRoot = 0x3483b60; // **(main + this): the stage data holding the CharacterStatus records
 constexpr uint64_t kCharaStatus = 0x835af0;      // + chara * kCharaStatusStride: m_position (vec4, w 1.0) at +0x10, m_id (u16, data id) at +0x24
 constexpr uint64_t kCharaStatusStride = 0x30;
@@ -175,5 +231,36 @@ constexpr uint32_t kMemberCount = 4;
 // when it equals the player's index).
 constexpr uint64_t kOwnMemberIndexRef = 0x3484d68, kOwnMemberIndex = 0xb3381;
 constexpr size_t kUserIdSize = 16;
+
+// ---- the story records (pkp_coop_records.cpp; modding-docs coop-v2/role-census/followup/STORY-RECORDS.md) ----
+// Save root +: m_effectCommandSaveData (STGDAT, m_saveStage R+0x7419b0 + 0x2311f0 = R+0x972ba0, serializer 0x5f82ec): its fields
+// m_flags +0x8 .. m_sRealTimer +0x1c4..+0x1eb; +0x0..+0x7 is the field object's vtable pointer, not data.
+constexpr uint64_t kSaveEffectCommands = 0x972ba8;
+constexpr size_t kEffectCommandsBytes = 0x1e4;
+// CMNDAT m_story (R+0x4a26a0) +0x12c m_charaTownFlag and +0xc40 m_targetStageForEnableMoveStage (u8 per chara index, raw 0x400 each),
+// +0x2c m_storyStageUniqueFlag (8 bytes per stage 0..31); the hint-group flags (128 group bits).
+constexpr uint64_t kSaveTownFlags = 0x4a27cc, kSaveTownTargets = 0x4a32e0;
+constexpr size_t kTownRecordBytes = 0x400;
+constexpr uint64_t kSaveStageFlags = 0x4a26cc;
+constexpr size_t kStageFlagsBytes = 0x100;
+constexpr uint64_t kSaveHintGroups = 0x7416bc;
+constexpr size_t kHintGroupsBytes = 0x10;
+// ---- co-op friendship (pkp_coop_friendship.cpp): a creature's 0x180-byte record, per chara (< kFriendCount), save root + ----
+// The own records (a host, offline), a visitor's copy of the host's, Cloud Island's own set; every reader selects on the visitor bit
+// and on Cloud Island (0x3b7708, 0x3b7e48). The once-gates: a gain's caller skips it while its byte is set and sets it after.
+constexpr uint64_t kFriendOwn = 0x120, kFriendHostCopy = 0x14c2d28, kFriendCloud = 0xa516b8, kFriendSize = 0x180;
+constexpr uint32_t kFriendCount = 0x41a;
+constexpr uint64_t kFriendPoints = 0x2c;     // u16, the friendship points (0x31fb00 reads, 0x3bb660 writes)
+constexpr uint64_t kFriendMeter = 0x2e;      // u16, filled at a friendship level-up (0x3bc034), emptied by the reward list
+constexpr uint64_t kFriendGift = 0x175;      // u8 once-gate of a gift's friendship (0x46e308)
+constexpr uint64_t kFriendDaily = 0x177;     // u8 once-gate of the talk / play friendship (0x4aae54 slot 174 and five more callers)
+constexpr uint64_t kFriendFlag17a = 0x17a;   // u8 set by script callback slot 175 (0x4ab268)
+constexpr uint64_t kFriendOnce17d = 0x17d;   // u8 once-gate of 0x3a83a0's friendship (0x3a8954 reads, 0x3a8d44 sets)
+// ---- gimmick ownership (pkp_coop_owner.cpp; modding-docs coop-v2/role-census/build/owner.md) ----
+constexpr uint64_t kOwnIndexOf = 0x25a480;          // () -> u8 this process's member index (NM+0xb3381), the owner byte's value
+constexpr uint64_t kGimmickOwnerApply = 0x538f60;   // (&kind, x, y, z, &idx, take, quiet, slot): an ownership take or release
+constexpr uint64_t kGimmickOwnerMsg = 0x74fd48;     // (msg): builds a SyncGimmickOwnership message
+constexpr uint64_t kSendToHostForced = 0x30c69c;    // (msg): sends a message to the host, past the NM+0xb3348 send gate
+constexpr uint64_t kSendGate = 0x25af7c;            // () -> u8 NM+0xb3348, the gate 0x2cb584 drops a message at
 
 }  // namespace nxrt::games::pkp::layout
