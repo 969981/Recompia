@@ -23,6 +23,7 @@
 #include "nxrt/platform.h"
 #include "nxrt/present_timing.h"
 #include "nxrt/text.h"
+#include "../os/os_android_vkdriver.h"
 #include "vk_gauges.h"
 #include "vk_perf_facts.h"
 #include "extras/temporal.h"
@@ -384,6 +385,14 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
         } else if (volkInitialize() != VK_SUCCESS) {
             return fail("no Vulkan loader found: libvulkan.1.dylib is not next to the executable (install the LunarG Vulkan SDK for macOS, or copy MoltenVK there)");
         }
+#elif defined(__ANDROID__)
+        // [gfx] vulkan_driver_dir: a driver the player installed, behind a private copy of the system loader
+        // (src/os/os_android_vkdriver.cpp). Empty (the default) or not loadable: the system loader, as before.
+        if (void* custom = os::custom_vulkan_gipa()) {
+            volkInitializeCustom(reinterpret_cast<PFN_vkGetInstanceProcAddr>(custom));
+        } else if (volkInitialize() != VK_SUCCESS) {
+            return fail("no Vulkan loader found (libvulkan.so)");
+        }
 #else
         if (volkInitialize() != VK_SUCCESS) return fail("no Vulkan loader found (vulkan-1.dll)");
 #endif
@@ -680,6 +689,13 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     if (x_portability_subset) dev_exts.push_back(kPortabilitySubset);
     features_.external_memory_host = has_dext(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
     if (features_.external_memory_host) dev_exts.push_back(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
+    // Android drivers: guest memory backed by AHardwareBuffers can be imported ([nvn] pool_ahb). Also where the driver offers host-memory
+    // import (Mali): on a Linux kernel the pools take the copy path anyway (nvn_pool_copy.cpp auto_copy), so AHB cells replace shadows there
+    // too. The names are spelled out: their macros live in vulkan_android.h. Desktop drivers offer neither.
+    static constexpr const char* kAhbExt = "VK_ANDROID_external_memory_android_hardware_buffer";
+    static constexpr const char* kForeignExt = "VK_EXT_queue_family_foreign";
+    features_.ahb_import = has_dext(kAhbExt) && has_dext(kForeignExt);
+    if (features_.ahb_import) { dev_exts.push_back(kAhbExt); dev_exts.push_back(kForeignExt); }
     if (has_dext(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME)) { dev_exts.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME); features_.push_descriptor = true; }
     // device-lost diagnostics (report_lost): checkpoints before each dispatch (`dispatch`, the default) or each dispatch and draw (`all`);
     // `off` leaves the extension off (NVIDIA's driver may track checkpoints once it is enabled). The fault report is on whenever offered.
@@ -717,6 +733,9 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     features_.dual_src_blend = af.dualSrcBlend;
     features_.logic_op = af.logicOp;
     features_.multi_viewport = af.multiViewport;
+    features_.shader_clip_distance = af.shaderClipDistance;
+    features_.shader_cull_distance = af.shaderCullDistance;
+    features_.vertex_pipeline_stores = af.vertexPipelineStoresAndAtomics;
     features_.depth_bounds = af.depthBounds;
     features_.depth_bias_clamp = af.depthBiasClamp;
     features_.wide_lines = af.wideLines;
@@ -848,6 +867,11 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     aci.instance = instance_;
     aci.vulkanApiVersion = VK_API_VERSION_1_3;
     aci.pVulkanFunctions = &vf;
+    // [gfx] vma_block_mb (0 = VMA's default, 256 MiB blocks on a large heap): the size of VMA's shared blocks. On a phone (a device that
+    // imports AHardwareBuffers, features_.ahb_import) the default is 64: freed images left ~300 MiB of empty space in 256 MiB blocks, and
+    // that is RAM nothing else can use (measured on a phone: 1280 MiB of blocks for ~980 MiB of allocations).
+    const int64_t vma_block_mb = std::clamp<int64_t>(config_get_int("gfx", "vma_block_mb", features_.ahb_import ? 64 : 0), 0, 1024);
+    aci.preferredLargeHeapBlockSize = static_cast<VkDeviceSize>(vma_block_mb) << 20;
     r = vmaCreateAllocator(&aci, &vma_);
     if (r != VK_SUCCESS) return fail("vmaCreateAllocator failed (" + std::to_string(r) + ")");
     register_vma_gauges(vma_, props_.deviceType);
@@ -1275,6 +1299,17 @@ void Device::flush_buffer(const Buffer& b) {
 
 void Device::invalidate_buffer(const Buffer& b) {
     if (b.allocation) vmaInvalidateAllocation(vma_, b.allocation, 0, VK_WHOLE_SIZE);
+}
+
+// The window's native surface was replaced (Android: back from the background, the old ANativeWindow is abandoned). The new surface is
+// made first, so a failure keeps the old handle valid.
+bool Device::replace_surface() {
+    if (!surface_ || !owns_platform_surface_) return false;
+    uint64_t s = 0;
+    if (!platform::create_vulkan_surface(instance_, &s)) return false;
+    platform::destroy_vulkan_surface(instance_, reinterpret_cast<uint64_t>(surface_));
+    surface_ = reinterpret_cast<VkSurfaceKHR>(s);
+    return true;
 }
 
 // ---- one-shot submit, idle, stats -------------------------------------------------------------------------------------

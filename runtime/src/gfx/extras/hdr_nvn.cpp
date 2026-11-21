@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "extras/hdr_nvn.h"
 
+#include <algorithm>
 #include <mutex>
 #include <map>
 #include <set>
 
+#include "nxrt/config.h"
 #include "nxrt/extras.h"
+#include "nxrt/host_device.h"
 #include "nxrt/game.h"
 #include "nxrt/game_render.h"
 #include "nxrt/log.h"
@@ -92,12 +95,35 @@ bool scene_upscale_wanted() {
     return m == UpscaleMode::Fsr1 || m == UpscaleMode::Nis || m == UpscaleMode::Nearest;
 }
 
-bool is_scene_stretch(const std::string& hash) {
-    static const char* const shader = [] {
-        const game::Render* gr = game::info().render;
-        return gr && gr->scene_stretch ? gr->scene_stretch->shader : nullptr;
-    }();
-    return shader && hash == shader;
+int is_scene_stretch(const std::string& hash) {
+    const game::Render* gr = game::info().render;
+    if (!gr || !gr->scene_stretch) return 0;
+    for (uint32_t i = 0; i < gr->scene_stretch_count; ++i) {
+        const game::SceneStretch& s = gr->scene_stretch[i];
+        if (s.shader && hash == s.shader) return s.into_window ? 2 : 1;
+    }
+    return 0;
+}
+
+// The default on a phone (0 = off).
+constexpr double kPhoneSceneSharpen = 0.0;
+
+float scene_sharpen() {
+    static const float v = static_cast<float>(std::clamp(config_get_double("gfx", "scene_sharpen", host_is_phone() ? kPhoneSceneSharpen : 0.0), 0.0, 1.0));
+    return v;
+}
+
+Fsr1Spatial* scene_sharpener(void* gfx_device) {
+    static Fsr1Spatial* fsr = nullptr;
+    static bool tried = false;
+    if (!gfx_device) return nullptr;
+    if (!tried) {
+        tried = true;
+        auto* f = new Fsr1Spatial();
+        if (f->init(*static_cast<gfx::Device*>(gfx_device))) fsr = f;
+        else delete f;
+    }
+    return fsr;
 }
 
 SpatialUpscaler* scene_upscaler(void* gfx_device, VkExtent2D in, VkExtent2D out) {

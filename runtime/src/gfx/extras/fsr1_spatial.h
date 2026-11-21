@@ -30,6 +30,10 @@ public:
     // fragment shaders; the view stays valid until the next call that changes `out`. Null on failure.
     VkImageView upscale(VkCommandBuffer cb, VkImageView src, VkExtent2D in_view, VkExtent2D in_tex, VkExtent2D out, bool linear_hdr, float prescale, float sharpness,
                         VkExtent2D out_tex = {}) override;
+    // A cheap scene sharpen ([gfx] scene_sharpen): a bilinear enlarge of src (in TRANSFER_SRC_OPTIMAL; in_view from texel 0, 0) to out
+    // by a blit, then RCAS (linear_hdr and prescale as in upscale). Same result contract as upscale. About a quarter of EASU's cost.
+    VkImageView sharpen_enlarged(VkCommandBuffer cb, VkImage src, VkExtent2D in_view, VkExtent2D out, bool linear_hdr, float prescale, float sharpness,
+                                 VkExtent2D out_tex = {});
     uint32_t frames() const { return frames_; }
 
     static constexpr uint32_t kSetRing = 16;
@@ -41,6 +45,7 @@ private:
         bool initialised = false;
     };
     bool ensure_target(Target& t, VkExtent2D e, const char* name);
+    void rcas_pass(VkCommandBuffer cb, float perceptual, VkExtent2D out, float prescale, float sharpness);
     void free_target(Target& t);
 
     gfx::Device* dev_ = nullptr;

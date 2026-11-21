@@ -8,6 +8,7 @@
 
 #include "nxrt/extras.h"
 #include "nxrt/log.h"
+#include "nxrt/platform_facts.h"
 #include "vk_gauges.h"
 
 namespace nxrt::nvn::be {
@@ -229,7 +230,9 @@ void PresentPass::record(VkCommandBuffer cb, VkImageView dst_view, VkExtent2D ds
     VkRenderingAttachmentInfo att = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     att.imageView = dst_view;
     att.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    att.loadOp = keep_aspect ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    // A phone (facts::kPhone): DONT_CARE always, the full-screen draw writes every pixel, the bars too (opaque black in the shader), and a
+    // tile GPU then skips loading the image. Desktop keeps the clear with bars.
+    att.loadOp = (!facts::kPhone && keep_aspect) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     att.clearValue.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
     VkRenderingInfo ri = {VK_STRUCTURE_TYPE_RENDERING_INFO};

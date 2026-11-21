@@ -40,6 +40,7 @@ constexpr double kLongMs = 250.0;           // longer frames are hitches, not a 
 constexpr size_t kRing = 256;               // frames whose class GPU times can still look up (GPU times come ~3 frames late)
 constexpr double kBoundShare = 0.80;
 constexpr double kGpuWaitShare = 0.20;
+constexpr double kLoadShare = 0.70;         // the kernel's GPU busy share (perf_gpu_load, no GPU timing): a sampled utilisation, not a per-frame time
 constexpr double kSampleStreakS = 30.0;     // GPU-bound under kSampleFps this long before a pass sample
 constexpr double kSampleFps = 55.0;
 constexpr double kSampleGapS = 120.0;
@@ -139,7 +140,7 @@ struct Means {
     Verdict verdict = kPaced;
 };
 
-Means means_of(const CountersT<uint64_t>& d, const uint32_t* hist, bool gpu) {
+Means means_of(const CountersT<uint64_t>& d, const uint32_t* hist, bool gpu, double load) {   // load: kernel GPU busy 0..1, < 0 unknown
     Means m;
     m.free = d.frames[kFree];
     if (!m.free) return m;
@@ -158,6 +159,7 @@ Means means_of(const CountersT<uint64_t>& d, const uint32_t* hist, bool gpu) {
     if (gpu && m.gpu_ms >= kBoundShare * m.frame_ms) m.verdict = kGpu;
     else if (m.render_ms >= kBoundShare * m.frame_ms) m.verdict = kRender;
     else if (m.game_ms >= kBoundShare * m.frame_ms) m.verdict = kGame;
+    else if (!gpu && load >= kLoadShare) m.verdict = kGpu;
     else if (!gpu && m.gpuwait_ms >= kGpuWaitShare * m.frame_ms) m.verdict = kGpu;
     else m.verdict = kPaced;
     return m;
@@ -248,7 +250,7 @@ void session_end() {
             all[i] = r.hist[i].load(std::memory_order_relaxed);
             h[i] = all[i] - r.snap_hist[i];
         }
-        const Means m = means_of(minus(cur, r.snap), h, r.gpu_timing.load(std::memory_order_relaxed));
+        const Means m = means_of(minus(cur, r.snap), h, r.gpu_timing.load(std::memory_order_relaxed), -1.0);   // session end: no load sample
         if (m.free) r.verdict_frames[m.verdict] += m.free;
     }
     const uint64_t nfree = cur.frames[kFree];
@@ -325,12 +327,15 @@ void perf_tick(double period_s) {
     }
     r.snap = cur;
     const bool gpu = r.gpu_timing.load(std::memory_order_relaxed);
-    const Means m = means_of(d, h, gpu);
+    diag::GpuLoad load;
+    const bool have_load = !gpu && diag::perf_gpu_load(&load);
+    const Means m = means_of(d, h, gpu, have_load ? load.busy : -1.0);
     uint64_t total = 0;
     for (uint64_t f : d.frames) total += f;
     if (!total) return;     // nothing presented: the hitch line says so
     char gpu_txt[48];
     if (gpu) std::snprintf(gpu_txt, sizeof gpu_txt, "%.1f ms", m.gpu_ms);
+    else if (have_load) std::snprintf(gpu_txt, sizeof gpu_txt, "%.0f%% at %d of %d MHz (kernel)", load.busy * 100.0, load.mhz, load.max_mhz);
     else std::snprintf(gpu_txt, sizeof gpu_txt, "n/a");
     if (m.free) {
         r.verdict_frames[m.verdict] += m.free;

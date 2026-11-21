@@ -100,6 +100,9 @@ if(NXRT_WINDOWS)
     list(FILTER NXRT_SOURCES EXCLUDE REGEX "/src/services/audio_sdl3\\.cpp$")
 else()
     list(FILTER NXRT_SOURCES EXCLUDE REGEX "/src/os/os_win32\\.cpp$")
+    if(NOT ANDROID)
+        list(FILTER NXRT_SOURCES EXCLUDE REGEX "/src/os/os_android_[^/]*\\.cpp$")   # player-installed GPU drivers: Android only
+    endif()
     # Subsystems built on a Windows-only SDK. Each has a POSIX counterpart on the milestone list in
     # docs/macos-port.md: Media Foundation movies (AVFoundation) and the XAudio2 sink (CoreAudio) are M3.
     list(FILTER NXRT_SOURCES EXCLUDE REGEX "/src/media/movie_mf\\.cpp$")
@@ -160,7 +163,8 @@ if(NOT NXRT_WINDOWS)
                                           "-framework AudioToolbox" "-framework AudioUnit" "-framework CoreAudio")
     elseif(NXRT_ANDROID)
         # bionic has pthreads in libc and no libpthread to link.
-        target_link_libraries(nxrt PUBLIC ${CMAKE_DL_LIBS})
+        # nativewindow: AHardwareBuffer (src/os/os_android_ahb.cpp, [nvn] pool_ahb); android: the thermal API (src/os/os_android_thermal.cpp)
+        target_link_libraries(nxrt PUBLIC ${CMAKE_DL_LIBS} nativewindow android)
         # The Windows sources name their import libraries with #pragma comment(lib, ...); clang turns that into an ELF .deplibs
         # entry, which lld (unlike GNU ld, and unlike Apple's linker) tries to resolve. They mean nothing off Windows.
         target_link_options(nxrt PUBLIC "-Wl,--no-dependent-libraries")
@@ -222,6 +226,7 @@ include(cmake/media_deps.cmake)   # libvpx for the Switch 2 video decoders (opti
 
 if(NXRT_BUILD_GFX)
     include(cmake/gfx.cmake)
+    include(cmake/android_vkdriver.cmake)   # Android: libadrenotools for [gfx] vulkan_driver_dir (src/os/os_android_vkdriver.cpp)
 endif()
 if(NXRT_LINUX AND TARGET "${NXRT_SDL3}")
     # The Linux audio sink and output-device list (src/services/audio_sdl3.cpp) go through SDL3, which dlopen()s ALSA,

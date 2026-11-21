@@ -88,7 +88,9 @@ static void set_viewports_and_scissors() {
     VkCommandBuffer cb = F->cb;
     VkViewport vp[16];
     VkRect2D sc[16];
-    const uint32_t nvp = S.nvp ? S.nvp : 1;
+    // at most the device's viewports: without multiViewport (Mali: maxViewports 1) a count above 1 is invalid; the translated shaders never
+    // write ViewportIndex, so every primitive goes to viewport 0 anyway (16 everywhere else, the most S.nvp holds)
+    const uint32_t nvp = std::min<uint32_t>(S.nvp ? S.nvp : 1, device().properties().limits.maxViewports);
     for (uint32_t i = 0; i < nvp; ++i) {
         float x = S.vp[i][0], y = S.vp[i][1], w = S.vp[i][2], h = S.vp[i][3];
         if (!S.nvp) { x = 0; y = 0; w = static_cast<float>(P.extent.width); h = static_cast<float>(P.extent.height); }
@@ -405,6 +407,20 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     } else {
         g_gen_tcs = nullptr;
     }
+    // A GPU without vertexPipelineStoresAndAtomics (Mali) cannot build a pipeline whose vertex, tessellation or geometry shader writes a
+    // storage buffer or image: such a draw is skipped there, and what reads that buffer finds its previous content. This relies on those
+    // shaders being store-only passes that rasterize nothing visible.
+    if (!device().features().vertex_pipeline_stores) {
+        for (const ShaderInfo* st : {vs, S.stage[kTessCtl], S.stage[kTessEval], S.stage[kGeometry]}) {
+            if (!st) continue;
+            for (const DescriptorBinding& b : st->refl.bindings)
+                if (b.used && (b.type == DescriptorType::StorageImage || b.type == DescriptorType::StorageTexelBuffer ||
+                               (b.type == DescriptorType::StorageBuffer && b.may_write))) {
+                    note_unsupported("vertex pipeline store: the GPU has no vertexPipelineStoresAndAtomics, the draw is skipped");
+                    return false;
+                }
+        }
+    }
     // The layout depends on the stages only: they change with BindProgram (kPipe) and the generated control shader (kPipe above);
     // begin_submit and the full resets set kPipe too. kDesc alone (a new binding) keeps the same layout.
     if (g_cmd.dirty & kPipe) {
@@ -425,6 +441,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
         attach_targets(false);
         g_cmd.want_depth_ro = samples_depth_target(*pl);
         prepare_textures(*pl);
+        prepare_texel_buffers(*pl);
         if (g_trace) trace_dump_raw(*pl);
         // tonemap_for_draw acts only on a tone-map draw into a colour target, scene_stretch_for_draw only on the game's scene stretch
         // shader; every other draw clears the override. Whether the fragment shader is one of them is asked once per bound program
@@ -434,12 +451,19 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
         if (colour && g_cmd.fs_tonemap < 0) g_cmd.fs_tonemap = extras::hdr_is_tonemap(fs->hash, [fs] { return shader_words(fs); }) ? 1 : 0;
         if (colour && g_cmd.fs_stretch < 0) g_cmd.fs_stretch = extras::is_scene_stretch(fs->hash) ? 1 : 0;
         if (colour && g_cmd.fs_tonemap > 0) tonemap_for_draw(*pl);
+        else if (colour && g_cmd.fs_stretch == 2) scene_sharpen_for_draw(*pl);
         else if (colour && g_cmd.fs_stretch > 0) scene_stretch_for_draw(*pl);
         else g_su.clear();
     }
     if (g_copies.fb_seen || (g_cmd.dirty & (kDesc | kPipe))) feedback_prepare(*pl);
     bool pass_ok;
-    { RpScope rp_(kRpPass); pass_ok = ensure_pass(g_cmd.want_depth_ro, g_copies.fbl_want); }
+    // [nvn] depth_ro_keep: a draw that writes neither depth nor stencil runs in an open pass whose depth is read-only instead of ending
+    // it for the writable layout. Draws that sample depth (read-only) alternating with draws that only test it otherwise cost a pass
+    // break and a barrier at each switch.
+    static const bool keep_ro = nxrt::config_get_bool("nvn", "depth_ro_keep", false);
+    const bool want_ro = g_cmd.want_depth_ro ||
+                         (keep_ro && P.open && P.depth_ro && (!S.ds.depth_test || !S.ds.depth_write) && !S.ds.stencil_test);
+    { RpScope rp_(kRpPass); pass_ok = ensure_pass(want_ro, g_copies.fbl_want); }
     if (!pass_ok) { log_once(kOnceDrawNoTarget, "draw without a usable render target skipped"); return false; }
     if (ui_skip_draw(vs)) return false;   // after the pass is begun, so its clears and loads still happen (nxrt/ui_layer.h)
     if (g_cmd.prog_writes || g_xfb.active) g_bar.pass_unsafe = true;

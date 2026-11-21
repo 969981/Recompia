@@ -1139,6 +1139,11 @@ HRESULT CoCreateInstance(REFCLSID clsid, void* outer, DWORD clsctx, REFIID iid, 
 std::string nxos_utf8(const char* s);
 std::string nxos_utf8(const wchar_t* s);
 
+// The folder a program keeps its per-user data in, without a trailing separator: $HOME/Library/Application Support on macOS and
+// Linux (".", not "", when HOME is unset); on Android the working directory, which is the game folder the runtime was started in
+// (--game), because an app's private storage is out of the player's reach. The services' save folder default builds on it.
+std::string nxos_app_data_dir();
+
 NX_OS_INLINE HANDLE CreateFileW(LPCWSTR p, DWORD a, DWORD sh, void* sa, DWORD d, DWORD f, HANDLE t) {
     (void)t;
     return nxos_create_file(nxos_utf8(p).c_str(), a, sh, sa, d, f);

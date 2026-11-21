@@ -7,6 +7,9 @@
 
 #include <imgui_internal.h>   // RegisterUserTexture, UnregisterUserTexture
 
+#include "../diag/perf_system.h"
+#include "../os/os_android_thermal.h"
+
 namespace nxrt::gfx {
 using namespace overlay_detail;
 
@@ -26,6 +29,49 @@ void Overlay::set_counter(const CounterConfig& c) {
     s.counter_show.store(c.show, std::memory_order_relaxed);   // last: the other settings are in place when it turns on
 }
 
+// Counter detail Full, on a phone: line 1 is Android's thermal status as a word (neutral up to light, amber for moderate and severe, red from critical
+// on), then each real temperature that can be read, named by its sensor (the skin sensor, else the thermal headroom, which is not a
+// temperature; the battery). Line 2 is load against limit: GPU busy and its clock cap (kgsl, diag::perf_gpu_load), this process's CPU
+// use in cores and the fastest core's clock cap. Caps are shown in MHz / GHz, not as a share of a maximum: the hardware list's top
+// entry is often above what the phone ever allows even when cool. Nothing where the OS gives no reading (every desktop).
+void Overlay::Impl::refresh_thermal_text(double now_s) {
+    if (now_s - thermal_s < 1.0) return;
+    thermal_s = now_s;
+    thermal_lines[0].clear();
+    thermal_lines[1].clear();
+    os::thermal::Reading r;
+    if (!os::thermal::read(&r)) return;
+    static constexpr const char* kWords[] = {"cool", "warm", "hot", "very hot", "critical", "emergency", "shutdown"};
+    static constexpr const char* kDegC = "\xC2\xB0" "C";   // the default font has U+00B0
+    char buf[64];
+    std::string& heat = thermal_lines[0];
+    if (r.status >= 0) {
+        std::snprintf(buf, sizeof buf, "Heat: %s (%d)", kWords[std::min(r.status, 6)], r.status);
+        heat = buf;
+        thermal_color = r.status >= 4 ? IM_COL32(255, 90, 80, 255) : r.status >= 2 ? IM_COL32(255, 190, 60, 255) : IM_COL32(255, 255, 255, 255);
+    } else {
+        heat = "Heat:";
+        thermal_color = IM_COL32(255, 255, 255, 255);
+    }
+    if (!std::isnan(r.skin_c)) { std::snprintf(buf, sizeof buf, "  skin %.1f%s", r.skin_c, kDegC); heat += buf; }
+    else if (r.headroom >= 0) { std::snprintf(buf, sizeof buf, "  %.0f%% of severe", r.headroom * 100.f); heat += buf; }
+    if (!std::isnan(r.battery_c)) { std::snprintf(buf, sizeof buf, "  batt %.1f%s", r.battery_c, kDegC); heat += buf; }
+    if (heat == "Heat:") heat.clear();
+    std::string& load = thermal_lines[1];
+    diag::GpuLoad g;
+    if (diag::perf_gpu_load(&g)) {
+        std::snprintf(buf, sizeof buf, "GPU %.0f%%", g.busy * 100.0);
+        load = buf;
+        if (g.max_mhz > 0) { std::snprintf(buf, sizeof buf, ", cap %d MHz", g.max_mhz); load += buf; }
+    }
+    if (r.cpu_cores >= 0 || r.cpu_cap_mhz > 0) {
+        if (!load.empty()) load += "  ";
+        load += "CPU";
+        if (r.cpu_cores >= 0) { std::snprintf(buf, sizeof buf, " %.1f cores", r.cpu_cores); load += buf; }
+        if (r.cpu_cap_mhz > 0) { std::snprintf(buf, sizeof buf, "%s cap %.2f GHz", r.cpu_cores >= 0 ? "," : "", r.cpu_cap_mhz / 1000.0); load += buf; }
+    }
+}
+
 void Overlay::Impl::refresh_counter_text(double now_s) {
     if (now_s - text_s < 0.25) return;    // the text is rebuilt at most every 250 ms
     text_s = now_s;
@@ -33,6 +79,7 @@ void Overlay::Impl::refresh_counter_text(double now_s) {
     const int detail = counter_detail.load(std::memory_order_relaxed);
     char buf[64];
     counter_n = 0;
+    std::fill(std::begin(counter_colors), std::end(counter_colors), IM_COL32(255, 255, 255, 255));
     if (snap.valid) std::snprintf(buf, sizeof buf, "%.0f FPS", snap.fps);
     else std::snprintf(buf, sizeof buf, "-- FPS");
     counter_lines[counter_n++] = buf;
@@ -48,6 +95,12 @@ void Overlay::Impl::refresh_counter_text(double now_s) {
         if (snap.valid) std::snprintf(buf, sizeof buf, "max %.1f ms", snap.max_ms);
         else std::snprintf(buf, sizeof buf, "max -- ms");
         counter_lines[counter_n++] = buf;
+        refresh_thermal_text(now_s);
+        if (!thermal_lines[0].empty()) {
+            counter_colors[counter_n] = thermal_color;
+            counter_lines[counter_n++] = thermal_lines[0];
+        }
+        if (!thermal_lines[1].empty()) counter_lines[counter_n++] = thermal_lines[1];
     }
 }
 
@@ -60,7 +113,7 @@ void Overlay::Impl::draw_counter(const FrameInfo& f, double now_s) {
     const float gap = size * 0.15f;
     const float margin = size * 0.8f;
     const int n = counter_n;
-    float lines_w[4] = {};
+    float lines_w[6] = {};
     float line_h = 0, text_w = 0;
     for (int i = 0; i < n; ++i) {
         const ImVec2 sz = font->CalcTextSizeA(size, FLT_MAX, 0.0f, counter_lines[i].c_str());
@@ -82,7 +135,7 @@ void Overlay::Impl::draw_counter(const FrameInfo& f, double now_s) {
     for (int i = 0; i < n; ++i) {
         const float x = right ? x0 + box_w - pad - lines_w[i] : x0 + pad;
         const float y = y0 + pad + static_cast<float>(i) * (line_h + gap);
-        dl->AddText(font, size, ImVec2(x, y), IM_COL32(255, 255, 255, 255), counter_lines[i].c_str());
+        dl->AddText(font, size, ImVec2(x, y), counter_colors[i], counter_lines[i].c_str());
     }
 }
 

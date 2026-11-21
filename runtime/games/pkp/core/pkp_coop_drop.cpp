@@ -34,10 +34,21 @@
 //     ends the wait for everyone (the world runs on). A member that stops hearing the authority for kSilence lets go by itself.
 //   After kLimit the authority gives up: the others play on without the dropped player (it can still join later, as anyone can).
 //
-// The host's drop. A member's session ends without DropClosing: it is the same to it as its own drop, and it is handled the same way
-// (the game's trip home, which keeps the member's own world and save; the bag record is its own file, pkp_coop_bags.cpp), with the
-// plain end message. A member held in the host's dead world could not join a new session (the session bits stay set there, see
-// below), so holding it there would only delay its way back.
+// A member never plays outside the group (owner rule: the group's world is one; a member alone in its own copy of it is a world that
+// cannot exist). So a member's game closes whenever its session ended and it is not back in one:
+//   - its own Save and Quit, and the host's Save and Quit that closes the session for everyone: the game's trip home runs (it is the
+//     path that ends the session cleanly and makes the game's arrival save, which keeps the player's own data: CMNDAT; the world
+//     files are held, pkp_coop_savecopy.cpp), then the process ends;
+//   - a session lost without either (the host's drop or this member's own: a member cannot tell them apart): the trip home runs as
+//     well (the one path that clears the game's session bits, below), then the session part searches (pkp_coop_session.cpp). It
+//     finds the host's session: this member's own drop, it joins again and the group, which waits for it, plays on. kNoHost
+//     searches in a row find none (the host dropped, or this PC's network is still down), or kRejoin passes without a session: the
+//     process ends. The host dropped: every member's game closes this way.
+//   While a close is decided the session part starts no search (closing()): its Save and Quit would otherwise join the host again.
+//   The process ends once nothing is in flight (the trip record idle, no save running, the player able to walk, all for kCloseSettle),
+//   or kCloseMax after it was due. The bag record and the copies' stamps are written at the session's end (their own parts), before
+//   that. A player who wants back in starts co-op again from the launcher. The authority's game is never closed here: it holds the
+//   group's world, and the members join it again.
 //
 // The dropped process. Its own session is gone (the channel leaves on it at once: the ldn station loses the network), and a member
 // cannot tell its own drop from the host's. Its game handles that as before: error 3103 (0x80401103, KTGL SESSIONP2P_NETWORK_LOST;
@@ -45,9 +56,9 @@
 // kind 4, a reload of its stage). That trip is kept: it is the one path that clears the game's session bits (GM+0x90 stays 05 until
 // the trip's stage entry, work/droprig peeks), and only with them clear does pkp_coop_session.cpp search and join again, the normal
 // join that gives the bag back (pkp_coop_bags.cpp) and catches the player up. So nobody waits on the dropped process: for kLimit it
-// says it is rejoining, with a countdown on its own clock (it hears no one), and error 3103 is held back (its applet shows nothing on
-// PC, the log keeps it). At the end without a rejoin it says so in plain words; the session part keeps trying, so the player is in a
-// state from which the group can be joined again. On a process that still has the session the game's drop check does not file
+// says it is rejoining, with a countdown on its own clock (it hears no one; a member kRejoin, the authority kLimit), and error 3103 is
+// held back (its applet shows nothing on PC, the log keeps it). At the end without a rejoin a member's game closes (above); the
+// authority says so in plain words and plays on, its session part still open to joins. On a process that still has the session the game's drop check does not file
 // anything (0xbca8c is entered every frame the trip record is idle, from 0xbaf54's tail call; its own tests decide, so it is not
 // hooked: this process's own channel leave is what ends a wait here).
 //
@@ -84,6 +95,7 @@
 #include "nxrt/input_source.h"
 #include "nxrt/log.h"
 #include "nxrt/notices.h"
+#include "nxrt/play.h"
 #include "nxrt/qpc.h"
 
 namespace nxrt::games::pkp::coop::drop {
@@ -101,7 +113,12 @@ constexpr double kNoticeSeconds = 2.5, kNoticeEvery = 1.0;
 constexpr double kLogEvery = 30.0;      // the countdown in the log
 constexpr double kArrivalMax = 60.0;    // a node that joined during a wait runs the world this long at most until it is in
 constexpr double kFiledMax = 3.0;       // a leave or close filed whose trip has not started by then was refused
+constexpr double kRejoin = 90.0;        // a member that lost its session has this long at most to be back in one before its game closes
+constexpr unsigned kNoHost = 2;         // ... and closes at once after this many searches in a row that found no session
+constexpr double kCloseSettle = 3.0;    // a member's game closes once nothing was in flight for this long
+constexpr double kCloseMax = 45.0;      // ... or this long after the close was due, whatever is in flight
 constexpr uint8_t kWaiting = 1, kJoining = 2, kBack = 3, kGivenUp = 4;
+enum class Close : uint8_t { None, Left, Ended, Lost, Asked };   // why a member's game closes (Asked: the quit was requested)
 
 // Player-visible text: the game layer's string table (pkp_strings.h), keys CoopDrop*; every line is drawn by the overlay (notices::post),
 // so Japanese, Korean and Chinese keep the English text.
@@ -156,6 +173,12 @@ struct State {
     bool lost_authority = false;
     double lost_until = 0.0;
     bool error_held = false;    // error 3103 was held back during this loss
+    // a member whose session ended: its game closes
+    Close close = Close::None;
+    double close_at = 0.0, close_by = 0.0;   // due at; at the latest
+    double settled_since = -1.0;             // nothing is in flight since (negative: something is)
+    unsigned empty_searches = 0;             // Lost: searches in a row that found no session
+    bool decided = false;                    // Lost: no session to go back to, the close is decided
 };
 State& st() {
     static State s;
@@ -343,11 +366,10 @@ void lost_tick(State& s, double now) {
     if (now >= s.lost_until) {
         s.lost = false;
         s.showing = false;
-        NXLOG_W(kTag, "Co-op drop: not back in a session within %.0f s%s; the session part keeps trying", kLimit,
-                s.error_held ? " (error 3103 was held back)" : "");
-        notices::post(kNotice,
-                      s.lost_authority ? say(Str::CoopDropGaveUpAuthority) : say(Str::CoopDropGaveUpRejoin),
-                      10.0);
+        NXLOG_W(kTag, "Co-op drop: not back in a session within %.0f s%s; %s", s.lost_authority ? kLimit : kRejoin,
+                s.error_held ? " (error 3103 was held back)" : "",
+                s.lost_authority ? "the session part keeps trying" : "this member's game closes");
+        if (s.lost_authority) notices::post(kNotice, say(Str::CoopDropGaveUpAuthority), 10.0);   // a member: close_tick says it
         return;
     }
     if (now - s.posted < kNoticeEvery) return;
@@ -357,6 +379,33 @@ void lost_tick(State& s, double now) {
     notices::post(kNotice,
                   s.lost_authority ? say(Str::CoopDropLostWait, clock_text(left)) : say(Str::CoopDropLostRejoin, clock_text(left)),
                   kNoticeSeconds);
+}
+
+// A member whose session ended and that is not back in one: the notice, then the process ends once nothing is in flight.
+void close_tick(State& s, bool in_game, double now) {
+    if (s.close == Close::None || s.close == Close::Asked) return;
+    if (s.close == Close::Lost && !s.decided) {
+        if (now < s.close_at) return;   // the rejoin window: lost_tick shows its countdown
+        s.decided = true;
+    }
+    if (now - s.posted >= kNoticeEvery) {
+        s.posted = now;
+        s.showing = true;
+        notices::post(kNotice,
+                      s.close == Close::Left ? say(Str::CoopDropCloseLeft)
+                                             : s.close == Close::Ended ? say(Str::CoopDropCloseEnded) : say(Str::CoopDropGaveUpRejoin),
+                      kNoticeSeconds);
+    }
+    if (now < s.close_at) return;
+    if (busy() || !session::can_walk(in_game)) s.settled_since = -1.0;
+    else if (s.settled_since < 0.0) s.settled_since = now;
+    const bool settled = s.settled_since >= 0.0 && now - s.settled_since >= kCloseSettle;
+    if (!settled && now < s.close_by) return;
+    NXLOG_W(kTag, "Co-op drop: this member's game closes (%s; %s): a member does not play outside the group",
+            s.close == Close::Left ? "its own Save and Quit" : s.close == Close::Ended ? "the host closed the session" : "the session was lost and not joined again",
+            settled ? "nothing in flight" : "the wait for the trip and the save ran out");
+    s.close = Close::Asked;
+    play::request_quit("co-op: this member's session ended");
 }
 
 }  // namespace
@@ -370,6 +419,10 @@ void on_member(int node, bool joined, bool self) {
                 notices::post(kNotice, say(Str::CoopDropBackGroup), 4.0);
                 s.lost = false;
                 s.showing = false;
+            }
+            if (s.close == Close::Lost) {
+                NXLOG_I(kTag, "Co-op drop: back in a session: this member's game stays open");
+                s.close = Close::None;
             }
             s.in = true;
             s.ever_in = true;
@@ -392,9 +445,19 @@ void on_member(int node, bool joined, bool self) {
         if (s.in && !s.leaving && !s.closing) {
             s.lost = true;
             s.lost_authority = !s.member;
-            s.lost_until = qpc::seconds() + kLimit;
+            s.lost_until = qpc::seconds() + (s.member ? kRejoin : kLimit);
             s.posted = 0.0;
-            NXLOG_I(kTag, "Co-op drop: rejoin window of %.0f s (the game's own trip runs; the session part joins again)", kLimit);
+            NXLOG_I(kTag, "Co-op drop: rejoin window of %.0f s (the game's own trip runs; the session part joins again)",
+                    s.member ? kRejoin : kLimit);
+        }
+        if (s.in && s.member && s.close == Close::None) {
+            s.close = s.leaving ? Close::Left : s.closing ? Close::Ended : Close::Lost;
+            s.close_at = qpc::seconds() + (s.close == Close::Lost ? kRejoin : kCloseSettle);
+            s.close_by = s.close_at + kCloseMax;
+            s.settled_since = -1.0;
+            s.posted = 0.0;
+            s.empty_searches = 0;
+            s.decided = s.close != Close::Lost;
         }
         s.in = s.member = false;
         s.walk_since = -1.0;
@@ -427,6 +490,27 @@ void on_member(int node, bool joined, bool self) {
     else
         start_wait(s, n, node, qpc::seconds());
     n = Node{};
+}
+
+bool closing() {
+    const State& s = st();
+    return s.close != Close::None && s.decided;
+}
+
+void on_search(bool found) {
+    State& s = st();
+    if (s.close != Close::Lost || s.decided) return;
+    if (found) {
+        s.empty_searches = 0;
+        return;
+    }
+    if (++s.empty_searches < kNoHost) return;
+    NXLOG_W(kTag, "Co-op drop: %u searches found no session after the loss (the host is gone, or this PC's network is down)", s.empty_searches);
+    s.decided = true;
+    s.lost = false;
+    s.close_at = qpc::seconds();
+    s.close_by = s.close_at + kCloseMax;
+    s.posted = 0.0;
 }
 
 void on_here_message(::Ctx*, int from, uint8_t, wire::Reader& r) {
@@ -596,6 +680,7 @@ void tick(::Ctx*, bool in_game) {
     }
     hold_tick(s, in_game, now);
     lost_tick(s, now);
+    close_tick(s, in_game, now);
 }
 
 void reset() {

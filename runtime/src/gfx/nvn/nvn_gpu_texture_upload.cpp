@@ -413,11 +413,11 @@ void tex_ensure_current(Texture* t, Frame& f) {
     if (!staged) std::memcpy(st.ptr, prep.data.data(), static_cast<size_t>(bytes));
     std::vector<VkBufferImageCopy> regions;
     regions.reserve(prep.level.size());
-    for (uint32_t i = 0; i < prep.level.size(); ++i) {
+    for (uint32_t i = g->level_skip; i < prep.level.size(); ++i) {   // [gfx] texture_cap: the dropped top levels are not uploaded
         const PreparedLevel& pl = prep.level[i];
         VkBufferImageCopy r = {};
         r.bufferOffset = st.offset + pl.offset;
-        r.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, i, 0, g->layers};
+        r.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, i - g->level_skip, 0, g->layers};
         r.imageExtent = {pl.width, pl.height, pl.depth};
         regions.push_back(r);
     }

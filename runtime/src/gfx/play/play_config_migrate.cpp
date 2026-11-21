@@ -3,6 +3,7 @@
 #include <string>
 
 #include "nxrt/game.h"
+#include "nxrt/host_device.h"
 #include "play_config_internal.h"
 
 namespace nxrt::play {
@@ -81,6 +82,11 @@ Settings default_settings() {
     if (!parse_settings(default_settings_text(), &s, &err)) {
         s = builtin_settings();
         s.defaults_rev = defaults_rev();
+    }
+    // The machine's own factory values: a phone holds 30 fps at best and its window system has one mode (nxrt/host_device.h).
+    if (host_is_phone()) {
+        s.display.fps_cap = 30;
+        s.display.window_mode = "borderless";
     }
     return s;
 }

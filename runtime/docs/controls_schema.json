@@ -140,6 +140,7 @@
     {"section": "pad", "key": "alt_orbit"},
     {"section": "display", "key": "view_distance"},
     {"section": "upscale", "key": "xess_dll"},
-    {"section": "upscale", "key": "frame_generation"}
+    {"section": "upscale", "key": "frame_generation"},
+    {"section": "fps", "key": "thermal"}
   ]
 }

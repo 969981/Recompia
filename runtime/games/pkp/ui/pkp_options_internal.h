@@ -48,9 +48,12 @@ struct Row {
     settings::Key key = settings::Key::Count;
     double unit = 0;
     CaptureClient* capture = nullptr;     // a capture row (capture_row below): moving it captures a key for this client
+    bool (*shown)() = nullptr;            // null: always on its tab; else asked once when the tab is made (when(), below)
 };
 
 // clang-format off
+// A row only on machines where it can apply (a window mode on a phone cannot): the tab leaves it out when shown() is false.
+constexpr Row when(Row r, bool (*shown)()) { r.shown = shown; return r; }
 constexpr Row choice(const char* label, const char* desc, const char* const (&n)[4], uint8_t count, int (*get)(const S&), void (*set)(S&, int), bool restart = false) {
     return Row{label, desc, {n[0], n[1], n[2], n[3]}, count, 0, 0, nullptr, 0, 0, nullptr, nullptr, nullptr, nullptr, get, set, restart, false};
 }

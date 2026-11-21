@@ -30,9 +30,21 @@ bool has_window();
 void* native_window();                        // SDL_Window*
 void* native_hwnd();                          // the native window handle: HWND on Windows, NSView* on macOS (null when there is none)
 void set_window_title(const char* title);
-void pixel_size(int* w, int* h);              // client size in pixels (0, 0 while minimised)
+void pixel_size(int* w, int* h);              // client size in pixels (0, 0 while minimised or while the surface is gone)
+uint64_t surface_generation();                // bumped when the window's native surface was replaced (Android: back from the background);
+                                              // a Vulkan surface made before then must be made again. Desktop windows keep 0
+bool surface_replaceable();                   // the window's native surface can be lost and made again while it runs (Android); the
+                                              // renderer then retries a lost or unusable surface instead of waiting for a new one
 bool set_window_size(int w, int h);           // windowed size in screen coordinates
 bool minimized();
+// The window modes the window system has, as a bitmask: kModeWindowed | kModeBorderless | kModeExclusive on a desktop; a phone's
+// window system has one (the app's full-screen surface). Known without a window (no SDL call): settings screens ask it to hide rows
+// that cannot apply.
+enum WindowModeBits : int { kModeWindowed = 1, kModeBorderless = 2, kModeExclusive = 4 };
+int window_modes();
+// The window is landscape whatever its size says now: the app is locked to landscape (Android: SDL_HINT_ORIENTATIONS), so a taller
+// than wide size is a moment of the activity turning (at start), not the shape to render for. Desktop: false (a tall window is real).
+bool landscape_only();
 bool focused();
 bool visible();
 

@@ -403,6 +403,16 @@ uint64_t GraphicsKey::hash() const {
     return h ^ (h >> 32);
 }
 
+// spirv_subgroup32's question: does a module of this SPIR-V execution model (and compute workgroup size) run at a width other than 32
+// here, i.e. subgroups are not 32 wide and subgroup32_info cannot pin 32 for it.
+static bool runs_other_than_32(uint32_t execution_model, uint64_t invocations) {
+    static constexpr VkShaderStageFlagBits kStage[] = {VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
+                                                       VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, VK_SHADER_STAGE_GEOMETRY_BIT,
+                                                       VK_SHADER_STAGE_FRAGMENT_BIT, VK_SHADER_STAGE_COMPUTE_BIT};
+    if (execution_model >= std::size(kStage) || device().limits_ext().subgroup_size == 32) return false;
+    return subgroup32_info(kStage[execution_model], invocations) == nullptr;
+}
+
 // A module for SPIR-V words. The translator declares OpCapability Float64 in every module although no module uses a 64-bit float;
 // devices without shaderFloat64 (Intel iGPUs) reject that, so the capability is dropped when no OpTypeFloat 64 exists.
 static VkShaderModule create_module(const std::vector<uint32_t>& words, const char* what) {
@@ -425,6 +435,13 @@ static VkShaderModule create_module(const std::vector<uint32_t>& words, const ch
             code = &fixed;
         }
     }
+    // A GPU without shaderClipDistance / shaderCullDistance (Mali): the clip distance stores go (spirv_drop_clip_cull), so the user clip
+    // planes of the vertex / tessellation modules that write them clip nothing there (the patch assumes no stage reads them). One without
+    // vertexPipelineStoresAndAtomics: read-only storage buffers of those stages get NonWritable (spirv_readonly_vertex_buffers); a module
+    // that really stores is left as it is. Every GPU with the features keeps the words unchanged.
+    std::vector<uint32_t> no_clip, ro_bufs;
+    if (!device().features().shader_clip_distance && spirv_drop_clip_cull(*code, no_clip)) code = &no_clip;
+    if (!device().features().vertex_pipeline_stores && spirv_readonly_vertex_buffers(*code, ro_bufs)) code = &ro_bufs;
     // c[0] + 0x644 (the draw's base instance, which GLSLC adds to the instance ID) read as Vulkan's BaseInstance: right for direct,
     // indirect and multi-draw indirect draws alike (spirv_base_instance_from_c0; the replay's c[0] bank holds only a direct draw's).
     std::vector<uint32_t> base_inst;
@@ -451,6 +468,30 @@ static VkShaderModule create_module(const std::vector<uint32_t>& words, const ch
             if (seen.emplace(what ? what : "?", 1).second)
                 NXLOG_I(kTag, "ballot_fix: shader %s: %d ballot%s of %d counter%s made per lane", what ? what : "?", br.ballots,
                         br.ballots == 1 ? "" : "s", br.groups, br.groups == 1 ? "" : "s");
+        }
+    }
+    // [nvn] subgroup_emulate32: the game's warp operations on a stage that does not run 32 wide (subgroup32_info could not pin 32 there),
+    // one 32-lane slice of the subgroup per warp, quad shuffles as quad swaps (spirv_subgroup32). auto (default): the mobile GPUs only,
+    // Qualcomm (0x5143: Adreno, 64 or 128 wide in fragment and compute) and ARM (0x13b5: Mali, 16 wide). on: any GPU with such a stage
+    // (AMD's fragment shaders on Mesa RADV run 64 wide). off: never.
+    static const bool sg32 = [] {
+        const std::string v = config_get_str("nvn", "subgroup_emulate32", "auto");
+        const uint32_t vendor = device().properties().vendorID;
+        const bool on = v == "on" || v == "true" || v == "1" || ((v == "auto" || v.empty()) && (vendor == 0x5143 || vendor == 0x13b5));
+        NXLOG_I(kTag, "subgroup_emulate32 = %s (%s, vendor 0x%04x, subgroups %u wide)", v.c_str(), on ? "on" : "off", vendor,
+                device().limits_ext().subgroup_size);
+        return on;
+    }();
+    std::vector<uint32_t> sg_words;
+    if (sg32) {
+        Subgroup32Rewrite sr;
+        const bool quad = (device().limits_ext().subgroup_ops & VK_SUBGROUP_FEATURE_QUAD_BIT) != 0;
+        if (spirv_subgroup32(*code, runs_other_than_32, quad, sg_words, &sr)) {
+            code = &sg_words;
+            static std::atomic<int> logged{0};
+            const char* fmt = "subgroup_emulate32: shader %s: %d lane reads, %d shuffles (%d by quad swap), %d ballot words, %d masks, %d votes";
+            if (logged++ < 8) NXLOG_I(kTag, fmt, what ? what : "?", sr.lane_loads, sr.shuffles, sr.quad_shuffles, sr.ballots, sr.masks, sr.votes);
+            else NXLOG_D(kTag, fmt, what ? what : "?", sr.lane_loads, sr.shuffles, sr.quad_shuffles, sr.ballots, sr.masks, sr.votes);
         }
     }
     // [nvn] loop_guard: the game's compute loops whose count is a constant buffer word get it limited (game::Render::loop_guards,

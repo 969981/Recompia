@@ -86,7 +86,11 @@ void hitch_on_frame(uint64_t t, uint64_t prev_t, uint64_t n) {
     for (int i = 0; i < kHpCount; i++) curp[i] = g_phase[i].load(std::memory_order_relaxed);
     const uint64_t gap = g_game_gap_max.exchange(0, std::memory_order_relaxed);
     const uint64_t thr = g_hitch_ticks.load(std::memory_order_relaxed);
-    if (thr && prev_t && t > prev_t && t - prev_t > thr) {
+    static uint64_t prev_suspends = 0;                // presenting thread only: a frame across an OS stop (diag_set_suspended) is no hitch
+    const uint64_t suspends = diag_suspend_count();
+    const bool across_stop = suspends != prev_suspends;
+    prev_suspends = suspends;
+    if (thr && !across_stop && prev_t && t > prev_t && t - prev_t > thr) {
         HitchEvent ev;
         ev.ms = (double)(t - prev_t) * 1000.0 / qpc_freq();
         ev.frame = n;

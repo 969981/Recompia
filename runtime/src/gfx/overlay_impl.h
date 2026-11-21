@@ -102,12 +102,17 @@ struct Overlay::Impl {
     FpsStats stats;
     double text_s = -1e9;                 // time of the last text refresh, seconds (far past: refresh at once)
     FpsStats::Snapshot snap;              // the snapshot taken at text_s
-    std::string counter_lines[4];
+    std::string counter_lines[6];
+    ImU32 counter_colors[6] = {};
     int counter_n = 0;
+    double thermal_s = -1e9;              // time of the last thermal reading (detail Full), at most one a second
+    std::string thermal_lines[2];         // its lines ("" = none) and the first one's colour
+    ImU32 thermal_color = 0;
 
     void build_ui();
     void update_scale(const VkExtent2D& extent);
     void refresh_counter_text(double now_s);
+    void refresh_thermal_text(double now_s);
     void draw_counter(const FrameInfo& f, double now_s);
     // The "Preparing shaders" note: shown once the backlog has stood for a second and a half, gone a second after it is empty.
     bool note_enabled = true;

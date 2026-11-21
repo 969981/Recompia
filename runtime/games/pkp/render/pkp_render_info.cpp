@@ -59,10 +59,15 @@ constexpr game::LoopGuard kLoopGuards[] = {
 // them: the game's copy shader (vs 821538a4, fs c4664b38) draws a full-screen quad into a 1920x1080 RGBA8 sRGB target from a 1920x1080
 // RGBA8 sRGB input at texture coordinates 0..0.4995 x 0..0.4991, one bilinear tap (sampler mag linear). The same shader shrinks images
 // earlier in the frame (into 80x45 and 960x540 targets); those are left alone by the target-size rule of game::SceneStretch.
-constexpr game::SceneStretch kSceneStretch = {"c4664b38f6a87835"};
+// The composite (fs 8526214507533768, uniform cbComposite, one input: the tone map's output) draws the picture into the window texture;
+// under [gfx] ui_native with a render scale it enlarges it.
+// The lowest dynamic-resolution level that renders correctly is level 1 (51.7 % of the targets; level 0, exactly half, shows a floating
+// band and rectangles: pkp_render_size.cpp); automatic resolution and the phone's Resolution row stay at or above it.
+constexpr int kSceneScaleMin = 52;
+constexpr game::SceneStretch kSceneStretch[] = {{"c4664b38f6a87835", false}, {"8526214507533768", true}};
 
 constexpr game::Render kRender = {&kReadbackDefer, &kCamera, kToneMaps, sizeof kToneMaps / sizeof kToneMaps[0],
-                                  kLoopGuards, sizeof kLoopGuards / sizeof kLoopGuards[0], true, &kSceneStretch};
+                                  kLoopGuards, sizeof kLoopGuards / sizeof kLoopGuards[0], true, kSceneStretch, sizeof kSceneStretch / sizeof kSceneStretch[0], kSceneScaleMin};
 
 }  // namespace
 

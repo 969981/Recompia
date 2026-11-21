@@ -8,6 +8,8 @@
 #include "nxrt/text.h"
 #include "nxrt/vi_sinks.h"
 
+#include <atomic>
+
 namespace nxrt::play {
 using namespace detail;
 
@@ -34,6 +36,12 @@ using namespace detail;
 namespace detail {
 
 [[noreturn]] void quit_now(const char* why) { exit_process(0, "pass", why); }
+
+std::atomic<const char*> g_quit_why{nullptr};   // play::request_quit's reason; null: not asked
+
+void quit_if_requested() {
+    if (const char* why = g_quit_why.load()) quit_now(why);
+}
 
 // The game's ini and the environment override the settings file for the display extras. A key that is set there ([hdr] mode in the ini, or
 // NXRT_HDR_MODE) replaces the file's value with the one extras::settings_from_config() reads; other keys keep the file's value (the F1 page
@@ -63,6 +71,8 @@ extras::Settings merge_env(const extras::Settings& from_file) {
 }
 
 }  // namespace detail
+
+void request_quit(const char* why) { g_quit_why.store(why ? why : "asked by the game layer"); }
 
 // ---- public API ---------------------------------------------------------------------------------------------------------------------------
 bool load() {
@@ -261,6 +271,9 @@ bool start(const StartOptions& opt) {
         int ww = 0, wh = 0;                    // no window (headless, test runs): the configured window size, not a made-up one
         if (st.window) platform::pixel_size(&ww, &wh);
         if (ww <= 0 || wh <= 0) { ww = st.settings.display.width; wh = st.settings.display.height; }
+        // a landscape-only window that is momentarily taller than wide (the activity still turning at start): the shape to render for is
+        // the landscape one (otherwise square targets, pillarboxed for the whole session)
+        if (st.window && wh > ww && platform::landscape_only()) std::swap(ww, wh);
         display_tuning(st.settings.display);
         cap_default_size(st.settings.display, st.device, &ww, &wh);
         if (gp && gp->install_render) gp->install_render(st.base, st.settings.display, ww, wh);   // the game's display options, tone curve

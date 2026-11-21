@@ -23,6 +23,7 @@
 #include <thread>
 
 #include "nxrt/config.h"
+#include "nxrt/platform_facts.h"
 #include "nxrt/diag.h"
 #include "nxrt/early_wake.h"
 #include "nxrt/frame_limiter.h"
@@ -362,24 +363,44 @@ bool create_slot(Slot& s) {
     s.cbs[0] = s.cb;
     const VkBufferUsageFlags usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
-                                     VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;   // quad_args_gpu: indexed indirect arguments a dispatch writes
+                                     VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |  // quad_args_gpu: indexed indirect arguments a dispatch writes
+                                     // phones (facts::kPhone): copies of texel buffers at an offset the GPU cannot view
+                                     (facts::kPhone ? VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT : 0u);
     if (d.create_buffer(kUploadBytes, usage, gfx::MemoryUse::Upload, &s.upload, "nvn upload") != VK_SUCCESS) return false;
     const VkMemoryPropertyFlags mp = d.memory_flags(s.upload);
     s.upload_dl = (mp & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0;
     return true;
 }
 
+// [nvn] descriptor_pool_div = auto (default) | 1..64: each slot's descriptor pools are this many times smaller than the full size below.
+// Qualcomm's driver backs a pool with GPU memory for its whole size when it is created: 36 slots of full-size pools held about 2.8 GB of
+// the phone's RAM (GL mtrack 3.78 GB of which VMA 0.93 GB, Adreno 750). A slot whose pool runs out takes another (alloc_set), so a smaller
+// pool only costs a pool creation in a heavy slot. auto: 8 on Qualcomm (0x5143) and ARM (0x13b5), whose drivers allocate pools up front;
+// 1 elsewhere (desktop drivers keep the full size, unchanged).
+uint32_t dpool_div() {
+    static const uint32_t div = [] {
+        const std::string v = nxrt::config_get_str("nvn", "descriptor_pool_div", "auto");
+        const uint32_t vendor = g->dev->properties().vendorID;
+        const uint32_t d = (v == "auto" || v.empty()) ? ((vendor == 0x5143 || vendor == 0x13b5) ? 8u : 1u)
+                                                     : static_cast<uint32_t>(std::clamp<int64_t>(std::atoll(v.c_str()), 1, 64));
+        NXLOG_I(kTag, "descriptor pools: 1/%u of the full size per pool ([nvn] descriptor_pool_div = %s)", d, v.c_str());
+        return d;
+    }();
+    return div;
+}
+
 VkDescriptorPool new_dpool() {
+    const uint32_t div = dpool_div();
     const VkDescriptorPoolSize sizes[] = {
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1u << 16},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1u << 13},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1u << 16},
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1u << 12},
-        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1u << 10},
-        {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1u << 10},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, (1u << 16) / div},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (1u << 13) / div},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (1u << 16) / div},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, (1u << 12) / div},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, (1u << 10) / div},
+        {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, (1u << 10) / div},
     };
     VkDescriptorPoolCreateInfo ci = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    ci.maxSets = 1u << 14;
+    ci.maxSets = (1u << 14) / div;
     ci.poolSizeCount = sizeof(sizes) / sizeof(sizes[0]);
     ci.pPoolSizes = sizes;
     VkDescriptorPool p = VK_NULL_HANDLE;
@@ -700,7 +721,9 @@ UploadAlloc Frame::staging(VkDeviceSize size) {
     gfx::Buffer b;
     const VkBufferUsageFlags usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
-                                     VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;   // quad_args_gpu: indexed indirect arguments a dispatch writes
+                                     VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |  // quad_args_gpu: indexed indirect arguments a dispatch writes
+                                     // phones (facts::kPhone): copies of texel buffers at an offset the GPU cannot view
+                                     (facts::kPhone ? VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT : 0u);
     if (g->dev->create_buffer(std::max<VkDeviceSize>(size, 256), usage, gfx::MemoryUse::Upload, &b, "nvn staging") != VK_SUCCESS) {
         NXLOG_E(kTag, "staging buffer of %llu bytes failed", static_cast<unsigned long long>(size));
         return {};
@@ -1351,6 +1374,8 @@ std::string gpu_report() {
     return out;
 }
 }  // namespace
+
+bool wait_serial_run(uint64_t serial) { return wait_serial_blocking(serial); }
 
 bool wait_serial(uint64_t serial, uint64_t timeout_ns) {
     if (!g || !serial) return true;

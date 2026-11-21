@@ -109,6 +109,16 @@ UpscaleMode upscale_mode();
 float upscale_sharpness();
 AaMode aa_mode();                   // [upscale] aa as set now (live)
 int upscale_scene_scale();          // percent, 100 = off (a temporal mode with a quality preset other than Custom: the preset's percent)
+// [upscale] scene_auto (scene_auto.cpp): the automatic scene percent (0 = off or unknown) and its controller, ticked at each present with the
+// player's own percent (the ceiling). upscale_scene_scale gives the lower of the two.
+int scene_scale_auto();
+int scene_scale_watch();                // [upscale] scene_scale_watch: the live percent from the watched file (0 = none)
+int scene_upscale_watch();              // [gfx] scene_upscale_watch: 0 off, 1 sgsr, 2 bicubic from the watched file (-1 = none)
+// A game's settings row for the scene upscaler: 0 off, 1 sgsr, 2 bicubic; -1 (the start) = none, [gfx] scene_upscale decides. The watched
+// file wins over it.
+void set_scene_upscale_live(int kind);
+void scene_auto_tick(int player_pct);
+int upscale_scene_scale_player();
 UpscaleQuality upscale_quality();
 bool upscale_temporal();            // the mode is FSR 3, DLSS or DLAA
 int quality_percent(UpscaleQuality q);   // the preset's input scale per side in percent (Custom: -1)
@@ -127,6 +137,7 @@ struct PictureLive {
 };
 PictureLive picture_live();
 void set_picture_live(const PictureSettings& p);   // only the live copy; set_settings() also sets it
+void set_scene_scale_live(int pct);                // only the live [upscale] scene_scale (a settings row's preview); set_settings() also sets it
 
 // ---- HDR runtime state ---------------------------------------------------------------------------------------------------------
 enum class OutputKind : uint8_t { Sdr8 = 0, Hdr10, ScRgb };
