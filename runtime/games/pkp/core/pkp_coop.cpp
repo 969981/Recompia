@@ -540,6 +540,7 @@ void game_frame(::Ctx* c) {
     coop::linkqueue::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::notice::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::placement::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::scenes::tick(c);
     coop::contents::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::gate::tick(s.in_game.load(std::memory_order_relaxed));
     coop::trace::tick(s.in_game.load(std::memory_order_relaxed));
@@ -592,6 +593,7 @@ void remove() {   // the registry has removed the hooks
     coop::held::reset();
     coop::linkqueue::reset();
     coop::placement::reset();
+    coop::scenes::reset();
     coop::contents::reset();
     coop::friendship::reset();
     coop::feed::reset();

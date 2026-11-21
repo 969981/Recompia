@@ -345,6 +345,16 @@ void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace placement
 
+namespace scenes {
+// Shares the talk-lock keys of the characters this process's running events hold (SceneHolds, on a change; once a frame) and keeps
+// the other members' sets: held_elsewhere(key) is true while another member's scene holds that character.
+void tick(::Ctx* c);
+void on_holds_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_member(int node, bool joined, bool self);
+bool held_elsewhere(uint32_t key);
+void reset();
+}  // namespace scenes
+
 namespace contents {
 // The hook site (pkp_coop.cpp): entry 0x12b544, a content's "play scene" command. A scene not played yet is remembered.
 int on_play_scene(::Ctx* c);
@@ -382,6 +392,10 @@ int on_cond_parent(::Ctx* c);   // midhook 0x4d35f8: talk condition 0x52 answers
 int on_cond_visitor(::Ctx* c);  // entry 0x4d0620: talk condition 0x25 (IsVisitor) is false for a member
 // This process's player holds a character's talk and the talk runs.
 bool talking();
+// The lock key of the character whose u16 actor id is at id (guest), 0 for none; another member holds that character's talk (a
+// grant or a talk, until its event chain ends), as this process's table or copy says.
+uint32_t character_key(::Ctx* c, uint64_t id);
+bool held_elsewhere(uint32_t key);
 // The messages and member events (pkp_coop_link.cpp).
 void on_ask(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void on_done(::Ctx* c, int from, uint8_t origin, wire::Reader& r);

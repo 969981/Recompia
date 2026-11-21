@@ -13,9 +13,13 @@
 //   drops a second copy while one is queued or running. Dropped on a stage change or after kGiveUp seconds.
 //   A queued scene's start can abort too: the runner's setup 0x476100 and its start state 0x47bf80 end the event (+0xc = 6) when one
 //   of its characters is held by another player (Link Play's event ownership: a teammate's talk with the professor, or a teammate's
-//   own scene with him). Its record is gone all the same, so a scene seen running only at its start is not done. Once it has been
-//   asked for again for kForceAfter seconds (long enough for another player's copy to play and share its played bit), its start
-//   takes its characters whoever holds them, as the authority does with a free one:
+//   own scene with him). Its record is gone all the same, so a scene seen running only at its start is not done. The hold is fair
+//   only while the holder is busy with that character: a talk (the talk lock's table, pkp_coop_talk.cpp) or a running event of its
+//   own (SceneHolds, pkp_coop_scenes.cpp). So at each retry's start, for the characters it does not hold:
+//     none busy elsewhere, never seen busy   from the kQuickTries-th retry (~9 s) its start takes them ("not busy");
+//     one busy elsewhere                     it waits until none is, then kGrace more ("ended"), then takes them;
+//     asked for again kForceAfter seconds    it takes them whatever the holder does ("last resort").
+//   Taken as the authority takes a free one:
 //   0x4774e8 (midhook, in 0x476100)   `tbz w28, #0`: w28 = every character of the event is ready, x19 = the runner. Taken only when
 //                                     every actor is in the world, none it does not hold is a player and requests are under 4
 //   0x47bfe4 (midhook, in 0x47bf80)   `and w24, w24, w0`: w0 = the IsMine answer (vt+0x478) of the character whose u16 id is at x20
@@ -51,8 +55,9 @@ constexpr uint32_t kEventMax = 0x18ff;
 constexpr double kFirst = 3.0;                // the first retry after the refusal
 constexpr double kEvery = 3.0;
 constexpr double kGiveUp = 600.0;
-constexpr double kForceAfter = 180.0;         // asked for again this long: its start takes its characters (0x4774e8, 0x47bfe4).
-                                              // Longer than a scene: another player's copy holding them ends and shares its bit
+constexpr uint32_t kQuickTries = 3;           // retries before a start takes characters nobody is busy with (~9 s)
+constexpr double kGrace = 2.0;                // after the holder's talk or scene ended (seen free this long)
+constexpr double kForceAfter = 180.0;         // the last resort: asked for again this long, its start takes its characters
 constexpr uint64_t kRunners = 0x35650f8;      // main + : -> the event runners, one per slot (0x2010 each); slot 0 first
 constexpr uint64_t kRunNow = 8;               // u32: the runner's state (0 start, 1 wait, 2 setup, 3 script, 4 end, 5 callback, 6..8 end)
 constexpr uint64_t kRunEvent = 0x10;          // u16: the runner's event
@@ -80,8 +85,11 @@ struct Pending {
     uint8_t stage;
     double at, next;
     uint32_t tries;
-    bool forced;   // its start took a held character (logged once)
+    double busy_at, free_at;   // a held character last seen busy elsewhere / seen free since (0: not yet)
+    uint8_t logged;            // the branches logged (Branch bits)
 };
+
+enum Branch : uint8_t { kWaits = 1, kNotBusy = 2, kEnded = 4, kLastResort = 8 };
 
 struct State {
     std::vector<Pending> pending;
@@ -146,13 +154,12 @@ bool started(uint16_t event) {
     return guest::rd<uint16_t>(run + kRunEvent) == event && now >= 1 && now <= 5;
 }
 
-// The remembered scene whose event this runner starts, when its start is to take its characters now; nullptr otherwise.
-Pending* forced_for(uint64_t runner) {
+// The remembered scene whose event this runner starts, on one of our retries; nullptr otherwise.
+Pending* retried(uint64_t runner) {
     if (!link::in_session() || !runner || !guest::ok(runner + kRunEvent, 2)) return nullptr;
     const uint16_t event = guest::rd<uint16_t>(runner + kRunEvent);
-    const double now = qpc::seconds();
     for (Pending& p : st().pending)
-        if (p.event && p.event == event && p.tries >= 1 && now - p.at >= kForceAfter) return &p;
+        if (p.event && p.event == event && p.tries >= 1) return &p;
     return nullptr;
 }
 
@@ -163,40 +170,73 @@ uint64_t actor_of(::Ctx* c, uint64_t id) {
     return actor && guest::ok(actor, 8) && guest::ok(guest::rd<uint64_t>(actor) + kIsMine, 8) ? actor : 0;
 }
 
-// The setup's refusal comes only from characters another player holds: every actor id it tests (kinds 1..4, as 0x476100 skips
-// the others) is in the world, every one this process does not hold is a character (kinds 2..4, never a player), and the request
-// count is under 4. Returns the guest address of the first held id (0 when none is held), or ~0 when the refusal has another cause.
-uint64_t only_held(::Ctx* c, uint64_t runner) {
-    if (!guest::ok(runner + kRunRequests, 4) || guest::rd<uint32_t>(runner + kRunRequests) >= 4) return ~uint64_t{0};
+// The runner's characters this process does not hold. Other: the refusal has another cause (an actor id it tests, kinds 1..4 as
+// 0x476100 skips the others, not in the world; a player held elsewhere; 4 or more requests). Busy: another member is in a talk or
+// a scene with one of them. Idle otherwise. *held = the busy one, else the first held id (0: none).
+enum class Held { Idle, Busy, Other };
+Held characters(::Ctx* c, uint64_t runner, uint64_t* held) {
+    *held = 0;
+    if (!guest::ok(runner + kRunRequests, 4) || guest::rd<uint32_t>(runner + kRunRequests) >= 4) return Held::Other;
     const uint64_t list = guest::rd<uint64_t>(runner + kRunActors);
     const uint64_t count = guest::rd<uint64_t>(runner + kRunActorCount);
-    if (count > 64 || (count && !guest::ok(list, count * 2))) return ~uint64_t{0};
-    uint64_t held = 0;
+    if (count > 64 || (count && !guest::ok(list, count * 2))) return Held::Other;
+    bool busy = false;
     for (uint64_t i = 0; i < count; ++i) {
         const uint64_t id = list + i * 2;
         const uint32_t v = guest::rd<uint16_t>(id);
         const uint32_t kind = v >> 12;
         if ((v & 0x800) || kind < 1 || kind > 4) continue;
         const uint64_t actor = actor_of(c, id);
-        if (!actor) return ~uint64_t{0};
+        if (!actor) return Held::Other;
         if (guest::call(c, guest::rd<uint64_t>(guest::rd<uint64_t>(actor) + kIsMine), actor) & 1) continue;
-        if (kind == 1) return ~uint64_t{0};
-        if (!held) held = id;
+        if (kind == 1) return Held::Other;
+        const uint32_t key = talk::character_key(c, id);
+        if (!busy && (talk::held_elsewhere(key) || scenes::held_elsewhere(key))) {
+            busy = true;
+            *held = id;
+        }
+        if (!*held) *held = id;
     }
-    return held;
+    return busy ? Held::Busy : Held::Idle;
 }
 
-void log_forced(::Ctx* c, Pending& p, uint64_t id) {
-    if (p.forced) return;
-    p.forced = true;
+void log_branch(::Ctx* c, Pending& p, Branch b, uint64_t id) {
+    if (p.logged & b) return;
+    p.logged |= b;
     uint32_t owner = 0xff;
     const uint64_t actor = id ? actor_of(c, id) : 0;
     if (actor)
         owner = static_cast<uint32_t>(guest::call(c, guest::rd<uint64_t>(guest::rd<uint64_t>(actor) + kOwnerOf), actor)) & 0xff;
-    NXLOG_I(kTag,
-            "Co-op contents: scene %u (event %u) was refused %u times by a character another player holds; its start takes them "
-            "(character 0x%04x, held by %u)",
-            p.scene, p.event, p.tries, id ? guest::rd<uint16_t>(id) : 0, owner);
+    const char* what = b == kWaits     ? "the holder is in a talk or a scene with it; waits for that to end"
+                       : b == kNotBusy ? "the holder is not busy with it; its start takes it"
+                       : b == kEnded   ? "the holder's talk or scene with it ended; its start takes it"
+                                       : "last resort after the long wait; its start takes it whatever the holder does";
+    NXLOG_I(kTag, "Co-op contents: scene %u (event %u), refused %u times in %.0f s: character 0x%04x is held by %u: %s", p.scene,
+            p.event, p.tries, qpc::seconds() - p.at, id ? guest::rd<uint16_t>(id) : 0, owner, what);
+}
+
+// This retry's start takes the characters another player holds (the header's three branches).
+bool take_now(::Ctx* c, Pending& p, uint64_t runner) {
+    uint64_t id = 0;
+    const Held h = characters(c, runner, &id);
+    if (h == Held::Other || !id) return false;   // the game's abort stands (or nothing is held)
+    const double now = qpc::seconds();
+    if (h == Held::Busy) {
+        p.busy_at = now;
+        p.free_at = 0.0;
+    } else if (p.free_at == 0.0) {
+        p.free_at = now;
+    }
+    Branch b = kWaits;
+    if (now - p.at >= kForceAfter) b = kLastResort;
+    else if (h == Held::Idle && p.busy_at == 0.0 && p.tries >= kQuickTries) b = kNotBusy;
+    else if (h == Held::Idle && p.busy_at != 0.0 && now - p.free_at >= kGrace) b = kEnded;
+    if (b == kWaits) {
+        if (h == Held::Busy) log_branch(c, p, b, id);
+        return false;
+    }
+    log_branch(c, p, b, id);
+    return true;
 }
 
 void remember(::Ctx* c, uint32_t scene, const char* why) {
@@ -205,7 +245,7 @@ void remember(::Ctx* c, uint32_t scene, const char* why) {
         if (p.scene == scene) return;
     if (s.pending.size() >= kMax) return;
     const double now = qpc::seconds();
-    s.pending.push_back(Pending{scene, scene_event(c, scene), stage(), now, now + kFirst, 0, false});
+    s.pending.push_back(Pending{scene, scene_event(c, scene), stage(), now, now + kFirst, 0, 0.0, 0.0, 0});
     uint32_t phase = 0, kind = 0;
     const bool refused = stage_request(&phase, &kind);
     NXLOG_I(kTag,
@@ -288,24 +328,20 @@ void tick(::Ctx* c, bool in_game) {
 
 int on_scene_take(::Ctx* c) {
     if (c->x[28] & 1) return 0;   // every character is ready: the game's own start
-    Pending* p = forced_for(c->x[19]);
-    if (!p) return 0;
-    const uint64_t held = only_held(c, c->x[19]);
-    if (held == ~uint64_t{0}) return 0;   // a player, a character not in the world or too many requests: the game's abort
-    log_forced(c, *p, held);
+    Pending* p = retried(c->x[19]);
+    if (!p || !take_now(c, *p, c->x[19])) return 0;
     c->x[28] |= 1;
     return 0;
 }
 
 int on_scene_start(::Ctx* c) {
     if (c->x[0] & 1) return 0;    // this character is ours (or the game's own answer)
-    Pending* p = forced_for(c->x[19]);
+    Pending* p = retried(c->x[19]);
     const uint64_t id = c->x[20];
     if (!p || !guest::ok(id, 2)) return 0;
     const uint32_t kind = guest::rd<uint16_t>(id) >> 12;
     if (kind < 2 || kind > 4) return 0;   // a player is never taken
-    if (!actor_of(c, id)) return 0;   // not in the world: the game's abort
-    log_forced(c, *p, id);
+    if (!actor_of(c, id) || !take_now(c, *p, c->x[19])) return 0;   // not in the world: the game's abort
     c->x[0] = 1;
     return 0;
 }

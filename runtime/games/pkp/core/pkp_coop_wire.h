@@ -105,6 +105,9 @@
 //               seconds left on the authority's clock, u8 name length m, m bytes the player's name (UTF-8)   (the authority, every
 //               second while anyone is awaited and at each change; count 0: no one is)
 //   DropClosing nothing more                                 (the authority's own Save and Quit closes the session for everyone)
+//   ---- the characters another member's scenes hold (pkp_coop_scenes.cpp) ----
+//   SceneHolds  +2 u8 count n (<= 16), then n times u32 a character's talk-lock key   (every process, shared: the characters its
+//               running events hold, at each change; n = 0: none)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -192,6 +195,8 @@ enum class Type : uint32_t {
     DropLeaving = 53,
     DropWait = 54,
     DropClosing = 55,
+    // ---- the characters another member's scenes hold (pkp_coop_scenes.cpp) ----
+    SceneHolds = 57,
 };
 
 // Builds one payload: the header, then the fields in order.

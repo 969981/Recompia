@@ -97,6 +97,8 @@ constexpr Route kRoutes[] = {
     {wire::Type::DropLeaving, Path::ToAuthority, &drop::on_leaving_message},
     {wire::Type::DropWait, Path::FromAuthority, &drop::on_wait_message},
     {wire::Type::DropClosing, Path::FromAuthority, &drop::on_closing_message},
+    // the characters another member's scenes hold
+    {wire::Type::SceneHolds, Path::Shared, &scenes::on_holds_message},
 };
 
 struct State {
@@ -170,6 +172,7 @@ void on_member(const ch::MemberEvent& e) {
     gimmicks::on_member(e.node, e.joined, self);
     savecopy::on_member(e.node, e.joined, self);
     drop::on_member(e.node, e.joined, self);
+    scenes::on_member(e.node, e.joined, self);
     if (self) {
         story::on_session_change();
         quests::on_session_change();

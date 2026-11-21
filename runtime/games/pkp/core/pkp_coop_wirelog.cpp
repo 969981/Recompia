@@ -143,6 +143,7 @@ const char* type_name(uint32_t type) {
     case wire::Type::DropLeaving: return "DropLeaving";
     case wire::Type::DropWait: return "DropWait";
     case wire::Type::DropClosing: return "DropClosing";
+    case wire::Type::SceneHolds: return "SceneHolds";
     }
     return "?";
 }
