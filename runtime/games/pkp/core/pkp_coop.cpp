@@ -179,6 +179,9 @@ enum class Site : uintptr_t {
     // ---- a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp) ----
     TakeoutStore,     // the shared move's choice of the store a taken item is removed from: the take-out screen's removal of a
                       // member's ordered item or gift uses the own store it listed, not the visitor's temp list
+    // ---- a member's deposit into the story's materials drop (pkp_coop_deposit.cpp) ----
+    DepositStore,     // the container slice: a member's drop slice is its own store, so its screen, check and our clear share one
+    DepositConfirm,   // the drop's close after the screen's confirm: a member's deposit is stepped on the authority, not here
 };
 
 struct CoopSite {
@@ -312,6 +315,9 @@ constexpr CoopSite kSites[] = {
     {{0x539620, kPacibsp, true}, Site::OwnerRefused},
     // a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp)
     {{0x2eea74, 0x12000003u, false}, Site::TakeoutStore},    // and w3, w0, #0x1 (w0 = IsVisitor's answer, w21 = the container kind)
+    // a member's deposit into the story's materials drop (pkp_coop_deposit.cpp)
+    {{0x5b1c84, kPacibsp, true}, Site::DepositStore},
+    {{0x7e693c, 0x36001ac0u, false}, Site::DepositConfirm},  // tbz w0, #0, 0x7e6c94 (w0 = 0xa94bbc's confirm flag, x19 the gimmick)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -409,6 +415,8 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::OwnerNotice: return coop::owner::on_notice(c);
         case Site::OwnerRefused: return coop::owner::on_grant_reply(c);
         case Site::TakeoutStore: return coop::takeout::on_remove_store(c);
+        case Site::DepositStore: return coop::deposit::on_store(c);
+        case Site::DepositConfirm: return coop::deposit::on_confirm(c);
         default: return 0;
     }
 }
@@ -513,6 +521,7 @@ void game_frame(::Ctx* c) {
     coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::newcomer::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::takeout::tick(c);
+    coop::deposit::tick(c, s.in_game.load(std::memory_order_relaxed));
 }
 
 void remove() {   // the registry has removed the hooks
@@ -562,6 +571,7 @@ void remove() {   // the registry has removed the hooks
     coop::doors::reset();
     coop::title::reset();
     coop::takeout::reset();
+    coop::deposit::reset();
 }
 
 }  // namespace

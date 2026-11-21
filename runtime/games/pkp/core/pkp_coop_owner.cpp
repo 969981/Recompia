@@ -42,8 +42,7 @@
 // never uses it and everyone else gets 0x10d for good. Running the use for the member instead is not done: it opens the member's
 // own copy of the container (0x7e6680 -> 0xa94b38) and its close 0x7e67c0 moves items out of it (0x5b2f34) on that copy alone,
 // and nothing in the class's code gives the byte back after a use (no 0x538f60 / vt+0x490 / Sync in 0x7e5f54..0x7e8044 but the
-// take). So here, at the same `tbz`, a grant for this class is given back at once, as a failed apply is: the press does
-// nothing and the object stays free.
+// take). So the game's own use is not run here, at the same `tbz`: the grant goes to pkp_coop_deposit.cpp (below).
 // What the class is: the one placed kind 0x1d9 (#956 category 0x4f; the factory 0x76c248 maps category 0x4f to slot 0x2d, filled
 // by 0x76bcc0 with the creator table 0x32853b0, whose creator 0x9fd6b8 makes this class), container type 0x11 (0x773c80 into
 // +0x4b). It is not a store: it is the story's materials drop with ten stages (+0x4a, table slot 0x144 = #1108; a row's +8..+0xa
@@ -55,7 +54,9 @@
 // deposit to the host: the class has no snapshot apply (vt+0x2f8 is the base) and sends nothing at its close, unlike the store
 // chests (class 0x3268000's close 0x7b8960: host release 0x538f60 take 0, a member's kind 0x1a / 0x19 / 0xf record through the
 // request queue 0x214974, which the host's handler checks against its copy of the member's bag and which releases the owner there,
-// 0x221d80). So a member's grant stays given back.
+// 0x221d80). So the grant is handed to pkp_coop_deposit.cpp (deposit::take_grant), which runs the use for the member, keeps its
+// deposit in the member's own store, has the authority make the step and gives the object back after the use; only when it does
+// not take the grant (an ask of this member's still waits) is the grant given back here as before.
 // The host's own use takes the byte (0x7e7884: take 1, its own index) and nothing frees it again: not the close, not the class's
 // per-frame slot 22 0x7e633c or the base gimmick tick 0x75cb60 it calls (no 0x538f60, vt+0x480 / +0x490 or Sync within five calls;
 // the vt slots that tick calls are leaves here), and no reader of the character's gimmick cell ch+0x5a96 (the gimmick state
@@ -324,6 +325,7 @@ int on_grant_no_use(::Ctx* c) {
     if (!owner_of) return 0;
     const uint8_t own = static_cast<uint8_t>(guest::call(c, base() + layout::kOwnIndexOf, 0));
     if (static_cast<uint8_t>(guest::call(c, owner_of, g, slot)) != own) return 0;   // not taken with our index (categories 2 / 0x13)
+    if (applied && deposit::take_grant(c, g)) return 0;   // the drop's use runs from pkp_coop_deposit.cpp
     give_back(c, g, slot);
     if (!st().grant_logged[applied]) {
         st().grant_logged[applied] = true;

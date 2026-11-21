@@ -629,6 +629,26 @@ int on_remove_store(::Ctx* c);
 // Asks the game's autosave to save after each such take until a save written after it holds the emptied box (once a frame).
 void tick(::Ctx* c);
 void reset();
+// Another part changed this member's own store outside the take-out screen (pkp_coop_deposit.cpp): a save is owed as for a take.
+void owe_save();
 }  // namespace takeout
+// ---- a member's deposit into the story's materials drop (pkp_coop_deposit.cpp) ----
+namespace deposit {
+// pkp_coop_owner.cpp, at a member's grant of the drop (class 0x326dc98, x23 = g, owned here): true when this module runs the use
+// (at the next frame); false: the grant is given back as before (no session, or an ask of this member's is still waiting).
+bool take_grant(::Ctx* c, uint64_t g);
+// The hook sites (pkp_coop.cpp). Entry 0x5b1c84, the container slice: on a member, a type 0x11 slice asked with the visitor's temp
+// list resolves to the own store. Midhook 0x7e693c in the drop's close, the `tbz w0` after the screen's confirm flag: a member's
+// confirm does not go on (x0 = 0) and is asked of the authority. Each returns 0.
+int on_store(::Ctx* c);
+int on_confirm(::Ctx* c);
+// The messages (pkp_coop_link.cpp): the authority takes a member's ask; a member takes the authority's stage and answers.
+void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_state_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// A member runs its granted use, sends its ask and plays a paid stage's scenes; the authority answers the asks and sends its drop's
+// stage (once a frame).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace deposit
 
 }  // namespace nxrt::games::pkp::coop

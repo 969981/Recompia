@@ -57,7 +57,8 @@
 //   BagRestore  +2 u8[16] member key, +18 u8 1 when the authority has a record for it (0: none, the rest is 0), +19 u64 sequence,
 //               +27 kBagRecordSlots x 16 bytes   (the authority's answer to a member's first BagRecord of a session, or to one older than
 //               its own copy; a member ignores one for another member's key)
-//   StoryRecord +2 u8 record (1 effect commands, 2 town flags, 3 town targets, 4 stage flags, 5 hint groups; another is skipped),
+//   StoryRecord +2 u8 record (1 effect commands, 2 town flags, 3 town targets, 4 stage flags, 5 hint groups, 6 the materials drop;
+//               another is skipped),
 //               +3 u8 the authority's area (stage), +4 u16 length n (the record's size; another is skipped), n bytes: the record as the
 //               authority's save holds it   (when it changed, and all of them on a join and every so often; pkp_coop_records.cpp)
 //   FriendAsk   +2 u8 kind, +3 u16 the creature's actor handle (kind 1; 0 for 2), +5 u32 its chara (< 0x41a), +9 s16 amount (kind 1,
@@ -74,6 +75,14 @@
 //               a kind the authority does not post is dropped)
 //   NewcomerAsk +2 u16 the creature's actor handle, +4 u16 its chara (< 0x41a), +6 u8 the origin's stage   (a member's first talk
 //               with a creature no player had befriended; the authority makes the host's befriend for it; pkp_coop_newcomer.cpp)
+//   DepositAsk  +2 u8[16] the asker's member key, +18 u64 ask id (the same on every resend), +26 u32 the drop's cell (x | y << 16),
+//               +30 u16 its z, +32 u8 the stage the asker's drop is at, +33 u8 count n (0..3), then n times: u16 item, u8 count
+//               (a member confirmed a deposit into the story's materials drop; the authority steps the drop once when its own drop
+//               is at that stage and the items and the group's conditions meet the stage's row; pkp_coop_deposit.cpp)
+//   DepositState +2 u32 the drop's cell (x | y << 16), +6 u16 its z, +8 u8 the authority's drop stage, +9 u8 verdict (0 none: the
+//               stage only, to every member; 1 accepted, 2 refused: the answer to one ask), +10 u8 reason (refused: 1 the stage
+//               differs, 2 the stage's needs are not met, 3 no drop at the cell), +11 u8[16] the asker's member key (0 for none),
+//               +27 u64 its ask id (0 for none)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -145,6 +154,9 @@ enum class Type : uint32_t {
     TravelAsk = 42,
     // ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----
     NewcomerAsk = 38,
+    // ---- a member's deposit into the story's materials drop (pkp_coop_deposit.cpp) ----
+    DepositAsk = 44,
+    DepositState = 45,
 };
 
 // Builds one payload: the header, then the fields in order.

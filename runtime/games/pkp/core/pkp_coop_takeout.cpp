@@ -153,6 +153,8 @@ void tick(::Ctx* c) {
     guest::call(c, base() + layout::kAutosaveNow, game + layout::kStateAutosaveObj, 1, 0);
 }
 
+void owe_save() { st().taken.fetch_add(1, std::memory_order_relaxed); }
+
 void reset() {
     State& s = st();
     s.taken.store(0, std::memory_order_relaxed);
