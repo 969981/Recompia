@@ -7,17 +7,18 @@
 // through RequestGimmickOwnership and the grant's apply), then posts the press to the contents scheduler (0x765b54: 0x135d80 posts
 // notice kind 0xe to GM+0xd8's list +0xb6530 through 0x1353a0, true when a content record takes the press, a story step waiting for
 // it; 0x765b54 then answers false and the use does not start). Otherwise the class starts its event, and gives the byte back when that
-// start fails. In twelve classes the "a content took it" answer returns without a give-back, and nothing gives it back later: the
-// presser keeps the object for the rest of the session, on every process (the grant reached them all). Here, in a session, at the
-// `tbz w0` after that call, a false answer gives the byte back as the class's failed start does: the class's release function where
-// it has one, else the base gimmick release the class itself calls at its other blocked exits (vt+0x490), else the game's give-back
-// for one owner slot (the host applies the release; a member sends SyncGimmickOwnership, take 0, to the host, which applies it and
-// reports the cell, as at a grant). A presser that does not own the object changes nothing: the release checks the owner against the
-// presser's index (and for the vt+0x490 sites we check it first, since some of them reach the press with no take).
-// The other callers of 0x7659c8 / 0x765b54 take nothing before the press, so their false exit holds nothing: 0x74b484 (0x3265198's
-// tick, its use only sets +0x22), 0x79602c (0x3264ce0), 0x7b06fc (0x3266e68), 0x7cc490 / 0x7f6b48 (0x326a358 / 0x326efe0, no owner
-// slot: vt+0x328 = 0), 0x7d5088 (0x326b918: the take is after the press), 0x7e8578 (0x326e1b8: the use is the press alone), 0x77ce64
-// (the A press's walk of the placed-object map) and 0x78f82c / 0x78f890 (a script's start of a category 0xc / 0x18 gimmick).
+// start fails. In eleven classes (thirteen vtables) the "a content took it" answer returns without a give-back, and nothing gives it
+// back later: the presser keeps the object for the rest of the session, on every process (the grant reached them all). Here, in a
+// session, at the `tbz w0` after that call, a false answer gives the byte back as the class's failed start does: the class's release
+// function where it has one, else the base gimmick release the class itself calls at its other blocked exits (vt+0x490), else the
+// game's give-back for one owner slot (the host applies the release; a member sends SyncGimmickOwnership, take 0, to the host, which
+// applies it and reports the cell, as at a grant). A presser that does not own the object changes nothing: the release checks the
+// owner against the presser's index (and at the seven later sites we check it first, since some of them reach the press with no take).
+// The other callers of 0x7659c8 / 0x765b54 take nothing before the press (no take in the function, none reached from its class's
+// own slots), so their false exit holds nothing: 0x79602c (0x3264ce0), 0x7b06fc (0x3266e68), 0x7cc490 / 0x7f6b48 (0x326a358 /
+// 0x326efe0, no owner slot: vt+0x328 = 0), 0x7d5088 (0x326b918), 0x7e8578 (0x326e1b8: the use is the press alone), 0x77ce64 (the A
+// press's walk of the placed-object map) and 0x78f82c / 0x78f890 (a script's start of a category 0xc / 0x18 gimmick). 0x74b484, the
+// shared tick 0x74b3d0 (also called by 0x74aee8 and 0x754684), is left alone: its false exit hands on to the class (vt+0x4b8(g, 0)).
 //
 // The game, 2.0.1a (x19 = the gimmick at every site, w0 = 0x765b54's answer):
 //   class 0x32688e0 slot 5 0x7c0be0   the use at 0x7c13d8: 0x765b54 at 0x7c1418, `tbz w0, #0` 0x7c141c returns; a failed event
