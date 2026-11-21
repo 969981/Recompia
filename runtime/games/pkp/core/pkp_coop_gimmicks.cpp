@@ -19,6 +19,20 @@
 //   gimmick vt+0x2e0(g, &owner, quiet, slot)  sets it (base 0x768a60): same value returns at once; with quiet clear the host also
 //                                     reports the cell (0x3f4344). Called here with quiet set, as the network apply 0x538f60 does
 //   player manager +0x30..+0x48       the session's player characters; u8 ch+0x5a38 is the member index the owner byte holds
+//
+// Multi-user objects (kind table row byte +0x11 = 2: class 0x3262c80, per-member bytes obj+0x3d+idx; 0x13: class 0x3263160,
+// obj+0x58+idx, each the only vtable with its class's own slots) are not the sweep's: the host's grant (0x552e24 / 0x55309c) takes
+// the owner byte with the HOST's index and sets the member's byte, so the owner never names the leaver. The game cleans these up
+// itself: MemberDelete 0x535c80 (the authority's side of a leave, run when the game deletes the member, so a use survives a short
+// drop exactly as long as the sweep's single-user ones do) calls 0x77ece0(placed map, idx), which calls vt+0x228(obj, idx) on every
+// placed object; the base 0x7668b4 is `ret`, the two classes' 0x74cc60 / 0x7568f0 clear the byte on the host (0xa40bc) and, when
+// all four are clear, release the owner (0x538f60 take 0, quiet 0, slot 0xff: the cell is reported to the others). What that step
+// lacks against the host's end-of-use handler (Sync take 0, 0x54cba4: 0x54cd08..0x54cd30 / 0x54ce38..0x54ce60) is
+// 0x74d5e0(vt+0x310 part, 0, idx) -> 0x2c7d44 (not on a visitor 0x376c4): category 2 -> 0x2c83a0, 0x13 -> 0x2c7dfc = 0x2c83a0 then
+// obj+0x4c+idx*2 = the empty id (0x7599d8). 0x2c83a0 lets go every character the player manager [main+0x3561928] lists (+0x2b8,
+// count +0x2c4) whose vt+0x408 part +0x36f8 byte +0x10 is that index (0xff, its spot cleared, character event 0x1d). Without it the
+// companion the leaver had at the object stays bound to the gone index, and 0x2c7f5c never binds a character whose byte is < 4
+// (0x2c8264..0x2c8290) to anyone again. on_shared_leave runs that call at the game's own step, once per object the leaver was using.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -40,6 +54,10 @@ constexpr uint64_t kKindOf = 0x50, kGimmickOf = 0x310, kOneSlot = 0x328, kOwnerO
 constexpr uint64_t kPlayerSlots = 4, kNetSlot = 0x5a38;
 constexpr uint8_t kSlots = 3, kFree = 0xff, kMembers = 4;
 constexpr size_t kMaxNodes = 0x10000;   // a walk that long is a broken tree, not a world
+
+constexpr uint64_t kSharedLeave2 = 0x74cc60;     // vt+0x228 of class 0x3262c80 (category 2); else 0x7568f0, class 0x3263160 (0x13)
+constexpr uint64_t kUsers2 = 0x3d, kUsers13 = 0x58;   // object +: u8 per member index, set while that member uses it
+constexpr uint64_t kEndUse = 0x74d5e0;           // (part, on, idx): the per-member step of a use (0 = its end)
 
 constexpr double kSweepFor = 10.0;      // after a leave: the game's MemberDelete removes the character within this
 constexpr double kSweepEvery = 1.0;
@@ -133,5 +151,21 @@ void tick(::Ctx* c, bool in_game) {
 }
 
 void reset() { st() = State{}; }
+
+int on_shared_leave(::Ctx* c, uint64_t site) {
+    if (!link::in_session() || !link::is_authority()) return 0;
+    const uint64_t obj = c->x[0];
+    const uint8_t idx = static_cast<uint8_t>(c->x[1]);
+    const uint64_t bytes = site == kSharedLeave2 ? kUsers2 : kUsers13;
+    if (idx >= kMembers || !obj || !guest::ok(obj + bytes, kMembers)) return 0;
+    if (!guest::rd<uint8_t>(obj + bytes + idx)) return 0;   // that member was not using this object
+    const uint64_t gimmick_of = virt(obj, kGimmickOf);
+    const uint64_t part = gimmick_of ? guest::call(c, gimmick_of, obj) : 0;
+    if (!part) return 0;
+    guest::call(c, base() + kEndUse, part, 0, idx);
+    NXLOG_I(kTag, "Co-op gimmicks: member %u left while using a shared object (category %s); its character there let go", idx,
+            site == kSharedLeave2 ? "2" : "0x13");
+    return 0;
+}
 
 }  // namespace nxrt::games::pkp::coop::gimmicks

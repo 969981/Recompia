@@ -371,6 +371,10 @@ void on_member(int node, bool joined, bool self);
 // The sweep after a leave (once a frame; once a second while due).
 void tick(::Ctx* c, bool in_game);
 void reset();
+// The hook sites (pkp_coop.cpp): entry of a multi-user object class's "member left" step vt+0x228 (site: its main offset;
+// x0 the object, w1 the member index). On the authority, for a member that was using the object, the rest of the game's own
+// end-of-use sequence runs first (the character the member had there is let go); returns 0, the game's step runs on.
+int on_shared_leave(::Ctx* c, uint64_t site);
 }  // namespace gimmicks
 
 namespace catchup {
