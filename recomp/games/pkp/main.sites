@@ -394,6 +394,7 @@ midhook 0x710013a8f4
 midhook 0x710013ae48
 midhook 0x710013af80
 midhook 0x710013b294
+midhook 0x71004c03e4
 midhook 0x71007596cc
 midhook 0x71007fca2c
 midhook 0x71007fd1ac

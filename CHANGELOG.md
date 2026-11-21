@@ -36,6 +36,7 @@
 - An object whose press goes to a story step instead of its normal use is free again right after. Before, the player who pressed it kept it, and everyone else got "Someone else is using this right now." there for the rest of the session
 - The time of day in the story's opening now changes for teammates too: the evening and the morning after the night by the campfire reached only the host, and a teammate's clock could stay stuck at night
 - A newly discovered creature can now move in when a teammate talks to it first, not only the host: it becomes the town's resident for the whole group, and no longer asks the host again whether it can live here
+- Two special creatures that a teammate could only greet with a visitor's talk now start the same first talk for a teammate as for the host
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five
