@@ -63,7 +63,10 @@ int64_t unix_mtime(const stdfs::path& p) {
     std::error_code ec;
     const auto t = stdfs::last_write_time(p, ec);
     if (ec) return 0;
-    const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(t);
+    // file time -> wall clock by the two clocks' current offset: std::chrono::clock_cast is missing from the Linux and macOS
+    // standard libraries the port builds with; the stamp's seconds need no more than this.
+    const auto sys = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+        t - stdfs::file_time_type::clock::now() + std::chrono::system_clock::now());
     return std::chrono::duration_cast<std::chrono::seconds>(sys.time_since_epoch()).count();
 }
 
