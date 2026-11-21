@@ -38,6 +38,12 @@ int64_t romfs_game_read(const std::string& path, uint64_t offset, void* buf, uin
 void romfs_game_release();
 // fn runs after every successful Commit of a save data file system, on the committing thread (the game's). One listener; null: none.
 void set_save_commit_listener(void (*fn)());
+// fn names the files of a save data file system that a commit leaves as they are committed: called with the save's host folder (UTF-8)
+// and a file's path in it ('/' separated, no leading '/': "G00/A.BIN"), true holds that file. A held file's changes since the last
+// commit (written, created, deleted, or deleted with a folder around it) are dropped at the commit and its committed bytes stay; the
+// commit itself succeeds, so the game sees its save done. For a game module that owns some files of its save and writes them itself.
+// One filter; null: none. Any thread; fn runs on the committing thread and must not block.
+void set_save_commit_hold(bool (*fn)(const std::string& root, const std::string& rel));
 }  // namespace fsapi
 
 // ---- am (am.cpp): console state changes from the host --------------------------------------------------------------------------------

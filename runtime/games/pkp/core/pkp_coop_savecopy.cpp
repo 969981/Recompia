@@ -23,11 +23,23 @@
 //     cut short (the session ends, no chunk for kChunkWait, a write fails) is dropped: this PC keeps its previous whole copy and
 //     stamp. A copy that fails its check is asked for once more (SaveHave status 2), then given up until the next one.
 //   - each applied copy is told back (SaveHave status 1), so the authority knows every member's stamp.
+// The hold (a member): its game must not write its own world over the group's copy. Its world writes are dropped at the runtime's
+// commit (services fsapi::set_save_commit_hold), at the file layer rather than at the three save writers: the commit sees exactly
+// the files, whichever writer and whatever kind of request made them (autosave kind 3 writes SCSHDAT, the arrival save at home after
+// a leave or a drop writes STGDAT, the backup job writes B00), and the game still sees its save done (no error notice, the
+// take-out's save after a take still completes). CMNDAT and SYDAT are never held: the player's own data in them (coins, claims,
+// the boxes a take-out emptied, the look) reaches disk as before. Held: the world files of G00 and B00, while this process is a
+// member (in a session or not: the writes that would overwrite the copy are the ones outside it) and this PC has a whole copy of
+// the group's world (stamp.json), or is moving one into place. With no copy yet (a new member, or a group from before this build)
+// nothing is held, so the member's first world still reaches disk.
 // Fail safe: an older build on either side never sends or answers these types; a member then keeps today's behaviour.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_coop_saveset.h"
+#include "core/pkp_save_files.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cctype>
 #include <chrono>
 #include <ctime>
 #include <future>
@@ -38,6 +50,7 @@
 #include "nxrt/coop_channel.h"
 #include "nxrt/log.h"
 #include "nxrt/qpc.h"
+#include "nxrt/services_api.h"
 
 namespace nxrt::games::pkp::coop::savecopy {
 
@@ -130,6 +143,7 @@ struct Transfer {
 
 struct State {
     bool installed = false;
+    bool stamped = false;           // stamp.json: a whole copy of the group's world is on disk
     bool authority_mode = false;    // the side the last tick acted as
     std::future<JobResult> job;
     Job job_kind = Job::None;
@@ -158,6 +172,30 @@ State& st() {
 
 bool acting_authority() { return link::in_session() ? link::is_authority() : role() == CoopRole::Host; }
 
+// The hold's state, read on the committing thread (not part of State: the filter may run while a reset clears State).
+struct Hold {
+    std::atomic<bool> on{false};
+    std::string root;   // the account folder, norm()ed; fixed before the filter is registered
+};
+Hold& hold() {
+    static Hold h;
+    return h;
+}
+
+// A host folder (UTF-8) as compared here: normalized, '/' separated, lower case, no trailing '/'.
+std::string norm(const std::string& u8path) {
+    std::string p = save_files::u8(std::filesystem::path(save_files::from_u8(u8path).lexically_normal().generic_u8string()));
+    while (!p.empty() && p.back() == '/') p.pop_back();
+    for (char& c : p) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return p;
+}
+
+// fsapi::set_save_commit_hold's filter: a world file of this co-op save's account folder, while the hold is on.
+bool held(const std::string& root, const std::string& rel) {
+    const Hold& h = hold();
+    return h.on.load(std::memory_order_acquire) && ss::world_name(rel, true) && norm(root) == h.root;
+}
+
 bool job_busy() { return st().job_kind != Job::None; }
 
 void start_read() {
@@ -177,6 +215,7 @@ void start_apply() {
     for (size_t i = 0; i < t.files.size(); ++i)
         if (t.sent[i]) received.push_back(t.files[i].name);
     s.job_kind = Job::Apply;
+    hold().on.store(true, std::memory_order_release);   // before the first file moves: the game's next commit leaves them alone
     s.job = std::async(std::launch::async, [stamp = t.stamp, by = t.by, files = t.files, received] {
         JobResult r;
         r.ok = ss::apply(stamp, by, files, received, &r.why);
@@ -230,8 +269,8 @@ void stamp_new() {
     State& s = st();
     s.own = ss::Stamp{highest_seq() + 1, now_unix()};
     std::string why;
-    if (!ss::write_stamp(s.own, member_key(), &why))
-        NXLOG_W(kTag, "Co-op save: stamp.json of copy %llu was not written: %s", static_cast<unsigned long long>(s.own.seq), why.c_str());
+    if (ss::write_stamp(s.own, member_key(), &why)) s.stamped = true;
+    else NXLOG_W(kTag, "Co-op save: stamp.json of copy %llu was not written: %s", static_cast<unsigned long long>(s.own.seq), why.c_str());
     s.table[member_key()] = s.own;
     s.own_files = s.copy.files;
 }
@@ -250,7 +289,7 @@ void on_read_done(JobResult r) {
     s.have = true;
     if (first && ss::has_stamp() && s.copy.newest <= static_cast<int64_t>(s.own.saved_at)) {
         s.own_files = s.copy.files;   // nothing saved since this copy was stamped
-            s.table[member_key()] = s.own;
+        s.table[member_key()] = s.own;
     } else {
         stamp_new();
     }
@@ -345,7 +384,8 @@ void on_apply_done(const JobResult& r) {
     if (r.ok) {
         s.own = t.stamp;
         s.own_files = t.files;
-            s.table[member_key()] = s.own;
+        s.stamped = true;
+        s.table[member_key()] = s.own;
         NXLOG_I(kTag, "Co-op save: copy %llu of the group's world is this PC's copy now", static_cast<unsigned long long>(s.own.seq));
         send_have(HaveStatus::Applied);
         return;
@@ -503,9 +543,12 @@ void install() {
     if (ss::finish(&why)) NXLOG_I(kTag, "Co-op save: a received copy left half moved by the last run was completed");
     else if (!why.empty()) NXLOG_W(kTag, "Co-op save: a received copy is still waiting: %s", why.c_str());
     s.own = ss::own_stamp();
+    s.stamped = ss::has_stamp();
     s.table = ss::read_peers();
     s.table[member_key()] = s.own;
     refresh_own_files();
+    hold().root = norm(save_files::u8(ss::account_dir()));
+    services::fsapi::set_save_commit_hold(&held);
     s.installed = true;
     NXLOG_I(kTag, "Co-op save: this PC has copy %llu (%s), %zu world file(s)", static_cast<unsigned long long>(s.own.seq),
             ss::has_stamp() ? "stamped" : "no stamp yet", s.own_files.size());
@@ -530,6 +573,7 @@ void tick(::Ctx*) {
     }
     if (authority) tick_authority();
     else tick_member();
+    hold().on.store(!authority && (s.stamped || s.job_kind == Job::Apply), std::memory_order_release);
 }
 
 void on_member(int node, bool joined, bool self) {
@@ -547,6 +591,8 @@ void on_member(int node, bool joined, bool self) {
 void reset() {
     State& s = st();
     if (s.job.valid()) s.job.wait();
+    hold().on.store(false);
+    if (s.installed) services::fsapi::set_save_commit_hold(nullptr);
     s = State{};
 }
 
