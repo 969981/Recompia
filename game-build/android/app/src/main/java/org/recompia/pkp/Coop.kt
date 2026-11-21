@@ -10,8 +10,9 @@ import java.io.File
  * Recompia: Co-op on the phone, the PC launcher's contract (launcher/src-tauri/src/coop.rs, coop_save.rs, coop_launch.rs) for joining:
  * a co-op save is a folder `<dataRoot>/coop-saves/<group id>/` (beside the singleplayer `save/`, coop.rs root_beside) with coop.marker
  * and coop.json; the world in `account/` arrives from the group (the game side's copy channel: incoming/, stamp.json, peers.json).
- * The invite is the launcher's long text `PKCOOP1.<base64url(JSON)>` (coop.rs invite); the short 6-character codes live on the public
- * relay and are not resolved here. Making a co-op save and adding players stay on the PC (the creator's launcher).
+ * The invite is the launcher's long text `PKCOOP1.<base64url(JSON)>` (coop.rs invite), or its short code `XXX-XXX` kept on the public
+ * relay for 6 hours (coop_code.rs, launcher/relay invite_client.rs: lookup and store). A phone can also make a co-op save and add
+ * players (coop.rs create / add_member), as the creator's launcher does.
  * A start sets the launcher's environment (coop_launch.rs build / member_env) in GameActivity before SDL loads the runtime.
  */
 object Coop {
@@ -101,6 +102,131 @@ object Coop {
         write(Profile(inv, member))
         return null
     }
+
+    // ---- making (coop.rs create / add_member / invite) ----------------------------------------------------------------------------------
+
+    /** The launcher's public relay (launcher/src/linkplay-model.js PUBLIC_RELAY): where a new save plays and short codes live. */
+    const val PUBLIC_RELAY = "204.216.111.91:47610"
+    private const val BUILT_IN_UID = "000000000000000141434e4852656370"   // profiles.rs: the default user, never a new id
+    private val rng = java.security.SecureRandom()
+
+    /** profiles.rs new_uid: 32 hex digits, neither half zero, not the built-in user, not taken. */
+    private fun newUid(taken: Collection<String>): String {
+        while (true) {
+            val u = (0 until 16).joinToString("") { "%02x".format(rng.nextInt(256)) }
+            if (u.take(16) != "0".repeat(16) && u.drop(16) != "0".repeat(16) && u != BUILT_IN_UID && taken.none { it.equals(u, true) }) return u
+        }
+    }
+    private fun newRoomCode() = (0 until 16).map { ROOM_ALPHABET[rng.nextInt(32)] }.chunked(4).joinToString("-") { it.joinToString("") }
+    private fun cleanName(raw: String) = raw.trim().takeIf { it.isNotEmpty() && it.codePointCount(0, it.length) <= 24 && it.none { c -> c.isISOControl() } }
+
+    /** coop.rs create: a new co-op save with this phone's player as its creator, in a new empty folder. Returns an error text, or null. */
+    fun create(name: String, myName: String, relay: String = PUBLIC_RELAY): String? {
+        val n = cleanName(name) ?: return "Type a name for the co-op save (1 to 24 characters)."
+        val me = cleanName(myName) ?: return "Type a name for the player (1 to 24 characters)."
+        if (!relayOk(relay)) return "The relay needs an address like 192.0.2.10 or 192.0.2.10:47610."
+        if (list().any { it.name.equals(n, true) }) return "There is already a co-op save called $n."
+        val m = Member(newUid(emptyList()), me)
+        val p = Profile(Invite(newUid(listOf(m.id)).take(16), n, newUid(listOf(m.id)), newRoomCode(), relay.trim(), listOf(m)), m.id)
+        val dir = folder(p.id)
+        if (dir.exists() && !dir.list().isNullOrEmpty()) return "${dir.path} already has files in it. A co-op save starts in a new, empty folder."
+        if (!dir.mkdirs() && !dir.isDirectory) return "Cannot make ${dir.path}."
+        File(dir, MARKER).writeText(JSONObject().put("kind", KIND).put("version", 1).put("group", p.id).toString(2))
+        write(p)
+        return null
+    }
+
+    fun isCreator(p: Profile) = p.invite.members.firstOrNull()?.id == p.me
+
+    /** coop.rs add_member: a player the invite names before they join; creator only, at most 4. Returns an error text, or null. */
+    fun addMember(id: String, name: String): String? {
+        val p = get(id) ?: return "That co-op save does not exist."
+        if (!isCreator(p)) return "Only the player who made this co-op save can change its players."
+        val n = cleanName(name) ?: return "Type a name for the player (1 to 24 characters)."
+        if (p.invite.members.size >= MAX_MEMBERS) return "A co-op save has at most $MAX_MEMBERS players."
+        if (p.invite.members.any { it.name.equals(n, true) }) return "There is already a player called $n."
+        write(p.copy(invite = p.invite.copy(members = p.invite.members + Member(newUid(p.invite.members.map { it.id }), n))))
+        return null
+    }
+
+    /** coop.rs invite: the text the creator hands to the others (it carries the room code: members only). */
+    fun invite(p: Profile): String {
+        val j = JSONObject().put("id", p.id).put("name", p.name).put("account_uid", p.invite.accountUid).put("room_code", p.invite.roomCode)
+            .put("relay", p.invite.relay).put("members", JSONArray(p.invite.members.map { JSONObject().put("id", it.id).put("name", it.name) }))
+        return INVITE_PREFIX + Base64.encodeToString(j.toString().toByteArray(), Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+    }
+
+    // ---- short codes (coop_code.rs; launcher/relay/src/invite_client.rs, engine.rs "PKR1" 0xC9 put / 0xCA get) ------------------------
+
+    private const val CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ"   // relay invites.rs ALPHABET
+    private const val RELAY_MAGIC = 0x31524B50                          // "PKR1", little endian on the wire
+    private const val X_INVITE_PUT = 0xC9; private const val X_INVITE_GET = 0xCA; private const val T_ERR = 4
+    private const val E_NOROOM = 1; private const val E_LIMIT = 4; private const val BLOB_MAX = 2048; private const val TIMEOUT_MS = 4000
+
+    /** invites.rs normalize: 6 symbols of the code alphabet, dashes, spaces and case ignored; null: not a short code. */
+    fun shortCode(text: String): String? = text.filter { it != '-' && !it.isWhitespace() }.uppercase().takeIf { it.length == 6 && it.all { c -> c in CODE_ALPHABET } }
+
+    private fun relayAddr(s: String): java.net.InetSocketAddress? {
+        if (!relayOk(s)) return null
+        val t = s.trim()
+        return java.net.InetSocketAddress(t.substringBefore(':'), if (':' in t) t.substringAfter(':').toInt() else 47610)
+    }
+
+    /** One request on its own short link (invite_client.rs send / answer): the 32-byte hello and its body, then the 16-byte answer. */
+    private fun ask(relay: java.net.InetSocketAddress, kind: Int, key: ByteArray, body: ByteArray): Pair<ByteArray, java.net.Socket> {
+        val h = java.nio.ByteBuffer.allocate(32).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        h.putInt(RELAY_MAGIC).put(kind.toByte()).put(1); h.position(8); h.put(key); h.position(24); h.putInt(body.size)
+        val sock = java.net.Socket()
+        sock.connect(relay, TIMEOUT_MS); sock.soTimeout = TIMEOUT_MS
+        sock.getOutputStream().apply { write(h.array()); write(body); flush() }
+        val m = ByteArray(16); java.io.DataInputStream(sock.getInputStream()).readFully(m)
+        return m to sock
+    }
+    private fun u32(b: ByteArray, at: Int) = java.nio.ByteBuffer.wrap(b, at, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int
+
+    /**
+     * coop_code.rs resolve: a short code is looked up on the public relay and its long invite comes back; any other text comes back as it
+     * is. Blocking (network): never on the main thread. Failure: the launcher's error text.
+     */
+    fun resolve(text: String): Result<String> {
+        val code = shortCode(text) ?: return Result.success(text.trim())
+        val unreachable = "The relay could not look up this code. Ask your friend for the long code instead."
+        return runCatching {
+            val (m, sock) = ask(relayAddr(PUBLIC_RELAY)!!, X_INVITE_GET, code.toByteArray(), ByteArray(0))
+            sock.use {
+                if (u32(m, 0) != RELAY_MAGIC) throw IllegalStateException(unreachable)
+                when {
+                    (m[4].toInt() and 0xff) == X_INVITE_GET -> {
+                        val n = u32(m, 8)
+                        if (n !in 1..BLOB_MAX) throw IllegalStateException(unreachable)
+                        ByteArray(n).also { java.io.DataInputStream(sock.getInputStream()).readFully(it) }.toString(Charsets.UTF_8)
+                    }
+                    (m[4].toInt() and 0xff) == T_ERR && (m[5].toInt() and 0xff) == E_NOROOM -> throw IllegalStateException("No invite has this code. Codes last 6 hours: ask for a new one, or for the long code.")
+                    (m[4].toInt() and 0xff) == T_ERR && (m[5].toInt() and 0xff) == E_LIMIT -> throw IllegalStateException("Too many codes were tried from this phone. Wait a minute, then try again.")
+                    else -> throw IllegalStateException(unreachable)
+                }
+            }
+        }.recoverCatching { throw IllegalStateException(if (it is IllegalStateException) it.message else unreachable) }
+    }
+
+    /**
+     * coop_code.rs shorten: keeps save `p`'s invite on the public relay for 6 hours under a short code (`XXX-XXX`), only when the save plays
+     * on that relay (the invite holds the room's code; it never goes to another relay). The token names the save (sha256 of the group id and
+     * room code, first 16 bytes), so a newer invite keeps the code. Blocking (network); null when there is none for any reason.
+     */
+    fun shorten(p: Profile): String? = runCatching {
+        val at = relayAddr(PUBLIC_RELAY)!!
+        if (relayAddr(p.invite.relay) != at) return null
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        md.update("recompia coop invite token\u0000".toByteArray()); md.update(p.id.toByteArray()); md.update(0.toByte()); md.update(p.invite.roomCode.toByteArray())
+        val inv = invite(p).toByteArray()
+        if (inv.size > BLOB_MAX) return null
+        val (m, sock) = ask(at, X_INVITE_PUT, md.digest().copyOf(16), inv)
+        sock.use {
+            if (u32(m, 0) != RELAY_MAGIC || (m[4].toInt() and 0xff) != X_INVITE_PUT) return null
+            shortCode(String(m, 8, 6, Charsets.US_ASCII))?.let { it.take(3) + "-" + it.drop(3) }
+        }
+    }.getOrNull()
 
     // coop_save.rs stamps: (seq, saved_at), stamp.json else the newest file time under account/ with seq 0
     private data class Stamp(val seq: Long, val at: Long) : Comparable<Stamp> {
