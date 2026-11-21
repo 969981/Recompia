@@ -18,8 +18,8 @@
 // first 8 bytes, the field object's vtable, are left out: pkp_layout.h starts it at +0x8). The host-only timers (+0xb8, +0x1c4) are
 // ticked by no member, so the authority's value is the only one there is. Town bit 4 (a move pending) is acted on only by 0x115ee4,
 // which skips a visitor: harmless as copied.
-// The authority: every kSendEvery seconds (the story digest's period) it sends each record that changed since it last sent it
-// (StoryRecord, a record per message), and all of them when this process or another member joins and every kAllEvery seconds (a
+// The authority: every kSendEvery seconds (the story digest's period), under its own menus and talks too, it sends each record that
+// changed since it last sent it (StoryRecord, a record per message), and all of them when this process or another member joins and every kAllEvery seconds (a
 // copy sent while a member was not joined yet is sent again that way, as the requests' whole list is). The effect-command record is
 // STGDAT: whether the game keeps one per area is not settled, so it carries the authority's area and a member takes it only there.
 // A member keeps the authority's latest copy of each record (one received before it can be written waits, never dropped) and, once
@@ -27,19 +27,43 @@
 // writes the copy into its save wherever its save differs. Each frame, not once per message: a member's stage load or its own writer
 // changes the record with no message coming. Before a write that changes bytes it logs (at most once per kLogGap per record) how many
 // bytes differed and how many of them this member wrote itself since the last write, so logs show whether members write them.
-// Known remaining hole (the member writes the authority never made; STORY-RECORDS.md section 4 holes 3, 4, 5, 7): the contents
-// actions of the member's own scheduler (0x866 0xdf2 0xdf6 0xe11 0xe6d 0xe70 0xe56 0xe57 0xc1e 0x122f 0x92e 0x933 0x960 0x11a8 0x119e
-// 0xe02 0x8fe 0x836 0x9c4 0x9ce 0xe51 0x1194 0xf..0x11; town bits 0xc85 0xe72 0xede 0xe60), script 0xbd6 (0x12c600, hint groups), a
-// member's own completion of request 73 (0x13a9b0). When the authority's scheduler never ran the same entry, the write is overwritten
-// here and lost for the group (a member's own story-line steps, actions 0 / 10 into the stage flags, are not: the authority runs the
-// shared line's step, pkp_coop_events.cpp apply_lines, and the bits come back with the next record); forwarding them to the authority (as WildPop does for 0xc1e) needs a
-// runtime answer to which entries a member's scheduler runs (QUEST-SCRIPT-RE section 5).
+// The confirm check (a log line only; it changes nothing that is written, nor when): at a write that reverts bytes this member
+// wrote itself, those bytes and the member's values are kept, one check per record at a time; each later copy of the authority (of
+// the same area) that holds the member's value at one of them marks it made there too. After kCheckFor seconds (a copy of every
+// record comes at least every kAllEvery), or once all are marked, one line says how many were found at the same offsets and the
+// first offsets that were not. Found means the authority made the same write there; not found means it did not, or made it into
+// another slot of a slot array (wild pops +0xb4, Ver2 slots +0x3c, real timers +0x1c4), or wrote the field again since.
+// A member's own writers (STORY-RECORDS.md section 4 holes 3, 4, 5, 7), by what makes them run:
+//   - the stage-2 start's clear of chara 0x5d (0xb4b60) runs on every process and differs only by role: the authority's value is
+//     the group's, so the copy written here is right.
+//   - request 73's slot clear (0x13a9b0): a member's completion makes the authority run it once (pkp_coop_outcomes.cpp replay).
+//   - a member's own story-line steps (actions 0 / 10 into the stage flags): the authority runs the shared line's step
+//     (pkp_coop_events.cpp apply_lines) and the bits come back with the next record.
+//   - the contents actions (0x866 0xdf2 0xdf6 0xe11 0xe6d 0xe70 0xe56 0xe57 0xc1e 0x122f 0x92e 0x933 0x960 0x11a8 0x119e 0xe02 0x8fe
+//     0x836 0x9c4 0x9ce 0xe51 0x1194 0xf..0x11; town bits 0xc85 0xe72 0xede 0xe60; hint groups 0xbd6 0x12c600) run from 0x12f690 for
+//     whichever content record of this process's scheduler GM+0xd8 became due, so whose they are is the record's trigger, not the
+//     action: no action tests the role. Records on a polled list (0..2) mostly run on the authority and on every member at the same
+//     moment (alpha 6 logs: most content / record pairs leave both lists within the clock offset, the wild pop of content 258
+//     included), so most of a member's writes are the authority's too; but some polled records ran on one process only (on a member,
+//     or on the authority alone), whether from that process's own save state or from a condition on its local player (0x12483c has
+//     player-distance and held-item cases) is not settled. A member also replays old polled records the authority ran long ago (at
+//     a join or a stage entry): there the authority's copy is the right one, and forwarding a member's writes would undo the
+//     group's newer state. A record on a notice list runs on the
+//     process whose code posted that notice: of the scheduler's notifiers (0x1355ec..0x13664c, the callers of 0x1353a0) five skip a
+//     visitor (0x1355ec talked to and 0x136548 fed, both posted on the authority for a member by pkp_coop_feed.cpp; 0x135ed8,
+//     0x1363dc, 0x13664c) and the rest post on the acting player's own process (0x1356b8 / 0x135720 an event's end, list SC+0x8d0e0,
+//     from the talker's runner 0x47e140; 0x135d80 a gimmick press, list SC+0xb6530, from the presser's 0x765b54; ...). A record on
+//     such a list that writes these records is the case a member's write never reaches the authority. Which content records wait on
+//     which notice and run which action is in the contents data (not parsed), so nothing is forwarded or skipped here; the check
+//     below logs, for every own write the copy reverts, whether the authority's next copies carry it.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 
 #include <array>
+#include <cstdio>
 #include <cstring>
+#include <string>
 
 #include "nxrt/log.h"
 #include "nxrt/qpc.h"
@@ -72,6 +96,8 @@ static_assert(layout::kEffectCommandsBytes <= kMaxBytes && layout::kStageFlagsBy
 constexpr double kSendEvery = 5.0;   // the authority's look for changes: the story digest's period (pkp_coop_story.cpp)
 constexpr double kAllEvery = 30.0;   // every record again
 constexpr double kLogGap = 30.0;     // a member's "differed" line, at most once per this many seconds per record
+constexpr double kCheckFor = kAllEvery + 2 * kSendEvery;   // a confirm check's wait: a full copy has come by then
+constexpr size_t kCheckShown = 8;    // offsets named in a confirm line
 
 struct Copy {
     bool have = false;
@@ -80,16 +106,29 @@ struct Copy {
     std::array<uint8_t, kMaxBytes> bytes{};
 };
 
+// A member: its own writes the last revert undid, waiting for the authority's later copies (the confirm check).
+struct Check {
+    bool active = false;
+    uint8_t stage = 0;
+    uint32_t seq = 0;                       // the copy that reverted them; only later copies count
+    double since = 0;
+    size_t total = 0, made = 0;             // own bytes reverted / found in a later copy of the authority
+    std::array<uint8_t, kMaxBytes> value{}; // the member's value at each
+    std::array<bool, kMaxBytes> open{};     // own and not found yet
+};
+
 struct State {
     // The authority.
     Copy sent[kCount];                 // what was sent last, per record
     double sent_at = -1e9, all_at = -1e9;
     bool send_all = true;
+    int settled_stage = -1;            // the area play last ran in (-1: none yet)
     // A member.
     Copy theirs[kCount];               // the authority's latest copy
     Copy written[kCount];              // what this save held right after the last write or check (the own-writes baseline)
     double logged_at[kCount] = {-1e9, -1e9, -1e9, -1e9, -1e9};
     unsigned unlogged[kCount] = {};    // writes since the last line
+    Check checks[kCount];
 };
 static_assert(kCount == 5, "logged_at has one start value per record");
 State& st() {
@@ -115,21 +154,60 @@ size_t differing(const uint8_t* a, const uint8_t* b, size_t n) {
     return d;
 }
 
+// A member: the confirm check's line, and the check ended.
+void check_report(size_t i, const char* why) {
+    Check& k = st().checks[i];
+    std::string missing;
+    size_t shown = 0;
+    for (size_t p = 0; p < kRecords[i].size && shown < kCheckShown; ++p) {
+        if (!k.open[p]) continue;
+        char one[16];
+        std::snprintf(one, sizeof one, "%s+0x%zx", shown ? " " : "", p);
+        missing += one;
+        ++shown;
+    }
+    if (k.made == k.total)
+        NXLOG_I(kTag, "Co-op records: %s: all %zu bytes this member wrote itself were found at the same offsets in the authority's "
+                "later copies (%s)", kRecords[i].name, k.total, why);
+    else
+        NXLOG_I(kTag, "Co-op records: %s: of %zu bytes this member wrote itself, %zu were found at the same offsets in the authority's "
+                "later copies and %zu were not (%s; at %s%s)", kRecords[i].name, k.total, k.made, k.total - k.made, why,
+                missing.c_str(), k.total - k.made > shown ? " ..." : "");
+    k.active = false;
+}
+
+// A member: a later copy of the authority marks the own bytes it holds too.
+void check_copy(size_t i, const Copy& t) {
+    Check& k = st().checks[i];
+    if (!k.active || t.seq <= k.seq || (kRecords[i].per_area && t.stage != k.stage)) return;
+    for (size_t p = 0; p < kRecords[i].size; ++p) {
+        if (!k.open[p] || t.bytes[p] != k.value[p]) continue;
+        k.open[p] = false;
+        ++k.made;
+    }
+    if (k.made == k.total) check_report(i, "a later copy");
+}
+
 // The authority: the records that changed since they were last sent (all of them when due).
 void send(bool in_game) {
     State& s = st();
-    if (!in_game || !link::is_authority() || !(session_bits() & layout::kSessionOnline) || !link::member_count()) return;
+    // Not gated on in_game: that is play mode's "playing", false under every game menu, choice box and talk box, so the authority,
+    // whose player is in one most of the time, sent only in the gaps (alpha 6: copies 32..110 s apart, changes waiting up to 40 s).
+    // Reading its own save is safe on the game thread at any time; only the effect-command record (STGDAT) is held after a stage
+    // change until play has run in the new area once, so a copy is never taken from the area data while it loads.
+    if (!link::is_authority() || !(session_bits() & layout::kSessionOnline) || !link::member_count() || !local_player()) return;
+    const uint8_t stage = area_stage();
+    if (in_game) s.settled_stage = stage;
     const double now = qpc::seconds();
     if (now - s.sent_at < kSendEvery) return;
     s.sent_at = now;
     const uint64_t root = save_root();
     if (!root) return;
     const bool all = s.send_all || now - s.all_at >= kAllEvery;
-    const uint8_t stage = area_stage();
     for (size_t i = 0; i < kCount; ++i) {
         const Record& rec = kRecords[i];
         const uint64_t at = record_at(root, rec);
-        if (!at) continue;
+        if (!at || (rec.per_area && s.settled_stage != stage)) continue;   // sent once settled: its stage then differs from the last
         const uint8_t* now_bytes = reinterpret_cast<const uint8_t*>(at);
         Copy& last = s.sent[i];
         const bool changed = !last.have || (rec.per_area && last.stage != stage) || std::memcmp(last.bytes.data(), now_bytes, rec.size);
@@ -185,6 +263,19 @@ void take(bool in_game) {
                 s.logged_at[i] = now;
                 s.unlogged[i] = 0;
             }
+            Check& k = s.checks[i];
+            if (own && !k.active) {
+                k.total = k.made = 0;
+                for (size_t p = 0; p < rec.size; ++p) {
+                    k.open[p] = here[p] != w.bytes[p] && here[p] != t.bytes[p];
+                    k.value[p] = here[p];
+                    k.total += k.open[p];
+                }
+                k.active = k.total != 0;
+                k.stage = t.stage;
+                k.seq = t.seq;
+                k.since = now;
+            }
             std::memcpy(here, t.bytes.data(), rec.size);
         }
         if (!baseline || w.seq != t.seq) w = t;   // the save holds the authority's copy now
@@ -208,6 +299,7 @@ void on_record_message(::Ctx*, int, uint8_t, wire::Reader& r) {
         got.stage = stage;
         got.seq = t.seq + 1;
         t = got;
+        check_copy(i, t);
         return;
     }
     // A record this build does not know: skipped.
@@ -216,6 +308,9 @@ void on_record_message(::Ctx*, int, uint8_t, wire::Reader& r) {
 void tick(bool in_game) {
     send(in_game);
     take(in_game);
+    const double now = qpc::seconds();
+    for (size_t i = 0; i < kCount; ++i)
+        if (st().checks[i].active && now - st().checks[i].since >= kCheckFor) check_report(i, "after the wait");
 }
 
 void on_session_change() {
@@ -225,6 +320,7 @@ void on_session_change() {
         s.theirs[i].have = false;
         s.written[i].have = false;
         s.unlogged[i] = 0;
+        s.checks[i].active = false;
     }
     s.send_all = true;
 }

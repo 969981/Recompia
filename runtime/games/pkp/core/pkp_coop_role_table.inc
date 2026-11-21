@@ -73,3 +73,12 @@ PKP_ROLE_BIT(0x13a8f4, 8, 2, 0x37100208u, "story scene", "the same, a third entr
 PKP_ROLE_BIT(0x13ae48, 8, 2, 0x37100288u, "story scene", "a creature the story holds back does not walk up to the player")
 PKP_ROLE_BIT(0x13af80, 8, 2, 0x37100248u, "story scene", "the story-forced specialty of creature 0x2c (talk prompt)")
 PKP_ROLE_BIT(0x13b294, 8, 2, 0x37100068u, "talk", "the present limit: no present the host would refuse")
+
+// ---- talk start: the first talk with a new creature (coop-s3-talkstart) ----
+// The talk handler 0x4c024c, outside Cloud Island: on a visitor, a creature with no parents (0x285100 false) of species 0x46 or
+// 0x95 returns 0 at once (0x4c03e8..0x4c0474), so the handler never reaches its host / visitor split at 0x4c06d4 (TalkKind) and
+// the selector's last stage 0x4c8ba0 offers the visitor's own talk instead (row 35 of its table #960: conditions 0x25 IsVisitor,
+// 0x24 no parents, 0x22 online, 0xa4 species 0x46 / 0x95; u16 +2 0xe63). w0 is read by the `tbz` alone; the host's arm 0x4c053c
+// reads only what the member has (the actor's own talk record +0x10, 0x332c80 / 0x3bad4c on the member's copy of the friend
+// records, the species talk table), as the TalkKind path already does for every other creature.
+PKP_ROLE_ROW(0x4c03e4, IsVisitor, 0x36000ac0u, "talk", "the first talk with a new creature of species 0x46 / 0x95 is the host's talk, not the visitor's own one")
