@@ -91,6 +91,8 @@ Put "$root\CREDITS.md" 'licenses\CREDITS.md'
 Put $Crates 'licenses\THIRD_PARTY_CRATES.txt'
 Put "$root\launcher\release\Play.bat" 'Play.bat'
 Put "$root\LICENSE" 'LICENSE.txt'
+# what RecompLauncher reads at the top of a release (its docs/DEVELOPERS.md): which launcher file to start, the saves to back up
+Put "$root\game-build\release_b\recomplauncher.json" 'recomplauncher.json'
 Put "$root\CHANGELOG.md" 'CHANGELOG.txt'
 Put "$root\tools\shaders\ampere\extract_corpus.py" 'tools\shaders\extract_corpus.py'
 Mirror "$root\runtime\assets\prompts" 'assets\prompts'   # button prompt icon pack prompt_icons.pak (Kenney CC0, licence in the folder)

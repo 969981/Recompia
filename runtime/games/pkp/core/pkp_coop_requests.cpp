@@ -79,6 +79,16 @@
 // step (0x62e0fc, w3 = 1). The talks pass w3 = 0 (0x62a404, 0x62ab90). The talker's own count is the group's: on the host it is
 // the host's goal, on a member the game sends it to the host (CM frame 0x631020 -> 0x633150, RequestChallengeProgress; host
 // handler 0x54fbc0 -> 0x54fd60). So in a session a replay skips the goal (x0 = 0 at 0x621be8) and each hand-in counts once.
+// The cleaning count (save root + 0x4a4401, u8; unique request type 0x2c, branch 0x6142d0 of the checker: count >= the row's target,
+// Lapras's request 128 asks for 80). Its two writers, 0x6520e0 (from the world's block set 0x137e20 and 0x651400) and 0x652880
+// (from 0x9ca380), count a cleaning only offline: after IsOnline 0x207b0, `tbz w0, #0` (0x6522ec / 0x652940) goes to the count,
+// and online it needs game state +0x11 bit 0 (layout::kStateOwnBag, clear in a session), so no cleaning in a session counted and
+// the request waited forever. Past the gate: the stage (game state +0x18) must be 2, a skip counter (u32 main + 0x35659f4) is spent first,
+// then count = min(count, 98) + 1. In a session the authority counts (w0 = 0 at the gate: the offline path), as the world the
+// cleaning happened in is the authority's; a member keeps the game's skip (a second count of the same cleaning) and takes the
+// authority's count as story record 8 (pkp_coop_records.cpp). A member's cleaning reaches the host as a world change, which the host
+// applies through 0x137e20 (0x54a2a4 in the ChangeBlock apply 0x549d8c); whether that apply passes the old cell's sludge to the
+// writer is not settled, so a member logs each cleaning its gate skipped (throttled) to show it against the host's count.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
@@ -138,6 +148,8 @@ constexpr uint8_t kEventIds[] = {8,   9,   12,  15,  17,  28,  34,  35,  40,  42
                                  84,  107, 108, 110, 114, 115, 116, 121, 129, 131, 133, 134, 140, 145, 146, 147,
                                  150, 151, 154, 156, 157, 166, 171, 173, 174, 175, 176, 177, 178, 179, 180};
 constexpr uint32_t kIdMax = layout::kUniqueRequestCount;   // ids 1..200
+constexpr int kCleanOnlineReg = 0;                         // the cleaning count's gate: w0, IsOnline's answer
+constexpr double kCleanLogGap = 10.0;                      // a member's skipped-cleaning line, at most once per this many seconds
 constexpr uint8_t kWaiting = 1, kOffered = 2, kTaken = 3, kFulfilled = 4, kDone = 5;
 constexpr double kAllEvery = 10.0;       // the whole list again (a member that missed a change)
 constexpr double kNoticeGap = 4.0;       // at most one line per this many seconds
@@ -165,6 +177,8 @@ struct State {
     uint8_t pos[kIdMax + 1] = {};       // per id: its place in that character's row
     uint8_t order[kIdMax] = {};         // the ids by (character, place): the order apply takes them in
     bool have_chara = false;            // the character table was read (game data: once)
+    double clean_line_at = -1e9;        // a member: the last skipped-cleaning line
+    unsigned clean_unlogged = 0;        // a member: cleanings skipped since that line
 };
 State& st() {
     static State s;
@@ -176,6 +190,10 @@ uint64_t records() {
     return r && guest::ok(r + kUnique, (kIdMax + 1) * 4) ? r + kUnique : 0;
 }
 uint8_t state_of(uint64_t recs, uint32_t id) { return guest::rd<uint8_t>(recs + id * 4); }
+unsigned clean_count() {
+    const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
+    return r && guest::ok(r + layout::kSaveCleanCount, 1) ? guest::rd<uint8_t>(r + layout::kSaveCleanCount) : 0;
+}
 
 template <size_t N>
 bool listed(const uint8_t (&ids)[N], uint32_t id) { return std::find(std::begin(ids), std::end(ids), id) != std::end(ids); }
@@ -426,6 +444,25 @@ int on_general_goal(::Ctx* c) {
     c->x[0] = 0;
     NXLOG_I(kTag, "Co-op requests: a general request's hand-in replayed here; its town goal counted on the process of the player who "
             "handed it in, skipped here");
+    return 0;
+}
+
+int on_clean_count(::Ctx* c) {
+    if (!(c->x[kCleanOnlineReg] & 1) || !link::in_session()) return 0;   // offline, or online outside a co-op session: the game's own
+    if (link::is_authority()) {
+        c->x[kCleanOnlineReg] = 0;   // the offline path: the cleaning is counted in the group's world
+        NXLOG_I(kTag, "Co-op requests: a cleaning counted here for the group (count %u before it)", clean_count());
+        return 0;
+    }
+    // A member: the game's skip stands (the authority's count is the group's, copied as story record 8).
+    State& s = st();
+    ++s.clean_unlogged;
+    const double now = qpc::seconds();
+    if (now - s.clean_line_at < kCleanLogGap) return 0;
+    NXLOG_I(kTag, "Co-op requests: %u cleanings here not counted on this member (the authority counts the group's; count here %u)",
+            s.clean_unlogged, clean_count());
+    s.clean_line_at = now;
+    s.clean_unlogged = 0;
     return 0;
 }
 

@@ -79,7 +79,8 @@ struct TwoEvents {
 NetState& st();
 
 // Read once: nifm and ntc report online when [net] online_test is on or the game asks for it (game::Info::report_online). Nothing
-// reaches the network: bsd and BCAT answer as before.
+// reaches the network: bsd and BCAT answer as before, and a nifm connection request is still refused without a Cloud Islands server
+// (network_nifm.cpp make_request).
 bool report_online();
 
 // "ask:" lines for what the game tries to reach (network_common.cpp).

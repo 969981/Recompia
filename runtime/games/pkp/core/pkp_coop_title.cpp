@@ -16,10 +16,16 @@
 // The message: save root + 0xa0 bit 1 is a copy of the CMNDAT header bit "the last save was written online" (P0RE-10), and every
 // autosave in a session is written online. State 9 reads it after state 7 (0x245c18) into the trip home, and the stage loader then shows
 // #2324 0x8b. Cleared here, in memory only, so the co-op save loads without it.
+//
+// Phones (facts::kPhone) keep the title for a press: there the written result left the title's layer up after the load (its key guide
+// stayed on screen in the house, every menu the player opened closed again at once and Leave never fired, so the player never got
+// outside and the session never started; Pixel 7a, alpha 14 and 16, the same save and group a desktop visitor played). One press of A
+// runs the title's own path, as before alpha 14. The mark is still cleared on phones.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 
+#include "nxrt/platform_facts.h"
 #include "nxrt/log.h"
 
 namespace nxrt::games::pkp::coop::title {
@@ -74,6 +80,7 @@ void clear_unclean_exit() {
 
 int on_past_title(::Ctx* c) {
     clear_unclean_exit();
+    if constexpr (facts::kPhone) return 0;   // a press of A continues (see the top of the file)
     const uint64_t obj = title_object();
     if (!obj || !guest::rd<uint8_t>(obj + layout::kTitleInput) || guest::rd<uint32_t>(obj + layout::kTitleState) != kWaiting ||
         guest::rd<uint32_t>(obj + layout::kTitleResult) != kNoResult)

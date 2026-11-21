@@ -39,8 +39,8 @@ android {
         applicationId = "org.recompia.pkp"
         minSdk = 30
         targetSdk = 35
-        versionCode = 16000100   // 0.16.0.1: upstream v0.16.0 plus the fork sub-patch (major*10^6 + minor*10^4 + patch*100 + sub)
-        versionName = "0.16.0.1"
+        versionCode = 16000200   // 0.16.0.2: upstream v0.16.0 plus the fork sub-patch (major*10^6 + minor*10^4 + patch*100 + sub)
+        versionName = "0.16.0.2"
         // Test entry points (fake builder, "Build from exefs only", shader test size): false here so R8 drops them and the
         // resource shrinker drops their strings; true for debug and internalTest.
         buildConfigField("boolean", "TEST_ENTRY_POINTS", "false")
