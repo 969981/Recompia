@@ -38,6 +38,7 @@
 - The time of day in the story's opening now changes for teammates too: the evening and the morning after the night by the campfire reached only the host, and a teammate's clock could stay stuck at night
 - A newly discovered creature can now move in when a teammate talks to it first, not only the host: it becomes the town's resident for the whole group, and no longer asks the host again whether it can live here
 - The host's town and story records now reach teammates within seconds, also while the host is in a menu or a talk. Before, a teammate's world could wait a minute or two for them
+- Two special creatures that a teammate could only greet with a visitor's talk now start the same first talk for a teammate as for the host
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five
