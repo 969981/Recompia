@@ -50,6 +50,7 @@
 - A chest or other object a teammate closes is now always free again for everyone. Before, a close while the game was still waiting on the host could leave it held by that teammate, and everyone else got "Someone else is using this right now." for the rest of the session
 - Co-op's own messages follow the game's language: the pop-ups that tell you what a teammate unlocked, found, bought or finished, and the busy line when a teammate is talking to a character, in all nine of the game's languages. The join and leave covers and co-op's other on-screen notices are translated too in French, Italian, German and Spanish (they stay in English in Japanese, Chinese and Korean for now)
 - Teammates can put materials into the story's materials drop (the lighthouse) and move its building on: the host's world checks the step once for the whole group, every teammate sees the new stage, and if the step can't be taken the materials stay in the drop to take back. Before, pressing it did nothing for a teammate
+- A teammate's shop purchase or story catch-up item that arrives while their bag is being put back (after the host refused a box store, at an area change or when joining) is no longer lost
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

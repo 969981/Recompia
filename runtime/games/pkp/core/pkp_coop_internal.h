@@ -319,6 +319,11 @@ void on_member_joined(int node);
 // A member: the host refused a request that took items out of the bag (pkp_coop_bag.cpp): the record, still the bag from before
 // that request, is written back into the bag once the bag / container screen is closed.
 void on_request_refused();
+// A module that adds to this player's bag (a give of co-op's own) brackets the add: gain_begin right before, gain_end right after, on
+// the game thread. The bag's gain in between is credited to the record at once, so no write-back (an apply, a refused request's
+// restore) can take it away; a loss in between is not credited (the header of pkp_coop_bags.cpp has the rule).
+void gain_begin(::Ctx* c);
+void gain_end(::Ctx* c);
 // The hook sites (pkp_coop.cpp).
 int on_mirror_fill(::Ctx* c);   // entry 0x575644 (member index), the host at a join: the mirror fed from that member's record
 int on_bag_screen(::Ctx* c);    // entry 0xfeee78 (screen), the bag / container screen's frame: an apply waits while it is open
