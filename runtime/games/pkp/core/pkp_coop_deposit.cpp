@@ -32,7 +32,8 @@
 //   - the use: pkp_coop_owner.cpp hands this class's grant here (take_grant) instead of giving it back. At the next frame the use
 //     0x7e77a4(g, 0) runs for the owner; no timer after it (a gate, a content took the press) -> given back. The open that finds no
 //     record (+0x50 back at 0 with +0x4c clear) -> the close's own first steps (0x7e7f20(g, 0), 0x74fb80(0xf, 0, ..)), given back.
-//     Once the screen has opened and shut, given back.
+//     The open's timer is cleared too, so no screen opens later for an object no longer held. Once the screen has opened and shut,
+//     given back.
 //   - the close: midhook at 0x7e693c, w0 = the confirm flag (x19 the gimmick, w20 the local id). A confirm on a member does not go on
 //     (x0 = 0: no check, scenes, step, record write or clear here). The slice's valid slots are read (own store) and the authority is
 //     asked (DepositAsk: cell, the stage this drop shows, the items), resent every kResend with the same id until an answer comes.
@@ -40,13 +41,19 @@
 //   - the answer (DepositState for this member's key and ask id): accepted -> the named slots lose exactly the named items (a slot
 //     that no longer holds them is left alone and logged), the drop shows the answer's stage, and the stage's scenes (row +0, +4,
 //     the next row's +6) are queued for this player at a safe moment (can walk, no talk), as the close queues them for the confirming
-//     player: one process plays them, so a give in them is shared once (pkp_coop_catchup.cpp). Refused -> the items stay in the
+//     player: one process plays them, so a give in them is shared once (pkp_coop_catchup.cpp); each is queued again every
+//     kSceneEvery until its played bit is set (the queue drops a scene it cannot take), and the played bits reach the others through
+//     pkp_coop_events.cpp. Refused -> the items stay in the
 //     drop for the member to take back, the drop shows the authority's stage, and a line says why. No answer within kGiveUp in the
 //     session -> the same as a refusal (the items stay; logged).
+//   - the save: the own store is CMNDAT, which a visitor writes only at its autosave, while the bag record is on disk within
+//     seconds. So after every screen close (items may have gone from the bag into the store) and after an accept's clear, the game
+//     save is asked for as the take-out asks it (takeout::owe_save): a quit in between can neither lose the items nor bring paid
+//     ones back for longer than the save takes.
 //   - the stage: the authority's DepositState with no verdict (every kStateEvery and when its drop's stage changed) sets this
 //     member's drop at that cell to the authority's stage, while no use or ask of this member's is on it. The save's record follows
 //     through pkp_coop_records.cpp (record 6), so quest condition 9 reads the group's stage on every process.
-// On the authority, once a frame: each ask whose (member key, ask id) was answered before gets the same answer again (a lost
+// On the authority, once a frame while its player can walk (in its world, no load): each ask whose (member key, ask id) was answered before gets the same answer again (a lost
 // answer is repeated, never run again). Otherwise its drop at the cell (kind 0x1d9, class 0x326dc98): none -> refused; its own
 // screen opening or up -> the ask waits; its stage not the ask's -> refused (so a resend or a second member's ask for a stage already
 // passed never steps twice); the stage's row as 0x78d050 reads it, counted from the asked items as 0x78d320 counts them, with the
@@ -87,7 +94,10 @@ constexpr double kResend = 2.0;      // a member's ask, again while no answer ca
 constexpr double kGiveUp = 120.0;    // a member's ask with no answer in the session for this long: its items stay, the ask is dropped
 constexpr double kOpenWait = 3.0;    // the use's open timer is 0.5 s: no screen after this long is a failed open
 constexpr double kStateEvery = 3.0;  // the authority's stage message
+constexpr double kLookEvery = 0.5;   // the authority looks at its drop's stage this often
 constexpr double kAskDrop = 60.0;    // the authority: an ask that found no moment for this long is dropped (the member resends)
+constexpr double kSceneEvery = 3.0;  // a paid scene not played yet is queued again this often (the queue drops one it cannot take)
+constexpr double kSceneGiveUp = 300.0;
 constexpr size_t kRemembered = 64, kIncoming = 16;
 
 enum class Verdict : uint8_t { None = 0, Accepted = 1, Refused = 2 };
@@ -134,7 +144,11 @@ struct State {
     double ask_in_session = 0;   // seconds the ask has waited in a session
     double last_tick = 0;
     uint32_t nonce = 0, counter = 0;
-    std::vector<uint16_t> scenes;
+    struct Scene {
+        uint16_t id;
+        double at, next;
+    };
+    std::vector<Scene> scenes;
     bool have_state = false;     // the authority's latest stage message
     uint32_t state_lo = 0;
     uint16_t state_hi = 0;
@@ -143,7 +157,7 @@ struct State {
     // The authority.
     std::deque<Ask> incoming;
     std::deque<Answer> answered;
-    double state_at = -1e9;
+    double state_at = -1e9, looked_at = -1e9;
     int sent_stage = -1;
     uint32_t known_lo = 0;
     uint16_t known_hi = 0;
@@ -293,9 +307,10 @@ bool decide(::Ctx* c, const Ask& a) {
     return true;
 }
 
-void authority_tick(::Ctx* c) {
+void authority_tick(::Ctx* c, bool in_game) {
     State& s = st();
     const double now = qpc::seconds();
+    if (!session::can_walk(in_game)) return;   // in its world, no load: the asks and the stage message wait
     while (!s.incoming.empty()) {
         Ask& a = s.incoming.front();
         if (!decide(c, a)) {
@@ -315,7 +330,8 @@ void authority_tick(::Ctx* c) {
     } else if (!s.known) {
         return;
     }
-    if (!link::member_count()) return;
+    if (!link::member_count() || now - s.looked_at < kLookEvery) return;
+    s.looked_at = now;
     const uint64_t g = drop_at(c, lo, hi);
     if (!g) return;
     const uint8_t stage = guest::rd<uint8_t>(g + layout::kDropStage);
@@ -331,8 +347,9 @@ void authority_tick(::Ctx* c) {
 
 // ---- a member ----
 
-// The close's first steps (0x7e67c0 up to 0x7e6824), for an open that found nothing.
+// The close's first steps (0x7e67c0 up to 0x7e6824), for an open that found nothing; the timer too, so no open comes later.
 void shut(::Ctx* c, uint64_t g) {
+    guest::wr<float>(g + layout::kDropTimer, 0.0f);
     guest::wr<uint8_t>(g + layout::kDropScreen, 0);
     guest::call(c, base() + layout::kDropBlock, g, 0);
     guest::call(c, base() + layout::kPlayerEvent, 0xf, 0, guest::rd<uint64_t>(base() + layout::kDropEventPtr), 0, 0);
@@ -385,7 +402,10 @@ void use_tick(::Ctx* c) {
             }
             return;
         case Use::Open:
-            if (!guest::rd<uint8_t>(g + layout::kDropScreen)) end_use(c, nullptr);   // the close ran
+            if (!guest::rd<uint8_t>(g + layout::kDropScreen)) {   // the close ran: the screen may have moved items into the own store
+                takeout::owe_save();
+                end_use(c, nullptr);
+            }
             return;
         case Use::None: return;
     }
@@ -401,8 +421,14 @@ void queue_scenes(::Ctx* c, uint8_t stage) {
     const uint64_t row = stage_row(c, stage), next = stage_row(c, static_cast<uint8_t>(stage + 1));
     const uint16_t list[] = {row ? guest::rd<uint16_t>(row + kRowScene) : uint16_t{0}, row ? guest::rd<uint16_t>(row + kRowExtra) : uint16_t{0},
                              next ? guest::rd<uint16_t>(next + kRowNext) : uint16_t{0}};
+    const double now = qpc::seconds();
     for (uint16_t scene : list)
-        if (scene >= 1 && scene <= kSceneMax) s.scenes.push_back(scene);
+        if (scene >= 1 && scene <= kSceneMax) s.scenes.push_back(State::Scene{scene, now, now});
+}
+
+bool scene_played(uint16_t scene) {
+    const uint64_t at = save_root() + layout::kPlayedScenes + (scene >> 3);
+    return !guest::ok(at, 1) || (guest::rd<uint8_t>(at) & (1u << (scene & 7)));
 }
 
 // The close's scene call (0x7e69a0..0x7e69cc), selector 0, with its stack arguments on the scratch stack (free at the frame tick).
@@ -440,6 +466,7 @@ void apply_answer(::Ctx* c, const Answer& v) {
                 guest::wr<uint8_t>(slot + kSlotCount, static_cast<uint8_t>(held - it.count));
             }
         }
+        takeout::owe_save();   // the paid items leave the saved store too
         set_stage(c, a.lo, a.hi, v.stage);
         queue_scenes(c, a.stage);
         NXLOG_I(kTag, "Co-op deposit: the authority took this member's deposit (ask %llx): the drop is at stage %u, %u slots paid",
@@ -481,9 +508,14 @@ void member_tick(::Ctx* c, bool in_game) {
         set_stage(c, s.state_lo, s.state_hi, s.state_stage);
         s.have_state = false;
     }
-    if (!s.scenes.empty() && session::can_walk(in_game) && !talk::talking()) {
-        play_scene(c, s.scenes.front());
+    // The paid scenes, in order: each is queued again until its played bit is set (0x2e6ce0 drops one the event queue cannot take).
+    while (!s.scenes.empty() && (scene_played(s.scenes.front().id) || now - s.scenes.front().at > kSceneGiveUp)) {
+        if (!scene_played(s.scenes.front().id)) NXLOG_W(kTag, "Co-op deposit: scene %u did not play; given up", s.scenes.front().id);
         s.scenes.erase(s.scenes.begin());
+    }
+    if (!s.scenes.empty() && now >= s.scenes.front().next && session::can_walk(in_game) && !talk::talking()) {
+        s.scenes.front().next = now + kSceneEvery;
+        play_scene(c, s.scenes.front().id);
     }
 }
 
@@ -599,7 +631,7 @@ void on_state_message(::Ctx* c, int, uint8_t, wire::Reader& r) {
 
 void tick(::Ctx* c, bool in_game) {
     if (!c) return;
-    if (link::is_authority()) authority_tick(c);
+    if (link::is_authority()) authority_tick(c, in_game);
     else member_tick(c, in_game);
 }
 

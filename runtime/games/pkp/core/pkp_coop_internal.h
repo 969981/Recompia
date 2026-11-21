@@ -629,6 +629,8 @@ int on_remove_store(::Ctx* c);
 // Asks the game's autosave to save after each such take until a save written after it holds the emptied box (once a frame).
 void tick(::Ctx* c);
 void reset();
+// Another part changed this member's own store outside the take-out screen (pkp_coop_deposit.cpp): a save is owed as for a take.
+void owe_save();
 }  // namespace takeout
 // ---- a member's deposit into the story's materials drop (pkp_coop_deposit.cpp) ----
 namespace deposit {

@@ -304,5 +304,6 @@ constexpr uint64_t kSaveDrop = 0x73b258;            // save root +: m_rocketHous
 constexpr size_t kDropRecordBytes = 0x20;           //   +8 u32 electricity (category 1), +0xc u16 the stage
 constexpr uint64_t kDropStagesTable = 0xa20;        // data-table manager +0x10 +: #1108, the stages (16 B rows)
 constexpr uint64_t kDropItemsTable = 0x3d0;         // data-table manager +0x10 +: #514, u16 item and u8 category per row (101 rows)
+constexpr uint64_t kPlayedScenes = 0x4a2cec;        // save root +: m_playedContentsSkitFlag, scene s at bit s & 7 of byte s / 8
 
 }  // namespace nxrt::games::pkp::layout
