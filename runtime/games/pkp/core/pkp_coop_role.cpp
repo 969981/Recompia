@@ -19,6 +19,9 @@
 // row's must be the `ldrb wN, [.., #0x90]` and the row itself `tbz / tbnz wN, #bit` (the word the site check reads is only the row's
 // own). A row that fails is left off for the run and logged once. The first override of each row in a session is logged (tag + site),
 // so testers' logs show which gates fired; the marks clear when the session closes.
+// A row can have callers that must keep the game's answer (PKP_ROLE_KEEP: a caller that writes the member's own save from it). At
+// such a row the function's frame record (x29 + 8, its caller's x30) is read: a listed caller, or a frame that cannot be read,
+// keeps the game's answer. Each listed caller's `bl` is checked with the row; one that fails leaves the row off.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -58,6 +61,31 @@ constexpr Row kListed[] = {
 };
 constexpr size_t kRowCount = sizeof kListed / sizeof kListed[0] - 1;
 
+// The callers that keep the game's answer, then a sentinel.
+struct Keep {
+    uint64_t site;   // the row
+    uint64_t fn;     // the function the row is in
+    uint64_t from;   // main offset of the return address of the caller's `bl fn`
+};
+constexpr Keep kKeeps[] = {
+#define PKP_ROLE_ROW(ret, getter, word, tag, what)
+#define PKP_ROLE_BIT(site, reg, bit, word, tag, what)
+#define PKP_ROLE_KEEP(site, fn, from, why) {site, fn, from},
+#include "core/pkp_coop_role_table.inc"
+#undef PKP_ROLE_KEEP
+#undef PKP_ROLE_BIT
+#undef PKP_ROLE_ROW
+    {~0ull, 0, 0},
+};
+constexpr size_t kKeepCount = sizeof kKeeps / sizeof kKeeps[0] - 1;
+constexpr uint64_t kFrameCaller = 8;   // x29 + : the saved x30 of the frame record
+
+constexpr bool has_keeps(uint64_t site) {
+    for (size_t i = 0; i < kKeepCount; ++i)
+        if (kKeeps[i].site == site) return true;
+    return false;
+}
+
 // The same rows sorted by site, for the binary search (the table groups them by kind and system).
 constexpr std::array<Row, kRowCount + 1> sorted_rows() {
     std::array<Row, kRowCount + 1> a{};
@@ -86,6 +114,15 @@ constexpr bool well_formed() {
 }
 static_assert(well_formed(), "pkp_coop_role_table.inc: a site is not an instruction address, or a session-bit row's register or bit "
                              "is not one it can take (bit 1 host or bit 2 visitor)");
+constexpr bool keeps_listed() {
+    for (size_t k = 0; k < kKeepCount; ++k) {
+        bool found = false;
+        for (size_t i = 0; i < kRowCount; ++i) found = found || kRows[i].site == kKeeps[k].site;
+        if (!found || kKeeps[k].from % 4 != 0 || kKeeps[k].fn % 4 != 0 || kKeeps[k].site <= kKeeps[k].fn) return false;
+    }
+    return true;
+}
+static_assert(keeps_listed(), "pkp_coop_role_table.inc: a PKP_ROLE_KEEP names no listed row, or an address that is not an instruction");
 
 constexpr uint64_t getter_at(Kind k) { return k == Kind::IsHost ? layout::kIsHost : layout::kIsVisitor; }
 
@@ -129,7 +166,33 @@ const Row* find(uint64_t site) {
     return r != end && r->site == site ? r : nullptr;
 }
 
+bool check_keeps(const Row& r) {
+    for (size_t k = 0; k < kKeepCount; ++k) {
+        const Keep& kp = kKeeps[k];
+        if (kp.site != r.site) continue;
+        uint32_t call = 0;
+        if (guest::read(base() + kp.from - 4, call) && is_bl_to(call, kp.from - 4, kp.fn)) continue;
+        NXLOG_W(kTag, "Co-op role: %s at main+0x%llx left off: its kept caller main+0x%llx is %08x, not bl main+0x%llx", r.tag,
+                static_cast<unsigned long long>(r.site), static_cast<unsigned long long>(kp.from - 4), call,
+                static_cast<unsigned long long>(kp.fn));
+        return false;
+    }
+    return true;
+}
+
+// The row's function was called by a caller that keeps the game's answer (or its frame record cannot be read).
+bool kept(const Row& r, const ::Ctx* c) {
+    if (!has_keeps(r.site)) return false;
+    const uint64_t rec = c->x[29] + kFrameCaller;
+    if (!guest::ok(rec, 8)) return true;
+    const uint64_t from = guest::rd<uint64_t>(rec) - base();
+    for (size_t k = 0; k < kKeepCount; ++k)
+        if (kKeeps[k].site == r.site && kKeeps[k].from == from) return true;
+    return false;
+}
+
 bool check(const Row& r) {
+    if (!check_keeps(r)) return false;
     uint32_t before = 0, at = 0;
     const bool read = guest::read(base() + r.site - 4, before) && guest::read(base() + r.site, at);
     if (r.kind == Kind::SessionBit) {
@@ -158,7 +221,7 @@ int on_answer(::Ctx* c, uint64_t site) {
         v = check(*r) ? kGood : kBad;
         s.checked[i].store(v, std::memory_order_release);
     }
-    if (v != kGood) return 0;
+    if (v != kGood || kept(*r, c)) return 0;
     uint64_t& reg = r->kind == Kind::SessionBit ? c->x[r->reg] : c->x[0];
     const uint64_t was = reg;
     if (r->kind == Kind::SessionBit) {
