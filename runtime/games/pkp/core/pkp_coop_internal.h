@@ -293,6 +293,8 @@ void tick(::Ctx* c, bool in_game);
 void reset();
 // A member: a request went to the host and its answer is not taken yet (q[0] != q[1]); false with no world.
 bool unanswered();
+// A member: a record is kept here, not sent yet (a release, a talk-end); its request is still to come.
+bool kept();
 // ---- a gimmick's release record (pkp_coop_linkqueue.cpp) ----
 // The hook sites (pkp_coop.cpp): midhooks at the `tbz w0` after a close's `bl 0x313418` (site: its main offset), turned true on a
 // member in a session; entry 0x214974, the generic request send, whose release records (by return address) are kept when the queue

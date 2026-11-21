@@ -316,6 +316,10 @@ bool unanswered() {
     return q && guest::rd<uint16_t>(q + kSent) != guest::rd<uint16_t>(q + kAnswered);
 }
 
+bool kept() {
+    return !st().held.empty();
+}
+
 void reset() {
     clear(nullptr, "co-op stopped");
     st().gates_opened = 0;
