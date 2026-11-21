@@ -33,6 +33,18 @@
 // the host would apply although this process never applied the host's snapshot), once the presser owns it. A use that runs is
 // never reached here: the true answer goes on to the use.
 //
+// Class 0x326dc98 (slot 5 0x7e73e0, its use 0x7e77a4; a container that opens with an animation and then the container screen) runs
+// nothing from a grant: its vt+0x2f8 is the base `return 1`, its vt+0x340 the base `ret` 0x9d0740, its vt+0x430 the base `ret`
+// 0x9d07c0, and its per-frame slot 22 0x7e633c only goes on with a use that already started (the timer +0x50 the use sets, the
+// screen flag +0x4c). The host's own press takes the byte at 0x7e7884 and falls into the use 0x7e78c4 at once; a member's sends
+// the request at 0x7e7a84 and returns, and the grant then runs nothing. The member's next press fails the free check
+// (vt+0x2d0 0x768f48: the owner is not 0xff) and, owning the object (vt+0x60 0x766800), returns quietly at 0x7e76d0: the member
+// never uses it and everyone else gets 0x10d for good. Running the use for the member instead is not done: it opens the member's
+// own copy of the container (0x7e6680 -> 0xa94b38) and its close 0x7e67c0 moves items out of it (0x5b2f34) on that copy alone,
+// and nothing in the class's code gives the byte back after a use (no 0x538f60 / vt+0x490 / Sync in 0x7e5f54..0x7e8044 but the
+// take). So here, at the same `tbz`, a grant for this class is given back at once, as a failed apply is: the press does
+// nothing and the object stays free.
+//
 // The game, 2.0.1a (x19 = the gimmick at every site, w0 = 0x765b54's answer):
 //   class 0x32688e0 slot 5 0x7c0be0   the use at 0x7c13d8: 0x765b54 at 0x7c1418, `tbz w0, #0` 0x7c141c returns; a failed event
 //                                     start (0x7c1838) releases with 0x7c1690(g, slot) (slot w21; +0x5d cleared, host 0x538f60
@@ -84,6 +96,7 @@ constexpr const char* kTag = "pkp";
 constexpr int kAnswerReg = 0, kGimmickReg = 19, kSlotReg = 21;
 constexpr int kReplyReg = 19, kGrantGimmickReg = 23;    // at 0x539b44
 constexpr uint64_t kReplySlot = 0x10;                   // reply +: the granted slot (u8)
+constexpr uint64_t kNoGrantUseClass = 0x326dc98;        // main +: the vtable of the class that runs no use from a grant
 constexpr uint64_t kKindOf = 0x50;                      // gimmick vtable +: its kind (u16)
 constexpr uint64_t kCellLo = 0x18, kCellHi = 0x1c;      // gimmick +: u32 x | y << 16, u16 z
 constexpr uint64_t kMsgCell = 0x34, kMsgKind = 0x38, kMsgIndex = 0x9e, kMsgSlot = 0x9f, kMsgTake = 0xa0;
@@ -124,7 +137,7 @@ constexpr size_t kUseCount = sizeof kUses / sizeof kUses[0];
 
 struct State {
     bool logged[kUseCount] = {};
-    bool grant_logged = false;
+    bool grant_logged[2] = {};   // [applied]
     alignas(16) uint8_t msg[kMsgBytes] = {};   // guest addresses are host addresses
     alignas(8) uint16_t kind = 0;
     alignas(8) uint8_t index = 0;
@@ -202,21 +215,23 @@ int on_use_refused(::Ctx* c, uint64_t site) {
     return 0;
 }
 
-int on_grant_unapplied(::Ctx* c) {
-    if (c->x[kAnswerReg] & 1) return 0;   // the apply took: the use runs from 0x77e260
+int on_grant_no_use(::Ctx* c) {
     if (!link::in_session() || link::is_authority()) return 0;
     const uint64_t g = c->x[kGrantGimmickReg], reply = c->x[kReplyReg];
     if (!guest::ok(g, 0x60) || !guest::ok(reply + kReplySlot, 1)) return 0;
+    const bool applied = c->x[kAnswerReg] & 1;
+    if (applied && guest::deref(g) != base() + kNoGrantUseClass) return 0;   // the use runs from 0x77e260
     const uint8_t slot = guest::rd<uint8_t>(reply + kReplySlot);
     const uint64_t owner_of = guest::deref(guest::deref(g) + kOwnerOf);
     if (!owner_of) return 0;
     const uint8_t own = static_cast<uint8_t>(guest::call(c, base() + layout::kOwnIndexOf, 0));
     if (static_cast<uint8_t>(guest::call(c, owner_of, g, slot)) != own) return 0;   // not taken with our index (categories 2 / 0x13)
     give_back(c, g, slot);
-    if (!st().grant_logged) {
-        st().grant_logged = true;
+    if (!st().grant_logged[applied]) {
+        st().grant_logged[applied] = true;
         const uint64_t kind_of = guest::deref(guest::deref(g) + kKindOf);
-        NXLOG_I(kTag, "Co-op owner: a grant's data did not apply, so its use did not start; the kind %u object (slot %u) is given back",
+        NXLOG_I(kTag, "Co-op owner: a grant started no use (%s); the kind %u object (slot %u) is given back",
+                applied ? "the class runs none from a grant" : "its data did not apply",
                 kind_of ? static_cast<unsigned>(guest::call(c, kind_of, g) & 0xffff) : 0u, slot);
     }
     return 0;
@@ -224,7 +239,7 @@ int on_grant_unapplied(::Ctx* c) {
 
 void reset() {
     for (bool& b : st().logged) b = false;
-    st().grant_logged = false;
+    for (bool& b : st().grant_logged) b = false;
 }
 
 }  // namespace nxrt::games::pkp::coop::owner
