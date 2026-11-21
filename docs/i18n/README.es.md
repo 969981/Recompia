@@ -21,7 +21,6 @@
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows&logoColor=white&labelColor=1b2740" alt="Platform: Windows 10/11">
   <img src="https://img.shields.io/badge/platform-Linux%20AppImage-e95420?logo=linux&logoColor=white&labelColor=1b2740" alt="Platform: Linux AppImage">
   <a href="https://github.com/Dittobyte/Recompia/commits/main"><img src="https://img.shields.io/github/last-commit/Dittobyte/Recompia/main?label=last%20commit&color=58a6ff&labelColor=1b2740" alt="Last commit on main"></a>
-  <a href="https://github.com/Dittobyte/Recompia/commits/testing"><img src="https://img.shields.io/github/last-commit/Dittobyte/Recompia/testing?label=testing%20commit&color=d29922&labelColor=1b2740" alt="Last commit on testing"></a>
   <a href="https://github.com/Dittobyte/Recompia/issues"><img src="https://img.shields.io/github/issues/Dittobyte/Recompia?label=open%20issues&color=db61a2&labelColor=1b2740" alt="Open issues"></a>
 </p>
 
