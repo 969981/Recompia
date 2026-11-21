@@ -30,8 +30,9 @@
 // The confirm check (a log line only; it changes nothing that is written, nor when): at a write that reverts bytes this member
 // wrote itself, those bytes and the member's values are kept, one check per record at a time; each later copy of the authority (of
 // the same area) that holds the member's value at one of them marks it made there too. After kCheckFor seconds (a copy of every
-// record comes at least every kAllEvery), or once all are marked, one line says how many the authority made and the first offsets
-// it did not: a write the authority made too was a record both ran, one it never made is a member-only write lost for the group.
+// record comes at least every kAllEvery), or once all are marked, one line says how many were found at the same offsets and the
+// first offsets that were not. Found means the authority made the same write there; not found means it did not, or made it into
+// another slot of a slot array (wild pops +0xb4, Ver2 slots +0x3c, real timers +0x1c4), or wrote the field again since.
 // A member's own writers (STORY-RECORDS.md section 4 holes 3, 4, 5, 7), by what makes them run:
 //   - the stage-2 start's clear of chara 0x5d (0xb4b60) runs on every process and differs only by role: the authority's value is
 //     the group's, so the copy written here is right.
@@ -41,11 +42,13 @@
 //   - the contents actions (0x866 0xdf2 0xdf6 0xe11 0xe6d 0xe70 0xe56 0xe57 0xc1e 0x122f 0x92e 0x933 0x960 0x11a8 0x119e 0xe02 0x8fe
 //     0x836 0x9c4 0x9ce 0xe51 0x1194 0xf..0x11; town bits 0xc85 0xe72 0xede 0xe60; hint groups 0xbd6 0x12c600) run from 0x12f690 for
 //     whichever content record of this process's scheduler GM+0xd8 became due, so whose they are is the record's trigger, not the
-//     action: no action tests the role. A record on a polled list (0..2: conditions on time and state) runs on the authority and on
-//     every member at the same moment (logs of alpha 6: the same content / record pairs leave both lists within the clock offset, the
-//     wild pop of content 258 included): the member's write is the authority's too, and the authority's copy is the group's. A
-//     member also replays old polled records the authority ran long ago (at a join or a stage entry): the authority's copy is right
-//     there as well, and why forwarding a member's writes would undo the group's newer state. A record on a notice list runs on the
+//     action: no action tests the role. Records on a polled list (0..2) mostly run on the authority and on every member at the same
+//     moment (alpha 6 logs: most content / record pairs leave both lists within the clock offset, the wild pop of content 258
+//     included), so most of a member's writes are the authority's too; but some polled records ran on one process only (on a member,
+//     or on the authority alone), whether from that process's own save state or from a condition on its local player (0x12483c has
+//     player-distance and held-item cases) is not settled. A member also replays old polled records the authority ran long ago (at
+//     a join or a stage entry): there the authority's copy is the right one, and forwarding a member's writes would undo the
+//     group's newer state. A record on a notice list runs on the
 //     process whose code posted that notice: of the scheduler's notifiers (0x1355ec..0x13664c, the callers of 0x1353a0) five skip a
 //     visitor (0x1355ec talked to and 0x136548 fed, both posted on the authority for a member by pkp_coop_feed.cpp; 0x135ed8,
 //     0x1363dc, 0x13664c) and the rest post on the acting player's own process (0x1356b8 / 0x135720 an event's end, list SC+0x8d0e0,
@@ -163,11 +166,11 @@ void check_report(size_t i, const char* why) {
         ++shown;
     }
     if (k.made == k.total)
-        NXLOG_I(kTag, "Co-op records: %s: all %zu bytes this member wrote itself are in the authority's copy too (%s): both ran that "
-                "record", kRecords[i].name, k.total, why);
+        NXLOG_I(kTag, "Co-op records: %s: all %zu bytes this member wrote itself were found at the same offsets in the authority's "
+                "later copies (%s)", kRecords[i].name, k.total, why);
     else
-        NXLOG_I(kTag, "Co-op records: %s: of %zu bytes this member wrote itself, %zu are in the authority's later copies and %zu are not "
-                "(%s; at %s%s): a write only this member made", kRecords[i].name, k.total, k.made, k.total - k.made, why,
+        NXLOG_I(kTag, "Co-op records: %s: of %zu bytes this member wrote itself, %zu were found at the same offsets in the authority's "
+                "later copies and %zu were not (%s; at %s%s)", kRecords[i].name, k.total, k.made, k.total - k.made, why,
                 missing.c_str(), k.total - k.made > shown ? " ..." : "");
     k.active = false;
 }
