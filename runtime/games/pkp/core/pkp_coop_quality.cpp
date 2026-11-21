@@ -20,9 +20,14 @@ namespace {
 constexpr const char* kTag = "pkp";
 constexpr double kLogGap = 2.0;   // seconds between two lines
 
+constexpr double kGapWindow = 5.0;   // seconds of frame gaps the level line looks back over
+
 struct State {
     uint32_t level = 0;
     double logged = -100.0;
+    double last_step = 0;      // the previous simulation step
+    double worst_gap = 0;      // the longest time between two steps in the current window
+    double gap_since = 0;      // the window's start
 };
 State& st() {
     static State s;
@@ -38,11 +43,21 @@ int on_sim_step(::Ctx*) {
     const uint32_t level = guest::rd<uint32_t>(nm + layout::kNetQualityLevel);
     State& s = st();
     const double now = qpc::seconds();
+    // A long frame here delays this process's answers to the others' pings, which raises their ping: the line says how long the
+    // longest frame of the last few seconds was, so a stall can be told from the network.
+    if (s.last_step > 0 && now - s.last_step > s.worst_gap) s.worst_gap = now - s.last_step;
+    s.last_step = now;
+    const double worst = s.worst_gap;
+    if (now - s.gap_since > kGapWindow) {
+        s.gap_since = now;
+        s.worst_gap = 0;
+    }
     if (level == s.level || now - s.logged < kLogGap) return 0;
     s.level = level;
     s.logged = now;
-    NXLOG_I(kTag, "Co-op link: the game's quality level is now %u (ping %d ms, loss %d/10000)", level,
-            guest::rd<int32_t>(nm + layout::kNetQualityPing), guest::rd<int32_t>(nm + layout::kNetQualityLoss));
+    NXLOG_I(kTag, "Co-op link: the game's quality level is now %u (ping %d ms, loss %d/10000; longest frame here in the last %.0f-%.0f s: %.0f ms)",
+            level, guest::rd<int32_t>(nm + layout::kNetQualityPing), guest::rd<int32_t>(nm + layout::kNetQualityLoss), kGapWindow,
+            2 * kGapWindow, worst * 1000.0);
     return 0;
 }
 
