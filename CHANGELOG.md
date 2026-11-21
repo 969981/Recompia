@@ -42,6 +42,12 @@
 - A creature that was with a teammate at an object several players use together, when that teammate left the session, is let go again, as when the teammate stops using it
 - A teammate's everyday talks with a creature that lives in the town now go the same way as the host's, instead of the talk the game gives a visitor
 - An object a teammate presses that doesn't open for them is free again right away. Before, nothing happened for the teammate, and from then on everyone got "Someone else is using this right now." there
+- In a co-op session the PC's Link Play menu no longer opens, joins, closes or leaves a session (the launcher runs it), and the pause menu no longer sends a teammate home or turns one away. Each player still leaves with Save and Quit: the host's ends the session for everyone, a teammate's leaves it
+- A co-op start now goes past the title screen on its own into the group's world (a player whose name still needs entering gets the title as before, to press A and enter it), and a co-op save no longer says the game did not disconnect correctly
+- Teammates no longer get "Someone else is using this right now." at the object the story fills with materials in stages after the host has used it once
+- A talk that depends on the item a player holds now picks the same lines for a teammate as for the host
+- Teammates no longer get a visitor's greeting from two special creatures where the host gets the creature's usual talk
+- A chest or other object a teammate closes is now always free again for everyone. Before, a close while the game was still waiting on the host could leave it held by that teammate, and everyone else got "Someone else is using this right now." for the rest of the session
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

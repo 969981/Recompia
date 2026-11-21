@@ -262,5 +262,22 @@ constexpr uint64_t kGimmickOwnerApply = 0x538f60;   // (&kind, x, y, z, &idx, ta
 constexpr uint64_t kGimmickOwnerMsg = 0x74fd48;     // (msg): builds a SyncGimmickOwnership message
 constexpr uint64_t kSendToHostForced = 0x30c69c;    // (msg): sends a message to the host, past the NM+0xb3348 send gate
 constexpr uint64_t kSendGate = 0x25af7c;            // () -> u8 NM+0xb3348, the gate 0x2cb584 drops a message at
+// ---- the session's doors and the start (pkp_coop_doors.cpp, pkp_coop_title.cpp) ----
+// The PC's Link Play screen: u32 +kLinkMenuState its state; kLinkMenuEnter(screen, state) enters one (it calls the entry 0xf282a8).
+constexpr uint64_t kLinkMenuEnter = 0xf266d0, kLinkMenuState = 0xa4;
+// The pause menu (UI class 0xba): u32 +kPauseMenuState its state, u8 +kPauseMenuMember the member a choice names (0xff: none);
+// kPauseMenuEnter(menu, state, 1) enters one (it calls the entry 0xfb9ea0).
+constexpr uint64_t kPauseMenuEnter = 0xfb8f58, kPauseMenuState = 0xa4, kPauseMenuMember = 0x108;
+// The UI objects: *(main+kUiOwner) +kUiList the list (8-byte entries), +kUiCount their number; the title is entry kTitleClass. The
+// title object: u32 +kTitleState, u32 +kTitleResult (-1 until answered; 1 continue), u8 +kTitleInput (input on).
+constexpr uint64_t kUiOwner = 0x3561780, kUiList = 0x18, kUiCount = 0x20, kTitleClass = 0x65;
+constexpr uint64_t kTitleState = 0xa4, kTitleResult = 0xa8, kTitleInput = 0xb8;
+constexpr uint64_t kTitleNameMissing = 0xf71250;   // () -> bit 0: the player's name needs the name entry before the save continues
+// Save root + kSaveFlags (the CMNDAT header copy): bit kSaveUncleanExit = the last save was written online ("did not disconnect").
+constexpr uint64_t kSaveFlags = 0xa0;
+constexpr uint8_t kSaveUncleanExit = 0x2;
+// ---- gimmick ownership, the tester log (pkp_coop_owner.cpp) ----
+constexpr uint64_t kPlacedObjects = 0x35616f0;      // [main+]: the placed-object manager (its map at +0x46d0)
+constexpr uint64_t kPlacedObjectAt = 0x753200;      // (manager, x, y, z) -> the placed object at the cell, 0 when none
 
 }  // namespace nxrt::games::pkp::layout

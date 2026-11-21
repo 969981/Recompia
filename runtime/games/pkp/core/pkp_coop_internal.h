@@ -47,6 +47,9 @@
 //   pkp_coop_challenges.cpp what a member does counts toward the group's challenges (its shop buys)
 //   pkp_coop_feed.cpp     what a member's player did to a creature (talked to it), posted to the authority's contents scheduler
 //   pkp_coop_newcomer.cpp a member's first talk with a new creature (it moves in) made on the authority, as the host's own talk
+//   pkp_coop_doors.cpp    the session's doors in the menus: the PC's Link Play screen makes no session call, the pause menu never
+//                         sends a teammate home or rejects one; Save and Quit stays
+//   pkp_coop_title.cpp    a co-op start goes past the title screen on its own, with no "did not disconnect correctly" message
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -286,6 +289,14 @@ void tick(::Ctx* c, bool in_game);
 void reset();
 // A member: a request went to the host and its answer is not taken yet (q[0] != q[1]); false with no world.
 bool unanswered();
+// ---- a gimmick's release record (pkp_coop_linkqueue.cpp) ----
+// The hook sites (pkp_coop.cpp): midhooks at the `tbz w0` after a close's `bl 0x313418` (site: its main offset), turned true on a
+// member in a session; entry 0x214974, the generic request send, whose release records (by return address) are kept when the queue
+// would refuse them. Each returns what the site's hook returns.
+int on_release_gate(::Ctx* c, uint64_t site);
+int on_send_request(::Ctx* c);
+// This member took the object (kind, packed cell) again: a release still kept for it is dropped.
+void on_take(::Ctx* c, uint16_t kind, uint32_t cell);
 }  // namespace linkqueue
 
 namespace bag {
@@ -354,6 +365,8 @@ int on_no_talk(::Ctx* c);      // midhook 0x3181cc: no talk started after all
 int on_talk_end(::Ctx* c);     // entry 0x47bd00: a slot's event chain ended
 int on_talk_kind(::Ctx* c);    // midhook 0x4c06d8: a member's talk takes the host's path in the talk handler
 int on_talk_own(::Ctx* c);     // midhook 0x4c0574: a member is the own player of a creature living in the group's town
+int on_cond_parent(::Ctx* c);   // midhook 0x4d35f8: talk condition 0x52 answers a member as the host
+int on_cond_visitor(::Ctx* c);  // entry 0x4d0620: talk condition 0x25 (IsVisitor) is false for a member
 // This process's player holds a character's talk and the talk runs.
 bool talking();
 // The messages and member events (pkp_coop_link.cpp).
@@ -565,7 +578,19 @@ int on_use_refused(::Ctx* c, uint64_t site);
 // (vt+0x2f8). In a session, on a member, a grant after which no use runs (the apply failed, or the class runs none from a grant)
 // gives the object back; returns 0.
 int on_grant_no_use(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0x7e67c0, class 0x326dc98's close. On the authority in a session, the host's own use is
+// given back (nothing in the class frees it); returns 0.
+int on_host_use_end(::Ctx* c);
 void reset();
+// ---- the release a member's queue held too long, the tester log (pkp_coop_owner.cpp) ----
+// A member: gives the object (kind, packed cell as the release record and SyncGimmickOwnership carry it) back with the forced Sync.
+void give_back_cell(::Ctx* c, uint16_t kind, uint32_t cell);
+// The hook sites (pkp_coop.cpp), logging only (each returns 0): entry 0x538f60, the ownership apply; midhook 0x313eb4, the player's
+// press; entry 0xa8fba0, the message log's post (the busy line); entry 0x539620, a member's grant reply (a refused take).
+int on_owner_apply(::Ctx* c);
+int on_press(::Ctx* c);
+int on_notice(::Ctx* c);
+int on_grant_reply(::Ctx* c);
 }  // namespace owner
 // ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----
 namespace newcomer {
@@ -578,5 +603,22 @@ void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace newcomer
+// ---- the session's doors in the menus (pkp_coop_doors.cpp) ----
+namespace doors {
+// The hook site (pkp_coop.cpp): entry 0xf282a8, the PC's Link Play screen's state entry. In a session, a state that makes a session call
+// is refused (the screen goes back to its first state) and the step does not run (returns 1); otherwise returns 0.
+int on_link_menu(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0xfb9ea0, the pause menu's state entry. In a session, the host's "send this member home" and
+// the rejection of a member are refused (the menu goes back to its first state; returns 1); otherwise returns 0.
+int on_pause_menu(::Ctx* c);
+void reset();
+}  // namespace doors
+// ---- a co-op start past the title (pkp_coop_title.cpp) ----
+namespace title {
+// The hook site (pkp_coop.cpp): entry 0xa88214, the title's result getter (only caller the save load sequence's state 7). Clears the
+// save's unclean-exit mark and, while the title waits for a press, answers it with "continue"; the getter runs on (returns 0).
+int on_past_title(::Ctx* c);
+void reset();
+}  // namespace title
 
 }  // namespace nxrt::games::pkp::coop
