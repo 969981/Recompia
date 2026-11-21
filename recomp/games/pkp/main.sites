@@ -723,3 +723,8 @@ entryhook 0x7100539620
 #   Seamless co-op, a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp): in the shared move 0x71002ee774, the
 #   `and w3, w0, #0x1` after IsVisitor that picks the store the taken item is removed from (w21 = the container kind)
 midhook 0x71002eea74
+#   Seamless co-op, a member's deposit into the story's materials drop (pkp_coop_deposit.cpp): the container slice 0x71005b1c84
+#   (holder, type, id, temp, &first, &count; every reader and writer of a container's slots), and in the drop's close 0x71007e67c0
+#   the `tbz w0, #0` after the screen's confirm flag 0x7100a94bbc (x19 = the gimmick, w20 = the container record's local id)
+entryhook 0x71005b1c84
+midhook 0x71007e693c

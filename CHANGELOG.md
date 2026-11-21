@@ -48,6 +48,7 @@
 - A talk that depends on the item a player holds now picks the same lines for a teammate as for the host
 - Teammates no longer get a visitor's greeting from two special creatures where the host gets the creature's usual talk
 - A chest or other object a teammate closes is now always free again for everyone. Before, a close while the game was still waiting on the host could leave it held by that teammate, and everyone else got "Someone else is using this right now." for the rest of the session
+- Teammates can put materials into the story's materials drop (the lighthouse) and move its building on: the host's world checks the step once for the whole group, every teammate sees the new stage, and if the step can't be taken the materials stay in the drop to take back. Before, pressing it did nothing for a teammate
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five
