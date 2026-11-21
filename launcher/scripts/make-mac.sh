@@ -50,6 +50,8 @@ find "$root" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || t
 # the licence texts and notices the README promises, with the root licence
 sh "$repo/launcher/scripts/stage-licenses.sh" "$root/licenses" "$repo/work/licenses/THIRD_PARTY_CRATES.txt"
 cp "$repo/LICENSE" "$root/LICENSE.txt"
+# what RecompLauncher reads at the top of a release (its docs/DEVELOPERS.md): which launcher file to start, the saves to back up
+cp "$repo/game-build/release_b/recomplauncher.json" "$root/recomplauncher.json"
 # An artifact round trip leaves com.apple.provenance on the files; harmless, but no reason to ship it.
 xattr -cr "$root" 2>/dev/null || true
 

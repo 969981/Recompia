@@ -1,0 +1,19 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "name": "Recompia",
+  "repo": "Dittobyte/Recompia",
+  "start": {
+    "program": ["Recompia.exe", "Recompia.AppImage", "Recompia", "PokopiaLauncher.exe", "PokopiaLauncher.AppImage", "PokopiaLauncher"]
+  },
+  "saves": ["{install}/save"],
+  "folders": {
+    "saves": [{ "path": "{install}/save" }],
+    "logs": [{ "path": "{install}" }]
+  },
+  "system": {
+    "windows": { "version": "10", "graphics": { "vulkan": "1.3" } },
+    "linux": { "glibc": "2.35", "graphics": { "vulkan": "1.3" } },
+    "macos": { "version": "13", "graphics": { "metal": "3" } }
+  }
+}

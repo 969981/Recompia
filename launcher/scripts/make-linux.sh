@@ -89,6 +89,8 @@ notices="$repo/build/appimage-notices"
 mkdir -p "$pkg/licenses/appimage"
 cp -R "$notices/." "$pkg/licenses/appimage/"
 cp "$repo/LICENSE" "$pkg/LICENSE.txt"
+# what RecompLauncher reads at the top of a release (its docs/DEVELOPERS.md): which launcher file to start, the saves to back up
+cp "$repo/game-build/release_b/recomplauncher.json" "$pkg/recomplauncher.json"
 cp "$repo/CHANGELOG.md" "$pkg/CHANGELOG.txt"
 # the READMEs name the launcher file of their archive
 readmes() {
