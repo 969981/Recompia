@@ -185,6 +185,8 @@ enum class Site : uintptr_t {
     // ---- a story follow on a member (pkp_coop_follow.cpp) ----
     StoryFollow,      // a story content's "follow this player" attach (0x2a1ed4, local only): on a member it does not run and the
                       // authority makes it for its own copy of the creature, so no member takes the host's follow away
+    // ---- a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp) ----
+    TalkRecArmed,     // script callback 195's set of the talk record's +0x10: a member's is set in the authority's record too
 };
 
 struct CoopSite {
@@ -323,6 +325,8 @@ constexpr CoopSite kSites[] = {
     {{0x7e693c, 0x36001ac0u, false}, Site::DepositConfirm},  // tbz w0, #0, 0x7e6c94 (w0 = 0xa94bbc's confirm flag, x19 the gimmick)
     // a story follow on a member (pkp_coop_follow.cpp)
     {{0x2a1ed4, 0xf0018f09u, true}, Site::StoryFollow},      // adrp x9, 0x3484000 (x0 = &the creature's actor id, w1 the flag)
+    // a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp)
+    {{0x4ae7e8, 0x940b4132u, false}, Site::TalkRecArmed},    // bl 0x77ecb0 (after strb w9, [x8, #0x10] off Cloud Island; w23 = chara)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -423,6 +427,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::DepositStore: return coop::deposit::on_store(c);
         case Site::DepositConfirm: return coop::deposit::on_confirm(c);
         case Site::StoryFollow: return coop::follow::on_story_follow(c);
+        case Site::TalkRecArmed: return coop::talkrec::on_armed(c);
         default: return 0;
     }
 }
@@ -531,6 +536,7 @@ void game_frame(::Ctx* c) {
     coop::deposit::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::follow::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::savecopy::tick(c);
+    coop::talkrec::tick();
 }
 
 void remove() {   // the registry has removed the hooks
@@ -583,6 +589,7 @@ void remove() {   // the registry has removed the hooks
     coop::deposit::reset();
     coop::follow::reset();
     coop::savecopy::reset();
+    coop::talkrec::reset();
 }
 
 }  // namespace

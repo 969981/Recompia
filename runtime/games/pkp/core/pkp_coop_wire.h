@@ -95,6 +95,8 @@
 //               byte), then u8 count m, m times: u8[16] member key, u64 seq, u64 saved_at (every copy the authority knows, its own too)
 //   SaveChunk   +2 u64 the copy's seq, +10 u8 file index (in the offer's list), +11 u32 offset, +15 u32 length n, +19 n bytes of the
 //               file   (in order, after the offer; a member writes them into incoming/)
+//   TalkRecArmed +2 u16 the creature's chara (< 0x41a)   (a member's talk set that creature's talk record flag +0x10; the authority
+//               sets it in its own record; pkp_coop_talkrec.cpp)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -175,6 +177,8 @@ enum class Type : uint32_t {
     SaveHave = 48,
     SaveOffer = 49,
     SaveChunk = 50,
+    // ---- a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp) ----
+    TalkRecArmed = 46,
 };
 
 // Builds one payload: the header, then the fields in order.

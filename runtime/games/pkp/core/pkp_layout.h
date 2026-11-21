@@ -305,5 +305,8 @@ constexpr size_t kDropRecordBytes = 0x20;           //   +8 u32 electricity (cat
 constexpr uint64_t kDropStagesTable = 0xa20;        // data-table manager +0x10 +: #1108, the stages (16 B rows)
 constexpr uint64_t kDropItemsTable = 0x3d0;         // data-table manager +0x10 +: #514, u16 item and u8 category per row (101 rows)
 constexpr uint64_t kPlayedScenes = 0x4a2cec;        // save root +: m_playedContentsSkitFlag, scene s at bit s & 7 of byte s / 8
+// ---- co-op, a creature's talk record (pkp_coop_talkrec.cpp): 0x38 bytes per chara (< kFriendCount), save root + ----
+constexpr uint64_t kTalkRecOwn = 0x93ba0, kTalkRecHostCopy = 0x15567a8, kTalkRecCloud = 0xae5138, kTalkRecSize = 0x38;
+constexpr uint64_t kTalkRecArmed = 0x10;   // u8, set by script callback slot 195 (0x4ae68c), read by conditions 29 / 31 of main+0x34c3060
 
 }  // namespace nxrt::games::pkp::layout

@@ -74,6 +74,7 @@ if(TARGET nxrt_gfx)
         # the one shared save
         "${_pkp}/core/pkp_coop_saveset.cpp"
         "${_pkp}/core/pkp_coop_savecopy.cpp"
+        "${_pkp}/core/pkp_coop_talkrec.cpp"
         "${_pkp}/core/pkp_journal.cpp"
         "${_pkp}/core/pkp_journal_feature.cpp"
         "${_pkp}/core/pkp_journal_actor.cpp"

@@ -137,6 +137,7 @@ const char* type_name(uint32_t type) {
     case wire::Type::SaveHave: return "SaveHave";
     case wire::Type::SaveOffer: return "SaveOffer";
     case wire::Type::SaveChunk: return "SaveChunk";
+    case wire::Type::TalkRecArmed: return "TalkRecArmed";
     }
     return "?";
 }

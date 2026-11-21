@@ -90,6 +90,8 @@ constexpr Route kRoutes[] = {
     {wire::Type::SaveHave, Path::ToAuthority, &savecopy::on_have_message},
     {wire::Type::SaveOffer, Path::FromAuthority, &savecopy::on_offer_message},
     {wire::Type::SaveChunk, Path::FromAuthority, &savecopy::on_chunk_message},
+    // a creature's talk record flag a member's talk arms
+    {wire::Type::TalkRecArmed, Path::ToAuthority, &talkrec::on_armed_message},
 };
 
 struct State {
