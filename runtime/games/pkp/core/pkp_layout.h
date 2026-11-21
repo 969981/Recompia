@@ -284,5 +284,25 @@ constexpr uint8_t kSaveUncleanExit = 0x2;
 // ---- gimmick ownership, the tester log (pkp_coop_owner.cpp) ----
 constexpr uint64_t kPlacedObjects = 0x35616f0;      // [main+]: the placed-object manager (its map at +0x46d0)
 constexpr uint64_t kPlacedObjectAt = 0x753200;      // (manager, x, y, z) -> the placed object at the cell, 0 when none
+// ---- the story's materials drop (pkp_coop_deposit.cpp, pkp_coop_records.cpp; modding-docs coop-v2/role-census/build/
+// materials-deposit.md): class 0x326dc98, placed kind 0x1d9, container type 0x11 (one record, slots 1295..1297 of the common store) ----
+constexpr uint64_t kDropClass = 0x326dc98;          // main +: the class's vtable
+constexpr uint16_t kDropKind = 0x1d9;
+constexpr uint8_t kDropType = 0x11;                 // its container type (gimmick +0x4b)
+constexpr uint64_t kDropStage = 0x4a, kDropScreen = 0x4c, kDropTimer = 0x50;   // gimmick +: u8 stage, u8 screen up, f32 open timer
+constexpr uint64_t kDropUse = 0x7e77a4;             // (g, player selector): the class's use after the press's free check
+constexpr uint64_t kDropBlock = 0x7e7f20;           // (g, open): the block's open state, as the use and the close set it
+constexpr uint64_t kPlayerEvent = 0x74fb80;         // (event, on, ptr, selector, 0): the use's and the close's event 0xf
+constexpr uint64_t kDropEventPtr = 0x3483b38;       // GOT: the pointer the close passes to kPlayerEvent as x2
+constexpr uint64_t kSceneQueue = 0x2e6ce0;          // (selector, scene, &u16, -1, 0, 0, 0, 0; stack u8 +0, u16 +8, u8 +0x10)
+constexpr uint64_t kSceneActorPtr = 0x3482ef8;      // GOT: the u16 the close passes by address as x2 of kSceneQueue
+constexpr uint64_t kStoreSlice = 0x5b1c84;          // (holder, type, id, temp, &first, &count) -> the store the slice is in
+constexpr uint64_t kStoreHolder = 0x13d4920;        // save root +: the item holder (common store at +0x1050)
+constexpr uint64_t kFlagTest = 0x377cc;             // (flag) -> bit 0: the save's flag is set
+constexpr uint64_t kDropTest = 0x5b8e34, kDropTestArg = 0x1718bb0;   // (save root + arg) -> bit 0: stage 8's condition (category 0x13)
+constexpr uint64_t kSaveDrop = 0x73b258;            // save root +: m_rocketHouse (2 x 16 B): +0 u32 x | y << 16, +4 u16 z,
+constexpr size_t kDropRecordBytes = 0x20;           //   +8 u32 electricity (category 1), +0xc u16 the stage
+constexpr uint64_t kDropStagesTable = 0xa20;        // data-table manager +0x10 +: #1108, the stages (16 B rows)
+constexpr uint64_t kDropItemsTable = 0x3d0;         // data-table manager +0x10 +: #514, u16 item and u8 category per row (101 rows)
 
 }  // namespace nxrt::games::pkp::layout
