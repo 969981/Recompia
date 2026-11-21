@@ -45,6 +45,20 @@
 //     refusal logged (an emptied bag and more than kMaxKindsGone item kinds gone are named in the line). In play every change is
 //     taken, a store-all too.
 //     Losses are counted per item id over the whole bag, so a sort or a stack merge (slots emptied, nothing lost) is taken.
+//   - write-backs and gains (the rule): a write-back (an apply, a refused request's restore, a refused wipe) writes the whole record
+//     over the bag, so what the bag holds beyond the record is discarded. That is the point for a wipe, a stale array and a refused
+//     request (its own moves, both ways, are undone exactly: a container session also moves items INTO the bag, from its temp list),
+//     but a real gain made after the record's content was last taken (a hold, a pending apply, before the authority's answer) would
+//     vanish with it. A bag diff cannot tell the two apart, so a real gain is credited at its source: a module that adds to this
+//     player's bag brackets the add with gain_begin / gain_end, and the bag's gain between the two (per slot) goes into the record at
+//     once (sequence + 1): into the same slot when the record still agreed with the bag there, else onto a record stack of the same
+//     packed word that has room, else into the same slot if the record has it empty, else into the record's lowest empty slot below
+//     one in use (a live slot; slots past the bag's size are never used); what fits nowhere is logged. A loss inside the bracket is
+//     never credited, so a credit only adds what the game just added: nothing is duplicated, and the write-back carries the gain once.
+//     Before the authority's answer a credit goes into the record without a new sequence and is put again on top of the authority's
+//     copy if that one wins. Every write-back logs how many slots it changed, how many credited gains it carried and how many items
+//     the bag held beyond the record (discarded), so tester logs show if a gain the game made on its own (a pickup's answer during a
+//     hold that ends in a refusal) is ever lost.
 //   - a member sends its record (sequence 0 when it has none) at session up, again every kHelloEvery until the authority answered;
 //     the authority keeps the newer copy and answers the first record of each member's session (and any older than its copy) with a
 //     BagRestore. Until that answer a member takes nothing, so a stale bag never outbids the authority's copy.
@@ -59,6 +73,7 @@
 #include "core/pkp_layout.h"
 #include "core/pkp_save_files.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -113,6 +128,13 @@ struct Kept {
     UserId user{};   // the authority: the member's user id, from its last BagRecord (all 0: not known yet)
 };
 
+// One credited gain: n more of the packed word `word` (items::kMoved without the count), found in bag slot `slot`.
+struct Credit {
+    uint64_t word = 0;
+    uint32_t n = 0;
+    size_t slot = 0;
+};
+
 // What the bag selector reads, as last seen.
 struct Selection {
     uint64_t bag = 0;
@@ -143,6 +165,12 @@ struct State {
     bool restore = false;     // a member: the host refused a request; the record waits to be written back into the bag
     double unanswered_at = -1.0;   // a member: when the request now unanswered was first seen so (-1: none)
     bool wait_logged = false; // that wait outlasted kAnswerWait and was logged
+    // A source's gain (the header): the bag at gain_begin, and the credits not yet carried by a write-back.
+    bool gain_open = false;
+    uint64_t gain_bag = 0;
+    Record gain_pre;
+    uint32_t credited = 0;            // gains credited since the last write-back (its log line)
+    std::vector<Credit> early;        // a member before the authority's answer: credits to put on top of the copy that wins
 };
 State& st() {
     static State s;
@@ -349,6 +377,64 @@ Loss loss_of(const Record& was, const Record& now) {
     return l;
 }
 
+// ---- gains and write-backs (the header's rule) ----
+
+constexpr uint64_t kWordMask = 0x7fffffff;   // a payload's packed word (bits 0..30); two stacks merge when theirs are equal
+uint64_t word_of(uint64_t p) { return p & kWordMask; }
+
+// The game's max stack (one value for every item, a u8 in the slot).
+uint32_t max_stack(::Ctx* c) {
+    const uint32_t m = static_cast<uint32_t>(guest::call(c, base() + layout::kMaxStack, 0) & 0xffff);
+    return m ? std::min<uint32_t>(m, 0xff) : 0xff;
+}
+
+// Puts a credit into a record by the header's order; false when it fits nowhere.
+bool place(Record& r, const Credit& g, uint32_t max) {
+    for (uint64_t& p : r.slot)
+        if (items::id_of(p) && word_of(p) == g.word && items::count_of(p) + g.n <= max) {
+            p = items::with_count(p, items::count_of(p) + g.n);
+            return true;
+        }
+    const uint64_t fresh = items::with_count(g.word, g.n);
+    if (g.slot < kSlots && !items::id_of(r.slot[g.slot])) return r.slot[g.slot] = fresh, true;
+    size_t last = 0;   // one past the last slot in use in the bag's own 120 (kind 4's ten are a separate sub-area)
+    for (size_t i = 0; i < layout::kBagSlots; ++i)
+        if (items::id_of(r.slot[i])) last = i + 1;
+    for (size_t i = 0; i < last; ++i)
+        if (!items::id_of(r.slot[i])) return r.slot[i] = fresh, true;
+    return false;
+}
+
+// The gains from `pre` to `post` (both this bag, around a source's add), per slot; a loss or an unchanged slot gives none.
+std::vector<Credit> gains_of(const Record& pre, const Record& post) {
+    std::vector<Credit> out;
+    for (size_t i = 0; i < kSlots; ++i) {
+        const uint64_t a = pre.slot[i], b = post.slot[i];
+        if (a == b || !items::id_of(b)) continue;
+        const bool same = items::id_of(a) && word_of(a) == word_of(b);
+        if (same && items::count_of(b) <= items::count_of(a)) continue;
+        out.push_back({word_of(b), items::count_of(b) - (same ? items::count_of(a) : 0), i});
+    }
+    return out;
+}
+
+// What a write-back of `r` over `bag` changes: slots, and items the bag held beyond the record (discarded).
+struct Overwrite {
+    uint32_t slots = 0, discarded = 0;
+};
+Overwrite overwrite_of(const Record& bag, const Record& r) {
+    Overwrite o;
+    std::map<uint64_t, int64_t> beyond;   // packed word -> bag count minus record count
+    for (size_t i = 0; i < kSlots; ++i) {
+        if (bag.slot[i] != r.slot[i]) ++o.slots;
+        if (items::id_of(bag.slot[i])) beyond[word_of(bag.slot[i])] += items::count_of(bag.slot[i]);
+        if (items::id_of(r.slot[i])) beyond[word_of(r.slot[i])] -= items::count_of(r.slot[i]);
+    }
+    for (const auto& [w, n] : beyond)
+        if (n > 0) o.discarded += static_cast<uint32_t>(n);
+    return o;
+}
+
 // ---- the messages ----
 
 std::vector<uint8_t> slots_payload(wire::Writer& w, const Record& r) {
@@ -410,6 +496,9 @@ void session_up() {
     s.was_ready = false;
     s.restore = false;
     s.unanswered_at = -1.0;
+    s.gain_open = false;
+    s.credited = 0;
+    s.early.clear();
     NXLOG_I(kTag, "Co-op bags: in a session as %s; this player's record %llu", s.answered ? "the authority" : "a member",
             static_cast<unsigned long long>(o.rec.seq));
 }
@@ -437,7 +526,10 @@ void take_or_refuse(::Ctx* c, const Selection& sel, double now) {
         NXLOG_I(kTag, "Co-op bags: no record of this player anywhere; its bag becomes the first one (%u slots, %u items)", slots, count);
         return;
     }
-    if (bag.slot == o.rec.slot) return;
+    if (bag.slot == o.rec.slot) {
+        s.credited = 0;   // the record holds the bag: nothing is pending
+        return;
+    }
     const Loss loss = loss_of(o.rec, bag);
     const auto [was_slots, was_count] = totals(o.rec);
     const auto [now_slots, now_count] = totals(bag);
@@ -450,18 +542,22 @@ void take_or_refuse(::Ctx* c, const Selection& sel, double now) {
     else if (loss.kinds_gone > kMaxKindsGone) why = "too many item kinds are gone right after a load, an area change or a session change";
     else if (loss.any) why = "it loses items right after a load, an area change or a session change";
     if (why) {
+        const Overwrite ow = overwrite_of(bag, o.rec);
         put(c, sel.bag, o.rec);
         if (now - s.refused_log_at >= kRefuseLogEvery) {
             s.refused_log_at = now;
             NXLOG_W(kTag, "Co-op bags: a change of the bag is refused (%s): %u slots / %u items before, %u / %u after, %u kinds gone; "
-                          "the record is written back", why, was_slots, was_count, now_slots, now_count, loss.kinds_gone);
+                          "the record is written back: %u slots changed, %u credited gains kept, %u items beyond the record discarded",
+                    why, was_slots, was_count, now_slots, now_count, loss.kinds_gone, ow.slots, s.credited, ow.discarded);
         }
+        s.credited = 0;
         return;
     }
     bag.seq = o.rec.seq + 1;
     o.rec = bag;
     o.dirty = true;
     s.send = !link::is_authority();
+    s.credited = 0;
 }
 
 }  // namespace
@@ -499,20 +595,27 @@ void tick(::Ctx* c) {
         NXLOG_W(kTag, "Co-op bags: the %s bag is not usable (slot %zu holds no slot vtable); its record is neither applied nor taken",
                 sel.online ? "online" : "offline", bad_slot);
     }
-    // An apply (or a refused request's write-back) waits while the bag / container screen is open, and the take with it (a change
-    // made meanwhile is the apply's to overwrite: the record it brings is the newer one, or the bag from before the refused request).
+    // An apply (or a refused request's write-back) waits while the bag / container screen is open, and the take with it. It writes
+    // the whole record: a change made meanwhile is the write-back's to overwrite (the record it brings is the newer one, or the bag
+    // from before the refused request), except a source's gain, which is in the record already (the header's rule).
     // No grace after a write-back: it is play, and a loss right after it is the player's own.
     if (can && (s.apply || s.restore) && !screen_open()) {
+        Record was;
+        read_bag(sel.bag, &was);
+        const Overwrite ow = overwrite_of(was, s.own.rec);
         put(c, sel.bag, s.own.rec);
         const auto [slots, count] = totals(s.own.rec);
         if (s.apply) {
             s.grace_until = now + kGrace;
-            NXLOG_I(kTag, "Co-op bags: record %llu written into the %s bag (%u slots, %u items)",
-                    static_cast<unsigned long long>(s.own.rec.seq), sel.online ? "online" : "offline", slots, count);
+            NXLOG_I(kTag, "Co-op bags: record %llu written into the %s bag (%u slots, %u items): %u slots changed, %u credited gains kept, "
+                          "%u items beyond the record discarded", static_cast<unsigned long long>(s.own.rec.seq),
+                    sel.online ? "online" : "offline", slots, count, ow.slots, s.credited, ow.discarded);
         } else {
-            NXLOG_I(kTag, "Co-op bags: the host refused a request; record %llu (the bag before it) is written back (%u slots, %u items)",
-                    static_cast<unsigned long long>(s.own.rec.seq), slots, count);
+            NXLOG_I(kTag, "Co-op bags: the host refused a request; record %llu (the bag before it) is written back (%u slots, %u items): "
+                          "%u slots changed, %u credited gains kept, %u items beyond the record discarded",
+                    static_cast<unsigned long long>(s.own.rec.seq), slots, count, ow.slots, s.credited, ow.discarded);
         }
+        s.credited = 0;
         s.apply = s.restore = false;
     } else if (can && !s.apply && !s.restore && s.answered && !held(now)) {
         take_or_refuse(c, sel, now);
@@ -583,7 +686,7 @@ void on_record_message(::Ctx*, int from, uint8_t, wire::Reader& r) {
     }
 }
 
-void on_restore_message(::Ctx*, int, uint8_t, wire::Reader& r) {
+void on_restore_message(::Ctx* c, int, uint8_t, wire::Reader& r) {
     Key k;
     r.bytes(k.data(), k.size());
     const uint8_t have = r.u8();
@@ -602,6 +705,69 @@ void on_restore_message(::Ctx*, int, uint8_t, wire::Reader& r) {
     } else if (o.rec.seq > got.seq) {
         s.send = true;   // the authority's copy is older: ours goes to it
     }
+    if (s.early.empty()) return;
+    // Gains credited before this answer: in our copy already; put again on top of the authority's when that one won.
+    uint32_t lost = 0;
+    if (s.apply) {
+        const uint32_t max = c ? max_stack(c) : 0xff;
+        for (const Credit& g : s.early)
+            if (!place(o.rec, g, max)) lost += g.n;
+    }
+    ++o.rec.seq;
+    o.dirty = true;
+    s.send = true;
+    NXLOG_I(kTag, "Co-op bags: %zu gains made before the authority's answer are kept in record %llu (%u items fit nowhere)",
+            s.early.size(), static_cast<unsigned long long>(o.rec.seq), lost);
+    s.early.clear();
+}
+
+void gain_begin(::Ctx* c) {
+    State& s = st();
+    s.gain_open = false;
+    if (!c || !s.active) return;
+    const Selection sel = select(c);
+    size_t bad_slot = kSlots;
+    if (!(link::is_authority() || sel.visitor) || !ready(sel, &bad_slot)) return;
+    read_bag(sel.bag, &s.gain_pre);
+    s.gain_bag = sel.bag;
+    s.gain_open = true;
+}
+
+void gain_end(::Ctx* c) {
+    State& s = st();
+    if (!s.gain_open) return;
+    s.gain_open = false;
+    Kept& o = s.own;
+    if (!c || !s.active || !o.rec.seq) return;   // no record yet: the first one is the bag as it is, this gain with it
+    const Selection sel = select(c);
+    size_t bad_slot = kSlots;
+    if (sel.bag != s.gain_bag || !ready(sel, &bad_slot)) return;   // another bag now: its apply writes the record, the take follows
+    Record post;
+    read_bag(sel.bag, &post);
+    const std::vector<Credit> gains = gains_of(s.gain_pre, post);
+    if (gains.empty()) return;
+    const uint32_t max = max_stack(c);
+    uint32_t lost = 0, items_in = 0;
+    for (const Credit& g : gains) {
+        const uint64_t was = s.gain_pre.slot[g.slot];   // the same slot only when it held nothing or this word (a loss is never credited)
+        if (o.rec.slot[g.slot] == was && (!items::id_of(was) || word_of(was) == g.word)) o.rec.slot[g.slot] = post.slot[g.slot];
+        else if (!place(o.rec, g, max)) {
+            lost += g.n;
+            continue;
+        }
+        items_in += g.n;
+        ++s.credited;
+        if (!s.answered) s.early.push_back(g);
+    }
+    if (s.answered) {
+        ++o.rec.seq;
+        s.send = !link::is_authority();
+    }
+    o.dirty = true;
+    const bool pending = s.apply || s.restore || !s.answered || screen_open() || (!link::is_authority() && linkqueue::unanswered());
+    if (pending || lost)
+        NXLOG_I(kTag, "Co-op bags: a gain of %u items is credited to record %llu at its source (a write-back is pending or the bag is "
+                      "held); %u items fit nowhere in the record", items_in, static_cast<unsigned long long>(o.rec.seq), lost);
 }
 
 void reset() {
