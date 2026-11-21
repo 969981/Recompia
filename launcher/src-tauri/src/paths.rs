@@ -6,12 +6,27 @@ use std::path::{Path, PathBuf};
 use crate::config::Config;
 
 /// The launcher's folder, where `tools/` is. An AppImage runs from a temporary mount: there it is the folder of the
-/// .AppImage file itself ($APPIMAGE, set by the AppImage runtime).
+/// .AppImage file itself ($APPIMAGE, set by the AppImage runtime). Linux: an AppImage unpacked into a plain folder and started from
+/// its AppRun has no $APPIMAGE (RecompLauncher installs every game so, its docs/DEVELOPERS.md "AppImages"); the program is then
+/// <folder>/usr/bin/recompia, and the folder with tools/ is $APPDIR, set by that launcher and by AppRun's GTK hook.
 pub fn exe_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("APPIMAGE").map(PathBuf::from).and_then(|p| p.parent().map(Path::to_path_buf)) {
+    let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    // canonical, as current_exe is on Linux: an APPDIR given through a symlinked home (/home -> /var/home) is still ours
+    let appdir = if cfg!(target_os = "linux") { var("APPDIR").and_then(|d| std::fs::canonicalize(d).ok()) } else { None };
+    exe_dir_from(var("APPIMAGE"), appdir, std::env::current_exe().ok())
+}
+
+fn exe_dir_from(appimage: Option<PathBuf>, appdir: Option<PathBuf>, exe: Option<PathBuf>) -> PathBuf {
+    if let Some(dir) = appimage.and_then(|p| p.parent().map(Path::to_path_buf)) {
         return dir;
     }
-    std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())).unwrap_or_else(|| PathBuf::from("."))
+    // only an APPDIR our own program lives in: one inherited from another AppImage that started us says nothing about this install
+    if let (Some(dir), Some(exe)) = (appdir, &exe) {
+        if exe.starts_with(&dir) {
+            return dir;
+        }
+    }
+    exe.and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// The game folder a fresh install starts from: the launcher's own folder, or -- inside a macOS `.app` -- the folder the bundle
@@ -39,6 +54,11 @@ pub fn default_game_dir() -> PathBuf {
 }
 
 pub fn game_dir_of(cfg: &Config) -> PathBuf {
+    // An install RecompLauncher keeps is its own game folder (managed.rs). launcher.json is shared by every install on the machine,
+    // and an Install folder chosen in another one must not send this one's Set up and Play there.
+    if crate::managed::by_recomplauncher() {
+        return default_game_dir();
+    }
     let chosen = cfg.game_dir.trim();
     // A game folder inside an .app is never the real one: an earlier build offered exe_dir() (the bundle's Contents) as the
     // default, and saving the settings wrote it back. Ignore it, so the next save heals the file.
@@ -52,4 +72,38 @@ pub fn game_dir_of(cfg: &Config) -> PathBuf {
 /// The launcher file itself: the AppImage, not the program inside its mount.
 pub fn launcher_path() -> Option<PathBuf> {
     std::env::var_os("APPIMAGE").map(PathBuf::from).or_else(|| std::env::current_exe().ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::exe_dir_from;
+    use std::path::PathBuf;
+
+    fn p(s: &str) -> Option<PathBuf> {
+        Some(PathBuf::from(s))
+    }
+
+    #[test]
+    fn a_mounted_appimage_is_the_folder_of_its_file() {
+        let dir = exe_dir_from(p("/games/Recompia/Recompia.AppImage"), p("/tmp/.mount_RecompXYZ"), p("/tmp/.mount_RecompXYZ/usr/bin/recompia"));
+        assert_eq!(dir, PathBuf::from("/games/Recompia"));
+    }
+
+    #[test]
+    fn an_unpacked_appimage_is_its_appdir() {
+        let dir = exe_dir_from(None, p("/games/Recompia"), p("/games/Recompia/usr/bin/recompia"));
+        assert_eq!(dir, PathBuf::from("/games/Recompia"));
+    }
+
+    #[test]
+    fn an_appdir_the_program_is_not_in_is_ignored() {
+        let dir = exe_dir_from(None, p("/tmp/.mount_OtherApp"), p("/games/Recompia/recompia"));
+        assert_eq!(dir, PathBuf::from("/games/Recompia"));
+    }
+
+    #[test]
+    fn a_plain_program_is_its_own_folder() {
+        let dir = exe_dir_from(None, None, p("/games/Recompia/recompia"));
+        assert_eq!(dir, PathBuf::from("/games/Recompia"));
+    }
 }

@@ -20,6 +20,8 @@ pub struct Overview {
     pub exe_exists: bool,
     /// this release builds pkp.exe itself (Set up), so a missing one only means setup has not run yet
     pub builds_exe: bool,
+    /// RecompLauncher keeps this install (managed.rs): it is its own game folder, so the page offers no Install folder
+    pub managed: bool,
 }
 
 pub fn overview_of(cfg: &Config) -> Overview {
@@ -31,6 +33,7 @@ pub fn overview_of(cfg: &Config) -> Overview {
         default_game_dir: dump::fwd(&crate::paths::default_game_dir()),
         exe_exists: crate::host::game_exe(&dir).is_file(),
         builds_exe: gamebuild::is_package_b(&exe_dir().join("tools")),
+        managed: crate::managed::by_recomplauncher(),
     }
 }
 

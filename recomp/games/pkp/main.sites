@@ -288,8 +288,9 @@ entryhook 0x7100619410
 #   Seamless co-op, the requests (pkp_coop_requests.cpp): in a general request's completion 0x71006218e0, the `cbz x0` before its town
 #   goal +1 0x7100618b00 (x0 = the challenge manager, w21 = the replay flag)
 midhook 0x7100621be8
-#   Seamless co-op, the session: the title screen's continue, the simulation step, the five trip filers, the drop check and the state reset
-#   after it, error 3103, the PC's Link Play menu and the member screen
+#   Seamless co-op, the session: the title screen's result getter (pkp_coop_title.cpp), the simulation step, the five trip filers, the
+#   drop check, error 3103 (reserved: no handler yet), the PC's Link Play screen and the pause menu (pkp_coop_doors.cpp). The stage-entry
+#   initialiser 0xb0d74 is the journal's only (pkp_journal_travel.cpp): co-op never skips it
 entryhook 0x7100a88214
 entryhook 0x7100231890
 entryhook 0x71000bd45c
@@ -305,7 +306,7 @@ entryhook 0x7100fb9ea0
 #   Seamless co-op, group travel (pkp_coop_travel.cpp): the area-move filer by destination index (event callbacks 0x52 / 0x53, a
 #   travel object's step 0x71007cbc88), the moves that run no poll of their own
 entryhook 0x71000bda20
-#   Seamless co-op, the save: the three writers of a member's own save
+#   Seamless co-op, the save: the three save writers (reserved: no handler yet; the journal logs them)
 entryhook 0x7100241324
 entryhook 0x7100245200
 entryhook 0x71005a8a34
@@ -694,3 +695,31 @@ midhook 0x71004c0574
 #   `tbz w0, #0` after the grant's data apply (vt+0x2f8; x23 = the gimmick, x19 = the reply), whose false skips the use, and after
 #   which class 0x326dc98 runs none
 midhook 0x7100539b44
+#   Seamless co-op, gimmick ownership, the host's own use of the story's materials drop ends (pkp_coop_owner.cpp): class 0x326dc98's
+#   close 0x71007e67c0 (x0 the gimmick; from its slot 22 0x71007e633c, and a tail from 0x71007e6680), after which nothing frees the
+#   host's take
+entryhook 0x71007e67c0
+#   Seamless co-op, the talk conditions inside a member's talk (pkp_coop_talk.cpp): in talk condition 0x52 0x71004d3368, the
+#   `eor w8, w0, #1` after its IsHost call (x19 = the parent terms, w21 = the data id, w22 = the row term), and talk condition 0x25
+#   0x71004d0620 (`b IsVisitor`, reached through the condition table)
+midhook 0x71004d35f8
+entryhook 0x71004d0620
+#   Seamless co-op, a gimmick's release on a member's busy request queue (pkp_coop_linkqueue.cpp): the `tbz w0, #0` after the
+#   "every request answered" test 0x7100313418 that skips a close's release record, in 0x71007b8960 (class 0x3268000),
+#   0x710082a460 (0x32762f8), 0x71007e2030 (0x326d7e0), 0x710083bc40 and 0x710083c228 (0x3278b08), 0x710083e1c0; the generic
+#   request send 0x7100214974 is declared above (journal services)
+midhook 0x71007b8b68
+midhook 0x710082a558
+midhook 0x71007e20b0
+midhook 0x710083bec0
+midhook 0x710083c288
+midhook 0x710083e310
+#   Seamless co-op, the ownership log (pkp_coop_owner.cpp): the ownership apply 0x7100538f60 (&kind, x, y, z, &idx, take, quiet,
+#   slot), the message log's post 0x7100a8fba0 (the busy line) and the member's grant reply 0x7100539620 (reply, granted: a refused
+#   take); the press 0x7100313eb4 is declared above (journal interact)
+entryhook 0x7100538f60
+entryhook 0x7100a8fba0
+entryhook 0x7100539620
+#   Seamless co-op, a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp): in the shared move 0x71002ee774, the
+#   `and w3, w0, #0x1` after IsVisitor that picks the store the taken item is removed from (w21 = the container kind)
+midhook 0x71002eea74

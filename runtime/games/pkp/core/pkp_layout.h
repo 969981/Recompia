@@ -141,6 +141,11 @@ constexpr uint64_t kStateAutosaveObj = 0x3b9590;  // game state + this: the auto
 constexpr uint64_t kAutosaveNow = 0x4577e4;       // (autosave, now, backup): asks it to save; does nothing unless it is on and idle
 constexpr uint64_t kStateAutosave = 0x3bb5e0;     // game state: u32, the autosave's step: 0 idle, 1 snapshot, 2 writing, 3..5 finishing
 constexpr uint64_t kStateAutosaveFlags = 0x3bb5e8;   // game state: u32, bit 0 the autosave is on, bit 2 a save was asked for now
+constexpr uint64_t kWorldDirty = 0x3558bc4;       // main + : u8, "the world changed since the last save"; the autosave's step 1 stops
+                                                  // without writing while it is 0 (0x5adc94); saves clear it (pkp_coop_takeout.cpp)
+constexpr uint64_t kSaveManager = 0x35619d0;      // main + : the save manager (its job queue; the autosave's step 2 waits on it)
+constexpr uint64_t kSaveMgrJob = 0xb8, kSaveJobResult = 0x608;   // manager + : the last job; job + : u32 its result, 0 written
+                                                  // (the autosave's step 2 / 3, 0x5add04 / 0x5add68: null job or 0 = written)
 constexpr uint64_t kStateEvent = 0xd0, kEventBusy = 0x6ea;   // game state: the event bus, its busy byte
 
 // ---- the main loop ----
@@ -262,5 +267,22 @@ constexpr uint64_t kGimmickOwnerApply = 0x538f60;   // (&kind, x, y, z, &idx, ta
 constexpr uint64_t kGimmickOwnerMsg = 0x74fd48;     // (msg): builds a SyncGimmickOwnership message
 constexpr uint64_t kSendToHostForced = 0x30c69c;    // (msg): sends a message to the host, past the NM+0xb3348 send gate
 constexpr uint64_t kSendGate = 0x25af7c;            // () -> u8 NM+0xb3348, the gate 0x2cb584 drops a message at
+// ---- the session's doors and the start (pkp_coop_doors.cpp, pkp_coop_title.cpp) ----
+// The PC's Link Play screen: u32 +kLinkMenuState its state; kLinkMenuEnter(screen, state) enters one (it calls the entry 0xf282a8).
+constexpr uint64_t kLinkMenuEnter = 0xf266d0, kLinkMenuState = 0xa4;
+// The pause menu (UI class 0xba): u32 +kPauseMenuState its state, u8 +kPauseMenuMember the member a choice names (0xff: none);
+// kPauseMenuEnter(menu, state, 1) enters one (it calls the entry 0xfb9ea0).
+constexpr uint64_t kPauseMenuEnter = 0xfb8f58, kPauseMenuState = 0xa4, kPauseMenuMember = 0x108;
+// The UI objects: *(main+kUiOwner) +kUiList the list (8-byte entries), +kUiCount their number; the title is entry kTitleClass. The
+// title object: u32 +kTitleState, u32 +kTitleResult (-1 until answered; 1 continue), u8 +kTitleInput (input on).
+constexpr uint64_t kUiOwner = 0x3561780, kUiList = 0x18, kUiCount = 0x20, kTitleClass = 0x65;
+constexpr uint64_t kTitleState = 0xa4, kTitleResult = 0xa8, kTitleInput = 0xb8;
+constexpr uint64_t kTitleNameMissing = 0xf71250;   // () -> bit 0: the player's name needs the name entry before the save continues
+// Save root + kSaveFlags (the CMNDAT header copy): bit kSaveUncleanExit = the last save was written online ("did not disconnect").
+constexpr uint64_t kSaveFlags = 0xa0;
+constexpr uint8_t kSaveUncleanExit = 0x2;
+// ---- gimmick ownership, the tester log (pkp_coop_owner.cpp) ----
+constexpr uint64_t kPlacedObjects = 0x35616f0;      // [main+]: the placed-object manager (its map at +0x46d0)
+constexpr uint64_t kPlacedObjectAt = 0x753200;      // (manager, x, y, z) -> the placed object at the cell, 0 when none
 
 }  // namespace nxrt::games::pkp::layout

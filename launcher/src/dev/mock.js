@@ -511,7 +511,7 @@ function handle(cmd, args) {
   if (sc.down && cmd !== 'get_releases') throw 'The launcher backend did not answer.';
   switch (cmd) {
     case 'launcher_state':
-      return { readiness, game_dir: GAME_DIR, default_game_dir: GAME_DIR, exe_exists: sc.exe_exists, builds_exe: true, dump: sc.dump, version: sc.version || '0.7.0', updated: !!sc.updated };
+      return { readiness, game_dir: GAME_DIR, default_game_dir: GAME_DIR, managed: false, exe_exists: sc.exe_exists, builds_exe: true, dump: sc.dump, version: sc.version || '0.7.0', updated: !!sc.updated };
     case 'setup_status': return structuredClone(setup);
     case 'game_status': return game;
     case 'get_releases': return { releases: sc.releases ?? (mockChannel === 'experimental' ? [{ ...release('v0.8.1-beta.2', 'Recompia 0.8.1-beta.2 (Testing)', '2026-11-12T12:00:00Z'), prerelease: true }, { ...release('v0.8.1-beta.1', 'Recompia 0.8.1-beta.1 (Testing)', '2026-11-10T12:00:00Z'), prerelease: true }, ...(sc.update ? [NEXT, ...RELEASES] : RELEASES)] : (sc.update ? [NEXT, ...RELEASES] : RELEASES)), update: sc.update && mockChannel !== 'testing' ? { tag: NEXT.tag, name: NEXT.name, url: NEXT.url, size: 148_000_000 } : null };   // Testing offers no update (update.rs Channel::offers_updates)
@@ -537,7 +537,7 @@ function handle(cmd, args) {
     case 'set_theme': mockTheme = args.theme; return null;
     case 'open_themes_dir': return null;
     case 'pick_theme_file': return 'D:/Downloads/pack.zip';
-    case 'get_overview': return { game_dir: GAME_DIR, default_game_dir: GAME_DIR, exe_exists: sc.exe_exists, builds_exe: true };
+    case 'get_overview': return { game_dir: GAME_DIR, default_game_dir: GAME_DIR, managed: false, exe_exists: sc.exe_exists, builds_exe: true };
     case 'pick_folder': return 'D:/Dumps/Game';
     case 'pick_package': return 'D:/Downloads/game-2.0.1a.nup';
     case 'pick_nsp': return 'D:/Downloads/Game DLC [0400A3A01EE4D001].nsp';
