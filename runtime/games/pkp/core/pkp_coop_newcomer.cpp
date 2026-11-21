@@ -32,7 +32,8 @@
 // component, or the stand-in when it is not loaded here: dropped; the chara must match) and, when it still has no parents (the
 // "once": another member's or the host's own talk got there first), makes the host's own end-step call 0x3b9674(comp, &its own user
 // id, 0, 1). The creature is then the host's resident, as when the host talks to it, and its parents reach every member by kind 0xb.
-// The game's own forward runs 0x3b9b40 on the host a second time (in either order); that step only sets state and once-bits.
+// The game's own forward runs 0x3b9b40 on the host a second time (in either order); with w2 = 1 that run skips 0x1be640, and the
+// rest of it sets state and once-bits (0x5d1620 returns when the bit is set already).
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -142,12 +143,16 @@ void apply(::Ctx* c, bool in_game) {
 
 int on_befriend(::Ctx* c) {
     // Midhook 0x48235c in 0x481e2c, on its `bl 0x3b9674`: x0 = the creature's component (or the stand-in), x1 = &own user id.
-    if (!quests::member_rules() || !talk::talking() || stage() == layout::kStageCloudIsland) return 0;
+    if (!quests::member_rules() || stage() == layout::kStageCloudIsland) return 0;
     const uint64_t comp = c->x[0];
     if (comp == base() + kNoComponent || !guest::ok(comp, kCompChara + 4)) return 0;
     const uint32_t chara = guest::rd<uint32_t>(comp + kCompChara);
     if (chara >= layout::kFriendCount) return 0;
     if (guest::call(c, base() + kHasParents, comp) & 1) return 0;   // befriended already: 0x3b9674 takes its other path
+    if (!talk::talking()) {   // an event this player did not start by a talk: kept out, as pkp_coop_friendship.cpp keeps its gain
+        NXLOG_I(kTag, "Co-op newcomer: chara %u's first-talk end ran here, but this player holds no talk: not sent", chara);
+        return 0;
+    }
     State& s = st();
     if (s.outgoing.size() < kQueue)
         s.outgoing.push_back(
