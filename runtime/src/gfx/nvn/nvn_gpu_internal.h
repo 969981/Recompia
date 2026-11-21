@@ -105,6 +105,7 @@ void defer_destroy(std::function<void()> fn);
 uint64_t completed_serial();      // cached timeline value; call poll_completed() for a fresh read
 uint64_t poll_completed();
 uint64_t current_serial();        // the serial of the submission being recorded (or the last one)
+bool wait_serial_run(uint64_t serial);   // nvn_gpu.cpp: blocks until the GPU has run serial and its writes landed (render thread too)
 
 // ---- GPU pass profiler (nvn_gpu_timing.h) --------------------------------------------------------------------------------------------
 // Writes a GPU timestamp after everything recorded so far; the time since the previous stamp of the submission becomes a trace event
@@ -250,6 +251,8 @@ TexGpu* tex_gpu(Texture* t);
 // render_scale). tex_gpu_scaled makes the image at a given scale (a copy of a scaled target). Both return the existing image if there is one.
 TexGpu* tex_gpu_attachment(Texture* t);
 TexGpu* tex_gpu_scaled(Texture* t, float scale);
+float ui_native_scale(const Texture& t);                // [gfx] ui_native: the window textures' scale, 0 = off
+void ui_native_note_depth(const Texture& t);            // [gfx] ui_native: a depth target of a pass on a window texture
 float render_scale();                                   // [gfx] render_scale (1 until known)
 float tex_scale(Texture* t);                            // the image size over the NVN size (1 for most textures)
 VkExtent3D tex_image_extent(Texture* t, uint32_t level = 0);   // the image's own size (tex_extent times tex_scale)
@@ -458,6 +461,9 @@ namespace gpu { struct Mirror; struct PoolTrack; }
 
 // One Vulkan buffer over a byte range of a pool: an import (its own private view, VkDeviceMemory and VkBuffer), or with [nvn] pool_copy a
 // host-visible buffer of its own (shadow) that holds a copy of the range (nvn_pool_copy.cpp).
+}  // namespace nxrt::nvn::be
+namespace nxrt::os::ahb { struct Backing; }
+namespace nxrt::nvn::be {
 struct PoolChunk {
     VkDeviceMemory mem = VK_NULL_HANDLE;
     VkBuffer buffer = VK_NULL_HANDLE;
@@ -483,6 +489,7 @@ struct PoolChunk {
     bool again = false;               // its cells had a shadow before, dropped since (statistics: copies that fill it again)
     uint32_t filled = 0;              // pages with a copy (statistics: how much of the shadow is in use)
     struct PoolGpu* owner = nullptr;  // shadow chunks: the pool (eviction)
+    os::ahb::Backing* ahb = nullptr;  // [nvn] pool_ahb: the guest pages are an AHardwareBuffer this chunk imports (nvn_gpu_pool.cpp)
 };
 
 // A pool is imported whole (one chunk; the background importer does it) or, when it is larger than one chunk ([nvn] pool_import_chunk_mb), in
@@ -532,6 +539,7 @@ bool pool_copy_on();                                  // read once (auto: Wine, 
 uint64_t pool_copy_cell();                            // [nvn] pool_copy_cell_mb in bytes
 uint32_t pool_copy_idle();                            // [nvn] pool_copy_idle presents
 bool pool_copy_any();                                 // any thread: a copy pool exists (cheap)
+bool pool_ahb_on();                                   // [nvn] pool_ahb: copy cells are moved onto AHardwareBuffers and imported (nvn_gpu_pool.cpp); read once, logged
 void pcopy_pool_init(PoolGpu* g);                     // import_pool: page_gpu, the write tracker, the landing thread
 void pcopy_pool_destroy(PoolGpu* g);                  // pool_gpu_destroy, after its chunks: the write tracker goes
 void pcopy_track_stop(PoolGpu* g);                    // a cell of the pool is imported instead: no page of it stays read-only

@@ -176,6 +176,36 @@ struct Renderer::Impl {
     };
     std::vector<Target> targets;
     bool dirty = true;
+    // The swapchain is IDENTITY on a rotated surface: Android then answers every acquire and present with VK_SUBOPTIMAL_KHR, which
+    // only says the picture is not pre-rotated. Rebuilding on it made a new swapchain every frame; size changes still come as
+    // OUT_OF_DATE or a new window pixel size.
+    bool engine_rotates = false;
+    uint64_t surface_gen = 0;      // platform::surface_generation() the surface was made for
+    // A surface that cannot be presented to (platform::surface_replaceable: Android): 0 x 0 for a while, SURFACE_LOST, or a swapchain that
+    // could not be made. The surface and swapchain are made again from the window's current native surface every kRetryNs until a frame
+    // goes out (a surface lost while the app started left the screen black for the session).
+    static constexpr uint64_t kRetryNs = 250ull * 1000 * 1000;
+    uint64_t unusable_since = 0, last_retry = 0;
+    int retries = 0;
+    bool surface_lost = false;
+    // true: nothing can be presented now; retries the surface when it has been so for kRetryNs (Android only)
+    bool unusable(const char* why) {
+        if (!platform::surface_replaceable() || headless || platform::minimized()) return true;
+        const uint64_t now = FrameLimiter::now_ns();
+        if (!unusable_since) unusable_since = now;
+        if (now - unusable_since >= kRetryNs && now - last_retry >= kRetryNs) {
+            last_retry = now;
+            ++retries;
+            NXLOG_W(kTag, "swapchain: %s: surface and swapchain made again from the window's current surface (retry %d)", why, retries);
+            replace_surface();
+        }
+        return true;
+    }
+    void usable() {
+        if (retries) NXLOG_I(kTag, "swapchain: presenting again after %d surface retr%s", retries, retries == 1 ? "y" : "ies");
+        unusable_since = last_retry = 0;
+        retries = 0;
+    }
     int last_px_w = -1, last_px_h = -1;
 
     struct Slot {
@@ -553,7 +583,38 @@ struct Renderer::Impl {
             ext.width = std::clamp(want_w, caps.minImageExtent.width, caps.maxImageExtent.width);
             ext.height = std::clamp(want_h, caps.minImageExtent.height, caps.maxImageExtent.height);
         }
+        // The window's own pixel size wins where the surface accepts it: Android's currentExtent can lag behind the window (right after
+        // an unfold it named the cover screen's 2376x968 again while the window was 2160x1856, and the compositor stretched that picture
+        // over the inner screen). Surfaces whose extent is fixed (min = max = current: desktop window systems) keep it.
+        if (caps.currentExtent.width != 0xFFFFFFFFu && want_w && want_h) {
+            const VkExtent2D win = {std::clamp(want_w, caps.minImageExtent.width, caps.maxImageExtent.width),
+                                    std::clamp(want_h, caps.minImageExtent.height, caps.maxImageExtent.height)};
+            if (win.width != ext.width || win.height != ext.height) {
+                NXLOG_I(kTag, "swapchain: the surface says %ux%u, the window is %ux%u: using the window's size", ext.width, ext.height, win.width, win.height);
+                ext = win;
+            }
+        }
         if (ext.width == 0 || ext.height == 0) { extent = {0, 0}; return false; }
+        // [gfx] present_scale (percent of the window, 25..100, default 100): smaller swapchain images where the surface accepts an extent
+        // below its own (minImageExtent < currentExtent: Android, whose compositor scales the buffer to the window in hardware), so the
+        // output passes and the overlay draw fewer pixels; the game's render scale is separate. Surfaces whose extent is fixed (desktop
+        // window systems report min = max = current) keep their size. Overlay mouse positions follow (overlay.cpp handle_event).
+        static const uint32_t present_pct = static_cast<uint32_t>(std::clamp<int64_t>(config_get_int("gfx", "present_scale", 100), 25, 100));
+        // Not on a taller-than-wide surface of a landscape-only window (the activity turning at start): images of another size than the
+        // surface then kept the Android window portrait until the next rotation; the full size is used and the next swapchain,
+        // once the surface is landscape, is scaled.
+        const bool turning = platform::landscape_only() && ext.width < ext.height;
+        if (present_pct < 100 && caps.currentExtent.width != 0xFFFFFFFFu && !turning) {
+            const VkExtent2D full = ext;
+            ext.width = std::clamp(full.width * present_pct / 100, caps.minImageExtent.width, caps.maxImageExtent.width);
+            ext.height = std::clamp(full.height * present_pct / 100, caps.minImageExtent.height, caps.maxImageExtent.height);
+            static int logged = 0;
+            if (logged < 4) {
+                ++logged;
+                NXLOG_I(kTag, "swapchain: [gfx] present_scale %u%%: %ux%u images for a %ux%u surface%s", present_pct, ext.width, ext.height,
+                        full.width, full.height, ext.width == full.width && ext.height == full.height ? " (the surface takes no other size)" : "");
+            }
+        }
 
         uint32_t images = std::max(caps.minImageCount + (active == PresentMode::Mailbox ? 1u : 0u), desc.frames_in_flight + 1);
         if (caps.maxImageCount) images = std::min(images, caps.maxImageCount);
@@ -569,8 +630,20 @@ struct Renderer::Impl {
         ci.imageArrayLayers = 1;
         ci.imageUsage = usage;
         ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        ci.preTransform = caps.currentTransform;
+        // The picture is never rendered rotated, so the swapchain asks for IDENTITY and the presentation engine rotates it to the
+        // display (a phone held against its natural orientation reports ROTATE_90/270 as currentTransform; passing that on would
+        // claim a pre-rotated image). Desktop surfaces report IDENTITY anyway. The first composite mode the surface offers, in
+        // order of preference: desktop surfaces offer OPAQUE, Android's offer INHERIT only on some drivers.
+        ci.preTransform = (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) ? VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
+                                                                                            : caps.currentTransform;
         ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        for (VkCompositeAlphaFlagBitsKHR a : {VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+                                              VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR})
+            if (caps.supportedCompositeAlpha & a) { ci.compositeAlpha = a; break; }
+        engine_rotates = ci.preTransform != caps.currentTransform;
+        if (engine_rotates)
+            NXLOG_I(kTag, "swapchain: the surface is rotated (transform 0x%x, extent %ux%u); the presentation engine rotates the picture",
+                    static_cast<unsigned>(caps.currentTransform), ext.width, ext.height);
         ci.presentMode = to_vk(active);
         ci.clipped = VK_TRUE;
         ci.oldSwapchain = old;
@@ -663,6 +736,24 @@ struct Renderer::Impl {
         return true;
     }
 
+    // The window got a new native surface (Android, back from the background): the swapchain belongs to the abandoned one, so it goes
+    // first, then the device makes a surface for the new window and the next recreate builds a swapchain there.
+    void replace_surface() {
+        surface_gen = platform::surface_generation();
+        dev->wait_idle();
+        pw_set_live(VK_NULL_HANDLE);
+        destroy_targets();
+        if (swapchain) {
+            if (latency) latency->swapchain_destroyed(swapchain);
+            vkDestroySwapchainKHR(vk(), swapchain, nullptr);
+            vk_gauge_swapchains().sub(1);
+            swapchain = VK_NULL_HANDLE;
+        }
+        const bool ok = dev->replace_surface();
+        NXLOG_I(kTag, "swapchain: the window has a new surface (back from the background): %s", ok ? "surface and swapchain made again" : "a new surface failed");
+        dirty = true;
+    }
+
     void destroy_all() {
         dev->wait_idle();
         pw_stop_join();
@@ -731,9 +822,16 @@ bool Renderer::begin_frame(FrameInfo* out) {
     if (s.in_frame) end_frame();   // a forgotten end_frame must not wedge the slot
     int pw = static_cast<int>(s.headless_w), ph = static_cast<int>(s.headless_h);
     if (!s.headless) platform::pixel_size(&pw, &ph);
+    if (!s.headless && platform::surface_generation() != s.surface_gen) s.replace_surface();   // also while the size reads 0 x 0
     if (!s.headless && (pw == 0 || ph == 0)) {
+        s.unusable("the window reports 0 x 0");
         s.st.skipped++;
         return false;
+    }
+    if (s.surface_lost) {
+        s.surface_lost = false;
+        s.unusable_since = 1;   // retry at once
+        s.unusable("the surface was lost");
     }
     if (pw != s.last_px_w || ph != s.last_px_h) {
         s.dirty = true;
@@ -741,6 +839,7 @@ bool Renderer::begin_frame(FrameInfo* out) {
         s.last_px_h = ph;
     }
     if (s.dirty && !s.recreate(static_cast<uint32_t>(pw), static_cast<uint32_t>(ph))) {
+        if (!s.headless) s.unusable("the swapchain could not be made");
         s.st.skipped++;
         return false;
     }
@@ -769,13 +868,16 @@ bool Renderer::begin_frame(FrameInfo* out) {
         s.dev->note_result(r, "vkAcquireNextImageKHR");
         if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_ERROR_SURFACE_LOST_KHR) {
             s.dirty = true;
+            if (r == VK_ERROR_SURFACE_LOST_KHR) s.surface_lost = true;
             s.st.out_of_date++;
             s.st.skipped++;
             return false;
         }
         if (r == VK_SUBOPTIMAL_KHR) {
-            s.dirty = true;     // finish this frame, rebuild before the next
-            s.st.out_of_date++;
+            if (!s.engine_rotates) {
+                s.dirty = true;     // finish this frame, rebuild before the next
+                s.st.out_of_date++;
+            }
         } else if (r != VK_SUCCESS) {
             if (!s.dev->device_lost()) NXLOG_E(kTag, "vkAcquireNextImageKHR failed (%d)", static_cast<int>(r));
             s.st.skipped++;
@@ -968,10 +1070,12 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
             s.dev->note_result(r, "vkQueuePresentKHR");
             s.st.presents++;
             presented = r == VK_SUCCESS || r == VK_SUBOPTIMAL_KHR;
-            if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR || r == VK_ERROR_SURFACE_LOST_KHR) {
+            if (presented && s.unusable_since) s.usable();
+            if (r == VK_ERROR_OUT_OF_DATE_KHR || (r == VK_SUBOPTIMAL_KHR && !s.engine_rotates) || r == VK_ERROR_SURFACE_LOST_KHR) {
                 s.dirty = true;
+                if (r == VK_ERROR_SURFACE_LOST_KHR) s.surface_lost = true;
                 s.st.out_of_date++;
-            } else if (r != VK_SUCCESS && !s.dev->device_lost()) {
+            } else if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR && !s.dev->device_lost()) {
                 NXLOG_E(kTag, "vkQueuePresentKHR failed (%d)", static_cast<int>(r));
             }
         };

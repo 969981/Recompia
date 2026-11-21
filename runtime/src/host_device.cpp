@@ -88,6 +88,14 @@ bool host_is_steam_deck() {
     return deck;
 }
 
+bool host_is_phone() {
+#if defined(__ANDROID__)
+    return true;
+#else
+    return false;
+#endif
+}
+
 bool host_is_linux() {
 #if defined(__linux__)
     return true;   // the native Linux build

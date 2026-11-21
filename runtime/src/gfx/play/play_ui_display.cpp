@@ -33,6 +33,7 @@ constexpr const char* kWindowModeKeys[kWindowModeCount] = {"windowed", "borderle
 constexpr int kSizePresets[][2] = {{1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3840, 2160}};
 constexpr int kSizePresetCount = static_cast<int>(sizeof kSizePresets / sizeof kSizePresets[0]);
 constexpr int kFpsChoices[] = {-1, 0, 30, 40, 45, 60, 72, 90, 120, 144, 165, 240, 360};   // -1 = the refresh rate
+constexpr int kFpsPhoneChoices[] = {-1, 0, 20, 24, 30, 40, 60, 120};                  // a phone (snapped to whole refreshes): lower caps for a hot one
 
 // ---- Display ------------------------------------------------------------------------------------------------------------------------
 
@@ -372,7 +373,11 @@ void framerate_group(UiHost& host, const LiveStatus& live, Page& p) {
     char cap[32];
     fps_label(d.fps_cap, cap, sizeof cap);
     if (ImGui::BeginCombo("Frame limit", cap)) {
-        for (int fps : kFpsChoices) {
+        const bool phone = nxrt::host_is_phone();
+        const int* list = phone ? kFpsPhoneChoices : kFpsChoices;
+        const size_t n = phone ? std::size(kFpsPhoneChoices) : std::size(kFpsChoices);
+        for (size_t i = 0; i < n; ++i) {
+            const int fps = list[i];
             char name[32];
             fps_label(fps, name, sizeof name);
             if (ImGui::Selectable(name, fps == d.fps_cap) && fps != d.fps_cap) {

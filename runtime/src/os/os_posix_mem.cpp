@@ -22,17 +22,20 @@
 
 #if !defined(_WIN32)
 
+#include "nxrt/config.h"
+#include "nxrt/log.h"
+#include "nxrt/memory.h"
+#include "nxrt/notices.h"
+
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 
-#if defined(__ANDROID__)
-#include "nxrt/memory.h"   // the guest layout this platform reserves up front (guest_range)
-#endif
 
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
@@ -283,8 +286,9 @@ bool reserve_exact(uintptr_t base, uintptr_t size) {
 // ---- the executable's __GUEST segment (cmake/guest_segment.py) ------------------------------------------------------
 // The kernel maps the main executable's segments at exec, before dyld and libSystem run, so a zero-fill __GUEST segment is
 // the only way to own the guest address space before libmalloc's xzone allocator reserves ~24 GiB at random addresses in
-// 0x7000000000-0x8000000000. The segment is PROT_NONE and the runtime replaces parts of it with MAP_FIXED; that is safe
-// because nothing else lives there. dyld slides the image, so the range is shifted by the image's slide.
+// 0x7000000000-0x8000000000, the canonical guest range (mem::kCanonicalBase). The segment is PROT_NONE and the runtime
+// replaces parts of it with MAP_FIXED; that is safe because nothing else lives there. dyld slides the image, so the range is
+// shifted by the image's slide.
 struct GuestRange {
     uintptr_t lo = 0, hi = 0;
 };
@@ -720,6 +724,26 @@ std::atomic<uint32_t> g_section_seq{1};
 }
 #endif
 
+// [memory] section_dir: a section file grows with the pages the game touches; with less free space than that use plus a reserve the
+// device would fill up during play and the game would die on a write fault. Then the section stays anonymous memory (memfd / zram), with
+// one log line and a notice. kSectionFileNeed: expected heap use (about 4.5 GiB) plus a 1 GiB reserve.
+constexpr uint64_t kSectionFileNeed = (45ull << 30) / 10 + (1ull << 30);
+static bool section_dir_has_room(const std::string& dir) {
+    struct statvfs v {};
+    if (::statvfs(dir.c_str(), &v) != 0) return true;   // unknown: as before (the open below fails on a missing folder)
+    const uint64_t free_b = static_cast<uint64_t>(v.f_bavail) * v.f_frsize;
+    if (free_b >= kSectionFileNeed) return true;
+    static bool told = false;
+    if (!told) {
+        told = true;
+        const unsigned short_gb = static_cast<unsigned>((kSectionFileNeed - free_b + (1ull << 30) - 1) >> 30);
+        NXLOG_W("mem", "section file in %s skipped: %llu MiB free, %llu MiB needed: anonymous shared memory instead", dir.c_str(),
+                static_cast<unsigned long long>(free_b >> 20), static_cast<unsigned long long>(kSectionFileNeed >> 20));
+        nxrt::notices::post("memory", "Low storage: free about " + std::to_string(short_gb) + " GB for smoother play", 10.0);
+    }
+    return false;
+}
+
 HANDLE CreateFileMappingW(HANDLE file, void*, DWORD protect, DWORD hi, DWORD lo, LPCWSTR) {
     if (file != INVALID_HANDLE_VALUE) {
         // A named file mapping over a real file is not used by the runtime; refuse rather than silently alias the fd.
@@ -734,6 +758,29 @@ HANDLE CreateFileMappingW(HANDLE file, void*, DWORD protect, DWORD hi, DWORD lo,
     if (size == 0) {
         SetLastError(ERROR_INVALID_PARAMETER);
         return nullptr;
+    }
+    // [memory] section_dir: a folder on flash. A section is then an unlinked sparse file there instead of anonymous shared memory, so
+    // the kernel writes its cold pages back to the file and drops them under memory pressure instead of swapping them (a phone's zram is
+    // small and shared with every app). Only touched pages take space; the file is gone with its last fd, also after a crash.
+    if (static const std::string dir = nxrt::config_get_str("memory", "section_dir", ""); !dir.empty() && section_dir_has_room(dir)) {
+        int fd = -1;
+#if defined(O_TMPFILE)
+        fd = ::open(dir.c_str(), O_TMPFILE | O_RDWR | O_CLOEXEC, 0600);
+#endif
+        if (fd < 0) {
+            std::string tmpl = dir + "/nxrt-section-XXXXXX";
+            fd = ::mkstemp(tmpl.data());
+            if (fd >= 0) ::unlink(tmpl.c_str());
+        }
+        if (fd >= 0 && ::ftruncate(fd, static_cast<off_t>(size)) == 0) {
+            NXLOG_I("mem", "section of %llu MiB backed by an unlinked file in %s", static_cast<unsigned long long>(size >> 20), dir.c_str());
+            auto* s = new SectionObj();
+            s->fd = fd;
+            s->size = size;
+            return s;
+        }
+        NXLOG_W("mem", "section file in %s failed (errno %d): anonymous shared memory instead", dir.c_str(), errno);
+        if (fd >= 0) ::close(fd);
     }
 #if defined(__ANDROID__)
     // bionic has no shm_open. A memfd is the same object without a name: sparse after ftruncate (SEC_RESERVE), shared by every
@@ -840,7 +887,7 @@ LPVOID MapViewOfFileEx(HANDLE section, DWORD access, DWORD hi, DWORD lo, SIZE_T 
     void* p = ::mmap(want ? reinterpret_cast<void*>(want) : nullptr, bytes, prot, flags, s->fd,
                      static_cast<off_t>(off));
 #if defined(MAP_FIXED_NOREPLACE)
-    if (p == MAP_FAILED && want && errno == EINVAL) {
+    if (p == MAP_FAILED && want && !guest && errno == EINVAL) {
         // A kernel before 4.17 answers MAP_FIXED_NOREPLACE with EINVAL instead of EEXIST; that is the only case where the
         // range is worth taking unconditionally (nothing else asked for it).
         p = ::mmap(reinterpret_cast<void*>(want), bytes, prot, MAP_SHARED | MAP_FIXED, s->fd, static_cast<off_t>(off));

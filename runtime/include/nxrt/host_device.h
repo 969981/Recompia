@@ -16,6 +16,10 @@ bool host_is_handheld();
 // change it). For defaults tied to the Deck's fixed-refresh panel, such as [display] fps_snap auto.
 bool host_is_steam_deck();
 
+// A phone or tablet (the Android build). For factory defaults that suit a phone's CPU and window system (play::default_settings:
+// a 30 fps limit, borderless); a player's own choice is never changed.
+bool host_is_phone();
+
 // The host kernel is Linux: true for the native Linux build and for a Windows build running under Wine on Linux (Proton, SteamOS), false
 // on Windows and macOS. This is the question a default's reason is the kernel, its scheduler or a Mesa driver, because those apply under
 // Proton and natively alike: RADV revalidating every imported userptr BO of a submission, amdgpu faulting the pages of one in, mprotect

@@ -6,7 +6,8 @@
 //   * block-linear (Tegra X1 layout) is untiled with tegra::untile into a tight linear buffer; pitch-linear rows are copied
 //     into tight rows. Either way the result is the image, levels back to back, inside a level all layers, inside a layer
 //     the z slices, then rows of row_blocks blocks.
-//   * BCn (BC1..BC7, BC6H, BC4/5) blocks are passed through unchanged.
+//   * BCn (BC1..BC7, BC6H, BC4/5) blocks are passed through unchanged when caps.bc, otherwise decoded (bcdec) into bc_decode_format's
+//     uncompressed format: no disk cache, the decode is a few ms where an encode would take seconds.
 //   * ASTC is kept when caps.astc, otherwise transcoded to BC7 once (caps.bc7_transcode; the result is cached on disk, keyed
 //     by a hash of the source bytes), otherwise decoded to RGBA8.
 //   * The disk cache entry decides the output format: BC7 as the runtime writes it, or RGBA8 / BC5 entries made by the setup tool
@@ -48,7 +49,7 @@ struct PreparedTexture {
     uint32_t levels = 0, layers = 0;
     uint32_t block_w = 1, block_h = 1;   // texels per block of the output format
     uint32_t block_bytes = 0;            // bytes per block (texel bytes for uncompressed formats)
-    bool transcoded = false;             // ASTC was transcoded to BC7 or decoded to RGBA8 (the data is not the source encoding)
+    bool transcoded = false;             // ASTC was transcoded to BC7 or decoded to RGBA8, or BCn decoded (the data is not the source encoding)
     bool from_cache = false;             // the data came from the BC7 disk cache
     bool provisional = false;            // a quick stand-in (TexCaps::provisional): replaced when the background job has the real data
     std::vector<PreparedLevel> level;
@@ -59,6 +60,11 @@ struct PreparedTexture {
 // Prepares the data of t for the GPU described by caps. Returns false with out.error set on failure (no storage, bad layout,
 // no Vulkan format, a codec error, ...). Never crashes on a bad texture.
 bool prepare_texture(const Texture& t, const TexCaps& caps, PreparedTexture& out);
+
+// The image format a BCn texture is decoded into on a GPU without textureCompressionBC (TexCaps::bc false; Mali, for one): BC1/2/3/7 to
+// R8G8B8A8 (UNORM or SRGB as the block format), BC4 to R8, BC5 to R8G8 (UNORM or SNORM as the block format), BC6H to R16G16B16A16_SFLOAT.
+// VK_FORMAT_UNDEFINED for anything that is not a BCn format.
+VkFormat bc_decode_format(VkFormat bc);
 
 // A2B10G10R10 SNORM texels (4 bytes each) widened to R16G16B16A16 SNORM (8 bytes each): the image format used when the GPU cannot sample
 // A2B10G10R10_SNORM. Vulkan normalisation per channel (10 bits: /511, alpha 2 bits: /1), -1 clamped.

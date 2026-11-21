@@ -5,6 +5,7 @@
 // starts on anchor + n refresh intervals, a late frame on the next refresh).
 #include "nxrt/frame_limiter.h"
 
+#include "nxrt/host_device.h"
 #include "nxrt/log.h"
 #include "nxrt/perf_report.h"
 #include "nxrt/qpc.h"
@@ -43,7 +44,7 @@ struct FrameLimiter::Impl {
     std::atomic<FrameLimiter::PreFrameFn> pre_fn{nullptr};
     std::atomic<void*> pre_user{nullptr};
     std::atomic<double> sync_hz{0.0};        // RefreshSync: 0 = no fixed-refresh display
-    std::atomic<bool> sync_grid{false}, sync_ceiling{false};
+    std::atomic<bool> sync_grid{false}, sync_ceiling{false}, sync_late_now{false};
     std::atomic<double> ceiling_logged{0.0}; // the ceiling whose snap was last logged
     HANDLE timer = nullptr;  // high-resolution waitable timer; null means the Sleep(1) coarse wait
 
@@ -123,7 +124,11 @@ struct FrameLimiter::Impl {
 
 namespace {
 // How long before the target the timer stops and the spin takes over.
+// A phone (host_is_phone) never spins: a clock-capped big core spinning up to 3 ms a frame heats the SoC and lowers the thermal caps
+// for the GPU and every thread; its frames start a timer overshoot late instead (tenths of a millisecond).
 uint64_t margin_ns(double overshoot_ema_ns) {
+    static const bool no_spin = host_is_phone();
+    if (no_spin) return 0;
     return static_cast<uint64_t>(std::min(std::max(kMinMarginNs, 2.0 * overshoot_ema_ns), kMaxMarginNs));
 }
 
@@ -199,6 +204,7 @@ void FrameLimiter::set_refresh_sync(const RefreshSync& sync) {
     impl_->sync_hz.store(on ? sync.hz : 0.0);
     impl_->sync_grid.store(on && sync.grid);
     impl_->sync_ceiling.store(on && sync.snap_ceiling);
+    impl_->sync_late_now.store(on && sync.late_now);
 }
 
 double FrameLimiter::refresh_hz() const { return impl_->sync_hz.load(); }
@@ -251,6 +257,7 @@ uint64_t FrameLimiter::begin_frame_nohook() {
     {
         std::lock_guard<std::mutex> lk(s.mu);
         const double now = static_cast<double>(entry);
+        bool grid_now = false;   // RefreshSync::late_now chose an immediate start
         if (pace.k >= 2) {
             // Refresh grid: the frame starts on a grid point, pace.k points after the last one. A frame that comes later than that takes the
             // first point not yet past (it would miss its refresh on the display anyway) and the anchor stays where it is, so neither the
@@ -265,13 +272,17 @@ uint64_t FrameLimiter::begin_frame_nohook() {
                 const bool follows = s.has_sched && s.grid_k > 0;      // the last frame was a grid frame
                 const double at = (now - s.grid_t0) / refresh;         // now, in grid points
                 int64_t slot = s.grid_slot + pace.k;
+                bool start_now = false;
                 if (!follows || at > static_cast<double>(slot) + kGridLateRefreshes) {
-                    slot = static_cast<int64_t>(std::ceil(at - kGridLateRefreshes));
+                    // RefreshSync::late_now: a late grid frame starts at once from the point just passed
+                    start_now = follows && s.sync_late_now.load(std::memory_order_relaxed);
+                    slot = start_now ? static_cast<int64_t>(std::floor(at)) : static_cast<int64_t>(std::ceil(at - kGridLateRefreshes));
                     if (follows) ++s.grid_late;
                 }
                 s.grid_slot = slot;
+                grid_now = start_now;
             }
-            next = s.grid_t0 + static_cast<double>(s.grid_slot) * refresh;
+            next = grid_now ? now : s.grid_t0 + static_cast<double>(s.grid_slot) * refresh;
             if (++s.grid_frames >= kGridReportFrames) {
                 rep_frames = s.grid_frames;
                 rep_late = s.grid_late;

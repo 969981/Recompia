@@ -114,12 +114,17 @@ struct DeviceFeatures {
     // Enabled for the NVN back end (everything the GPU offers is enabled; these flags say what is there).
     bool geometry_shader = false, shader_float64 = false, shader_int64 = false, dual_src_blend = false, logic_op = false;
     bool multi_viewport = false, depth_bounds = false, depth_bias_clamp = false, wide_lines = false, large_points = false;
+    bool shader_clip_distance = false, shader_cull_distance = false;   // shaderClip/CullDistance (Mali: neither; nvn_spirv_caps.cpp)
+    bool vertex_pipeline_stores = false;  // vertexPipelineStoresAndAtomics (Mali: no; storage writes in vertex, tessellation, geometry shaders)
     bool image_cube_array = false, shader_draw_parameters = false, sampler_mirror_clamp_to_edge = false;
     bool descriptor_indexing = false, host_query_reset = false;
     bool fragment_shader_interlock = false, depth_clip_control = false, depth_clip_enable = false, custom_border_color = false;
     bool extended_dynamic_state3 = false, vertex_input_dynamic_state = false;
     bool graphics_pipeline_library = false;   // VK_EXT_graphics_pipeline_library (pipelines linked from separately compiled parts, S24)
     bool external_memory_host = false, push_descriptor = false;
+    // VK_ANDROID_external_memory_android_hardware_buffer (+ VK_EXT_queue_family_foreign), offered only by Android drivers: guest pool
+    // memory moved onto AHardwareBuffers is imported instead of copied (nvn_gpu_pool.cpp, pool_ahb)
+    bool ahb_import = false;
     bool dynamic_rendering_unused_attachments = false;
     bool transform_feedback = false, transform_feedback_queries = false;   // VK_EXT_transform_feedback (the feedback queries: transformFeedbackQueries)
     bool index_type_uint8 = false;        // VK_EXT/KHR_index_type_uint8 (8-bit index buffers, indexTypeUint8)
@@ -171,6 +176,7 @@ public:
     VmaAllocator allocator() const { return vma_; }
     VkSurfaceKHR surface() const { return surface_; }              // null when headless
     bool headless() const { return surface_ == VK_NULL_HANDLE; }
+    bool replace_surface();   // a new window surface for the platform's current native surface (the old one is destroyed); swapchains of the old one must be gone
     const VkPhysicalDeviceProperties& properties() const { return props_; }
     const DeviceFeatures& features() const { return features_; }
     const DeviceLimitsExt& limits_ext() const { return limits_; }

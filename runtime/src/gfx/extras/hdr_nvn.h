@@ -29,8 +29,14 @@ bool hdr_is_tonemap(const std::string& hash, const std::function<std::shared_ptr
 // With FSR 1 or NIS the replay runs that upscaler on the part first and the stretch draw reads the result; with Nearest it samples the part
 // unfiltered (the game's bilinear tap is bypassed either way).
 bool scene_upscale_wanted();                          // the upscale mode is FSR 1, NIS or Nearest
-// True when the fragment shader of cache hash `hash` is the game's scene stretch shader (game::SceneStretch); false when the game names none.
-bool is_scene_stretch(const std::string& hash);
+// 1 when the fragment shader of cache hash `hash` is one of the game's scene stretch shaders (game::SceneStretch), 2 when it is one that
+// enlarges into the window texture (SceneStretch::into_window), 0 otherwise or when the game names none.
+int is_scene_stretch(const std::string& hash);
+// [gfx] scene_sharpen (0..1, default 0 = off; read once): a bilinear enlarge plus RCAS of the scene at the game's draw that enlarges it into
+// the window texture (SceneStretch::into_window: a render scale with the 2D at the screen's size, [gfx] ui_native). The HUD stays native.
+float scene_sharpen();
+class Fsr1Spatial;
+Fsr1Spatial* scene_sharpener(void* gfx_device);    // its own instance (the scene upscaler's images stay untouched)
 class SpatialUpscaler;
 // The upscaler of the current mode for in -> out (created on first use; gfx_device is the gfx::Device of the NVN back end). NIS covers 1x to 2x per side;
 // beyond that, or when NIS failed to start, FSR 1 is used.

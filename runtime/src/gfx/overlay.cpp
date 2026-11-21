@@ -3,6 +3,7 @@
 #include "overlay_impl.h"
 
 #include "nxrt/notices.h"
+#include "nxrt/platform_facts.h"
 
 namespace nxrt::gfx {
 using namespace overlay_detail;
@@ -208,6 +209,15 @@ bool Overlay::handle_event(const input::Event& e) {
     ImGui::SetCurrentContext(s.imgui);
     ImGuiIO& io = ImGui::GetIO();
     bool consumed = false;
+    // pointer positions come in window pixels; the overlay draws at the swapchain size, smaller than the window with [gfx] present_scale
+    // (a phone, facts::kPhone; on desktop the swapchain is the window's size and positions pass through)
+    float to_x = 1.0f, to_y = 1.0f;
+    if constexpr (facts::kPhone) {
+        int win_w = 0, win_h = 0;
+        platform::pixel_size(&win_w, &win_h);
+        to_x = win_w > 0 && io.DisplaySize.x > 0 ? io.DisplaySize.x / static_cast<float>(win_w) : 1.0f;
+        to_y = win_h > 0 && io.DisplaySize.y > 0 ? io.DisplaySize.y / static_cast<float>(win_h) : 1.0f;
+    }
     switch (e.type) {
         case EventType::KeyDown:
         case EventType::KeyUp: {
@@ -221,14 +231,14 @@ bool Overlay::handle_event(const input::Event& e) {
             consumed = io.WantTextInput;
             break;
         case EventType::MouseMotion:
-            io.AddMousePosEvent(e.u.motion.x, e.u.motion.y);
+            io.AddMousePosEvent(e.u.motion.x * to_x, e.u.motion.y * to_y);
             consumed = io.WantCaptureMouse;
             break;
         case EventType::MouseButtonDown:
         case EventType::MouseButtonUp: {
             const int b = e.u.button.button;   // SDL: 1 left, 2 middle, 3 right
             const int ib = b == 1 ? 0 : b == 3 ? 1 : b == 2 ? 2 : b - 1;
-            io.AddMousePosEvent(e.u.button.x, e.u.button.y);
+            io.AddMousePosEvent(e.u.button.x * to_x, e.u.button.y * to_y);
             io.AddMouseButtonEvent(ib, e.type == EventType::MouseButtonDown);
             consumed = io.WantCaptureMouse;
             break;
@@ -372,8 +382,8 @@ void Overlay::draw(const FrameInfo& f) {
         s.composite.begin_overlay(f.cmd);
         render_into(s.composite.target_view(), VK_ATTACHMENT_LOAD_OP_CLEAR);
         s.composite.composite(f.cmd, f.view, f.format, f.extent, s.ctx.renderer->output_kind(), hs.paper_white_nits, hs.peak_nits);
-    } else {
-        render_into(f.view, VK_ATTACHMENT_LOAD_OP_LOAD);
+    } else if (const ImDrawData* dd = ImGui::GetDrawData(); !facts::kPhone || (dd && dd->TotalVtxCount > 0)) {
+        render_into(f.view, VK_ATTACHMENT_LOAD_OP_LOAD);   // a phone, nothing drawn: no pass (a LOAD/STORE pass without draws changes nothing)
     }
     s.drawn++;
     ImGui::SetCurrentContext(prev);

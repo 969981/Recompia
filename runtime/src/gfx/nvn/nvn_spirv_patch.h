@@ -38,6 +38,11 @@
 //                       drops the device (the parent project D-1, D-11). The count, where it is compared, becomes min(count, the items the
 //                       table holds), or min(count, 16384). Ported from pokopia-native (MIT) vk_shader.c vkspv_limit_count @9cb7f07.
 //
+//   spirv_subgroup32   a fragment or compute shader on a GPU that does not run it 32 wide (Adreno: 64 or 128, Mali: 16, and it cannot
+//                       be asked for 32): NVIDIA's warp operations (lane id, SHFL, VOTE, ballot words, lane masks) as aligned 32-lane slices of the
+//                       subgroup, quad shuffles as quad swaps; the shuffle helpers inlined (Adreno's compiler crashes on a shuffle in a
+//                       function). nvn_spirv_subgroup.cpp.
+//
 // The idea (pattern-matching on the module's declarations, new ids from the bound) follows SuperMarioWonderRecomp's
 // nvn_spirv_patch.cpp (MIT); the code is new.
 #pragma once
@@ -138,6 +143,35 @@ struct BallotRewrite {
 // range, as before; only which lane takes which within a warp changes). Assumes 32-lane subgroups. Other ballots (REDUX / MATCH masks,
 // first-lane broadcasts) are left alone. False (out untouched) when nothing is rewritten; stats filled either way when given.
 bool spirv_ballot_per_lane(const std::vector<uint32_t>& in, std::vector<uint32_t>& out, BallotRewrite* stats = nullptr);
+
+struct Subgroup32Rewrite {
+    int lane_loads = 0, shuffles = 0, quad_shuffles = 0, ballots = 0, masks = 0, votes = 0, inlined = 0;
+};
+// The game's warp operations (NVIDIA's 32 lanes) on a stage the GPU does not run 32 wide (Adreno: 64 or 128 in fragment and compute, Mali:
+// 16, with no way to ask for 32). Each aligned 32-lane slice of the subgroup becomes one warp (nvn_spirv_subgroup.cpp): SubgroupLocalInvocationId
+// loads give lane & 31, a shuffle reads id | (lane & ~31), word 0 of a ballot or of a Subgroup*Mask becomes word lane >> 5,
+// Any / All become ballot tests in that word. The translator's shuffle helper functions are inlined first (Adreno's compiler crashes on a
+// shuffle outside the entry point; `inlined` counts the calls). quad_ops (the GPU has VK_SUBGROUP_FEATURE_QUAD_BIT): in a fragment shader a shuffle from
+// another lane of the same quad reads it with OpGroupNonUniformQuadSwap (helper invocations take part). runs_wide(execution model,
+// compute workgroup invocations) says whether the module's stage runs at another width; false leaves the module alone. On a subgroup
+// narrower than 32 the slice is the whole subgroup: the lane, index and word rewrites change nothing, the quad swaps and inlining remain. False (out
+// untouched) as well when the module has no warp operation, has one the translator never writes, or was rewritten already (an
+// OpSourceExtension "nxrt.subgroup32" marks the result).
+bool spirv_subgroup32(const std::vector<uint32_t>& in, bool (*runs_wide)(uint32_t execution_model, uint64_t invocations), bool quad_ops,
+                      std::vector<uint32_t>& out, Subgroup32Rewrite* stats = nullptr);
+
+// A GPU without shaderClipDistance / shaderCullDistance (Mali): every store to a ClipDistance or CullDistance output (a gl_PerVertex member
+// or a variable) of a vertex, tessellation or geometry module goes, with the access chains that reach them (Mali r54p2's compiler segfaults
+// on the stores, and still on a leftover access chain); the declarations stay, as in every module that never writes them. The
+// game's clip planes then clip nothing (nvn_spirv_caps.cpp; what that costs is in the caller's comment). `stores` gets the stores dropped.
+// False (out untouched) for another stage, a module without such a store, or one that reads or copies them (the translator never does).
+bool spirv_drop_clip_cull(const std::vector<uint32_t>& in, std::vector<uint32_t>& out, int* stores = nullptr);
+
+// A GPU without vertexPipelineStoresAndAtomics (Mali): the storage buffers of a vertex, tessellation or geometry module that only reads
+// them get NonWritable on every member of their block (Vulkan requires it there then). `buffers` gets the blocks decorated. False (out
+// untouched) for another stage, no storage buffer, members all NonWritable already, or a store / atomic into one (that module really
+// writes: it needs the feature).
+bool spirv_readonly_vertex_buffers(const std::vector<uint32_t>& in, std::vector<uint32_t>& out, int* buffers = nullptr);
 
 // The count: word `word` of the uniform block named count_var (an access chain count_var[0][word / 4][word % 4], loaded and bitcast to a
 // 32-bit int or uint). The table: the UniformConstant variable named table_var, a sampled image of a Dim Buffer image, stride texels an item.

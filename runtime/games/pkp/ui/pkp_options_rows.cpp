@@ -4,6 +4,8 @@
 // ini.
 // Nothing reaches the save file.
 #include "ui/pkp_options_internal.h"
+#include "core/pkp_game.h"
+#include "nxrt/game_render.h"
 
 #include <algorithm>
 #include <cmath>
@@ -14,6 +16,7 @@
 
 #include "nxrt/audio_sink.h"
 #include "nxrt/extras.h"
+#include "nxrt/gfx_tuning.h"
 #include "nxrt/host_device.h"
 #include "nxrt/input.h"
 #include "nxrt/platform.h"
@@ -41,6 +44,72 @@ int index_of(const double* values, int n, double v, int otherwise) {
 constexpr int kFpsValues[] = {-1, 30, 40, 45, 60, 90, 120, 144, 165, 240, 0};
 constexpr int kFpsCount = static_cast<int>(std::size(kFpsValues));
 constexpr const char* kFpsNames[kFpsCount + 1] = {"Match Display", "30", "40", "45", "60", "90", "120", "144", "165", "240", "Unlimited", "Custom"};
+// A phone's frame limits come from its panel: Match Display, every exact divisor of the refresh rate down to 18 fps (120 Hz: 120 60 40
+// 30 24 20), Unlimited. Each is stored as the whole number the limiter snaps to that divisor (fps_snap, frame_limiter snap_frame_cap: 90 / 4
+// = 22.5 is stored as 23) and labelled with its real value, rounded down. A panel of unknown rate offers the 60 Hz list.
+float fps_panel_hz() { const float hz = platform::display_refresh_hz(); return hz > 0.0f ? hz : 60.0f; }
+int fps_divisors() { int n = 0; while (fps_panel_hz() / static_cast<float>(n + 1) >= 18.0f && n < 12) ++n; return n; }
+int fps_value(int pos) {   // pos 0: Match Display, 1..n: hz / pos, n + 1: Unlimited
+    const int n = fps_divisors();
+    return pos <= 0 ? -1 : pos > n ? 0 : static_cast<int>(std::ceil(fps_panel_hz() / static_cast<float>(pos) - 1e-3f));
+}
+const char* fps_text(int pos, char* out, size_t n) {
+    const int d = fps_divisors();
+    if (pos <= 0) return "Match Display";
+    if (pos > d) return "Unlimited";
+    std::snprintf(out, n, "%d", static_cast<int>(fps_panel_hz() / static_cast<float>(pos)));
+    return out;
+}
+int fps_max() { return fps_divisors() + 1; }
+// Any stored cap selects the entry the limiter runs it at (the snap's divisor k = ceil(hz / (cap * 1.005)), frame_limiter
+// snap_frame_cap): a 25 from an older list or another app shows as 24 on a 120 Hz panel, not as Match Display.
+int fps_get(const S& s) {
+    const int cap = s.display.fps_cap, n = fps_divisors();
+    if (cap < 0) return 0;
+    if (cap == 0) return n + 1;
+    const int k = static_cast<int>(std::ceil(fps_panel_hz() / (static_cast<float>(cap) * 1.005f)));
+    return std::clamp(k, 1, n);
+}
+void fps_set(S& s, int v) { s.display.fps_cap = fps_value(v); play::quality_preset_edited(s.display, play::QualityField::FrameLimit); }
+bool not_phone() { return !nxrt::host_is_phone(); }
+
+// A phone's resolution rows. "Maximum Resolution" is [display] render_scale (30..100 % of 1920x1080, the size of the game's targets: next
+// start). "Resolution" moves [upscale] scene_scale live, the game's own dynamic-resolution part of those targets, from the maximum the
+// game started with down to the game's lowest correct level (game::Render::scene_scale_min); each step is labelled with the real percent.
+int res_ceiling() {
+    const float f = gfx::tuning().render_scale.load(std::memory_order_relaxed);
+    return f > 0.0f ? std::clamp(static_cast<int>(std::lround(f * 100.0f)), 25, 100) : 100;
+}
+int res_steps() {   // real percents c, c - 5, ... down to the floor
+    const int c = res_ceiling(), floor = (c * render_info().scene_scale_min + 99) / 100;
+    return std::max(1, (c - floor) / 5 + 1);
+}
+int res_real(int pos) { return res_ceiling() - 5 * (res_steps() - 1 - pos); }
+const char* res_text(int pos, char* out, size_t n) { std::snprintf(out, n, "%d%%", res_real(pos)); return out; }
+int res_max() { return res_steps() - 1; }
+int res_get(const S& s) {
+    const int c = res_ceiling(), real = c * s.extras.upscale.scene_scale / 100;
+    return std::clamp(res_steps() - 1 - static_cast<int>(std::lround((c - real) / 5.0)), 0, res_max());
+}
+void res_set(S& s, int v) {
+    s.extras.upscale.scene_scale = std::clamp(static_cast<int>(std::lround(res_real(v) * 100.0 / res_ceiling())), render_info().scene_scale_min, 100);
+}
+const char* max_text(int pos, char* out, size_t n) { std::snprintf(out, n, "%d%%", 30 + 5 * pos); return out; }
+int max_max() { return 14; }
+int max_get(const S& s) { return std::clamp(((s.display.render_scale > 0 ? s.display.render_scale : res_ceiling()) - 30) / 5, 0, 14); }
+void max_set(S& s, int v) { s.display.render_scale = 30 + 5 * v; play::quality_preset_edited(s.display, play::QualityField::RenderScale); }
+constexpr Row live_row(Row r) { r.live = true; return r; }
+// A phone's one Upscaler row: Off, SGSR, Bicubic ([pkp] scene_upscaler, the 3D alone, menus native) or FSR 1 ([upscale] mode, the whole
+// picture at the present). Each choice clears the other key. Both apply at once.
+int phone_upscaler_get(const S& s) {
+    if (s.extras.upscale.mode == extras::UpscaleMode::Fsr1) return 3;
+    return static_cast<int>(std::clamp<int64_t>(settings::get_int(settings::Key::SceneUpscaler), 0, 2));
+}
+void phone_upscaler_set(S& s, int v) {
+    s.extras.upscale.mode = v == 3 ? extras::UpscaleMode::Fsr1 : extras::UpscaleMode::Off;
+    settings::set_int(settings::Key::SceneUpscaler, v == 3 ? 0 : v);   // the game ini, like a key row
+}
+
 constexpr int kWidths[] = {1280, 1600, 1920, 2560, 3840}, kHeights[] = {720, 900, 1080, 1440, 2160};
 constexpr int kSizeCount = static_cast<int>(std::size(kWidths));
 constexpr const char* kSizeNames[kSizeCount + 1] = {"1280 x 720", "1600 x 900", "1920 x 1080", "2560 x 1440", "3840 x 2160", "Custom"};
@@ -112,35 +181,46 @@ const Row kSound[] = {
             [](S& s, int v) { s.audio.device = v <= 0 || v > static_cast<int>(g_devices.size()) ? "default" : g_devices[static_cast<size_t>(v - 1)]; }, true),
 };
 
+// Window rows only where the window system has a choice of modes (a phone has one: nxrt/platform.h window_modes).
+bool several_window_modes() { const int m = platform::window_modes(); return (m & (m - 1)) != 0; }
+
 const Row kDisplay[] = {
-    choice("Window Mode", "Windowed, borderless fullscreen or exclusive fullscreen.", {"Windowed", "Borderless", "Fullscreen"}, 3,
-           [](const S& s) { return key_index(kWindowKeys, 3, s.display.window_mode); }, [](S& s, int v) { s.display.window_mode = kWindowKeys[v]; }),
-    dynamic("Monitor", "The display the window moves to. Fullscreen modes use this display.", monitor_text, monitor_max, ROW_INT(display.monitor)),
-    names("Window Size", "The size of the window in windowed mode.", kSizeNames, kSizeCount + 1,
+    when(choice("Window Mode", "Windowed, borderless fullscreen or exclusive fullscreen.", {"Windowed", "Borderless", "Fullscreen"}, 3,
+           [](const S& s) { return key_index(kWindowKeys, 3, s.display.window_mode); }, [](S& s, int v) { s.display.window_mode = kWindowKeys[v]; }), several_window_modes),
+    when(dynamic("Monitor", "The display the window moves to. Fullscreen modes use this display.", monitor_text, monitor_max, ROW_INT(display.monitor)), several_window_modes),
+    when(names("Window Size", "The size of the window in windowed mode.", kSizeNames, kSizeCount + 1,
           [](const S& s) { for (int i = 0; i < kSizeCount; ++i) if (s.display.width == kWidths[i] && s.display.height == kHeights[i]) return i; return kSizeCount; },
-          [](S& s, int v) { if (v < kSizeCount) { s.display.width = kWidths[v]; s.display.height = kHeights[v]; } }),
+          [](S& s, int v) { if (v < kSizeCount) { s.display.width = kWidths[v]; s.display.height = kHeights[v]; } }), several_window_modes),
     names("Aspect Ratio", "The shape of the picture. Auto follows the window; 16:9 is the game's own.", kAspectNames, kAspectCount + 1,
           [](const S& s) { return index_of(kAspectValues, kAspectCount, s.display.aspect, kAspectCount); },
           [](S& s, int v) { if (v < kAspectCount) s.display.aspect = kAspectValues[v]; }, true),
     choice("Letterbox", "Black bars keep the picture's shape when it does not fit the window, instead of stretching it.", kOffOn, 2, ROW_BOOL(display.keep_aspect)),
     choice("VSync", "Wait for the display between frames: no tearing, a little more delay.", kOffOn, 2, ROW_BOOL(display.vsync)),
-    names("Frame Rate Limit", "The highest frame rate. Match Display follows the refresh rate.", kFpsNames, kFpsCount + 1,
+    when(names("Frame Rate Limit", "The highest frame rate. Match Display follows the refresh rate.", kFpsNames, kFpsCount + 1,
           [](const S& s) { return index_of(kFpsValues, kFpsCount, s.display.fps_cap, kFpsCount); },
-          [](S& s, int v) { if (v < kFpsCount) { s.display.fps_cap = kFpsValues[v]; play::quality_preset_edited(s.display, play::QualityField::FrameLimit); } }),
+          [](S& s, int v) { if (v < kFpsCount) { s.display.fps_cap = kFpsValues[v]; play::quality_preset_edited(s.display, play::QualityField::FrameLimit); } }), not_phone),
+    when(dynamic("Frame Rate Limit", "The highest frame rate, each a whole number of the screen's refreshes (even frames). Lower keeps a hot phone running evenly.",
+                 fps_text, fps_max, fps_get, fps_set), nxrt::host_is_phone),
     choice("Even Frame Pacing", "With VSync, run at an even divisor of the refresh rate (Steam Deck: 30 instead of 40).", kOffOn, 2,
-           [](const S& s) { return static_cast<int>(s.display.fps_snap == "true" || (s.display.fps_snap == "auto" && nxrt::host_is_steam_deck())); },
+           [](const S& s) { return static_cast<int>(s.display.fps_snap == "true" || (s.display.fps_snap == "auto" && (nxrt::host_is_steam_deck() || nxrt::host_is_phone()))); },
            [](S& s, int v) { s.display.fps_snap = v ? "true" : "false"; }),
-    autonum("Render Scale", "The game's resolution; 100% is 1920 x 1080. Auto follows the window.", 76, "%.0f%%", 20, 5,
+    when(autonum("Render Scale", "The game's resolution; 100% is 1920 x 1080. Auto follows the window.", 76, "%.0f%%", 20, 5,
             [](const S& s) { return s.display.render_scale <= 0 ? 0 : std::clamp((s.display.render_scale - 20) / 5, 1, 76); },
-            [](S& s, int v) { s.display.render_scale = v <= 0 ? 0 : 20 + v * 5; play::quality_preset_edited(s.display, play::QualityField::RenderScale); }, true),
+            [](S& s, int v) { s.display.render_scale = v <= 0 ? 0 : 20 + v * 5; play::quality_preset_edited(s.display, play::QualityField::RenderScale); }, true), not_phone),
+    when(dynamic("Maximum Resolution", "The highest resolution of the 3D picture (100% is 1920 x 1080). Takes effect at the next start.", max_text, max_max, max_get, max_set, true),
+         nxrt::host_is_phone),
+    when(live_row(dynamic("Resolution", "The 3D picture's resolution, from the maximum down; menus and text stay sharp. Changes at once.", res_text, res_max, res_get, res_set)),
+         nxrt::host_is_phone),
+    when(choice("Upscaler", "Sharpens the enlarged 3D picture: SGSR (Snapdragon Game Super Resolution) or bicubic, menus stay sharp; FSR 1 the whole picture (costs more).",
+                {"Off", "SGSR", "Bicubic", "FSR 1"}, 4, phone_upscaler_get, phone_upscaler_set), nxrt::host_is_phone),
 };
 
 const Row kPerformance[] = {
-    choice("Upscaler", "How the picture is enlarged from a lower resolution.", {"Off", "FSR 1", "Nearest"}, 3,
+    when(choice("Upscaler", "How the picture is enlarged from a lower resolution.", {"Off", "FSR 1", "Nearest"}, 3,
            [](const S& s) { for (int i = 0; i < 3; ++i) if (s.extras.upscale.mode == kUpscalers[i]) return i; return 0; },
-           [](S& s, int v) { s.extras.upscale.mode = kUpscalers[v]; }),
+           [](S& s, int v) { s.extras.upscale.mode = kUpscalers[v]; }), not_phone),
     number("Sharpness", "How much FSR 1 sharpens the picture.", 0, 20, "%.2f", 0, 0.05, ROW_STEP(extras.upscale.sharpness, 0.0, 0.05)),
-    number("Scene Resolution", "Renders the 3D scene smaller and keeps the menus sharp. 100% turns it off.", 25, 100, "%.0f%%", 0, 1, ROW_INT(extras.upscale.scene_scale)),
+    when(number("Scene Resolution", "Renders the 3D scene smaller and keeps the menus sharp. 100% turns it off.", 25, 100, "%.0f%%", 0, 1, ROW_INT(extras.upscale.scene_scale)), not_phone),
     names("Anti-Aliasing", "Smooths jagged edges of the 3D scene. The menus are not filtered.", kAaNames, 5,
           [](const S& s) { return static_cast<int>(s.extras.upscale.aa); },
           [](S& s, int v) { s.extras.upscale.aa = static_cast<extras::AaMode>(v); play::quality_preset_edited(s.display, play::QualityField::AntiAliasing); }),
@@ -149,7 +229,9 @@ const Row kPerformance[] = {
           [](const S& s) { return s.extras.latency.frames_ahead + 1; }, [](S& s, int v) { s.extras.latency.frames_ahead = v - 1; }, true),
     choice("Frame Rate Counter", "Show the frame rate on screen.", kOffOn, 2, ROW_BOOL(fps.show)),
     choice("Counter Corner", "Where the frame rate counter sits.", {"Top Left", "Top Right", "Bottom Left", "Bottom Right"}, 4, ROW_ENUM(fps.corner, play::Corner)),
-    choice("Counter Detail", "What the frame rate counter shows.", {"FPS", "FPS and Time", "Full"}, 3, ROW_INT(fps.detail)),
+    when(choice("Counter Detail", "What the frame rate counter shows.", {"FPS", "FPS and Time", "Full"}, 3, ROW_INT(fps.detail)), not_phone),
+    when(choice("Counter Detail", "What the frame rate counter shows. Full adds the 1% low, the worst frame, how hot the phone is and how busy the GPU and CPU are against the clock limits the heat sets.",
+                {"FPS", "FPS and Time", "Full"}, 3, ROW_INT(fps.detail)), nxrt::host_is_phone),
     key_row("Camera aim: show the ray", "Draws camera aim's ray over the picture: the blocks it tested, the block it hit and the block it selected, with the reason in a panel at the top left. For finding aiming bugs.", settings::Key::CameraAimDebug),
 };
 

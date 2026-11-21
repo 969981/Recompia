@@ -171,8 +171,19 @@ struct Pass {
     uint64_t targets_gen = 0;   // S.targets_gen the pass's targets were last found to be (ensure_pass)
     uint32_t draws = 0;         // draws recorded in the pass (GPU pass profiler)
     uint64_t verts = 0;         // vertices (indices for indexed draws) times instances of those draws
+    uint8_t loaded = 0;         // [prof] pass_stats: attachments begun with LOAD_OP_LOAD (bits 0..7 colour, bit 8 in loaded_d)
+    bool loaded_d = false;
+    uint16_t clears_first = 0;  // [prof] pass_stats: ClearColor / ClearDepthStencil before the pass's first draw, and after it
+    uint16_t clears_mid = 0;
+    uint16_t dclears = 0;       // ... of them, depth clears through vkCmdClearAttachments (Turnip: LRZ off until a LOAD_OP_CLEAR)
 };
+// [prof] pass_stats: per-frame inventory of the render passes (how they begin, clears, empty passes, feedback loops, discards).
+// 0 off (default), 1 one summary line per 300 presents, 2 also every pass of one frame in that window. Render thread only.
+int pass_stats_level();
+void pass_stats_discard(bool depth);
 extern Pass P;   // owner: nvn_replay_pass.cpp (ensure_pass, end_pass)
+extern float g_csr_scale;                                           // gfx::Tuning::csr_*: the reduction dispatch being set up (nvn_replay_bind.cpp)
+float csr_scale_for(const ProgLayout& pl);
 // [nvn] pass_barriers = tracked (S38). A pass whose draws can only have written its attachments (no storage buffers or images, no stream-out)
 // does not end with a barrier: its written attachments are remembered here, and the next command that could depend on them gets one. A
 // layout change of such an image is that barrier for the image (narrow masks, set_narrow_barriers); a later pass that renders to it again in
@@ -294,7 +305,7 @@ struct CmdState {   // owner: nvn_replay_draw.cpp (begin_draw); the other ops se
     bool vb_bound_in_cb = false;     // vkCmdBindVertexBuffers2 was called in this command buffer (dynamic strides need one)
     bool prog_writes = false;        // the bound program has storage buffer or storage image bindings
     int8_t fs_tonemap = -1;          // the bound fragment shader is the tone-map shader (extras::hdr_is_tonemap); -1: not asked since kPipe
-    int8_t fs_stretch = -1;          // the bound fragment shader is the game's scene stretch shader (extras::is_scene_stretch); -1: not asked
+    int8_t fs_stretch = -1;          // extras::is_scene_stretch of the bound fragment shader (1 scene stretch, 2 into the window texture); -1: not asked
     DynShadow dsh;                   // bind_coalesce: the dynamic state, vertex and index buffers last sent in this command buffer
     VbShadow vbsh[16];
     IbShadow ibsh;
@@ -393,6 +404,7 @@ extern bool g_trace_hooks;   // a per-draw debug aid is armed for this submissio
 #define TRACE(...) do { if (g_trace) NXLOG_I("nvn.trace", __VA_ARGS__); } while (0)
 void trace_begin_submit();                           // sets g_trace and g_trace_hooks for the submission
 bool trace_skip_draw();                              // g_trace_hooks: counts the draw; true: [nvn] skip_fs_file drops it
+bool trace_skip_dispatch(const std::string& cs_hash); // g_trace_hooks: true when [nvn] skip_fs_file lists a prefix of this compute shader
 void trace_note_fs();                                // g_trace_hooks: the trace_after_fs trigger sees the draw's fragment shader
 // The rest want g_trace.
 void trace_dump_raw(const ProgLayout& pl);           // [nvn] trace_dump_tex: level 0 of the sampled textures as the GPU holds it (ends the pass)
@@ -406,7 +418,7 @@ const char* tex_desc(const Texture* t, char* buf, size_t n);
 // The warnings log_once writes once per run: one flag each.
 enum LogOnce : uint32_t {
     kOnceCallDepth, kOnceMissingHandle, kOnceShadowColour, kOnceColorFeedback, kOnceStorageImageDummy, kOnceOutTexel, kOnceTexelBufferDummy,
-    kOnceAttrTypeMismatch, kOnceAlphaTest, kOnceDrawNoVs, kOnceDrawNoTarget, kOnceDownsampleScale, kOnceCount
+    kOnceAttrTypeMismatch, kOnceAlphaTest, kOnceDrawNoVs, kOnceDrawNoTarget, kOnceDownsampleScale, kOnceTexelUnaligned, kOnceTexelUnalignedCpu, kOnceCount
 };
 void log_once(LogOnce key, const char* msg);
 // Warnings written once per (kind, texture id, shader hash, binding name). True the first time a key is seen, up to 4096 keys. The key is
@@ -431,6 +443,7 @@ inline void gstamp(const char* label) {
     if (gpass_on()) gpass_stamp(*F, label, 0);
 }
 void end_pass(bool to_pass = false);
+void prepare_texel_buffers(const ProgLayout& pl);   // draws: GPU copies of uniform texel buffers at offsets the GPU cannot view (nvn_replay_bind.cpp)
 float attach_targets(bool fix);
 bool ensure_pass(bool depth_ro = false, uint8_t fbl = 0);
 VkRect2D scissor_rect(const int32_t* r);
@@ -683,6 +696,7 @@ void bind_sets(const ProgLayout& pl, VkPipelineBindPoint bp);
 void temporal_gbuffer_note();
 void tonemap_for_draw(const ProgLayout& pl);
 void scene_stretch_for_draw(const ProgLayout& pl);
+void scene_sharpen_for_draw(const ProgLayout& pl);   // [gfx] scene_sharpen at the game's draw into the window texture (SceneStretch::into_window)
 void do_draw_arrays(const P_DrawArrays& p);
 void do_draw_elements(const P_DrawElements& p);
 struct QuadArgs {

@@ -528,7 +528,9 @@ static void run_list(const CmdList& list, int depth) {
                 }
                 break;
             }
-            case Op::DiscardColor: case Op::DiscardDepthStencil: break;
+            case Op::DiscardColor: case Op::DiscardDepthStencil:
+                if (pass_stats_level() > 0) pass_stats_discard(r.op() == Op::DiscardDepthStencil);
+                break;
             case Op::ResolveDepth: note_unsupported("ResolveDepthBuffer"); break;
             case Op::BeginXfb: case Op::EndXfb: case Op::PauseXfb: case Op::ResumeXfb: {
                 const auto& p = r.payload<P_Counter>();

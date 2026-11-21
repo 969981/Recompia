@@ -92,7 +92,11 @@ void StaticTab::commit(Apply& a) {
 // The live rows are the picture's (Row::live): a discard puts the picture in force back.
 void StaticTab::revert() {
     TabModel::revert();
-    if (std::any_of(rows_, rows_ + count_, [](const Row& r) { return r.live; })) extras::set_picture_live(play::current_settings().extras.picture);
+    if (std::any_of(rows_, rows_ + count_, [](const Row& r) { return r.live; })) {
+        const S s = play::current_settings();
+        extras::set_picture_live(s.extras.picture);
+        extras::set_scene_scale_live(s.extras.upscale.scene_scale);
+    }
 }
 
 // A live row moved: the picture with this tab's changes so far, at once (nothing is saved).
@@ -101,6 +105,7 @@ void StaticTab::preview(int, int) {
     for (int i = 0; i < count_; ++i)
         if (cur[i] != orig[i] && !is_key_row(rows_[i])) rows_[i].set(s, cur[i]);
     extras::set_picture_live(s.extras.picture);
+    extras::set_scene_scale_live(s.extras.upscale.scene_scale);   // a phone's Resolution row: the scene size follows at once
 }
 
 }  // namespace nxrt::games::pkp::options_detail

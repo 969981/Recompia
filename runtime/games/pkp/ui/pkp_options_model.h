@@ -4,8 +4,10 @@
 // pkp_options.cpp keeps only the slot state machine and the game's hooks and asks the model. StaticTab serves the constexpr Row tables
 // (pkp_options_internal.h); the Time, Events, Mods and Items tabs are their own models.
 #pragma once
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include "ui/pkp_options_internal.h"
 
@@ -70,7 +72,14 @@ public:
 // The constexpr Row tables (pkp_options_rows.cpp): a row of play-mode Settings (Row::get / Row::set) or of a [pkp] key (Row::key).
 class StaticTab : public TabModel {
 public:
-    explicit StaticTab(RowList r, void (*on_open)() = nullptr) : rows_(r.rows), count_(r.count), on_open_(on_open) {}
+    explicit StaticTab(RowList r, void (*on_open)() = nullptr) : rows_(r.rows), count_(r.count), on_open_(on_open) {
+        // rows with a shown() predicate that says no are left out (a copy of the others); a table without such rows is used in place
+        if (std::none_of(r.rows, r.rows + r.count, [](const Row& x) { return x.shown && !x.shown(); })) return;
+        for (int i = 0; i < r.count; ++i)
+            if (!r.rows[i].shown || r.rows[i].shown()) shown_.push_back(r.rows[i]);
+        rows_ = shown_.data();
+        count_ = static_cast<int>(shown_.size());
+    }
 
     int count() const override { return count_; }
     Shape shape(int i) const override;
@@ -89,6 +98,7 @@ protected:
     const Row* rows_;
     int count_;
     void (*on_open_)();
+    std::vector<Row> shown_;   // the rows on this machine, when some are left out
 };
 
 // ---- the tabs that are their own models ----

@@ -153,6 +153,8 @@ void schedule_locked(Texture* t) {
     uint64_t est = std::min<uint64_t>(t->storage_size, 1ull << 30);
     // [gfx] astc_quality = uncompressed: a job holds the texture as RGBA8, 4 bytes a texel against 16 per ASTC block
     if (t->fmt && t->fmt->astc && !S().caps.astc && astc_quality() == AstcQuality::Uncompressed) est = std::min<uint64_t>(est * t->fmt->block_w * t->fmt->block_h / 4, 1ull << 30);
+    // a GPU without BC: the job holds the decoded texels (bc_decode_format), at most 8 times the blocks (BC1 and BC6H; BC7 4, BC4/BC5 2)
+    if (t->fmt && t->fmt->bc && !S().caps.bc) est = std::min<uint64_t>(est * 8, 1ull << 30);
     // Over budget: the oldest finished results go first (they belong to textures not used yet); those are prepared on the render thread if needed.
     while (s.held_bytes + est > s.budget) {
         auto victim = s.map.end();
