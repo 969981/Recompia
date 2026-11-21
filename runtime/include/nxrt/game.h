@@ -123,8 +123,9 @@ struct Info {
     // Modtopia mods (nxrt/mods.h); null: no mods are loaded. Pure data.
     const ModHost* mods = nullptr;
     // Whether the network services tell the game it has an internet connection (nifm connected, the network clock task succeeds), for
-    // titles that start online-only content once they see one. Nothing reaches the network either way: sockets fail and the BCAT cache
-    // stays empty. Asked once, when the first network service answers. Null: only [net] online_test decides.
+    // titles that start online-only content once they see one. Nothing reaches the network either way: sockets fail, the BCAT cache
+    // stays empty and a connection request the game submits is refused (only a Cloud Islands server accepts one). Asked once, when the
+    // first network service answers. Null: only [net] online_test decides.
     bool (*report_online)() = nullptr;
 };
 

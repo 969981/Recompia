@@ -30,8 +30,15 @@ namespace {
 // =============================================================================================================================================
 // nifm: nifm:u, nifm:a, nifm:s (IStaticService). Switchbrew "Network Interface services", ScarletNX nifm.swipc, Ryujinx Nifm/.
 // No connection: GetCurrentIpAddress and the other address/profile answers return nifm 300 (NoInternetConnection); when reporting online (report_online())
-// they report online instead.
+// they report online instead. A connection request (IRequest) is accepted only with a Cloud Islands server: see make_request().
 // =============================================================================================================================================
+
+// Logged once: the game is told it is online (events) and asks for a connection, which has no server to go to.
+void note_request_refused() {
+    static std::atomic<bool> said{false};
+    if (!said.exchange(true))
+        NXLOG_I("net", "nifm: connection request refused: reporting online, but no Cloud Islands server is set ([net] cloud_server); the game shows its communication error");
+}
 
 std::shared_ptr<ipc::Service> make_scan_request() {
     auto ev = std::make_shared<ServiceEvent>();
@@ -54,13 +61,18 @@ std::shared_ptr<ipc::Service> make_scan_request() {
     });
 }
 
+// A request is accepted only with a Cloud Islands server ([net] cloud_server). Reporting online without one ([pkp] online_events, on by
+// default, or [net] online_test) keeps the status answers in make_general() online for events, but a request is answered as offline: an
+// accepted one sent Create a new Cloud Island on to NPLN, where bsd EventFd answers ENETDOWN without a server and the SDK aborted
+// (svcBreak). Refused, the game handles it as with no connection: HandleNetworkRequestErrorResult, then its communication error (2006).
 std::shared_ptr<ipc::Service> make_request() {
-    const bool online = report_online();
+    const bool accepted = cloud::enabled();
+    const bool refused_online = !accepted && report_online();
     auto ev = std::make_shared<TwoEvents>();
-    return make_iface("nn::nifm::detail::IRequest", [ev, online](ipc::Service& s) {
+    return make_iface("nn::nifm::detail::IRequest", [ev, accepted, refused_online](ipc::Service& s) {
         rows(s, "nifm", {
-            {0, "GetRequestState", K::U32, static_cast<uint64_t>(online ? 3 : 1)},      // 1 = Free: nothing was accepted; 3 = Accepted (online)
-            {1, "GetResult", online ? K::Ok : K::Fail, kNifmNoConnection},
+            {0, "GetRequestState", K::U32, static_cast<uint64_t>(accepted ? 3 : 1)},    // 1 = Free: nothing was accepted; 3 = Accepted
+            {1, "GetResult", accepted ? K::Ok : K::Fail, kNifmNoConnection},
             {5, "SetRequirement", K::Ok},
             {6, "SetRequirementPreset", K::Ok},
             {8, "SetPriority", K::Ok},
@@ -82,14 +94,15 @@ std::shared_ptr<ipc::Service> make_request() {
             {25, "UnregisterSocketDescriptor", K::Ok},
             {26, "GetNetworkAccessStatus", K::U32, 0},
         });
-        // Online, Submit and Cancel signal both events (the request is accepted at once), so a wait on them ends.
+        // Accepted, Submit and Cancel signal both events (the request is accepted at once), so a wait on them ends.
         for (const auto& c : {std::pair<uint32_t, const char*>{3, "Cancel"}, {4, "Submit"}})
-            cmd(s, "nifm", c.first, c.second, [ev, online](ipc::Request&, ipc::Response&) -> uint32_t {
-                if (online) { ev->a.signal(); ev->b.signal(); }
+            cmd(s, "nifm", c.first, c.second, [ev, accepted, refused = refused_online && c.first == 4](ipc::Request&, ipc::Response&) -> uint32_t {
+                if (accepted) { ev->a.signal(); ev->b.signal(); }
+                if (refused) note_request_refused();
                 return 0;
             });
-        cmd(s, "nifm", 2, "GetSystemEventReadableHandles", [ev, online](ipc::Request&, ipc::Response& rsp) -> uint32_t {
-            if (online) { ev->a.signal(); ev->b.signal(); }   // the state is already Accepted
+        cmd(s, "nifm", 2, "GetSystemEventReadableHandles", [ev, accepted](ipc::Request&, ipc::Response& rsp) -> uint32_t {
+            if (accepted) { ev->a.signal(); ev->b.signal(); }   // the state is already Accepted
             rsp.out_copy.push_back(ev->a.new_handle());
             rsp.out_copy.push_back(ev->b.new_handle());
             return 0;
