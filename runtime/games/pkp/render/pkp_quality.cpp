@@ -84,7 +84,7 @@ const Preset* find_preset(const std::string& n) {
 }
 
 struct State {
-    uint64_t base = 0x7100000000ull;
+    uint64_t base = mem::kMainBase;
     bool probe = false;
     float lod_scale = 1.0f;
     bool ini_lod_set = false;

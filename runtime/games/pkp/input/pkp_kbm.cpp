@@ -103,7 +103,7 @@ constexpr std::array<int8_t, kMaxCode> unknown_codes() {
 }
 
 struct State {
-    uint64_t base = 0x7100000000ull;
+    uint64_t base = mem::kMainBase;
     bool enabled = true;                             // [pkp] kbm_icons
     prompt_icons::Cache icons;                       // keyboard icons from <exe folder>/assets/kbm_icons/, pad icons from the pack
     BakedPrompts baked;                              // the A drawn into the game's art (game thread only)

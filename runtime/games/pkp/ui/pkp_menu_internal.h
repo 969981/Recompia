@@ -74,7 +74,7 @@ struct Layout {
 };
 
 struct State {
-    uint64_t base = 0x7100000000ull;
+    uint64_t base = mem::kMainBase;
     bool installed = false;
     bool enabled = true;
     int log_level = 1;
