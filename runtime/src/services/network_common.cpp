@@ -53,7 +53,7 @@ void note(std::atomic<uint32_t>& logged, const char* svc, uint32_t id, const cha
 }  // namespace
 
 // Read once: nifm and ntc report online when [net] online_test is on, a Cloud Islands server is set ([net] cloud_server) or the game asks for it (game::Info::report_online). Nothing reaches
-// the network: bsd and BCAT answer as before.
+// the network: bsd and BCAT answer as before. Without a server a nifm connection request is still refused (network_nifm.cpp make_request).
 bool report_online() {
     static const bool on = [] {
         const game::Info& g = game::info();

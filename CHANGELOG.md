@@ -73,6 +73,9 @@
 - The record of event campaigns is the group's: teammates get the host's, so a campaign creature can be talked to by a teammate whenever the host could
 
 
+### Online
+- **Create a new Cloud Island** no longer crashes the game when no Cloud Islands server is set (the launcher's Cloud Islands switch off, or signed out). The game now shows its own communication error and you can carry on playing. The Online events switch still tells the game it is connected, so events that need a connection start as before
+
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five
 - pkp.log now records much more for bug reports: quests and quest steps, talks, bags and storage boxes, area trips step by step, events, area levels and every co-op message, with the expected result next to the real one
