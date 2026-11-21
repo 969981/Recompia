@@ -141,6 +141,11 @@ constexpr uint64_t kStateAutosaveObj = 0x3b9590;  // game state + this: the auto
 constexpr uint64_t kAutosaveNow = 0x4577e4;       // (autosave, now, backup): asks it to save; does nothing unless it is on and idle
 constexpr uint64_t kStateAutosave = 0x3bb5e0;     // game state: u32, the autosave's step: 0 idle, 1 snapshot, 2 writing, 3..5 finishing
 constexpr uint64_t kStateAutosaveFlags = 0x3bb5e8;   // game state: u32, bit 0 the autosave is on, bit 2 a save was asked for now
+constexpr uint64_t kWorldDirty = 0x3558bc4;       // main + : u8, "the world changed since the last save"; the autosave's step 1 stops
+                                                  // without writing while it is 0 (0x5adc94); saves clear it (pkp_coop_takeout.cpp)
+constexpr uint64_t kSaveManager = 0x35619d0;      // main + : the save manager (its job queue; the autosave's step 2 waits on it)
+constexpr uint64_t kSaveMgrJob = 0xb8, kSaveJobResult = 0x608;   // manager + : the last job; job + : u32 its result, 0 written
+                                                  // (the autosave's step 2 / 3, 0x5add04 / 0x5add68: null job or 0 = written)
 constexpr uint64_t kStateEvent = 0xd0, kEventBusy = 0x6ea;   // game state: the event bus, its busy byte
 
 // ---- the main loop ----

@@ -720,3 +720,6 @@ midhook 0x710083e310
 entryhook 0x7100538f60
 entryhook 0x7100a8fba0
 entryhook 0x7100539620
+#   Seamless co-op, a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp): in the shared move 0x71002ee774, the
+#   `and w3, w0, #0x1` after IsVisitor that picks the store the taken item is removed from (w21 = the container kind)
+midhook 0x71002eea74

@@ -174,6 +174,9 @@ enum class Site : uintptr_t {
     OwnerPress,       // the player's press on an object: remembered for the busy line's log
     OwnerNotice,      // the message log's post: "Someone else is using this right now." logged with the object
     OwnerRefused,     // a member's grant reply: a take the host turned down is logged
+    // ---- a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp) ----
+    TakeoutStore,     // the shared move's choice of the store a taken item is removed from: the take-out screen's removal of a
+                      // member's ordered item or gift uses the own store it listed, not the visitor's temp list
 };
 
 struct CoopSite {
@@ -305,6 +308,8 @@ constexpr CoopSite kSites[] = {
     {{0x313eb4, 0xd63f0100u, false}, Site::OwnerPress},      // blr x8 (x0 = the object, x8 its slot 5 handler)
     {{0xa8fba0, kPacibsp, true}, Site::OwnerNotice},
     {{0x539620, kPacibsp, true}, Site::OwnerRefused},
+    // a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp)
+    {{0x2eea74, 0x12000003u, false}, Site::TakeoutStore},    // and w3, w0, #0x1 (w0 = IsVisitor's answer, w21 = the container kind)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -401,6 +406,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::OwnerPress: return coop::owner::on_press(c);
         case Site::OwnerNotice: return coop::owner::on_notice(c);
         case Site::OwnerRefused: return coop::owner::on_grant_reply(c);
+        case Site::TakeoutStore: return coop::takeout::on_remove_store(c);
         default: return 0;
     }
 }
@@ -505,6 +511,7 @@ void game_frame(::Ctx* c) {
     coop::friendship::tick(c);
     coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::newcomer::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::takeout::tick(c);
 }
 
 void remove() {   // the registry has removed the hooks
@@ -553,6 +560,7 @@ void remove() {   // the registry has removed the hooks
     coop::newcomer::reset();
     coop::doors::reset();
     coop::title::reset();
+    coop::takeout::reset();
 }
 
 }  // namespace
