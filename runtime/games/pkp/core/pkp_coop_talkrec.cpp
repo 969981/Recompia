@@ -10,8 +10,9 @@
 //   +0x10 writers  script callback slot 195 0x4ae68c sets it (1) for the talk's creature and starts the player's own talk cooldown
 //                  (save root + 0x7415b4, a slot of m_talkCoolTimeV2, no visitor select); the host's apply of a member's talk-end entry
 //                  0x2197a0 sets it with 0x3ad29c(comp, 1) when the entry's flag word has bit 31 (0x21ca9c), which the talk-end walk
-//                  0x480b60 takes from the talk delta's +0x248 bit 40 (0x4817dc); 0x4bd420 (the day reset 0x4bce60, 0x1fa820's
-//                  0x4bd65c) and 0x4edf60 (the event manager *(main+0x3565138), host only) clear it. Each marks the actor dirty
+//                  0x480b60 takes from the talk delta's +0x248 bit 40 (0x4817dc); 0x4bd420 (from 0x4bce60, a reset of many records,
+//                  and 0x1fa820's 0x4bd65c) and 0x4edf60 (from the event manager *(main+0x3565138)'s 0x4edd00, which returns at
+//                  once on a visitor, and from 0x4ee360) clear it. Each marks the actor dirty
 //                  (0x282dc4(.., 0x10), which the talk component's replication 0x2ac320 / 0x2ad820 carries) only on Cloud Island, and
 //                  callback 195 sets the delta bit 40 only there (0x4ae804). So outside Cloud Island a member's set stays in its copy:
 //                  the host's record never gets it.
@@ -22,7 +23,7 @@
 // So the flag is the creature's ("this creature's event talk is open"), kept in the host's world as the game keeps it on Cloud Island
 // through bit 40. Here, a member in the session outside Cloud Island: callback 195's set (midhook 0x4ae7e8, reached only off Cloud
 // Island, after the store into the member's copy) is sent to the authority (TalkRecArmed), which sets the flag in its own record, as
-// its apply 0x3ad29c does there for the Cloud Island records. A member's clears are not sent: they come from its own day reset and its
+// its apply 0x3ad29c does there for the Cloud Island records. A member's clears are not sent: they are its own process's resets of its
 // copy, and the authority's own resets clear the group's record. What the member's conditions 29 / 31 answer is left as it is.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
