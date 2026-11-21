@@ -338,6 +338,12 @@ entryhook 0x7100e889f8
 entryhook 0x7100e87260
 #   and the PC menu's "a visitor may open the shop" test 0x7100e8d428 (only caller the PC menu's tile test 0x7100eff7a0, entry 0)
 entryhook 0x7100e8d428
+#   Seamless co-op, the shared shop stock (pkp_coop_stock.cpp): the stock get 0x7100646864 and set 0x7100646ae8 (declared under
+#   journal services) and the daily lineup restock 0x7100632380 (CM; callers 0x710062fbb4, 0x710062fd3c, 0x710062fe48)
+entryhook 0x7100632380
+#   Seamless co-op, the PC menu's locks (pkp_coop_pclock.cpp): the contents' kind-28 notice 0x71001364f4 (SC, u8; only callers the
+#   PC's Shop pane 0x7100f0f9d4 and challenges pane 0x7100f056fc)
+entryhook 0x71001364f4
 #   Seamless co-op, Life Coins (pkp_coop_money.cpp): the coins of a claimed challenge 0x7100637480 (CM, id); its callers are the PC's
 #   claim 0x7100645c90 (not on a visitor) and, on a visitor, the host's goal update 0x71006355c0
 entryhook 0x7100637480

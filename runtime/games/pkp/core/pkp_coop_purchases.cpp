@@ -12,7 +12,8 @@
 //                                     the entry of kGrant once, on the buyer's process only.
 //   kBought(entry)                    the purchase record's bought bit (save root + 0x6ae709 + entry * 8, bit 1; CMNDAT). The buy sets it
 //                                     only when kVisitorCheck is 0, and so does a received purchase here.
-//   The stock: the game already keeps it with the host (a visitor's buy goes through the host), so a received purchase leaves it.
+//   The stock: the group's is the authority's (pkp_coop_stock.cpp), which a member's buy takes from; a received purchase leaves it.
+//   A member's bought bit comes from the authority's records there, as the authority sets it here for every purchase in the log.
 //   kOfflineOnly(entry)               the shop row's byte +0x23 bit 2 (shop rows: LINKDATA #70). Its only two callers, the shop's
 //                                     listing tests 0xe86494 (@0xe86674) and 0xe87424 (@0xe87628), hide such a row whenever IsOnline
 //                                     (0x207b0) is set: Packing Tips (the bag upgrades, items 0xf91..0xf94), PP Up, the handy bag and

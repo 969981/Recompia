@@ -116,6 +116,11 @@ enum class Site : uintptr_t {
                       // lists them as it does offline (#780)
     ShopTile,         // the PC menu's "a visitor may open the shop" test: a member opens it, which the member mask's cleared bit 23
                       // (no per-row visitor lock) would otherwise grey out
+    StockGet,         // the shop's stock left, on a member: the own record, which holds the authority's numbers (pkp_coop_stock.cpp)
+    StockSet,         // the shop's stock set, on a member: the own record, and the count taken goes to the authority
+    Restock,          // the daily lineup restock, on a member: not run (the authority's reaches it)
+    // ---- the PC menu's locks (pkp_coop_pclock.cpp) ----
+    PaneNotice,       // the kind-28 notice of the PC's Shop / challenges pane: a lock still set after it is ended here
     // ---- the discoveries ----
     DexScene,         // the "registered in the Pokédex" scene is queued on the finder's process: sent, so every member registers
                       // the creature and sees the same scene (pkp_coop_discovery.cpp)
@@ -250,6 +255,10 @@ constexpr CoopSite kSites[] = {
     {{0xe889f8, kPacibsp, true}, Site::ShopGrant},
     {{0xe87260, kPacibsp, true}, Site::OfflineGoods},
     {{0xe8d428, kPacibsp, true}, Site::ShopTile},
+    {{0x646864, kPacibsp, true}, Site::StockGet},
+    {{0x646ae8, kPacibsp, true}, Site::StockSet},
+    {{0x632380, kPacibsp, true}, Site::Restock},
+    {{0x1364f4, kPacibsp, true}, Site::PaneNotice},
     {{0x637480, kPacibsp, true}, Site::ChallengePay},
     {{0x3b9060, kPacibsp, true}, Site::DexScene},
     {{0x45f2a0, 0x12003c28u, true}, Site::HabitatScene},     // and w8, w1, #0xffff
@@ -381,6 +390,10 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::ShopGrant: return coop::purchases::on_grant(c);
         case Site::OfflineGoods: return coop::purchases::on_offline_only(c);
         case Site::ShopTile: return coop::purchases::on_shop_tile(c);
+        case Site::StockGet: return coop::stock::on_get(c);
+        case Site::StockSet: return coop::stock::on_set(c);
+        case Site::Restock: return coop::stock::on_restock(c);
+        case Site::PaneNotice: return coop::pclock::on_pane_notice(c);
         case Site::ChallengePay: return coop::money::on_pay(c);
         case Site::JoinBagSend: return coop::bag::on_join_bag_send(c);
         case Site::MirrorFill: return coop::bags::on_mirror_fill(c);
@@ -524,6 +537,8 @@ void game_frame(::Ctx* c) {
     coop::discovery::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::unlocks::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::purchases::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::stock::tick(c);
+    coop::pclock::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::money::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::bags::tick(c);
     coop::talk::tick();
@@ -571,6 +586,8 @@ void remove() {   // the registry has removed the hooks
     coop::discovery::reset();
     coop::unlocks::reset();
     coop::purchases::reset();
+    coop::stock::reset();
+    coop::pclock::reset();
     coop::money::reset();
     coop::talk::reset();
     coop::gimmicks::reset();

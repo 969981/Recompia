@@ -143,6 +143,9 @@ const char* type_name(uint32_t type) {
     case wire::Type::DropLeaving: return "DropLeaving";
     case wire::Type::DropWait: return "DropWait";
     case wire::Type::DropClosing: return "DropClosing";
+    // the shared shop stock
+    case wire::Type::StockState: return "StockState";
+    case wire::Type::StockAsk: return "StockAsk";
     }
     return "?";
 }

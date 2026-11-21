@@ -43,6 +43,8 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop_discovery.cpp"
         "${_pkp}/core/pkp_coop_unlocks.cpp"
         "${_pkp}/core/pkp_coop_purchases.cpp"
+        "${_pkp}/core/pkp_coop_stock.cpp"
+        "${_pkp}/core/pkp_coop_pclock.cpp"
         "${_pkp}/core/pkp_coop_money.cpp"
         "${_pkp}/core/pkp_coop_requests.cpp"
         "${_pkp}/core/pkp_coop_session.cpp"

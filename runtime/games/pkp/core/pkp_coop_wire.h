@@ -105,6 +105,11 @@
 //               seconds left on the authority's clock, u8 name length m, m bytes the player's name (UTF-8)   (the authority, every
 //               second while anyone is awaited and at each change; count 0: no one is)
 //   DropClosing nothing more                                 (the authority's own Save and Quit closes the session for everyone)
+//   ---- the shared shop stock (pkp_coop_stock.cpp) ----
+//   StockState  +2 u16 first shop entry (1), +4 u16 count n (0x7ff), then n times: u8 the record's flags (+1), u8 stock left (+2)
+//               (the authority's own shop records; when they change, and to a member that asks)
+//   StockAsk    +2 u8 1 when the member wants the whole StockState, +3 u16 count n, then n times: u16 shop entry (1..0x7ff), u16 count
+//               (1..999) the member's shop took from the stock   (a member, until a state arrives, and after each buy)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -192,6 +197,9 @@ enum class Type : uint32_t {
     DropLeaving = 53,
     DropWait = 54,
     DropClosing = 55,
+    // ---- the shared shop stock (pkp_coop_stock.cpp) ----
+    StockState = 63,
+    StockAsk = 64,
 };
 
 // Builds one payload: the header, then the fields in order.
