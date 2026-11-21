@@ -46,6 +46,7 @@
 //   pkp_coop_friendship.cpp a member's friendship gains with a creature made on the authority (the group's), its records shown to all
 //   pkp_coop_challenges.cpp what a member does counts toward the group's challenges (its shop buys)
 //   pkp_coop_feed.cpp     what a member's player did to a creature (talked to it), posted to the authority's contents scheduler
+//   pkp_coop_newcomer.cpp a member's first talk with a new creature (it moves in) made on the authority, as the host's own talk
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -551,5 +552,16 @@ namespace owner {
 int on_use_refused(::Ctx* c, uint64_t site);
 void reset();
 }  // namespace owner
+// ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----
+namespace newcomer {
+// The hook site (pkp_coop.cpp): midhook 0x48235c, the talk end step's `bl 0x3b9674` (the befriend). On a member in the session, a
+// creature with no parents yet is queued for the authority; the game's own call runs on (returns 0).
+int on_befriend(::Ctx* c);
+// The message (pkp_coop_link.cpp): a member's new creature, befriended on the authority at a safe moment.
+void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Sends a member's new creatures; the authority makes the waiting ones (once a frame, after the channel's handlers).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace newcomer
 
 }  // namespace nxrt::games::pkp::coop

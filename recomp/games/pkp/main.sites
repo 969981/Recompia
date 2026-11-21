@@ -669,3 +669,6 @@ midhook 0x71001140e8
 #   Seamless co-op, a member's talk gift (pkp_coop_friendship.cpp): in the host's talk-end apply 0x71002197a0, the `and w3, w0, #0x1`
 #   after the Cloud Island test that becomes the gift re-run 0x710046e308's w3 (its friendship part) at 0x710021c484
 midhook 0x710021c46c
+#   Seamless co-op, a newly met creature moving in (pkp_coop_newcomer.cpp): in the talk event's end step 0x7100481e2c, its
+#   `bl 0x71003b9674` (the befriend: x0 = the creature's component, x1 = &own user id), which on a member never reaches the host
+midhook 0x710048235c
