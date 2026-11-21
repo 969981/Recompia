@@ -729,4 +729,11 @@ void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace drop
 
+namespace quality {
+// Entry 0x231890, the simulation step (pkp_coop.cpp): in a session the game's "unstable connection" level is re-judged with thresholds
+// for the internet (never handled: returns 0).
+int on_sim_step(::Ctx* c);
+void reset();
+}  // namespace quality
+
 }  // namespace nxrt::games::pkp::coop
