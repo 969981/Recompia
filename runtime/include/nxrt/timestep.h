@@ -25,7 +25,7 @@
 //                                 per 1/60 s of game time, so its window keeps its length at more than 60 ticks per second.
 //   log_every = 0                 log one line of frame statistics every N frames (0 = off)
 //   csv = <file>                  write one line per frame: frame, host time (s), measured elapsed, step used, sum of steps, movie frames delivered, render-timing clock
-//   game_base = 0x7100000000      guest address of the main module
+//   game_base = <addr>            guest address of the main module (default: the game's main_base)
 // Deterministic test mode ([test] deterministic=1): the step is the virtual clock's frame step (clock::virtual_frame_step_ticks, [test] clock_step_ticks) / clock::tick_hz() (default 1/60 s) and nothing
 // waits, so a scripted run at 60, 120, 144 or 240 steps per second is the same run with another clock_step_ticks (260416 = 120 Hz at 31.25 MHz).
 #pragma once
@@ -33,6 +33,7 @@
 #include <string>
 
 #include "nxrt/abi.h"
+#include "nxrt/memory.h"
 
 namespace nxrt::timestep {
 
@@ -55,7 +56,7 @@ struct Config {
     double movie_max = 0.5;          // longest delta handed to the movie player in one call (seconds)
     int log_every = 0;
     std::string csv;
-    uint64_t game_base = 0x7100000000ull;
+    uint64_t game_base = mem::kMainBase;
 };
 
 Config load_config();                       // reads [time]

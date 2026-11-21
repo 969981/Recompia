@@ -24,6 +24,7 @@
 #include "nvn_api_stats.h"
 #include "nxrt/abi.h"
 #include "nxrt/dispatch.h"
+#include "nxrt/memory.h"
 #include "nxrt/nvn.h"
 #include <nvn/nvn.h>
 
@@ -176,7 +177,7 @@ public:
         ::Ctx c{};
         static thread_local unsigned char fake_stack[64];
         c.x[31] = reinterpret_cast<uint64_t>(fake_stack + 32);
-        c.x[30] = 0x7100000100ull;   // a plausible guest return address, shown as the caller in logs
+        c.x[30] = mem::kMainBase + 0x100;   // a plausible guest return address, shown as the caller in logs
         int ni = 0, nf = 0;
         (put(&c, ni, nf, args), ...);
         dispatch_call(&c, addr_);
