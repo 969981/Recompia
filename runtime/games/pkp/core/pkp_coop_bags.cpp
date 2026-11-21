@@ -696,7 +696,8 @@ void on_restore_message(::Ctx* c, int, uint8_t, wire::Reader& r) {
     State& s = st();
     Kept& o = own();
     s.answered = true;
-    if (have && got.seq > o.rec.seq) {
+    const bool won = have && got.seq > o.rec.seq;   // the authority's copy replaces ours (an apply may also be pending for another reason)
+    if (won) {
         o.rec = got;
         o.dirty = true;
         s.apply = true;
@@ -708,7 +709,7 @@ void on_restore_message(::Ctx* c, int, uint8_t, wire::Reader& r) {
     if (s.early.empty()) return;
     // Gains credited before this answer: in our copy already; put again on top of the authority's when that one won.
     uint32_t lost = 0;
-    if (s.apply) {
+    if (won) {
         const uint32_t max = c ? max_stack(c) : 0xff;
         for (const Credit& g : s.early)
             if (!place(o.rec, g, max)) lost += g.n;
