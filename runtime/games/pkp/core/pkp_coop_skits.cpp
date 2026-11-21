@@ -51,6 +51,7 @@ constexpr uint64_t kScene = 0x1a;                // u16
 constexpr uint64_t kContent = 0x1c;              // u16
 constexpr uint64_t kSetter = 0x3ad540;           // (data id, scene, content): the game's own story-talk setter
 constexpr uint16_t kProfessor = 0x2c;
+constexpr uint16_t kSceneMax = 0xbb7;            // a valid scene: 1..0xbb7 (0x3ad540's own bound)
 constexpr uint16_t kIds = 0x416;                 // data ids 1..0x415 have a record of their own (0x3b2278's bound)
 constexpr size_t kPerMessage = 256;
 constexpr double kSendEvery = 1.0;
@@ -64,7 +65,9 @@ struct Talk {
     uint16_t scene = 0, content = 0;
     uint8_t on = 0;
     float timer = -1.0f;
-    bool same(const Talk& o) const { return scene == o.scene && content == o.content; }
+    // The setter keeps the content only with a valid scene (1..0xbb7), so the content counts only then.
+    bool valid() const { return static_cast<uint16_t>(scene - 1) < kSceneMax; }
+    bool same(const Talk& o) const { return scene == o.scene && (!valid() || content == o.content); }
 };
 
 struct State {
@@ -80,6 +83,8 @@ struct State {
     uint8_t professor_stage = 0;
     std::array<Talk, kIds> seen{};       // this save's value at the last look (or right after the last write)
     std::array<double, kIds> hold{};     // own change: not written before this time
+    std::array<Talk, kIds> stuck{};      // an authority value the setter did not leave in this save: not tried again
+    std::array<bool, kIds> is_stuck{};
     bool seen_valid = false;
     double scan_at = -1e9;
     double logged_at = -1e9;
@@ -185,7 +190,7 @@ void take(::Ctx* c, bool in_game) {
         }
         s.seen[id] = here;
         if (!usable || here.same(t)) continue;
-        if (now < s.hold[id] || applied == kApplyMax) continue;
+        if (now < s.hold[id] || applied == kApplyMax || (s.is_stuck[id] && s.stuck[id].same(t))) continue;
         guest::call(c, base() + kSetter, id, t.scene, t.content);
         if (t.on) {
             guest::wr<float>(at + kTimer, t.timer);
@@ -193,6 +198,12 @@ void take(::Ctx* c, bool in_game) {
         }
         s.seen[id] = read_talk(at);
         ++applied;
+        s.is_stuck[id] = !s.seen[id].same(t);
+        if (s.is_stuck[id]) {
+            s.stuck[id] = t;
+            NXLOG_W(kTag, "Co-op skits: character %u: the setter left scene %u (content %u), not the authority's %u (content %u); "
+                    "not tried again until the authority's changes", id, s.seen[id].scene, s.seen[id].content, t.scene, t.content);
+        }
         if (applied == 1 || now - s.logged_at >= kLogGap)
             NXLOG_I(kTag, "Co-op skits: character %u's story talk set to the authority's: scene %u -> %u (content %u)", id, here.scene,
                     t.scene, t.content);
