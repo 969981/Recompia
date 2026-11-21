@@ -85,6 +85,7 @@ constexpr Route kRoutes[] = {
     {wire::Type::DropHere, Path::ToAuthority, &drop::on_here_message},
     {wire::Type::DropLeaving, Path::ToAuthority, &drop::on_leaving_message},
     {wire::Type::DropWait, Path::FromAuthority, &drop::on_wait_message},
+    {wire::Type::DropClosing, Path::FromAuthority, &drop::on_closing_message},
 };
 
 struct State {

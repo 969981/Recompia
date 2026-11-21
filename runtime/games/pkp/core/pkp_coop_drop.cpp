@@ -10,6 +10,9 @@
 //     the authority waits only for a member that said it (a member on an older build leaves as it did before: nobody waits for it);
 //   - a member's own leave (the pause menu's Save and Quit, 0xbd45c reason 4 from 0xfba740) is announced first (DropLeaving), on the
 //     same stream, so it reaches the authority before the leave;
+//   - the authority's own Save and Quit closes the session for everyone (0xbdc68 from the pause menu's state 0xf, or 0xbd45c reason 0
+//     from its state 0x10): it says so first (DropClosing), so no member takes the close for the host's drop, and the authority
+//     waits for no one that leaves after it;
 //   - the authority decides: a member that said it and left without announcing it dropped.
 //
 // The wait (the players still connected stay in the world; nobody is sent home). The authority keeps each dropped member for kLimit
@@ -30,6 +33,11 @@
 //   - (+) lets go of this player's hold: its lock and pause end (the menu opens, Save and Quit is there). On the authority that also
 //     ends the wait for everyone (the world runs on). A member that stops hearing the authority for kSilence lets go by itself.
 //   After kLimit the authority gives up: the others play on without the dropped player (it can still join later, as anyone can).
+//
+// The host's drop. A member's session ends without DropClosing: it is the same to it as its own drop, and it is handled the same way
+// (the game's trip home, which keeps the member's own world and save; the bag record is its own file, pkp_coop_bags.cpp), with the
+// plain end message. A member held in the host's dead world could not join a new session (the session bits stay set there, see
+// below), so holding it there would only delay its way back.
 //
 // The dropped process. Its own session is gone (the channel leaves on it at once: the ldn station loses the network), and a member
 // cannot tell its own drop from the host's. Its game handles that as before: error 3103 (0x80401103, KTGL SESSIONP2P_NETWORK_LOST;
@@ -107,6 +115,7 @@ struct State {
     bool here_sent = false, ready_sent = false;
     double walk_since = -1.0;   // the player can walk since (negative: not now)
     bool leaving = false;       // this member filed its own leave
+    bool closing = false;       // the authority closes the session for everyone (it said so, or this process is it)
     // the authority
     Node nodes[kNodes];
     std::vector<Awaited> awaited;   // the authority's waits; a member's copy of the authority's word
@@ -348,15 +357,17 @@ void on_member(int node, bool joined, bool self) {
             s.ever_in = true;
             s.member = !link::is_authority();
             s.here_sent = s.ready_sent = false;
-            s.leaving = false;
+            s.leaving = s.closing = false;
             for (Node& n : s.nodes) n = Node{};
             return;
         }
         if (s.in && s.member)
-            NXLOG_W(kTag, "Co-op drop: this process's session is gone%s", s.leaving ? " (its own leave)" : ": the connection to the group was lost");
+            NXLOG_W(kTag, "Co-op drop: this process's session is gone%s", s.leaving   ? " (its own leave)"
+                                                                       : s.closing ? " (the host closed it)"
+                                                                                   : ": the connection to the group was lost");
         else if (s.in)
             NXLOG_W(kTag, "Co-op drop: the authority's channel left its session (every member is gone); no one is awaited");
-        if (s.in && !s.leaving) {
+        if (s.in && !s.leaving && !s.closing) {
             s.lost = true;
             s.lost_authority = !s.member;
             s.lost_until = qpc::seconds() + kLimit;
@@ -383,8 +394,9 @@ void on_member(int node, bool joined, bool self) {
     Node& n = s.nodes[node];
     if (!n.known)
         NXLOG_I(kTag, "Co-op drop: node %d left; it never said it waits for drops (an older build): no wait", node);
-    else if (n.leaving)
-        NXLOG_I(kTag, "Co-op drop: node %d (%s) left with Save and Quit", node, notice::name_of(static_cast<uint8_t>(node)).c_str());
+    else if (n.leaving || s.closing)
+        NXLOG_I(kTag, "Co-op drop: node %d (%s) left with Save and Quit%s", node, notice::name_of(static_cast<uint8_t>(node)).c_str(),
+                s.closing ? " (the host closes the session)" : "");
     else
         start_wait(s, n, node, qpc::seconds());
     n = Node{};
@@ -422,6 +434,12 @@ void on_leaving_message(::Ctx*, int from, uint8_t, wire::Reader& r) {
     NXLOG_I(kTag, "Co-op drop: node %d files its own leave", from);
 }
 
+void on_closing_message(::Ctx*, int, uint8_t, wire::Reader& r) {
+    if (!r.ok()) return;
+    st().closing = true;
+    NXLOG_I(kTag, "Co-op drop: the host closes the session for everyone (its Save and Quit): no drop");
+}
+
 void on_wait_message(::Ctx*, int, uint8_t, wire::Reader& r) {
     State& s = st();
     const uint8_t n = r.u8();
@@ -455,8 +473,22 @@ void on_wait_message(::Ctx*, int, uint8_t, wire::Reader& r) {
 // Entry 0xbd45c(record, reason, member, flag) and the other filers. Read here: x0 the record, w1 the reason, x30 the caller.
 int on_trip_file(::Ctx* c, uint64_t site) {
     State& s = st();
-    if (!link::in_session() || link::is_authority() || site != layout::kFileTrip) return 0;
+    if (!link::in_session()) return 0;
     const uint64_t from = c->x[30] - base();
+    if (link::is_authority()) {
+        const bool closes = site == layout::kCloseTrip ||
+                            (site == layout::kFileTrip && from == layout::kPauseFileReturn && static_cast<uint32_t>(c->x[1]) == layout::kTripDisband);
+        if (closes && record_phase() >= layout::kTripRecordReady && !s.closing) {
+            s.closing = true;
+            link::to_members(wire::Type::DropClosing, wire::Writer(link::self()).take());
+            NXLOG_I(kTag, "Co-op drop: the host closes the session with Save and Quit; the members are told it is no drop");
+            s.awaited.clear();
+            s.ended.clear();
+            release(s, "the host closes the session");
+        }
+        return 0;
+    }
+    if (site != layout::kFileTrip) return 0;
     if (from == layout::kPauseFileReturn && static_cast<uint32_t>(c->x[1]) == layout::kTripLeave &&
         record_phase() >= layout::kTripRecordReady && !s.leaving) {
         s.leaving = true;

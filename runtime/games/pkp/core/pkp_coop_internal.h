@@ -639,7 +639,9 @@ void on_member(int node, bool joined, bool self);
 void on_here_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);      // the authority: a member's key, it is in the world
 void on_leaving_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // the authority: a member's own leave is filed
 void on_wait_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);      // a member: who the authority waits for
-// The hook sites (pkp_coop.cpp): the entries of the trip filers (site: its main offset). A filed leave is announced; returns 0.
+void on_closing_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: the host closes the session
+// The hook sites (pkp_coop.cpp): the entries of the trip filers (site: its main offset). A member's filed leave and the host's
+// close are announced; returns 0.
 int on_trip_file(::Ctx* c, uint64_t site);
 // Entry 0x231890, the simulation step: skipped (returns 1, x0 = 1) while the wait pauses the world on this process.
 int on_sim_step(::Ctx* c);
