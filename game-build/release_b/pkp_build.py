@@ -214,7 +214,10 @@ def use_target(target, ndk=None, cxx=None, ar=None, sysroot=None):
     flags[i:i + 2] = ['--target=aarch64-linux-android30']
     TARGET = target
     COMPILER = [cxx] + (['--sysroot=' + sysroot] if sysroot else [])
-    CXXFLAGS = flags + ['-fPIC']
+    # recomp/native (outside every desktop stamp): the forced include and the post-lift rewrite of the Android build (native FP and
+    # NEON through the host's own instructions, FCMP conditions from the operands). ARMv8.2 LSE atomics inline: every phone that runs
+    # the game has them.
+    CXXFLAGS = flags + ['-fPIC', '-march=armv8.2-a', '-mno-outline-atomics', '-include', os.path.join(RECOMP, 'native', 'nx_native.h')]
     ARCHIVER = [ar]
     RUNTIME_LIB = 'libpkp_rt.so'
     EXE = 'libpkpgame.so'
@@ -406,7 +409,8 @@ def module_stamp(name, nso, want, tools, compiler, site_text):
             'lifter': tools['lifter'], 'include': tree_hash(RECOMP, ['include']), 'cxxflags': tools['cxxflags'],
             'locals': tools['locals'], 'modules': tools['modules'],
             'sites': tree_hash(RECOMP, [SITES[name]]) if name in SITES else '',
-            'mod_sites': hashlib.sha256(site_text.encode('utf-8')).hexdigest() if site_text else ''}
+            'mod_sites': hashlib.sha256(site_text.encode('utf-8')).hexdigest() if site_text else '',
+            **({'native': tree_hash(RECOMP, ['native'])} if TARGET else {})}
 
 
 def libs_current(lib, stamp):
@@ -689,6 +693,10 @@ def lift(runner, exefs, gen, jobs, extra_sites, skip=()):
         rc, tail = runner.run(cmd, cwd=RECOMP, on_line=on_line)
         if rc != 0:
             raise Fail('Translating %s failed (exit %d):\n%s' % (name, rc, tail))
+        if TARGET:                           # Android: vector registers in locals, FCMP readers from operands (recomp/native)
+            rc, tail = runner.run([sys.executable, '-I', os.path.join(RECOMP, 'native', 'postlift.py'), out], cwd=RECOMP)
+            if rc != 0:
+                raise Fail('Rewriting %s failed (exit %d):\n%s' % (name, rc, tail))
         for d, _, files in os.walk(out):     # the marker makes the sources trusted (flush())
             for n in files:
                 flush(os.path.join(d, n))
@@ -904,12 +912,17 @@ def make_cache(folder, cap_mb, compiler, env):
     if cap_mb <= 0:
         return None
     try:
-        return ObjCache(folder, cap_mb << 20, compiler, ' '.join(CXXFLAGS), IncludeView(env, os.path.dirname(folder)))
+        flags = ' '.join(CXXFLAGS)
+        # Android: the flags name the forced include (recomp/native/nx_native.h) by path only; its content and the headers it pulls in
+        # go into the key too, so a changed nx_native*.h never reuses an object. Desktop keys are unchanged (no forced include there).
+        if TARGET:
+            flags += ' native=' + tree_hash(RECOMP, ['native'])
+        return ObjCache(folder, cap_mb << 20, compiler, flags, IncludeView(env, os.path.dirname(folder)))
     except OSError:
         return None
 
 
-def compile_all(runner, gen, obj, jobs, env, cache=None, skip=()):
+def compile_all(runner, gen, obj, jobs, env, cache=None, skip=(), mem_per_job=1 << 30):
     units = []
     for name, _, _, _, shards in MODULES:
         if name in skip:
@@ -960,7 +973,7 @@ def compile_all(runner, gen, obj, jobs, env, cache=None, skip=()):
     # which gave a PC with 4 GB free two jobs however many cores it had. A unit that still fails is compiled again below.
     avail = free_memory()
     if avail:
-        jobs = max(1, min(jobs, avail // (1 << 30)))
+        jobs = max(1, min(jobs, avail // mem_per_job))   # mem_per_job (--mem-per-job-mb): a phone sets its own
     failed = []
     with ThreadPoolExecutor(max_workers=jobs) as ex:
         pending = {ex.submit(one, t): t for t in todo}
@@ -1405,7 +1418,8 @@ def build(a, out, cancel_file):
         lift(runner, a.exefs, gen, a.jobs, extra, skip)
         times['lift'] = round(time.time() - t, 1)
         t = time.time()
-        compile_all(runner, gen, obj, a.jobs, env, make_cache(os.path.join(out.build, 'objcache'), a.cache_mb, compiler, env), skip)
+        compile_all(runner, gen, obj, a.jobs, env, make_cache(os.path.join(out.build, 'objcache'), a.cache_mb, compiler, env), skip,
+                    a.mem_per_job_mb << 20)
         times['compile'] = round(time.time() - t, 1)
     t = time.time()
     progress('link', 0, 1, 'Linking %s' % EXE)
@@ -1483,6 +1497,7 @@ def main():
     ap.add_argument('--prepare', action='store_true', help='build into <game>/build/next, leaving the installed build alone')
     ap.add_argument('--adopt', action='store_true', help='move a finished <game>/build/next into place')
     ap.add_argument('--revert', action='store_true', help='put back the build the last --adopt replaced')
+    ap.add_argument('--mem-per-job-mb', type=int, default=1024, help='memory a compile job is given (jobs = free memory / this)')
     ap.add_argument('--target', choices=TARGETS, help='build for this target instead of the host (default: the host)')
     ap.add_argument('--ndk', default=os.environ.get('ANDROID_NDK_HOME'), help='with --target android-arm64: the NDK')
     ap.add_argument('--cxx', help='with --target: the clang++ to use (instead of the NDK\'s)')
