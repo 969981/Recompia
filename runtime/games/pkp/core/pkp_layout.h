@@ -27,6 +27,7 @@ constexpr size_t kGateHistoryBytes = 32;
 constexpr uint64_t kSaveLastGate = 0x13d3a59;         // u8 STGDAT m_lastGate (the current stage's)
 constexpr uint64_t kSaveSkitInGate = 0x7416d1;        // u8 m_playSkitInGateNum
 constexpr uint64_t kSaveTrainerLevel = 0x4a4400;      // u8 m_trainerLevel (the rank a gate asks for; own save, no visitor copy)
+constexpr uint64_t kSaveCleanCount = 0x4a4401;        // u8 the sludge cleanings counted (1..99; unique request type 0x2c reads it)
 constexpr uint64_t kGameState = 0x3561710;       // the game state (stage, session)
 constexpr uint64_t kStateStage = 0x18;           // game state: u8, the stage the player is in
 constexpr uint64_t kStateSession = 0x90;         // game state: u8 Link Play session bits (kSession*); 0 offline
@@ -325,6 +326,9 @@ constexpr uint32_t kAutosaveAskedNow = 0x4;
 // The network manager NM = *(main + kNetManager); NM + kNetQualityTimer: f32 seconds a member's ping has been over 1499 (0x53ca60;
 // at 20 s it self-disconnects, reason 0).
 constexpr uint64_t kNetManager = 0x3561a20, kNetQualityTimer = 0xb3374;
+// The same step's results: the level (u32; 0 good, 1 and 2 "unstable", 3 the self-disconnect), the worst member's loss (10000 minus
+// its received / sent ratio in 1/10000, i32) and ping (ms, i32).
+constexpr uint64_t kNetQualityLevel = 0xb336c, kNetQualityLoss = 0xb3378, kNetQualityPing = 0xb337c;
 // Error 3103: KTGL_ONLINE_E_SESSIONP2P_NETWORK_LOST, the result 0x547278 shows when the session's network is gone.
 constexpr uint32_t kErrorSessionLost = 0x80401103;
 

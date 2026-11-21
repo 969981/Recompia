@@ -56,6 +56,9 @@ constexpr Route kRoutes[] = {
     {wire::Type::Purchase, Path::ToAuthority, &purchases::on_purchase_message},
     {wire::Type::PurchaseAsk, Path::ToAuthority, &purchases::on_ask_message},
     {wire::Type::PurchaseLog, Path::FromAuthority, &purchases::on_log_message},
+    {wire::Type::StockAsk, Path::ToAuthority, &stock::on_ask_message},
+    {wire::Type::StockState, Path::FromAuthority, &stock::on_state_message},
+    {wire::Type::ShopRows, Path::FromAuthority, &shoprows::on_rows_message},
     {wire::Type::EventHistory, Path::Shared, &events::on_history_message},
     {wire::Type::StoryLines, Path::Shared, &events::on_lines_message},
     {wire::Type::DexKnown, Path::Shared, &discovery::on_dex_message},
@@ -63,6 +66,9 @@ constexpr Route kRoutes[] = {
     {wire::Type::HabitatKnown, Path::Shared, &discovery::on_habitat_message},
     {wire::Type::HabitatScene, Path::Shared, &discovery::on_habitat_scene_message},
     {wire::Type::UnlockKnown, Path::Shared, &unlocks::on_known_message},
+    {wire::Type::TutorialKnown, Path::Shared, &tutorials::on_known_message},
+    {wire::Type::TipClosed, Path::Shared, &tutorials::on_closed_message},
+    {wire::Type::HabitatHints, Path::Shared, &hints::on_message},
     {wire::Type::AbilityCleared, Path::Shared, &story::on_cleared_message},
     {wire::Type::AreaMusic, Path::FromAuthority, &story::on_music_message},
     {wire::Type::ChallengesClaimed, Path::FromAuthority, &money::on_claimed_message},
@@ -74,6 +80,8 @@ constexpr Route kRoutes[] = {
     {wire::Type::BagRestore, Path::FromAuthority, &bags::on_restore_message},
     // the story records (pkp_coop_records.cpp)
     {wire::Type::StoryRecord, Path::FromAuthority, &records::on_record_message},
+    // the story talks (pkp_coop_skits.cpp)
+    {wire::Type::StorySkits, Path::FromAuthority, &skits::on_skits_message},
     // friendship
     {wire::Type::FriendAsk, Path::ToAuthority, &friendship::on_ask_message},
     {wire::Type::FriendState, Path::FromAuthority, &friendship::on_state_message},
@@ -97,6 +105,8 @@ constexpr Route kRoutes[] = {
     {wire::Type::DropLeaving, Path::ToAuthority, &drop::on_leaving_message},
     {wire::Type::DropWait, Path::FromAuthority, &drop::on_wait_message},
     {wire::Type::DropClosing, Path::FromAuthority, &drop::on_closing_message},
+    // the characters another member's scenes hold
+    {wire::Type::SceneHolds, Path::Shared, &scenes::on_holds_message},
 };
 
 struct State {
@@ -170,6 +180,7 @@ void on_member(const ch::MemberEvent& e) {
     gimmicks::on_member(e.node, e.joined, self);
     savecopy::on_member(e.node, e.joined, self);
     drop::on_member(e.node, e.joined, self);
+    scenes::on_member(e.node, e.joined, self);
     if (self) {
         story::on_session_change();
         quests::on_session_change();
@@ -179,10 +190,15 @@ void on_member(const ch::MemberEvent& e) {
         events::on_session_change();
         discovery::on_session_change();
         unlocks::on_session_change();
+        tutorials::on_session_change();
+        hints::on_session_change();
         purchases::on_session_change();
+        stock::on_session_change();
+        shoprows::on_session_change();
         money::on_session_change();
         digest::on_session_change();
         records::on_session_change();
+        skits::on_session_change();
         NXLOG_I(kTag, "Co-op: %s the session's channel as node %d%s", e.joined ? "in" : "out of", e.node, e.authority ? " (the authority)" : "");
         if (e.joined && e.authority != (role() == CoopRole::Host))
             NXLOG_W(kTag, "Co-op: this process is %s of the session, but its launch role is %s", e.authority ? "the authority" : "a member",
@@ -197,9 +213,14 @@ void on_member(const ch::MemberEvent& e) {
         events::on_member_joined();
         discovery::on_member_joined();
         unlocks::on_member_joined();
+        tutorials::on_member_joined();
+        hints::on_member_joined();
         money::on_member_joined();
+        stock::on_member_joined();
+        shoprows::on_member_joined();
         bags::on_member_joined(e.node);
         records::on_member_joined();
+        skits::on_member_joined();
         friendship::on_member_joined(e.node);
     }
     NXLOG_I(kTag, "Co-op: node %d %s the session%s", e.node, e.joined ? "joined" : "left", e.authority ? " (the authority)" : "");

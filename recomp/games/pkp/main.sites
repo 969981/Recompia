@@ -338,6 +338,12 @@ entryhook 0x7100e889f8
 entryhook 0x7100e87260
 #   and the PC menu's "a visitor may open the shop" test 0x7100e8d428 (only caller the PC menu's tile test 0x7100eff7a0, entry 0)
 entryhook 0x7100e8d428
+#   Seamless co-op, the shared shop stock (pkp_coop_stock.cpp): the stock get 0x7100646864 and set 0x7100646ae8 (declared under
+#   journal services) and the daily lineup restock 0x7100632380 (CM; callers 0x710062fbb4, 0x710062fd3c, 0x710062fe48)
+entryhook 0x7100632380
+#   Seamless co-op, the PC menu's locks (pkp_coop_pclock.cpp): the contents' kind-28 notice 0x71001364f4 (SC, u8; only callers the
+#   PC's Shop pane 0x7100f0f9d4 and challenges pane 0x7100f056fc)
+entryhook 0x71001364f4
 #   Seamless co-op, Life Coins (pkp_coop_money.cpp): the coins of a claimed challenge 0x7100637480 (CM, id); its callers are the PC's
 #   claim 0x7100645c90 (not on a visitor) and, on a visitor, the host's goal update 0x71006355c0
 entryhook 0x7100637480
@@ -362,6 +368,10 @@ entryhook 0x710013596c
 #   record 0x71007b1040, for the gate and its paired gate), the `tbnz w0, #0` after IsOnline 0x71000207b0 that skips the write in a
 #   session (w20 the id, already tested < 0x20)
 midhook 0x71005c05c0
+#   Seamless co-op, the cleaning count (pkp_coop_requests.cpp): the `tbz w0, #0` after IsOnline 0x71000207b0 in the count's writers
+#   0x71006520e0 and 0x7100652880 (save root +0x4a4401, unique request type 0x2c); online the count needs game state +0x11 bit 0
+midhook 0x71006522ec
+midhook 0x7100652940
 #   Seamless co-op, contents scenes (pkp_coop_contents.cpp): a content record's "play scene" command 0x710012b544 (cmd; scene u16 at
 #   cmd +4), which queues the scene through 0x71002e6ce0 and does not see the queue refuse it
 entryhook 0x710012b544
@@ -403,6 +413,7 @@ midhook 0x71001f0f84
 midhook 0x710029dcc8
 midhook 0x71004a1b70
 midhook 0x71004c03e4
+midhook 0x710063e450
 midhook 0x71007596cc
 midhook 0x71007fca2c
 midhook 0x71007fd1ac
@@ -421,6 +432,8 @@ midhook 0x710081f270
 midhook 0x710081f290
 midhook 0x710098906c
 midhook 0x7100ab5ad8
+midhook 0x7100e85e0c
+midhook 0x7100e86520
 midhook 0x7100fa9e00
 midhook 0x7100faa3d0
 midhook 0x7100faa3e4
@@ -746,3 +759,8 @@ midhook 0x71004ae7e8
 #   Seamless co-op, the Star Piece swap in a member's talk (pkp_coop_talk.cpp): in script callback slot 119 0x71004a17fc, the
 #   `orr w24, w22, w8` that joins its row and parent terms (w24 = the data id off Cloud Island)
 midhook 0x71004a1adc
+#   Seamless co-op, a content's scene refused by a character another player holds (pkp_coop_contents.cpp): in the event setup
+#   0x7100476100 the `tbz w28, #0` after its per-character ownership loop (w28 = every character ready, x19 = the runner), and in
+#   the event start 0x710047bf80 the `and w24, w24, w0` after each character's IsMine (x20 = &actor id)
+midhook 0x71004774e8
+midhook 0x710047bfe4
