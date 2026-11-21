@@ -63,6 +63,9 @@ constexpr Route kRoutes[] = {
     {wire::Type::HabitatKnown, Path::Shared, &discovery::on_habitat_message},
     {wire::Type::HabitatScene, Path::Shared, &discovery::on_habitat_scene_message},
     {wire::Type::UnlockKnown, Path::Shared, &unlocks::on_known_message},
+    {wire::Type::TutorialKnown, Path::Shared, &tutorials::on_known_message},
+    {wire::Type::TipClosed, Path::Shared, &tutorials::on_closed_message},
+    {wire::Type::HabitatHints, Path::Shared, &hints::on_message},
     {wire::Type::AbilityCleared, Path::Shared, &story::on_cleared_message},
     {wire::Type::AreaMusic, Path::FromAuthority, &story::on_music_message},
     {wire::Type::ChallengesClaimed, Path::FromAuthority, &money::on_claimed_message},
@@ -179,6 +182,8 @@ void on_member(const ch::MemberEvent& e) {
         events::on_session_change();
         discovery::on_session_change();
         unlocks::on_session_change();
+        tutorials::on_session_change();
+        hints::on_session_change();
         purchases::on_session_change();
         money::on_session_change();
         digest::on_session_change();
@@ -197,6 +202,8 @@ void on_member(const ch::MemberEvent& e) {
         events::on_member_joined();
         discovery::on_member_joined();
         unlocks::on_member_joined();
+        tutorials::on_member_joined();
+        hints::on_member_joined();
         money::on_member_joined();
         bags::on_member_joined(e.node);
         records::on_member_joined();

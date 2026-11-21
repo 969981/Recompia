@@ -231,6 +231,26 @@ void on_member_joined();    // another member joined: all lists are sent again
 void reset();
 }  // namespace unlocks
 
+namespace tutorials {
+// The messages (pkp_coop_link.cpp): tips another member has shown, and the waiting tip another process closed.
+void on_known_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_closed_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Closes the waiting tip when it left the stage record here or elsewhere, shares the shown tips and sets the others' (once a frame).
+void tick(::Ctx* c, bool in_game);
+void on_session_change();
+void on_member_joined();
+void reset();
+}  // namespace tutorials
+
+namespace hints {
+void on_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // another member's habitat hints
+// Shares the habitat hints that became known here and sets the others' (once a frame).
+void tick(::Ctx* c, bool in_game);
+void on_session_change();
+void on_member_joined();
+void reset();
+}  // namespace hints
+
 namespace purchases {
 // The hook site (pkp_coop.cpp): entry 0xe889f8, a purchase's give on the buyer's process; it is logged for the group.
 int on_grant(::Ctx* c);
