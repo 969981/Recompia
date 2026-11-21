@@ -353,6 +353,7 @@ int on_talk_start(::Ctx* c);   // entry 0x3180e0: the lock is asked; refused, th
 int on_no_talk(::Ctx* c);      // midhook 0x3181cc: no talk started after all
 int on_talk_end(::Ctx* c);     // entry 0x47bd00: a slot's event chain ended
 int on_talk_kind(::Ctx* c);    // midhook 0x4c06d8: a member's talk takes the host's path in the talk handler
+int on_talk_own(::Ctx* c);     // midhook 0x4c0574: a member is the own player of a creature living in the group's town
 // This process's player holds a character's talk and the talk runs.
 bool talking();
 // The messages and member events (pkp_coop_link.cpp).
@@ -371,6 +372,10 @@ void on_member(int node, bool joined, bool self);
 // The sweep after a leave (once a frame; once a second while due).
 void tick(::Ctx* c, bool in_game);
 void reset();
+// The hook sites (pkp_coop.cpp): entry of a multi-user object class's "member left" step vt+0x228 (site: its main offset;
+// x0 the object, w1 the member index). On the authority, for a member that was using the object, the rest of the game's own
+// end-of-use sequence runs first (the character the member had there is let go); returns 0, the game's step runs on.
+int on_shared_leave(::Ctx* c, uint64_t site);
 }  // namespace gimmicks
 
 namespace catchup {
@@ -556,6 +561,10 @@ namespace owner {
 // classes (site: its main offset). In a session, a press a content took gives the object back as the class's failed event start
 // does; returns 0.
 int on_use_refused(::Ctx* c, uint64_t site);
+// The hook site (pkp_coop.cpp): midhook 0x539b44 in the member's grant reply 0x539620, the `tbz w0` after the grant's data apply
+// (vt+0x2f8). In a session, on a member, a grant after which no use runs (the apply failed, or the class runs none from a grant)
+// gives the object back; returns 0.
+int on_grant_no_use(::Ctx* c);
 void reset();
 }  // namespace owner
 // ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----

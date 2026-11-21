@@ -682,3 +682,15 @@ midhook 0x710021c46c
 #   Seamless co-op, a newly met creature moving in (pkp_coop_newcomer.cpp): in the talk event's end step 0x7100481e2c, its
 #   `bl 0x71003b9674` (the befriend: x0 = the creature's component, x1 = &own user id), which on a member never reaches the host
 midhook 0x710048235c
+#   Seamless co-op, a shared object a member was using when it left (pkp_coop_gimmicks.cpp): the "member left" step vt+0x228 of the
+#   multi-user classes 0x3262c80 0x710074cc60 and 0x3263160 0x71007568f0 (x0 the object, w1 the member index; from MemberDelete 0x7100535c80
+#   through 0x710077ece0)
+entryhook 0x710074cc60
+entryhook 0x71007568f0
+#   Seamless co-op, a member's later talks with a resident (pkp_coop_talk.cpp): in the talk handler 0x71004c024c, the
+#   `tbz w0, #0, 0x71004c059c` after 0x7100332c80 ("this player is the creature's own"), false on a member for every resident
+midhook 0x71004c0574
+#   Seamless co-op, gimmick ownership, a grant that starts no use (pkp_coop_owner.cpp): in the member's grant reply 0x7100539620, the
+#   `tbz w0, #0` after the grant's data apply (vt+0x2f8; x23 = the gimmick, x19 = the reply), whose false skips the use, and after
+#   which class 0x326dc98 runs none
+midhook 0x7100539b44
