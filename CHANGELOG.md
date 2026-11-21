@@ -48,6 +48,7 @@
 - A talk that depends on the item a player holds now picks the same lines for a teammate as for the host
 - Teammates no longer get a visitor's greeting from two special creatures where the host gets the creature's usual talk
 - A chest or other object a teammate closes is now always free again for everyone. Before, a close while the game was still waiting on the host could leave it held by that teammate, and everyone else got "Someone else is using this right now." for the rest of the session
+- When a teammate's connection drops, the others no longer lose the session: the world pauses and waits up to 2:00 for them, with a countdown that names who is awaited ((+) stops waiting), and the teammate who dropped rejoins in place through the normal join, bag and all. Save and Quit always stays possible, and the host closing the session is told apart from a drop
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five
