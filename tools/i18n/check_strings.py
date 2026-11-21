@@ -95,6 +95,19 @@ def main():
                 bad = sorted({ch for ch in text if not in_cmap(ch)})
                 if bad:
                     errors.append(f"{lang} {k}: letters the overlay font does not have: {' '.join(f'U+{ord(c):04X}' for c in bad)}")
+    # Two lines whose {1} is long: the unlocks batch (all five kinds, 2-digit counts) and an ability line (its longest name).
+    langs = {"en": dict((k, e) for k, _, e in table)}
+    for lang in LANGS:
+        langs[lang] = dict((k, unescape(t)) for k, t in read(CORE / f"pkp_strings_{lang}.inc", T_RE))
+    for lang, d in langs.items():
+        if set(d) != set(keys):
+            continue
+        parts = [d[f"Coop{k}Many"].replace("{0}", "12") for k in ("Moves", "Emotes", "Areas", "Buildings", "Gates")]
+        batch = d["CoopUnlockedBatch"].replace("{1}", d["CoopListComma"].join(parts[:-1]) + d["CoopListAnd"] + parts[-1])
+        ability = d["CoopAbilityNamed"].replace("{1}", max(d["CoopAbilityCreatureList"], d["CoopAbilityWater"], key=lambda t: len(t.encode())))
+        for name, text in (("CoopUnlockedBatch (five kinds)", batch), ("CoopAbilityNamed (longest name)", ability)):
+            if filled_bytes(text) > LOG_MAX and not d[name.split()[0]].endswith("{1}"):
+                errors.append(f"{lang} {name}: {filled_bytes(text)} bytes filled; over {LOG_MAX}, so its {{1}} must end the line (a cut drops list items only)")
     for e in errors:
         print("ERROR:", e)
     print(f"{len(keys)} keys, {len(LANGS)} languages besides English: {'FAILED' if errors else 'ok'}")
