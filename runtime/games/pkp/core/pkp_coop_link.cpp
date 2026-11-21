@@ -56,6 +56,8 @@ constexpr Route kRoutes[] = {
     {wire::Type::Purchase, Path::ToAuthority, &purchases::on_purchase_message},
     {wire::Type::PurchaseAsk, Path::ToAuthority, &purchases::on_ask_message},
     {wire::Type::PurchaseLog, Path::FromAuthority, &purchases::on_log_message},
+    {wire::Type::StockAsk, Path::ToAuthority, &stock::on_ask_message},
+    {wire::Type::StockState, Path::FromAuthority, &stock::on_state_message},
     {wire::Type::EventHistory, Path::Shared, &events::on_history_message},
     {wire::Type::StoryLines, Path::Shared, &events::on_lines_message},
     {wire::Type::DexKnown, Path::Shared, &discovery::on_dex_message},
@@ -190,6 +192,7 @@ void on_member(const ch::MemberEvent& e) {
         tutorials::on_session_change();
         hints::on_session_change();
         purchases::on_session_change();
+        stock::on_session_change();
         money::on_session_change();
         digest::on_session_change();
         records::on_session_change();
@@ -211,6 +214,7 @@ void on_member(const ch::MemberEvent& e) {
         tutorials::on_member_joined();
         hints::on_member_joined();
         money::on_member_joined();
+        stock::on_member_joined();
         bags::on_member_joined(e.node);
         records::on_member_joined();
         skits::on_member_joined();

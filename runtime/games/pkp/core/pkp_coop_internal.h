@@ -271,6 +271,29 @@ void on_session_change();   // this process joined or left: what it lacks is ask
 void reset();
 }  // namespace purchases
 
+namespace stock {
+// The hook sites (pkp_coop.cpp), on a member in a session off Cloud Island: the group's stock is the authority's.
+int on_get(::Ctx* c);       // entry 0x646864 (M, entry): the stock left, from the own record (the authority's numbers)
+int on_set(::Ctx* c);       // entry 0x646ae8 (M, entry, n): the own record, and the count taken goes to the authority
+int on_restock(::Ctx* c);   // entry 0x632380 (CM): the daily restock does not run (the authority's reaches the member)
+// The messages (pkp_coop_link.cpp).
+void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);     // the authority: counts a member took, an ask
+void on_state_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: the authority's shop records
+// The authority sends its records when they change; a member asks until they arrive and sends what it took (once a frame).
+void tick(::Ctx* c);
+void on_session_change();   // this process joined or left: asked and sent again
+void on_member_joined();    // another member joined: the records are sent again
+void reset();
+}  // namespace stock
+
+namespace pclock {
+// The hook site (pkp_coop.cpp): entry 0x1364f4 (SC, u8), the kind-28 notice of the PC's Shop pane (1) and challenges pane (0).
+int on_pane_notice(::Ctx* c);
+// Ends a PC menu lock the game's own way cannot end here (once a frame).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace pclock
+
 namespace money {
 // The hook sites (pkp_coop.cpp).
 int on_pay(::Ctx* c);            // entry 0x637480, the coins of a claimed challenge: on a member only once per challenge, marked paid
