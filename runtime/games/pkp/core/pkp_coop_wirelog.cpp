@@ -116,6 +116,9 @@ const char* type_name(uint32_t type) {
     case wire::Type::StoryLines: return "StoryLines";
     case wire::Type::QuestFlagAsk: return "QuestFlagAsk";
     case wire::Type::UnlockKnown: return "UnlockKnown";
+    case wire::Type::TutorialKnown: return "TutorialKnown";
+    case wire::Type::TipClosed: return "TipClosed";
+    case wire::Type::HabitatHints: return "HabitatHints";
     case wire::Type::AbilityCleared: return "AbilityCleared";
     case wire::Type::AreaMusic: return "AreaMusic";
     case wire::Type::ChallengesClaimed: return "ChallengesClaimed";

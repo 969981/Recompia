@@ -34,6 +34,9 @@
 //                                                            (the lines that changed on the origin; a receiver takes the furthest)
 //   QuestFlagAsk +2 u16 quest id (1..1000), +4 u8 its state on the origin (1..3)   (a member's player made that state's next step
 //               happen: the authority sets the quest's flag when its own state is the same; pkp_coop_quests.cpp)
+//   TutorialKnown +2 u16 count n, then n times: u16 tip id (1..0x1f3) the origin has shown   (pkp_coop_tutorials.cpp)
+//   TipClosed   +2 u16 tip id (1..0x1f3): the waiting tip was closed on the origin
+//   HabitatHints +2 u16 count n, then n times: u16 creature id (1..0x3ff), u8[64] its habitat-hint bitmap on the origin   (pkp_coop_hints.cpp)
 //   UnlockKnown +2 u8 list, +3 u16 count n, then n times: u8 entry id the origin's player has   (pkp_coop_unlocks.cpp)
 //               lists: 1 moves (id 1..0x3c), 2 emotes (1..0x64), 3 areas visited (stage 1..5), 4 buildings built (0..0x7f);
 //               a list this build does not know is skipped
@@ -200,6 +203,10 @@ enum class Type : uint32_t {
     StorySkits = 56,
     // ---- the characters another member's scenes hold (pkp_coop_scenes.cpp) ----
     SceneHolds = 57,
+    // ---- the shared tips and habitat hints (pkp_coop_tutorials.cpp, pkp_coop_hints.cpp) ----
+    TutorialKnown = 60,
+    TipClosed = 61,
+    HabitatHints = 62,
 };
 
 // Builds one payload: the header, then the fields in order.

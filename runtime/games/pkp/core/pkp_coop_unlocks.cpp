@@ -31,7 +31,8 @@
 //                                                getter (0x5c0504) reads the copy R + 0x1718470 + id (kSaveGateMirror), which no game
 //                                                code fills: on a visitor the entry is read there and both bytes are set.
 // The wheels (m_pokeSkillWheelHistory, m_communicationWheelHistory) are the player's own layout, filled by the learns above. The
-// other first-time lists stay per player (the RE notes: tutorials, items, cooking, collections, photo frames and filters).
+// other first-time lists stay per player (the RE notes: items, cooking, collections, photo frames and filters); the tips' history is shared by
+// pkp_coop_tutorials.cpp.
 // Rules on a receiver: an entry another member has is set here at a safe moment (in the group's world, can walk, talks to no one),
 // kSettle seconds after it arrived and only if its bit is still clear (the game's own path, such as quest effect 2 on every process,
 // wins with its own scene). A few moves or emotes waiting: one a safe moment with the game's own event; more (a join's whole lists):
