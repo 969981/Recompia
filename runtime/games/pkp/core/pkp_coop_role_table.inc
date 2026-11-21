@@ -130,3 +130,16 @@ PKP_ROLE_ROW(0x4a1b70, IsHost, 0x52000008u, "talk", "a creature takes a teammate
 // state is 4). The host's arm reads the campaign history of this process's save (R+0x6cec38 + slot * 6, bit 0), which is the group's
 // on a member (pkp_coop_records.cpp record 7), then 0x168e4 / 0x23fb4c. w0 is read by the `tbz` alone.
 PKP_ROLE_ROW(0x29dcc8, IsHost, 0x36000420u, "talk", "a campaign creature can be talked to by a teammate when the host could")
+// ---- the shop's rows and items (a14-shop) ----
+// 0xe85d70(entry), a shop row's state (0 hidden, 1 / 2 shown), for a row whose #70 byte +0x23 bit 1 is clear, off Cloud Island:
+// `bl IsVisitor` at 0xe85e08, then `tbz w0, #0` sends the host to state 2 and a visitor to `mov w0, wzr` (hidden). Every row the
+// shop lists in the story has bit 1 clear, so a member's shop had no row: the PC menu's shop tile (0xeff7a0, tile 1) needs one row
+// from 0xe86494 before its own tests, and stayed grey. The rows with bit 1 set keep the visitor's answer (0xe85e2c).
+PKP_ROLE_ROW(0xe85e0c, IsVisitor, 0x36000240u, "shop", "the shop's rows are offered as on the host, and the PC's shop tile lights up")
+// 0xe86494 (is row `entry` listed), after 0x64a3f8: `bl IsVisitor` at 0xe8651c, then `tbz w0, #0` skips, for the host, the extra test
+// 0x630a34 of the visitor's copy of the host's shop (shop manager + entry * 0x20 + 0x5492, bit 0), which a member never receives.
+PKP_ROLE_ROW(0xe86520, IsVisitor, 0x360000a0u, "shop", "a row is listed without the visitor's copy of the host's shop")
+// 0x63e3b8 (shop manager, entry) -> the row's item: the row's u16 +8 through 0x9c02e0 (the item's variant, from the tables) for the
+// host; a visitor reads its copy of the host's shop instead (manager + entry * 0x20 + 0x5480, bits 0..12), empty on a member. Read
+// by the buy screen's count (0xe88568) and the purchase log's names and categories (pkp_coop_purchases.cpp).
+PKP_ROLE_ROW(0x63e450, IsVisitor, 0x360001c0u, "shop", "a row's item is the table's, as on the host")

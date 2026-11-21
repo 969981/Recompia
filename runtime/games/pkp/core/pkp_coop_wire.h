@@ -34,6 +34,9 @@
 //                                                            (the lines that changed on the origin; a receiver takes the furthest)
 //   QuestFlagAsk +2 u16 quest id (1..1000), +4 u8 its state on the origin (1..3)   (a member's player made that state's next step
 //               happen: the authority sets the quest's flag when its own state is the same; pkp_coop_quests.cpp)
+//   TutorialKnown +2 u16 count n, then n times: u16 tip id (1..0x1f3) the origin has shown   (pkp_coop_tutorials.cpp)
+//   TipClosed   +2 u16 tip id (1..0x1f3): the waiting tip was closed on the origin
+//   HabitatHints +2 u16 count n, then n times: u16 creature id (1..0x3ff), u8[64] its habitat-hint bitmap on the origin   (pkp_coop_hints.cpp)
 //   UnlockKnown +2 u8 list, +3 u16 count n, then n times: u8 entry id the origin's player has   (pkp_coop_unlocks.cpp)
 //               lists: 1 moves (id 1..0x3c), 2 emotes (1..0x64), 3 areas visited (stage 1..5), 4 buildings built (0..0x7f);
 //               a list this build does not know is skipped
@@ -105,6 +108,19 @@
 //               seconds left on the authority's clock, u8 name length m, m bytes the player's name (UTF-8)   (the authority, every
 //               second while anyone is awaited and at each change; count 0: no one is)
 //   DropClosing nothing more                                 (the authority's own Save and Quit closes the session for everyone)
+//   ---- the characters another member's scenes hold (pkp_coop_scenes.cpp) ----
+//   SceneHolds  +2 u8 count n (<= 16), then n times u32 a character's talk-lock key   (every process, shared: the characters its
+//               running events hold, at each change; n = 0: none)
+//   ---- the shared shop stock (pkp_coop_stock.cpp) ----
+//   StockState  +2 u16 first shop entry (1), +4 u16 count n (0x7ff), then n times: u8 the record's flags (+1), u8 stock left (+2)
+//               (the authority's own shop records; when they change, and to a member that asks)
+//   StockAsk    +2 u8 1 when the member wants the whole StockState, +3 u16 count n, then n times: u16 shop entry (1..0x7ff), u16 count
+//               (1..999) the member's shop took from the stock   (a member, until a state arrives, and after each buy)
+//   ---- the shared shop rows (pkp_coop_shop_rows.cpp) ----
+//   ShopRows    +2 u8 the lineup's day, +3 u16 first shop entry (1), +5 u16 count n (0x7ff), then n times: u8 bits (0 listed, 1 / 2
+//               unlock condition 0 / 1 met, 3 / 4 hint 0 / 1 met, 7 the row has an area), u16 lineup price, u32 lineup slot word, u16
+//               hint 0, u16 hint 1   (the authority's answer for every row, as the game's kind-8 record has it; when it changes,
+//               every 30 s and when a member joins)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -192,6 +208,20 @@ enum class Type : uint32_t {
     DropLeaving = 53,
     DropWait = 54,
     DropClosing = 55,
+    // ---- the story talks (pkp_coop_skits.cpp): u8 the authority's stage, u16 count, then per character u16 data id, u16 scene,
+    // u16 content, u8 timer on, u32 timer (f32 bits) ----
+    StorySkits = 56,
+    // ---- the characters another member's scenes hold (pkp_coop_scenes.cpp) ----
+    SceneHolds = 57,
+    // ---- the shared tips and habitat hints (pkp_coop_tutorials.cpp, pkp_coop_hints.cpp) ----
+    TutorialKnown = 60,
+    TipClosed = 61,
+    HabitatHints = 62,
+    // ---- the shared shop stock (pkp_coop_stock.cpp) ----
+    StockState = 63,
+    StockAsk = 64,
+    // ---- the shared shop rows (pkp_coop_shop_rows.cpp) ----
+    ShopRows = 65,
 };
 
 // Builds one payload: the header, then the fields in order.
