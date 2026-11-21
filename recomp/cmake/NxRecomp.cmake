@@ -27,7 +27,7 @@
 # the player build uses): <prefix>_MODULES = module names in NxModule.index order, and for each module m
 # <prefix>_<m>_FILE (file name in the exefs), _BASE, _INDEX, _SHARDS, _SITES (absolute path of its site list, or empty).
 #
-# NX_GUEST_BASE (set by runtime/cmake/guest_layout.cmake when the target's guest base is not the canonical one; no current target
+# NX_GUEST_BASE (set by runtime/cmake/guest_layout.cmake when the target's guest base is not the canonical one; Android
 # sets it): build-info and module-header come from game-build/release_b/guest_layout.py instead, with the module bases moved to that
 # base and _SITES naming moved copies of the site lists in <build>/guest_layout/, so the lifts follow the runtime's layout. The
 # lifter itself is not told: it lifts at the BASE and with the SITES it is given.
