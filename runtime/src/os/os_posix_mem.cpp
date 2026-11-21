@@ -26,6 +26,7 @@
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
 #include "nxrt/notices.h"
+#include "nxrt/platform_facts.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -728,7 +729,7 @@ std::atomic<uint32_t> g_section_seq{1};
 // device would fill up during play and the game would die on a write fault. Then the section stays anonymous memory (memfd / zram), with
 // one log line and a notice. kSectionFileNeed: expected heap use (about 4.5 GiB) plus a 1 GiB reserve.
 constexpr uint64_t kSectionFileNeed = (45ull << 30) / 10 + (1ull << 30);
-static bool section_dir_has_room(const std::string& dir) {
+[[maybe_unused]] static bool section_dir_has_room(const std::string& dir) {
     struct statvfs v {};
     if (::statvfs(dir.c_str(), &v) != 0) return true;   // unknown: as before (the open below fails on a missing folder)
     const uint64_t free_b = static_cast<uint64_t>(v.f_bavail) * v.f_frsize;
@@ -762,6 +763,8 @@ HANDLE CreateFileMappingW(HANDLE file, void*, DWORD protect, DWORD hi, DWORD lo,
     // [memory] section_dir: a folder on flash. A section is then an unlinked sparse file there instead of anonymous shared memory, so
     // the kernel writes its cold pages back to the file and drops them under memory pressure instead of swapping them (a phone's zram is
     // small and shared with every app). Only touched pages take space; the file is gone with its last fd, also after a crash.
+    // Phones only (facts::kPhone): desktop sections are what they were.
+    if constexpr (nxrt::facts::kPhone) {
     if (static const std::string dir = nxrt::config_get_str("memory", "section_dir", ""); !dir.empty() && section_dir_has_room(dir)) {
         int fd = -1;
 #if defined(O_TMPFILE)
@@ -781,6 +784,7 @@ HANDLE CreateFileMappingW(HANDLE file, void*, DWORD protect, DWORD hi, DWORD lo,
         }
         NXLOG_W("mem", "section file in %s failed (errno %d): anonymous shared memory instead", dir.c_str(), errno);
         if (fd >= 0) ::close(fd);
+    }
     }
 #if defined(__ANDROID__)
     // bionic has no shm_open. A memfd is the same object without a name: sparse after ftruncate (SEC_RESERVE), shared by every
@@ -887,7 +891,7 @@ LPVOID MapViewOfFileEx(HANDLE section, DWORD access, DWORD hi, DWORD lo, SIZE_T 
     void* p = ::mmap(want ? reinterpret_cast<void*>(want) : nullptr, bytes, prot, flags, s->fd,
                      static_cast<off_t>(off));
 #if defined(MAP_FIXED_NOREPLACE)
-    if (p == MAP_FAILED && want && !guest && errno == EINVAL) {
+    if (p == MAP_FAILED && want && errno == EINVAL) {
         // A kernel before 4.17 answers MAP_FIXED_NOREPLACE with EINVAL instead of EEXIST; that is the only case where the
         // range is worth taking unconditionally (nothing else asked for it).
         p = ::mmap(reinterpret_cast<void*>(want), bytes, prot, MAP_SHARED | MAP_FIXED, s->fd, static_cast<off_t>(off));
