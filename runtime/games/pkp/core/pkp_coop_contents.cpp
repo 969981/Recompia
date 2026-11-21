@@ -16,7 +16,8 @@
 //   own scene with him). Its record is gone all the same, so a scene seen running only at its start is not done. Once it has been
 //   asked for again for kForceAfter seconds (long enough for another player's copy to play and share its played bit), its start
 //   takes its characters whoever holds them, as the authority does with a free one:
-//   0x4774e8 (midhook, in 0x476100)   `tbz w28, #0`: w28 = every character of the event is ready, x19 = the runner
+//   0x4774e8 (midhook, in 0x476100)   `tbz w28, #0`: w28 = every character of the event is ready, x19 = the runner. Taken only when
+//                                     every actor is in the world, none it does not hold is a player and requests are under 4
 //   0x47bfe4 (midhook, in 0x47bf80)   `and w24, w24, w0`: w0 = the IsMine answer (vt+0x478) of the character whose u16 id is at x20
 //                                     (0 when it is not in the world), x19 = the runner. Only a character in the world is taken.
 //   Saves where it was lost already: a quest at 3 whose scene was lost is given it again when the player is where the record asked
@@ -50,13 +51,17 @@ constexpr uint32_t kEventMax = 0x18ff;
 constexpr double kFirst = 3.0;                // the first retry after the refusal
 constexpr double kEvery = 3.0;
 constexpr double kGiveUp = 600.0;
-constexpr double kForceAfter = 90.0;          // asked for again this long: its start takes its characters (0x4774e8, 0x47bfe4)
+constexpr double kForceAfter = 180.0;         // asked for again this long: its start takes its characters (0x4774e8, 0x47bfe4).
+                                              // Longer than a scene: another player's copy holding them ends and shares its bit
 constexpr uint64_t kRunners = 0x35650f8;      // main + : -> the event runners, one per slot (0x2010 each); slot 0 first
 constexpr uint64_t kRunNow = 8;               // u32: the runner's state (0 start, 1 wait, 2 setup, 3 script, 4 end, 5 callback, 6..8 end)
 constexpr uint64_t kRunEvent = 0x10;          // u16: the runner's event
 constexpr uint64_t kActors = 0x3483bd0;       // main + : -> the actor manager
 constexpr uint64_t kActorOf = 0x281360;       // (actors, &u16 actor id): the actor, or 0
 constexpr uint64_t kOwnerOf = 0x468;          // actor vt: the owner's net index (0xff free)
+constexpr uint64_t kIsMine = 0x478;           // actor vt: this process holds it (0x27f958)
+constexpr uint64_t kRunActors = 0x1a88, kRunActorCount = 0x1a90;   // the event's u16 actor ids (pointer, count)
+constexpr uint64_t kRunRequests = 0x1ab0;     // u32: 0x476100 refuses the start at 4 or more
 constexpr size_t kMax = 8;
 
 // A scene a mode-0 record queued once and that was lost in a save already: the quest that waits on it, and the record's condition
@@ -151,14 +156,42 @@ Pending* forced_for(uint64_t runner) {
     return nullptr;
 }
 
+uint64_t actor_of(::Ctx* c, uint64_t id) {
+    const uint64_t got = guest::rd<uint64_t>(base() + kActors);
+    const uint64_t actors = got && guest::ok(got, 8) ? guest::rd<uint64_t>(got) : 0;
+    const uint64_t actor = actors && guest::ok(id, 2) ? guest::call(c, base() + kActorOf, actors, id) : 0;
+    return actor && guest::ok(actor, 8) && guest::ok(guest::rd<uint64_t>(actor) + kIsMine, 8) ? actor : 0;
+}
+
+// The setup's refusal comes only from characters another player holds: every actor id it tests (kinds 1..4, as 0x476100 skips
+// the others) is in the world, every one this process does not hold is a character (kinds 2..4, never a player), and the request
+// count is under 4. Returns the guest address of the first held id (0 when none is held), or ~0 when the refusal has another cause.
+uint64_t only_held(::Ctx* c, uint64_t runner) {
+    if (!guest::ok(runner + kRunRequests, 4) || guest::rd<uint32_t>(runner + kRunRequests) >= 4) return ~uint64_t{0};
+    const uint64_t list = guest::rd<uint64_t>(runner + kRunActors);
+    const uint64_t count = guest::rd<uint64_t>(runner + kRunActorCount);
+    if (count > 64 || (count && !guest::ok(list, count * 2))) return ~uint64_t{0};
+    uint64_t held = 0;
+    for (uint64_t i = 0; i < count; ++i) {
+        const uint64_t id = list + i * 2;
+        const uint32_t v = guest::rd<uint16_t>(id);
+        const uint32_t kind = v >> 12;
+        if ((v & 0x800) || kind < 1 || kind > 4) continue;
+        const uint64_t actor = actor_of(c, id);
+        if (!actor) return ~uint64_t{0};
+        if (guest::call(c, guest::rd<uint64_t>(guest::rd<uint64_t>(actor) + kIsMine), actor) & 1) continue;
+        if (kind == 1) return ~uint64_t{0};
+        if (!held) held = id;
+    }
+    return held;
+}
+
 void log_forced(::Ctx* c, Pending& p, uint64_t id) {
     if (p.forced) return;
     p.forced = true;
     uint32_t owner = 0xff;
-    const uint64_t got = guest::rd<uint64_t>(base() + kActors);
-    const uint64_t actors = got && guest::ok(got, 8) ? guest::rd<uint64_t>(got) : 0;
-    const uint64_t actor = id && actors ? guest::call(c, base() + kActorOf, actors, id) : 0;
-    if (actor && guest::ok(actor, 8) && guest::ok(guest::rd<uint64_t>(actor) + kOwnerOf, 8))
+    const uint64_t actor = id ? actor_of(c, id) : 0;
+    if (actor)
         owner = static_cast<uint32_t>(guest::call(c, guest::rd<uint64_t>(guest::rd<uint64_t>(actor) + kOwnerOf), actor)) & 0xff;
     NXLOG_I(kTag,
             "Co-op contents: scene %u (event %u) was refused %u times by a character another player holds; its start takes them "
@@ -257,7 +290,9 @@ int on_scene_take(::Ctx* c) {
     if (c->x[28] & 1) return 0;   // every character is ready: the game's own start
     Pending* p = forced_for(c->x[19]);
     if (!p) return 0;
-    log_forced(c, *p, 0);
+    const uint64_t held = only_held(c, c->x[19]);
+    if (held == ~uint64_t{0}) return 0;   // a player, a character not in the world or too many requests: the game's abort
+    log_forced(c, *p, held);
     c->x[28] |= 1;
     return 0;
 }
@@ -269,9 +304,7 @@ int on_scene_start(::Ctx* c) {
     if (!p || !guest::ok(id, 2)) return 0;
     const uint32_t kind = guest::rd<uint16_t>(id) >> 12;
     if (kind < 2 || kind > 4) return 0;   // a player is never taken
-    const uint64_t got = guest::rd<uint64_t>(base() + kActors);
-    const uint64_t actors = got && guest::ok(got, 8) ? guest::rd<uint64_t>(got) : 0;
-    if (!actors || !guest::call(c, base() + kActorOf, actors, id)) return 0;   // not in the world: the game's abort
+    if (!actor_of(c, id)) return 0;   // not in the world: the game's abort
     log_forced(c, *p, id);
     c->x[0] = 1;
     return 0;
