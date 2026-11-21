@@ -179,6 +179,11 @@ void tick(::Ctx* c, bool in_game) {
     s.logged_wait = false;
 }
 
+bool unanswered() {
+    const uint64_t q = queue();
+    return q && guest::rd<uint16_t>(q + kSent) != guest::rd<uint16_t>(q + kAnswered);
+}
+
 void reset() { clear(nullptr, "co-op stopped"); }
 
 }  // namespace nxrt::games::pkp::coop::linkqueue
