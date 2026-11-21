@@ -15,6 +15,7 @@
 // Queued lines wait until the player can walk (no event or menu running), and come at least kGap apart, so none is lost under a
 // cutscene and two do not cover each other.
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
 
 #include <algorithm>
@@ -79,7 +80,10 @@ void line(::Ctx* c, uint8_t slot, const char* text) {
     guest::wr<uint64_t>(t + 0x20, kArgCount);
     for (size_t i = 0; i < kArgCount; ++i) guest::wr<uint32_t>(t + kTextArgs + i * kArgSize, kArgNone);
     guest::wr<uint32_t>(t + kTextArgs, kArgString);
-    std::memcpy(s.text + kTextArgs + 8, text, std::min(std::strlen(text), kArgText - 1));
+    size_t n = std::min(std::strlen(text), kArgText - 1);
+    if (n < std::strlen(text))
+        while (n && (static_cast<unsigned char>(text[n]) & 0xc0) == 0x80) --n;   // cut at a whole UTF-8 character (translated lines)
+    std::memcpy(s.text + kTextArgs + 8, text, n);
     guest::call(c, base() + kShowLine, slot, t, 1);
 }
 
@@ -92,7 +96,7 @@ void post(const std::string& text) {
 
 std::string name_of(uint8_t node) {
     const State& s = st();
-    return node < kNodes && !s.names[node].empty() ? s.names[node] : "Your teammate";
+    return node < kNodes && !s.names[node].empty() ? s.names[node] : std::string(strings::get(base(), strings::Str::CoopTeammate));
 }
 
 void set_slot(uint8_t slot) { st().slot = slot; }

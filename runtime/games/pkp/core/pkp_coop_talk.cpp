@@ -78,9 +78,24 @@
 //                                     Island now does not either (entry hook: returns 0). Condition 0x16 (0x4cfb08 `b IsHost`) has no
 //                                     user: no table row, no fixed-offset call ([table + 0xb8] = 0x17 and + 0x290 = 0x52 are the
 //                                     only ones), and the loads at 0x4c9bd0 / 0x4c9cd4 in 0x4c8ba0 index hash buckets on its stack
+// Talk 0x1b3's answer, script callback slot 119 0x4a17fc (a creature takes the held Star Piece, item 0x5c, and gives its item), tests
+// condition 0x52's terms again before it queues line 437 ("give it to someone else"), 438 ("not a good time") or the exchange (line
+// 436, the give 0x45f580 -> slot 27, the receive 0x3bcdc0 -> slot 28). Lines 436..438 are talk lines, not scripted events:
+// 0x339580 queues a record of id 0 with kind +0x664 = 3 and the line at +0x1b4, which the runner (0x4763e8) plays as one script
+// command 3 (0x431200, the message), so they write no saved state. Off Cloud Island its parent term is again the own-save one
+// (record R + data id * 0x180 + 0x728 = own record +0x8, m_ParentsUserID, against m_UserID R+0x13d3a89), or'd with the row term at:
+//   0x4a1adc (midhook)                `orr w24, w22, w8`: w22 the row term (+0x65 bit, item +0x1a in 1..0x11f7), w8 the parent term,
+//                                     w24 (off Cloud Island) the data id (1..0x3ff, 0x4a19ac). A member's w8 becomes "the group's
+//                                     record of the creature (the member's copy of the host's) has parents", as at 0x4d35f8, so a
+//                                     member is refused where the host is, for the town's residents, and accepted for a creature
+//                                     with none. w8 is read by this `orr` alone (0x4a1ae8 calls out, 0x4a1af0 loads x8). The
+//                                     0x284ef4 term that follows compares the copy's parents with the member's own id (false off
+//                                     Cloud Island, where only the host writes parents). The IsHost answer at 0x4a1b70 that picks
+//                                     line 438 is a role row (pkp_coop_role_table.inc)
 // The refusal's line goes to the game's message log through notice::line (pkp_coop_notice.cpp), on the talker's slot; the slot of
 // this player's own talk starts is handed to the notices.
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_journal.h"
 #include "core/pkp_layout.h"
@@ -111,8 +126,6 @@ constexpr uint64_t kQueue = 0x3565100, kQueueSlot = 0x20fa0, kQueuePending = 0x2
 constexpr uint32_t kRunnerIdle = 9;
 constexpr uint8_t kSlots = 2;
 
-constexpr const char* kBusyLine = "This NPC is in a conversation with someone.";
-
 constexpr uint64_t kFlagsReg = 3;       // 0x3180e0's w3: bit 0 clear, a talk started from inside a running event (0x48fd50)
 constexpr uint64_t kIsHostReg = 0;      // at 0x4c06d8: IsHost's answer, or'd into the "take the host's path" bit (also at 0x4d35f8)
 constexpr uint64_t kOwnReg = 0;         // at 0x4c0574: 0x332c80's answer, "this player is the creature's own"
@@ -124,6 +137,7 @@ constexpr uint64_t kCondRowReg = 22, kCondDataReg = 21, kCondParentReg = 19;   /
 constexpr uint32_t kCharaOfData = 4;            // a creature's friend record index is its data id + 4 (0x3b7948's +0x600)
 constexpr uint64_t kParents = 0x8;              // friend record: 16 bytes, m_ParentsUserID
 constexpr uint64_t kNullUser = 0x3566a38;       // main + : the 16-byte null user id 0x285100 compares parents with
+constexpr uint64_t kSwapDataReg = 24, kSwapParentReg = 8;   // at 0x4a1adc (talk 0x1b3's answer, slot 119), see the header
 
 constexpr double kLease = 5.0;        // a grant not used for a talk by then is given back
 constexpr double kAskAgain = 2.0;     // a press on the same character asks again after this long without an answer
@@ -229,7 +243,7 @@ int on_talk_start(::Ctx* c) {
     const uint8_t self = link::self();
     const auto it = s.holders.find(chara);
     if (it != s.holders.end() && it->second != self) {
-        notice::line(c, slot, kBusyLine);
+        notice::line(c, slot, strings::get(base(), strings::Str::CoopTalkBusy));
         journal::Rec(journal::Area::Talk, "lock").in("character=0x%08x (data id %u, idx %u) slot=%u", chara, chara >> 16 & 0x7fff,
                                                      chara & 0xffff, slot)
             .refused("held by n%u", it->second);
@@ -310,6 +324,26 @@ int on_cond_parent(::Ctx* c) {
                          guest::rd<uint64_t>(rec + kParents + 8) != guest::rd<uint64_t>(base() + kNullUser + 8);
     c->x[kCondParentReg] = (c->x[kCondRowReg] & 1) | (parents ? 1 : 0);
     c->x[kIsHostReg] = 1;
+    return 0;
+}
+
+int on_swap_parent(::Ctx* c) {
+    // Off Cloud Island only: there w24 is the data id; on Cloud Island (w24 = data id + 4, w8 the Cloud record's +0x178) the game's
+    // own rules stay. Any read that fails leaves the game's answer.
+    if (!quests::member_rules() || (guest::call(c, base() + kCloudIsland, 0) & 1)) return 0;
+    const uint32_t data = static_cast<uint32_t>(c->x[kSwapDataReg] & 0xffff);
+    if (data - 1 >= kDataIds) return 0;
+    const uint32_t chara = data + kCharaOfData;
+    const uint64_t root = guest::rd<uint64_t>(base() + layout::kSaveRoot);
+    const uint64_t rec = root + layout::kFriendHostCopy + static_cast<uint64_t>(chara) * layout::kFriendSize;
+    if (!root || chara >= layout::kFriendCount || !guest::ok(rec + kParents, 16) || !guest::ok(base() + kNullUser, 16)) return 0;
+    const bool parents = guest::rd<uint64_t>(rec + kParents) != guest::rd<uint64_t>(base() + kNullUser) ||
+                         guest::rd<uint64_t>(rec + kParents + 8) != guest::rd<uint64_t>(base() + kNullUser + 8);
+    if (parents != ((c->x[kSwapParentReg] & 1) != 0))
+        journal::Rec(journal::Area::Talk, "star piece swap")
+            .in("data=%u", data)
+            .out(parents ? "the group's creature: declined, as for the host" : "no parents in the group: taken, as for the host");
+    c->x[kSwapParentReg] = parents ? 1 : 0;
     return 0;
 }
 

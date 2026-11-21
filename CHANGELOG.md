@@ -48,6 +48,20 @@
 - A talk that depends on the item a player holds now picks the same lines for a teammate as for the host
 - Teammates no longer get a visitor's greeting from two special creatures where the host gets the creature's usual talk
 - A chest or other object a teammate closes is now always free again for everyone. Before, a close while the game was still waiting on the host could leave it held by that teammate, and everyone else got "Someone else is using this right now." for the rest of the session
+- Co-op's own messages follow the game's language: the pop-ups that tell you what a teammate unlocked, found, bought or finished, and the busy line when a teammate is talking to a character, in all nine of the game's languages. The join and leave covers and co-op's other on-screen notices are translated too in French, Italian, German and Spanish (they stay in English in Japanese, Chinese and Korean for now)
+- Teammates can put materials into the story's materials drop (the lighthouse) and move its building on: the host's world checks the step once for the whole group, every teammate sees the new stage, and if the step can't be taken the materials stay in the drop to take back. Before, pressing it did nothing for a teammate
+- A teammate's shop purchase or story catch-up item that arrives while their bag is being put back (after the host refused a box store, at an area change or when joining) is no longer lost
+- A creature the story asks to follow a player no longer ends up following nobody when the story step ran for a teammate: it follows the host. Before, the fire starter creature at the start of the story could stop following anyone and just wander around, until the host restarted the game
+- A co-op save is now one world for the whole group: each time the host's game saves, the island (its areas and photos) is copied to every teammate's co-op save, and a teammate's own game no longer writes its island over that copy. Bags, Life Coins, the look and the Ordered Items and Gifts boxes stay each player's own. Every player's launcher then knows who has the newest copy, so the next session is hosted from it
+- When a teammate's talk opens a creature's special event talk, the host's world now keeps it, so the host gets that talk with the creature afterwards, as already happened on Cloud Island
+- Teammates now get the same answers as the host from the story and town records at a few more places: a creature the story keeps for one of its requests is not free for them, and a creature the town records leave out is left out for them too
+- A talk that depends on the blocks near a creature now picks the same lines for a teammate as for the host
+- Teammates now see the comfort-level notice of their own house in every area
+- Teammates can give a creature a Star Piece and get its item in exchange, as the host can. Before, the creature always said it wasn't a good time
+- When a teammate's connection drops, the others no longer lose the session: the world pauses and waits up to 2:00 for them, with a countdown that names who is awaited ((+) stops waiting), and the teammate who dropped rejoins in place through the normal join, bag and all. Save and Quit always stays possible, and the host closing the session is told apart from a drop
+- A teammate is never left playing alone in a copy of the group's island: when the host ends the session, when a teammate leaves with Save and Quit, or when the connection is lost and the host's session can't be found again, the teammate's game says so and closes. Start co-op again from the launcher to play on. The host's game stays open
+- The record of event campaigns is the group's: teammates get the host's, so a campaign creature can be talked to by a teammate whenever the host could
+
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

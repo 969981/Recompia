@@ -29,7 +29,9 @@
 // reward and the member nothing. Its item is shared like a script give; its moves, emotes and recipes are shared already
 // (pkp_coop_unlocks.cpp, pkp_coop_recipes.cpp). RE: modding-docs coop-v2/VISITOR-SERVICES-RE.md section 10.
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
+#include "core/pkp_language.h"
 #include "core/pkp_layout.h"
 
 #include <algorithm>
@@ -91,12 +93,6 @@ uint64_t save_root() {
     return guest::ok(r, kNameLang + 9 * kNameCopyStride) ? r : 0;
 }
 
-uint32_t language() {
-    const uint64_t p = guest::rd<uint64_t>(base() + layout::kLanguage);
-    const uint32_t l = guest::ok(p, 4) ? guest::rd<uint32_t>(p) : 1;
-    return l < 9 ? l : 1;
-}
-
 uint64_t name_slot(uint64_t root, uint32_t lang) { return root + kNameSlot + lang * kNameSlotSize; }
 
 // The game's own header text of the name keyboard; 0 if none.
@@ -114,7 +110,7 @@ uint64_t name_header(::Ctx* c) {
 
 bool open_prompt(::Ctx* c, uint64_t me) {
     State& s = st();
-    const uint32_t lang = language();
+    const uint32_t lang = language::index(base());
     std::memset(s.name, 0, sizeof s.name);
     std::memset(s.opts, 0, sizeof s.opts);
     const uint64_t opts = reinterpret_cast<uint64_t>(s.opts);
@@ -134,7 +130,7 @@ void write_name(::Ctx* c) {
     State& s = st();
     const uint64_t root = save_root();
     if (!root || !s.name[0]) return;
-    const uint32_t lang = language();
+    const uint32_t lang = language::index(base());
     const uint64_t name = reinterpret_cast<uint64_t>(s.name);
     const uint64_t slot = name_slot(root, lang);
     std::memset(reinterpret_cast<void*>(slot), 0, kNameSlotSize);
@@ -184,7 +180,7 @@ void tick_watch() {
         s.watching = false;
         return;
     }
-    const uint8_t* now = reinterpret_cast<const uint8_t*>(name_slot(root, language()));
+    const uint8_t* now = reinterpret_cast<const uint8_t*>(name_slot(root, language::index(base())));
     if (!now[0] || std::memcmp(now, s.name_before, kNameSlotSize) == 0) return;
     s.watching = false;
     link::share(wire::Type::NamePrompt, wire::Writer(link::self()).take());
@@ -203,7 +199,9 @@ void tick_gives(::Ctx* c) {
         guest::wr<uint16_t>(cmd + 4, item);
         guest::wr<uint32_t>(cmd + 8, count);
         ++s.remote;
+        bags::gain_begin(c);   // the give is credited to the bag record (no write-back takes it away)
         guest::call(c, base() + kGiveItems, cmd);
+        bags::gain_end(c);
         --s.remote;
         NXLOG_I(kTag, "Co-op catch-up: item %u x%u given here too", item, count);
     }
@@ -229,7 +227,7 @@ int on_name_entry(::Ctx*) {
     State& s = st();
     const uint64_t root = save_root();
     if (!link::in_session() || !root) return 0;
-    std::memcpy(s.name_before, reinterpret_cast<const void*>(name_slot(root, language())), kNameSlotSize);
+    std::memcpy(s.name_before, reinterpret_cast<const void*>(name_slot(root, language::index(base()))), kNameSlotSize);
     s.watching = true;
     s.watch_since = qpc::seconds();
     return 0;
@@ -251,7 +249,7 @@ void on_name_message(::Ctx*, int, uint8_t, wire::Reader&) {
     State& s = st();
     const uint64_t root = save_root();
     if (s.prompt != Prompt::None) return;
-    if (root && guest::rd<uint8_t>(name_slot(root, language()))) {
+    if (root && guest::rd<uint8_t>(name_slot(root, language::index(base())))) {
         NXLOG_I(kTag, "Co-op catch-up: a name was entered; this player has one already");
         return;
     }
@@ -268,13 +266,13 @@ void on_items_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
         return;
     }
     gives.emplace_back(item, count);
-    notice::post(notice::name_of(origin) + " was given items in a talk. You got them too!");
+    notice::post(strings::fmt(base(), strings::Str::CoopGivenItems, notice::name_of(origin)));
 }
 
 std::string player_name() {
     const uint64_t root = save_root();
     if (!root) return {};
-    const char* name = reinterpret_cast<const char*>(name_slot(root, language()));
+    const char* name = reinterpret_cast<const char*>(name_slot(root, language::index(base())));
     return std::string(name, strnlen(name, kNameSlotSize));
 }
 

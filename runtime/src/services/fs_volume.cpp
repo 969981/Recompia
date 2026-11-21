@@ -26,6 +26,7 @@ namespace nxrt::services::fs {
 namespace {
 
 std::atomic<int> g_crash_point{0};
+std::atomic<Volume::HoldFn> g_hold{nullptr};   // set_commit_hold
 
 // Test hook (set_io_failure_for_tests): the `g_fail_nth`-th host operation at `g_fail_point` fails with `g_fail_err`.
 std::atomic<int> g_fail_point{0}, g_fail_nth{0};
@@ -493,6 +494,8 @@ bool Volume::ok() const { return p_->ok; }
 
 void Volume::set_crash_point_for_tests(int point) { g_crash_point = point; }
 
+void Volume::set_commit_hold(HoldFn fn) { g_hold.store(fn, std::memory_order_release); }
+
 void Volume::set_io_failure_for_tests(IoPoint point, int nth, uint32_t win32_error) {
     g_fail_err = win32_error;
     g_fail_nth = nth;
@@ -752,9 +755,36 @@ uint32_t Volume::commit() {
     if (const uint32_t e = s.taint->err.exchange(0)) return refuse(e, "a save write failed since the last commit", true);
 
     // Phase 1: flush the changed files, write the change list, make it the decided marker with one rename.
+    // Held files (set_commit_hold) get no line: their committed state stays. A deleted folder that holds held files is replaced by
+    // the deletions of its other committed files, so the held ones survive it.
+    const HoldFn hold = g_hold.load(std::memory_order_acquire);
     std::string body = "W " + to_u8(s.work) + "\nR " + root_u8 + "\n";
-    for (const std::string& t : s.tomb) body += "D " + rel_of(t) + "\n";
-    int changes = static_cast<int>(s.tomb.size());
+    int changes = 0;
+    for (const std::string& t : s.tomb) {
+        const std::string rel = rel_of(t);
+        if (hold && hold(root_u8, rel)) continue;
+        std::vector<std::string> others;   // the folder's committed files that are not held, when one of them is
+        bool any_held = false;
+        if (hold && stdfs::is_directory(s.cpath(t), ec)) {
+            std::error_code we;
+            for (stdfs::recursive_directory_iterator it(s.cpath(t), we), end; !we && it != end; it.increment(we)) {
+                std::error_code e2;
+                if (!it->is_regular_file(e2)) continue;
+                std::string g = to_u8(stdfs::relative(it->path(), s.root, e2));
+                if (e2) continue;
+                std::replace(g.begin(), g.end(), '\\', '/');
+                if (hold(root_u8, g)) any_held = true;
+                else others.push_back(g);
+            }
+        }
+        if (!any_held) {
+            body += "D " + rel + "\n";
+            changes++;
+            continue;
+        }
+        for (const std::string& g : others) body += "D " + g + "\n";
+        changes += static_cast<int>(others.size());
+    }
     std::vector<std::string> files, dirs;
     std::error_code walk;
     for (stdfs::recursive_directory_iterator it(s.work, walk), end; !walk && it != end; it.increment(walk)) {
@@ -767,6 +797,7 @@ uint32_t Volume::commit() {
             dirs.push_back(g);
             continue;
         }
+        if (hold && hold(root_u8, g)) continue;   // held: the committed file stays; this change goes with the work folder
         files.push_back(g);
         bool opened = false;
         if (const DWORD fe = flush_path(it->path(), &opened)) {

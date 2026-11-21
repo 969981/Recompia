@@ -27,6 +27,7 @@
 // log says what was found. A bit that arrives without a scene is set kSettle seconds later through the game's own setter, so a scene
 // on its way (or the game's own registration here) wins.
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 #include "core/pkp_tables.h"
@@ -204,18 +205,12 @@ void send_scenes() {
 void batch_line() {
     State& s = st();
     if (!s.dex_lines && !s.hab_lines) return;
-    char text[192];
     const std::string who = notice::name_of(static_cast<uint8_t>(s.line_origin < 0 ? 0 : s.line_origin));
-    if (s.dex_lines && s.hab_lines)
-        std::snprintf(text, sizeof text, "%s's finds are yours too: %u Pokedex entr%s and %u habitat%s.", who.c_str(), s.dex_lines,
-                      s.dex_lines == 1 ? "y" : "ies", s.hab_lines, s.hab_lines == 1 ? "" : "s");
+    using strings::Str;
+    if (s.dex_lines && s.hab_lines) notice::post(strings::fmt(base(), Str::CoopFindsBoth, who, s.dex_lines, s.hab_lines));
     else if (s.dex_lines)
-        std::snprintf(text, sizeof text, "%s filled in %u Pokedex entr%s. Yours has %s too!", who.c_str(), s.dex_lines,
-                      s.dex_lines == 1 ? "y" : "ies", s.dex_lines == 1 ? "it" : "them");
-    else
-        std::snprintf(text, sizeof text, "%s found %u habitat%s. Your list has %s too!", who.c_str(), s.hab_lines,
-                      s.hab_lines == 1 ? "" : "s", s.hab_lines == 1 ? "it" : "them");
-    notice::post(text);
+        notice::post(strings::fmt(base(), s.dex_lines == 1 ? Str::CoopEntriesOne : Str::CoopEntriesMany, who, s.dex_lines));
+    else notice::post(strings::fmt(base(), s.hab_lines == 1 ? Str::CoopHabitatsOne : Str::CoopHabitatsMany, who, s.hab_lines));
     s.dex_lines = s.hab_lines = 0;
     s.line_origin = -1;
 }
@@ -241,7 +236,7 @@ bool play_scene(::Ctx* c, uint64_t root) {
         s.hab_seen[h.hab] |= hab_bits(root, h.hab);
         s.hab_want[h.hab] = 0;
         NXLOG_I(kTag, "Co-op discovery: habitat %u (placed %u) from node %u found here, with its scene", h.hab, h.placed, h.origin);
-        notice::post(notice::name_of(h.origin) + " found a new habitat. It's in your list too!");
+        notice::post(strings::fmt(base(), strings::Str::CoopHabitatFound, notice::name_of(h.origin)));
         return true;
     }
     if (!s.dex_in.empty()) {
@@ -270,7 +265,7 @@ bool play_scene(::Ctx* c, uint64_t root) {
             NXLOG_I(kTag, "Co-op discovery: Pokedex no. %u (creature %u) from node %u registered here; actor 0x%x is creature %u here, "
                     "no scene", d.dex_no, d.creature, d.origin, d.actor, here);
         }
-        notice::post(notice::name_of(d.origin) + " met a new Pokemon. It's in your Pokedex too!");
+        notice::post(strings::fmt(base(), strings::Str::CoopCreatureMet, notice::name_of(d.origin)));
         return true;
     }
     return false;

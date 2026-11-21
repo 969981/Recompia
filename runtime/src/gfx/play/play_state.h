@@ -203,6 +203,7 @@ void toggle_fps_counter();
 
 // play_startup.cpp
 [[noreturn]] void quit_now(const char* why);
+void quit_if_requested();          // ends the process when play::request_quit was called (the main thread, once a frame)
 
 // play_perf.cpp
 void perf_settings_register();     // the performance report's settings line (nxrt/perf_report.h)

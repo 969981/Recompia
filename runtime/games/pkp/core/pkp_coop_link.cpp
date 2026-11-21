@@ -81,6 +81,22 @@ constexpr Route kRoutes[] = {
     {wire::Type::TravelAsk, Path::ToAuthority, &travel::on_ask_message},
     // a newly met creature moving in
     {wire::Type::NewcomerAsk, Path::ToAuthority, &newcomer::on_ask_message},
+    // a member's deposit into the story's materials drop
+    {wire::Type::DepositAsk, Path::ToAuthority, &deposit::on_ask_message},
+    {wire::Type::DepositState, Path::FromAuthority, &deposit::on_state_message},
+    // a story follow on a member
+    {wire::Type::StoryFollow, Path::ToAuthority, &follow::on_ask_message},
+    // the shared save
+    {wire::Type::SaveHave, Path::ToAuthority, &savecopy::on_have_message},
+    {wire::Type::SaveOffer, Path::FromAuthority, &savecopy::on_offer_message},
+    {wire::Type::SaveChunk, Path::FromAuthority, &savecopy::on_chunk_message},
+    // a creature's talk record flag a member's talk arms
+    {wire::Type::TalkRecArmed, Path::ToAuthority, &talkrec::on_armed_message},
+    // a dropped player is waited for
+    {wire::Type::DropHere, Path::ToAuthority, &drop::on_here_message},
+    {wire::Type::DropLeaving, Path::ToAuthority, &drop::on_leaving_message},
+    {wire::Type::DropWait, Path::FromAuthority, &drop::on_wait_message},
+    {wire::Type::DropClosing, Path::FromAuthority, &drop::on_closing_message},
 };
 
 struct State {
@@ -152,6 +168,8 @@ void on_member(const ch::MemberEvent& e) {
     const bool self = e.node == ch::self() || ch::self() == ch::kNoNode;
     talk::on_member(st().ctx, e.node, e.joined, e.authority, self);
     gimmicks::on_member(e.node, e.joined, self);
+    savecopy::on_member(e.node, e.joined, self);
+    drop::on_member(e.node, e.joined, self);
     if (self) {
         story::on_session_change();
         quests::on_session_change();

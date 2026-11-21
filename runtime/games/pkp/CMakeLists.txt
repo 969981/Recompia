@@ -69,6 +69,13 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop_doors.cpp"
         "${_pkp}/core/pkp_coop_title.cpp"
         "${_pkp}/core/pkp_coop_takeout.cpp"
+        "${_pkp}/core/pkp_coop_deposit.cpp"
+        "${_pkp}/core/pkp_coop_follow.cpp"
+        # the one shared save
+        "${_pkp}/core/pkp_coop_saveset.cpp"
+        "${_pkp}/core/pkp_coop_savecopy.cpp"
+        "${_pkp}/core/pkp_coop_talkrec.cpp"
+        "${_pkp}/core/pkp_coop_drop.cpp"
         "${_pkp}/core/pkp_journal.cpp"
         "${_pkp}/core/pkp_journal_feature.cpp"
         "${_pkp}/core/pkp_journal_actor.cpp"
@@ -153,4 +160,5 @@ if(TARGET nxrt_gfx)
     endif()
     target_link_libraries(nxrt_game_pkp PUBLIC nxrt_game_pkp_core nxrt_gfx PRIVATE nxrt_miniz)
     target_sources(nxrt_game_pkp PRIVATE "${_pkp}/render/pkp_render_info.cpp")   # game::Info::render (nxrt/game_render.h)
+    target_sources(nxrt_game_pkp PRIVATE "${_pkp}/core/pkp_strings.cpp")   # our own strings in the game's language (pkp_strings.h)
 endif()

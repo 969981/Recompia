@@ -50,6 +50,10 @@
 //   pkp_coop_doors.cpp    the session's doors in the menus: the PC's Link Play screen makes no session call, the pause menu never
 //                         sends a teammate home or rejects one; Save and Quit stays
 //   pkp_coop_title.cpp    a co-op start goes past the title screen on its own, with no "did not disconnect correctly" message
+//   pkp_coop_follow.cpp   a story content's "follow this player" on a member made on the authority, for the authority's creature
+//   pkp_coop_savecopy.cpp the one shared save: the authority's save points copied to every member's co-op folder, stamped
+//                         (pkp_coop_saveset.cpp: the folder's files on disk)
+//   pkp_coop_drop.cpp     a dropped player is waited for: the group holds while it comes back through the normal join
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -319,6 +323,11 @@ void on_member_joined(int node);
 // A member: the host refused a request that took items out of the bag (pkp_coop_bag.cpp): the record, still the bag from before
 // that request, is written back into the bag once the bag / container screen is closed.
 void on_request_refused();
+// A module that adds to this player's bag (a give of co-op's own) brackets the add: gain_begin right before, gain_end right after, on
+// the game thread. The bag's gain in between is credited to the record at once, so no write-back (an apply, a refused request's
+// restore) can take it away; a loss in between is not credited (the header of pkp_coop_bags.cpp has the rule).
+void gain_begin(::Ctx* c);
+void gain_end(::Ctx* c);
 // The hook sites (pkp_coop.cpp).
 int on_mirror_fill(::Ctx* c);   // entry 0x575644 (member index), the host at a join: the mirror fed from that member's record
 int on_bag_screen(::Ctx* c);    // entry 0xfeee78 (screen), the bag / container screen's frame: an apply waits while it is open
@@ -437,7 +446,7 @@ void reset();
 
 namespace lock {
 // The local character's input lock, claimed by one part each: the bit stays set while any claim is on the character.
-enum class Holder : uint8_t { Name, Gate };
+enum class Holder : uint8_t { Name, Gate, Drop };
 void hold(Holder who, uint64_t chara);   // idempotent; a claim on another character is let go first
 void release(Holder who);                // no claim left on the character: the lock is cleared
 }  // namespace lock
@@ -629,6 +638,95 @@ int on_remove_store(::Ctx* c);
 // Asks the game's autosave to save after each such take until a save written after it holds the emptied box (once a frame).
 void tick(::Ctx* c);
 void reset();
+// Another part changed this member's own store outside the take-out screen (pkp_coop_deposit.cpp): a save is owed as for a take.
+void owe_save();
 }  // namespace takeout
+// ---- a member's deposit into the story's materials drop (pkp_coop_deposit.cpp) ----
+namespace deposit {
+// pkp_coop_owner.cpp, at a member's grant of the drop (class 0x326dc98, x23 = g, owned here): true when this module runs the use
+// (at the next frame); false: the grant is given back as before (no session, or an ask of this member's is still waiting).
+bool take_grant(::Ctx* c, uint64_t g);
+// The hook sites (pkp_coop.cpp). Entry 0x5b1c84, the container slice: on a member, a type 0x11 slice asked with the visitor's temp
+// list resolves to the own store. Midhook 0x7e693c in the drop's close, the `tbz w0` after the screen's confirm flag: a member's
+// confirm does not go on (x0 = 0) and is asked of the authority. Each returns 0.
+int on_store(::Ctx* c);
+int on_confirm(::Ctx* c);
+// The messages (pkp_coop_link.cpp): the authority takes a member's ask; a member takes the authority's stage and answers.
+void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_state_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// A member runs its granted use, sends its ask and plays a paid stage's scenes; the authority answers the asks and sends its drop's
+// stage (once a frame).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace deposit
+// ---- a story follow on a member (pkp_coop_follow.cpp) ----
+namespace follow {
+// The hook site (pkp_coop.cpp): entry 0x2a1ed4, the contents' "follow this player" attach (command 0xdac mode 3, through 0x117b18).
+// On a member in the session the game's local-only attach does not run (returns 1) and the creature is sent to the authority; 0
+// elsewhere.
+int on_story_follow(::Ctx* c);
+// The message (pkp_coop_link.cpp): a member's story follow, made on the authority at a safe moment unless the creature follows a
+// player there already.
+void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Sends a member's asks; the authority makes the waiting ones (once a frame, after the channel's handlers).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace follow
+// ---- the one shared save (pkp_coop_savecopy.cpp) ----
+namespace savecopy {
+// At the feature's install, before the game opens its save: a received copy left half moved is completed; this PC's copy is read.
+void install();
+// The messages (pkp_coop_link.cpp).
+void on_have_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);    // the authority: a member's copy
+void on_offer_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: the authority's copy, announced
+void on_chunk_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: a part of one of its files
+// A member event (pkp_coop_link.cpp on_member): self, this process joined or left a session.
+void on_member(int node, bool joined, bool self);
+// The authority finds its save points and sends copies; a member says hello and takes a received copy (once a frame).
+void tick(::Ctx* c);
+void reset();
+}  // namespace savecopy
+// ---- a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp) ----
+namespace talkrec {
+// The hook site (pkp_coop.cpp): midhook 0x4ae7e8 in script callback slot 195 0x4ae68c, the `bl 0x77ecb0` after its store of the talk
+// record's +0x10 outside Cloud Island. On a member in the session the set is queued for the authority; returns 0.
+int on_armed(::Ctx* c);
+// The message (pkp_coop_link.cpp): the authority sets that flag in its own talk record.
+void on_armed_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// A member sends what waits (once a frame).
+void tick();
+void reset();
+}  // namespace talkrec
+// ---- the Star Piece swap in a member's talk (pkp_coop_talk.cpp) ----
+namespace talk {
+// The hook site (pkp_coop.cpp): midhook 0x4a1adc in script callback slot 119 0x4a17fc. A member's parent term is the group's record of
+// the creature (its copy of the host's has parents), as for the host; returns 0.
+int on_swap_parent(::Ctx* c);
+}  // namespace talk
+// ---- a dropped player is waited for (pkp_coop_drop.cpp) ----
+namespace drop {
+// The channel's member events (pkp_coop_link.cpp): the authority tells a member's drop from its leave.
+void on_member(int node, bool joined, bool self);
+// The messages (pkp_coop_link.cpp).
+void on_here_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);      // the authority: a member's key, it is in the world
+void on_leaving_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // the authority: a member's own leave is filed
+void on_wait_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);      // a member: who the authority waits for
+void on_closing_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: the host closes the session
+// A member whose session ended and whose game is about to close: the session part starts no search then.
+bool closing();
+// The session part's search finished (found: there is a session to join). A member that lost its session and finds none closes.
+void on_search(bool found);
+// The hook sites (pkp_coop.cpp): the entries of the trip filers (site: its main offset). A member's filed leave and the host's
+// close are announced (returns 0); the kick's filing on a member is refused (returns 1).
+int on_trip_file(::Ctx* c, uint64_t site);
+// Entry 0x231890, the simulation step: skipped (returns 1, x0 = 1) while the wait pauses the world on this process.
+int on_sim_step(::Ctx* c);
+// Entry 0x547278, the online error display: error 3103 held back in a co-op session and its rejoin window (returns 1), anything else shown.
+int on_error(::Ctx* c);
+// Announces this member to the authority; the authority's waits, countdown and their ends; this player's hold while anyone is
+// awaited (once a frame, after the channel's handlers).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace drop
 
 }  // namespace nxrt::games::pkp::coop

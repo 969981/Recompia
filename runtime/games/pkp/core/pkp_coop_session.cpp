@@ -27,6 +27,7 @@
 // player's world has loaded and the player is back in play (at most kLeaveCover; the game's own error popup when the host quits waits
 // for A under it, so the hint shows at once).
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 
@@ -50,9 +51,6 @@ constexpr uint32_t kSmSearched = 1u << 4;
 constexpr double kFirstWait = 3.0, kMaxWait = 30.0;      // backoff between tries
 constexpr double kSearchWait = 2.0;                      // between a visitor's searches that found nothing
 constexpr double kArrivalCover = 16.0, kHintAfter = 6.0, kWarpWait = 1.0, kWarpHold = 0.6, kLeaveCover = 6.0;
-constexpr const char* kJoiningText = "Joining your group";
-constexpr const char* kLeavingText = "Leaving the group";
-constexpr const char* kHint = "Taking long? Press A";
 constexpr double kOpenTimeout = 30.0, kSearchTimeout = 15.0, kJoinTimeout = 45.0;
 
 constexpr uint64_t kWarp = 0x275760;
@@ -118,11 +116,13 @@ void start(::Ctx* c, State& s, uint64_t sm, double now) {
 // A finished search: joins the first result (the relay room holds only this group's session), or searches again later.
 void searched(::Ctx* c, State& s, uint64_t sm, double now) {
     const uint32_t results = guest::rd<uint32_t>(sm + kSmResults);
-    if (!(guest::rd<uint32_t>(sm + kSmFlags) & kSmSearched) || results == 0) return retry_later(s, now, "no session found yet", false);
+    const bool found = (guest::rd<uint32_t>(sm + kSmFlags) & kSmSearched) && results != 0;
+    drop::on_search(found);   // a member that lost its session and finds none closes (pkp_coop_drop.cpp)
+    if (!found) return retry_later(s, now, "no session found yet", false);
     if (!(guest::call(c, base() + kJoin, 0) & 1)) return retry_later(s, now, "the session manager refused to join");
     s.step = Step::Joining;
     s.started = now;
-    curtain::cover(kJoiningText);
+    curtain::cover(strings::get(base(), strings::Str::CoopJoining));
     NXLOG_I(kTag, "Co-op session (visit): joining the host's session (%u found)", results);
 }
 
@@ -160,11 +160,11 @@ void place(::Ctx* c, State& s, bool in_game, double now) {
         if (s.loaded && in_game) {
             s.place = Place::Ready;
             s.ready_at = now;
-            curtain::cover(kJoiningText);   // up already, or back for the warp
+            curtain::cover(strings::get(base(), strings::Str::CoopJoining));   // up already, or back for the warp
         } else if (now - s.up_at > kArrivalCover) {
             curtain::lift();
         } else if (now - s.up_at > kHintAfter) {
-            curtain::hint(kHint);
+            curtain::hint(strings::get(base(), strings::Str::CoopTakingLong));
         }
         return;
     }
@@ -226,8 +226,8 @@ void tick(::Ctx* c, bool in_game) {
             s.leaving = true;
             s.left_world = false;
             s.left_at = now;
-            curtain::cover(kLeavingText);
-            curtain::hint(kHint);
+            curtain::cover(strings::get(base(), strings::Str::CoopLeaving));
+            curtain::hint(strings::get(base(), strings::Str::CoopTakingLong));
         }
         NXLOG_W(kTag, "Co-op session (%s): the session ended; starting it again once the player can walk", role_name());
         return;
@@ -244,6 +244,7 @@ void tick(::Ctx* c, bool in_game) {
     const bool idle = guest::rd<uint32_t>(sm + kSmState) == 0;
     switch (s.step) {
         case Step::Wait:
+            if (drop::closing()) return;   // a member's game is about to close: no new session
             if (now >= s.next_try && idle && can_walk(in_game)) start(c, s, sm, now);
             return;
         case Step::Opening:

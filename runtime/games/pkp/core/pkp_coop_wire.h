@@ -57,7 +57,8 @@
 //   BagRestore  +2 u8[16] member key, +18 u8 1 when the authority has a record for it (0: none, the rest is 0), +19 u64 sequence,
 //               +27 kBagRecordSlots x 16 bytes   (the authority's answer to a member's first BagRecord of a session, or to one older than
 //               its own copy; a member ignores one for another member's key)
-//   StoryRecord +2 u8 record (1 effect commands, 2 town flags, 3 town targets, 4 stage flags, 5 hint groups; another is skipped),
+//   StoryRecord +2 u8 record (1 effect commands, 2 town flags, 3 town targets, 4 stage flags, 5 hint groups, 6 the materials drop;
+//               another is skipped),
 //               +3 u8 the authority's area (stage), +4 u16 length n (the record's size; another is skipped), n bytes: the record as the
 //               authority's save holds it   (when it changed, and all of them on a join and every so often; pkp_coop_records.cpp)
 //   FriendAsk   +2 u8 kind, +3 u16 the creature's actor handle (kind 1; 0 for 2), +5 u32 its chara (< 0x41a), +9 s16 amount (kind 1,
@@ -74,6 +75,36 @@
 //               a kind the authority does not post is dropped)
 //   NewcomerAsk +2 u16 the creature's actor handle, +4 u16 its chara (< 0x41a), +6 u8 the origin's stage   (a member's first talk
 //               with a creature no player had befriended; the authority makes the host's befriend for it; pkp_coop_newcomer.cpp)
+//   DepositAsk  +2 u8[16] the asker's member key, +18 u64 ask id (the same on every resend), +26 u32 the drop's cell (x | y << 16),
+//               +30 u16 its z, +32 u8 the stage the asker's drop is at, +33 u8 count n (0..3), then n times: u16 item, u8 count
+//               (a member confirmed a deposit into the story's materials drop; the authority steps the drop once when its own drop
+//               is at that stage and the items and the group's conditions meet the stage's row; pkp_coop_deposit.cpp)
+//   DepositState +2 u32 the drop's cell (x | y << 16), +6 u16 its z, +8 u8 the authority's drop stage, +9 u8 verdict (0 none: the
+//               stage only, to every member; 1 accepted, 2 refused: the answer to one ask), +10 u8 reason (refused: 1 the stage
+//               differs, 2 the stage's needs are not met, 3 no drop at the cell), +11 u8[16] the asker's member key (0 for none),
+//               +27 u64 its ask id (0 for none)
+//   StoryFollow +2 u8 the origin's stage, +3 u16 the creature's data id (1..0x3ff), +5 u8 the attach's flag   (a member's story
+//               content asked the creature to follow its player; the authority attaches its own copy to its own player unless it
+//               follows someone already; pkp_coop_follow.cpp)
+// The shared save (pkp_coop_savecopy.cpp, pkp_coop_saveset.h). A file list is u8 count n (<= 32), then n times: u8 name length L
+// (1..40), L bytes of the name relative to the account folder ("G00/STGDAT01.BIN"; only world files), u32 size, u64 hash
+// (saveset::hash), and in a SaveOffer one more u8: 1 when its bytes follow in SaveChunks to this member.
+//   SaveHave    +2 u8[16] the member key, +18 u64 its copy's seq, +26 u64 its saved_at, +34 u8 status (0 hello, 1 applied the offered
+//               copy, 2 a copy failed its check), +35 a file list: its copy's world files   (a member to the authority)
+//   SaveOffer   +2 u64 seq, +10 u64 saved_at, +18 u8[16] the authority's member key (the copy's writer), +34 a file list (with the sent
+//               byte), then u8 count m, m times: u8[16] member key, u64 seq, u64 saved_at (every copy the authority knows, its own too)
+//   SaveChunk   +2 u64 the copy's seq, +10 u8 file index (in the offer's list), +11 u32 offset, +15 u32 length n, +19 n bytes of the
+//               file   (in order, after the offer; a member writes them into incoming/)
+//   TalkRecArmed +2 u16 the creature's chara (< 0x41a)   (a member's talk set that creature's talk record flag +0x10; the authority
+//               sets it in its own record; pkp_coop_talkrec.cpp)
+//   ---- a dropped player is waited for (pkp_coop_drop.cpp) ----
+//   DropHere    +2 u8[16] the member's key, +18 u8 1 once its player is in the world (0: in the session, still arriving)
+//               (a member, at each session join; the authority waits only for members that said it)
+//   DropLeaving nothing more                                 (a member's own leave is filed: its leave that follows is no drop)
+//   DropWait    +2 u8 count n, then n times: u8[16] member key, u8 state (1 awaited, 2 joining again, 3 back, 4 no longer awaited), u16
+//               seconds left on the authority's clock, u8 name length m, m bytes the player's name (UTF-8)   (the authority, every
+//               second while anyone is awaited and at each change; count 0: no one is)
+//   DropClosing nothing more                                 (the authority's own Save and Quit closes the session for everyone)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -145,6 +176,22 @@ enum class Type : uint32_t {
     TravelAsk = 42,
     // ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----
     NewcomerAsk = 38,
+    // ---- a member's deposit into the story's materials drop (pkp_coop_deposit.cpp) ----
+    DepositAsk = 44,
+    DepositState = 45,
+    // ---- a story follow on a member (pkp_coop_follow.cpp) ----
+    StoryFollow = 39,
+    // ---- the shared save (pkp_coop_savecopy.cpp); 51 is kept for its next kind of message ----
+    SaveHave = 48,
+    SaveOffer = 49,
+    SaveChunk = 50,
+    // ---- a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp) ----
+    TalkRecArmed = 46,
+    // ---- a dropped player is waited for (pkp_coop_drop.cpp) ----
+    DropHere = 52,
+    DropLeaving = 53,
+    DropWait = 54,
+    DropClosing = 55,
 };
 
 // Builds one payload: the header, then the fields in order.

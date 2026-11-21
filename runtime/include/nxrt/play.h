@@ -55,6 +55,10 @@ struct StartOptions {
 bool start(const StartOptions& opt);        // after nxrt::init, the renderer and the NVN back end; installs the hid input source and the hooks
 void stop();                                // saves changed settings, removes the hooks and the input source
 
+// Ends the process the way the window's close button does (settings saved, caches flushed). Callable from any thread: play mode's main
+// thread ends it at its next frame. why: a string literal, one line for the log.
+void request_quit(const char* why);
+
 // Counters for the tests and the log.
 struct Stats {
     uint64_t frames = 0;                    // Update hook calls
