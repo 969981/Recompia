@@ -36,10 +36,18 @@
 //   - a member's hold: its game takes items out of the bag before it asks the host (a container store moves them while the screen is
 //     open and asks at its close, kind 0x1a; a drop from the bag screen, kind 0x1d), and the host's request check takes them out of
 //     its mirror, refusing when they are not there (0x21eb58). So a member takes nothing while the bag / container screen is open or
-//     a Link Play request is unanswered (linkqueue::unanswered; a dropped answer stops the hold after kAnswerWait): the record and
+//     a Link Play request is unanswered or kept to be sent later (linkqueue::unanswered / kept; a dropped answer or a record that
+//     never goes stops the hold after kAnswerWait): the record and
 //     the mirror fed from it still hold the items when the host checks. A refused request writes the record back into the bag
 //     (pkp_coop_bag.cpp), as the game's own reset did with the mirror. Without the hold the mirror lacks the items, the host
 //     refuses every store and drop, and the items are in neither the bag nor the box.
+//     Not every such path has a screen we know: a building kit's deposit (kind 0x1a, sent by 0x85b430 through 0x214974) takes the
+//     items out of the bag and asks about 0.2 s later, and its screen is neither the bag nor the container one. The host's check
+//     (0x221d00) is a balance: the request's bag plus the kit's new contents, less the mirror and the kit's old contents, must leave
+//     nothing, so a mirror that already has the move (a deposit's loss, a take-back's gain) refuses it. So a member also takes a
+//     change only once the bag has stayed unchanged for kSettleWait (each further change, a second deposit, starts the wait again;
+//     after kSettleMax a stillness of kSettleQuiet is enough): a request sent in that time is unanswered by then, and the hold above
+//     runs on until its answer.
 //   - safeguard: within kGrace of an apply or a selection change (a load, an area or session change: where the game's own wipes
 //     ran, and any not mapped would), a change that loses anything is not taken: the record is written back into the bag, and the
 //     refusal logged (an emptied bag and more than kMaxKindsGone item kinds gone are named in the line). In play every change is
@@ -107,6 +115,9 @@ constexpr double kRefuseLogEvery = 1.0;
 constexpr double kNotReadyLog = 15.0; // seconds in a session with the player in the world but the bag never ready: logged once
 constexpr double kScreenGap = 0.3;    // seconds without a bag / container screen frame: the screen is closed
 constexpr double kAnswerWait = 5.0;   // seconds a member's take waits for an unanswered request (the answer comes in well under 1 s)
+constexpr double kSettleWait = 2.0;   // seconds a member's bag must stay unchanged before a change is taken (a request follows its move in ~0.2 s)
+constexpr double kSettleMax = 10.0;   // seconds after which a change is taken while the bag keeps changing, once it has been still kSettleQuiet
+constexpr double kSettleQuiet = 0.5;  // seconds (longer than the move-to-request gap)
 
 constexpr char kFileMagic[4] = {'C', 'B', 'A', 'G'};
 constexpr uint8_t kFormat = 1;
@@ -165,6 +176,9 @@ struct State {
     bool restore = false;     // a member: the host refused a request; the record waits to be written back into the bag
     double unanswered_at = -1.0;   // a member: when the request now unanswered was first seen so (-1: none)
     bool wait_logged = false; // that wait outlasted kAnswerWait and was logged
+    double change_first = -1.0;   // a member: when the bag was first seen differing from the record (-1: it does not)
+    double change_at = -1.0;      // and when it last changed since (the wait runs from there)
+    Record change_bag;            // the bag as it was then
     // A source's gain (the header): the bag at gain_begin, and the credits not yet carried by a write-back.
     bool gain_open = false;
     uint64_t gain_bag = 0;
@@ -320,7 +334,7 @@ bool held(double now) {
     State& s = st();
     if (link::is_authority()) return false;
     if (screen_open()) return true;
-    if (!linkqueue::unanswered()) {
+    if (!linkqueue::unanswered() && !linkqueue::kept()) {   // a kept record's request (a kit deposit, for one) is still to come
         s.unanswered_at = -1.0;
         s.wait_logged = false;
         return false;
@@ -329,7 +343,7 @@ bool held(double now) {
     if (now - s.unanswered_at < kAnswerWait) return true;
     if (!s.wait_logged) {
         s.wait_logged = true;
-        NXLOG_W(kTag, "Co-op bags: a Link Play request has no answer after %.0f s; the bag's changes are taken again", kAnswerWait);
+        NXLOG_W(kTag, "Co-op bags: a Link Play request has no answer (or is still kept) after %.0f s; the bag's changes are taken again", kAnswerWait);
     }
     return false;
 }
@@ -496,6 +510,7 @@ void session_up() {
     s.was_ready = false;
     s.restore = false;
     s.unanswered_at = -1.0;
+    s.change_at = s.change_first = -1.0;
     s.gain_open = false;
     s.credited = 0;
     s.early.clear();
@@ -528,6 +543,7 @@ void take_or_refuse(::Ctx* c, const Selection& sel, double now) {
     }
     if (bag.slot == o.rec.slot) {
         s.credited = 0;   // the record holds the bag: nothing is pending
+        s.change_at = s.change_first = -1.0;
         return;
     }
     const Loss loss = loss_of(o.rec, bag);
@@ -553,6 +569,17 @@ void take_or_refuse(::Ctx* c, const Selection& sel, double now) {
         s.credited = 0;
         return;
     }
+    // A member's change waits (the header's hold): the request that may follow it must find the host's mirror as the bag was before.
+    if (!link::is_authority()) {
+        if (s.change_first < 0) s.change_first = now;
+        if (s.change_at < 0 || bag.slot != s.change_bag.slot) {   // every further change starts the wait again (deposits in a row)
+            s.change_at = now;
+            s.change_bag = bag;
+        }
+        const double quiet = now - s.change_at;
+        if (quiet < kSettleWait && (now - s.change_first < kSettleMax || quiet < kSettleQuiet)) return;
+    }
+    s.change_at = s.change_first = -1.0;
     bag.seq = o.rec.seq + 1;
     o.rec = bag;
     o.dirty = true;
