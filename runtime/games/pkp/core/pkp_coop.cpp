@@ -177,6 +177,8 @@ enum class Site : uintptr_t {
     // ---- a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp) ----
     TakeoutStore,     // the shared move's choice of the store a taken item is removed from: the take-out screen's removal of a
                       // member's ordered item or gift uses the own store it listed, not the visitor's temp list
+    // ---- a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp) ----
+    TalkRecArmed,     // script callback 195's set of the talk record's +0x10: a member's is set in the authority's record too
 };
 
 struct CoopSite {
@@ -310,6 +312,8 @@ constexpr CoopSite kSites[] = {
     {{0x539620, kPacibsp, true}, Site::OwnerRefused},
     // a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp)
     {{0x2eea74, 0x12000003u, false}, Site::TakeoutStore},    // and w3, w0, #0x1 (w0 = IsVisitor's answer, w21 = the container kind)
+    // a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp)
+    {{0x4ae7e8, 0x940b4132u, false}, Site::TalkRecArmed},    // bl 0x77ecb0 (after strb w9, [x8, #0x10] off Cloud Island; w23 = chara)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -407,6 +411,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::OwnerNotice: return coop::owner::on_notice(c);
         case Site::OwnerRefused: return coop::owner::on_grant_reply(c);
         case Site::TakeoutStore: return coop::takeout::on_remove_store(c);
+        case Site::TalkRecArmed: return coop::talkrec::on_armed(c);
         default: return 0;
     }
 }
@@ -512,6 +517,7 @@ void game_frame(::Ctx* c) {
     coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::newcomer::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::takeout::tick(c);
+    coop::talkrec::tick();
 }
 
 void remove() {   // the registry has removed the hooks
@@ -561,6 +567,7 @@ void remove() {   // the registry has removed the hooks
     coop::doors::reset();
     coop::title::reset();
     coop::takeout::reset();
+    coop::talkrec::reset();
 }
 
 }  // namespace

@@ -630,5 +630,16 @@ int on_remove_store(::Ctx* c);
 void tick(::Ctx* c);
 void reset();
 }  // namespace takeout
+// ---- a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp) ----
+namespace talkrec {
+// The hook site (pkp_coop.cpp): midhook 0x4ae7e8 in script callback slot 195 0x4ae68c, the `bl 0x77ecb0` after its store of the talk
+// record's +0x10 outside Cloud Island. On a member in the session the set is queued for the authority; returns 0.
+int on_armed(::Ctx* c);
+// The message (pkp_coop_link.cpp): the authority sets that flag in its own talk record.
+void on_armed_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// A member sends what waits (once a frame).
+void tick();
+void reset();
+}  // namespace talkrec
 
 }  // namespace nxrt::games::pkp::coop

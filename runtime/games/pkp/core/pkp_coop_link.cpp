@@ -81,6 +81,8 @@ constexpr Route kRoutes[] = {
     {wire::Type::TravelAsk, Path::ToAuthority, &travel::on_ask_message},
     // a newly met creature moving in
     {wire::Type::NewcomerAsk, Path::ToAuthority, &newcomer::on_ask_message},
+    // a creature's talk record flag a member's talk arms
+    {wire::Type::TalkRecArmed, Path::ToAuthority, &talkrec::on_armed_message},
 };
 
 struct State {
