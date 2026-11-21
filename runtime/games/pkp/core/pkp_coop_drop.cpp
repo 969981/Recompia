@@ -51,6 +51,19 @@
 // anything; if it ever runs during a wait (this process's own session is unusable after all), the wait ends first and the game
 // files as it would.
 //
+// The trip filers, every caller (extract calls.tsv; modding-docs coop-session/LEAVE-DOORS-RE.md 2..4):
+//   0xbd45c(record, reason, member, flag): the pause menu (0xfb9ea0 state 0x10, return 0xfba740: reason 0 the host disbands, 4 a teammate
+//     leaves, 2 the host sends a member home, which pkp_coop_doors.cpp refuses at the menu), Go Back Home of the Link Play screen
+//     (0xe800ac, tail call; its state 0x15 is refused at the screen), and the kick handler 0x5483a0 (RequestRejectMember: reason 1,
+//     kind 8 home; return 0x54841c). The kick is the game's own "go home" after a host's refusal: refused here in a session, the way the
+//     filer itself refuses (w0 = 0, as when the record is busy), so 0x5483a0 answers the host "not done" (its 0x5484f4 path).
+//   0xbdc68(record): the pause menu's state 0xf (the host's Save and Quit, close for everyone) and the Link Play screen's 0x14 (refused at
+//     the screen). Allowed.
+//   0xbdd28(record): the pause menu's 0x12 and the screen's 0x17 (0xe81788, tail call): the GameShare end. Allowed.
+//   0xbe5f0(record, .., kind): the StageMove message 0x54f1f4, the host's trip on a member (the group's travel, and the close). Allowed.
+//     It files only with an idle record; with a busy one it self-disconnects (0x5373a4(3)); a paused member's record is idle.
+//   The drop's own filings (kind 0xE / 10 / 4) are the drop check's, never a filer's (above).
+//
 // The return. The dropped player comes back through the normal join (a relaunch, or the session part's own retries after its trip
 // home), as a new node. Its channel joins at the ldn connect, before the game's join sync and the host's world load: from then until
 // it says it is in the world (DropHere ready, or kArrivalMax) the simulation runs on every process again (the join's sync, its
@@ -470,7 +483,8 @@ void on_wait_message(::Ctx*, int, uint8_t, wire::Reader& r) {
     s.heard_at = qpc::seconds();
 }
 
-// Entry 0xbd45c(record, reason, member, flag) and the other filers. Read here: x0 the record, w1 the reason, x30 the caller.
+// Entry 0xbd45c(record, reason, member, flag) and the other filers. Read here: x0 the record, w1 the reason, x30 the caller (0xbd45c is
+// a leaf: x30 is its caller's return). The kick's filing is refused (returns 1, w0 = 0); everything else runs (returns 0).
 int on_trip_file(::Ctx* c, uint64_t site) {
     State& s = st();
     if (!link::in_session()) return 0;
@@ -489,6 +503,11 @@ int on_trip_file(::Ctx* c, uint64_t site) {
         return 0;
     }
     if (site != layout::kFileTrip) return 0;
+    if (from == layout::kKickFileReturn) {
+        NXLOG_I(kTag, "Co-op drop: the host's rejection would send this member home (kind 8): refused in the co-op session");
+        c->x[0] = 0;
+        return 1;
+    }
     if (from == layout::kPauseFileReturn && static_cast<uint32_t>(c->x[1]) == layout::kTripLeave &&
         record_phase() >= layout::kTripRecordReady && !s.leaving) {
         s.leaving = true;

@@ -73,9 +73,9 @@ enum class Site : uintptr_t {
                       // "did not disconnect correctly" mark is cleared (pkp_coop_title.cpp)
     SimStep,          // the simulation step 0x231890: skipped while the group waits for a dropped member and nothing is in flight
                       // (pkp_coop_drop.cpp); the network and the menus run on
-    TripFile,         // the trip filers (0xbd45c, 0xbdc68, 0xbdd28, the kick 0x5483a0, the host's StageMove 0xbe5f0): reserved for
-                      // shutting the doors out of the session other than Save and Quit and the group's own moves; not handled yet,
-                      // the game's own code runs
+    TripFile,         // the trip filers (0xbd45c, 0xbdc68, 0xbdd28, the kick 0x5483a0, the host's StageMove 0xbe5f0): Save and Quit
+                      // and the group's moves run (a member's leave and the host's close are announced first); the kick's "go
+                      // home" filing is refused in a session (pkp_coop_drop.cpp)
     DropCheck,        // the drop check 0xbca8c: the game's own code runs (a process whose session ended is sent home, and
                       // pkp_coop_session.cpp joins again); a wait on this process ends first (pkp_coop_drop.cpp)
     AreaMove,         // the area move by destination index: in a session it waits for the group's poll (pkp_coop_travel.cpp)
