@@ -44,6 +44,7 @@
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five
 - pkp.log now records much more for bug reports: quests and quest steps, talks, bags and storage boxes, area trips step by step, events, area levels and every co-op message, with the expected result next to the real one
 - In co-op, the log says when a teammate's quests, dex, recipes, unlocks, scenes or area levels differ from the host's, and which entries
+- That co-op check now runs every 30 seconds also while the host is in a menu or a talk. Before, it could wait two or three minutes
 
 ### Launcher
 - Pausing Set up on Windows now stops all of the compiler's work. Before, part of it kept running until the launcher closed, and the next **Set up again** could sit at "Linking pkp.exe"

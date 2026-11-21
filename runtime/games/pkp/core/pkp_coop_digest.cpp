@@ -105,9 +105,12 @@ void log_own(State& s, const Mine* m) {
 
 }  // namespace
 
-void tick(::Ctx*, bool in_game) {
+// Not gated on in_game: that is play mode's "playing", false under every game menu, choice box and talk box, so the authority, whose
+// player is in one most of the time, sent only in the gaps (alpha 6: 31..164 s apart for a 30 s period). Every domain is read from
+// the save root, not from area data, so a look is safe on the game thread whenever the player is in the world.
+void tick(::Ctx*, bool) {
     State& s = st();
-    if (!in_game || !link::in_session()) return;
+    if (!link::in_session() || !local_player()) return;
     const double t = qpc::seconds();
     if (t - s.sent_at < kDigestEvery) return;
     s.sent_at = t;
