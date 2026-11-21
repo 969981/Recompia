@@ -33,6 +33,7 @@
 - When co-op can't run with the installed game (after an update that needs **Set up again**, or a game version this build doesn't match), the game now says so on screen at start-up and again when you reach your world, instead of quietly loading your own world
 - Feeding a creature now counts for the group when a teammate does it, not only when the host does: food a teammate hands a creature is eaten in the host's world too, so the group's creature and its requests count it
 - A present a teammate gives a creature in a talk now adds to the group's friendship with it, as the host's presents do
+- An object whose press goes to a story step instead of its normal use is free again right after. Before, the player who pressed it kept it, and everyone else got "Someone else is using this right now." there for the rest of the session
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

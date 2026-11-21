@@ -142,6 +142,9 @@ enum class Site : uintptr_t {
                       // on the authority too, so the group's creature eats it
     // ---- a member's talk gift (pkp_coop_friendship.cpp) ----
     FriendGift,       // the host's apply of a member's talk gift: its friendship is made on the authority outside Cloud Island too
+    // ---- gimmick ownership (pkp_coop_owner.cpp) ----
+    UseRefused,       // a gimmick press a story content took instead of the use: the object is given back, as when the class's
+                      // event does not start
 };
 
 struct CoopSite {
@@ -234,6 +237,12 @@ constexpr CoopSite kSites[] = {
     {{0x136548, kPacibsp, true}, Site::Fed},
     // a member's talk gift (pkp_coop_friendship.cpp)
     {{0x21c46c, 0x12000003u, false}, Site::FriendGift},      // and w3, w0, #0x1 (w0 = Cloud Island, 0x46e308's w3 at 0x21c484)
+    // gimmick ownership (pkp_coop_owner.cpp): the `tbz w0, #0` after a use posts its press to the contents, five classes
+    {{0x7c141c, 0x3607dec0u, false}, Site::UseRefused},      // tbz w0, #0, 0x7c0ff4 (class 0x32688e0)
+    {{0x79d558, 0x36000120u, false}, Site::UseRefused},      // tbz w0, #0, 0x79d57c (class 0x3265b20)
+    {{0x848eac, 0x3607ed40u, false}, Site::UseRefused},      // tbz w0, #0, 0x848c54 (class 0x327a3b8)
+    {{0x79b178, 0x3607ec40u, false}, Site::UseRefused},      // tbz w0, #0, 0x79af00 (class 0x3265668)
+    {{0x7e78f4, 0x36000da0u, false}, Site::UseRefused},      // tbz w0, #0, 0x7e7aa8 (class 0x326dc98)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -311,6 +320,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::TalkedTo: return coop::feed::on_talked_to(c);
         case Site::Fed: return coop::feed::on_fed(c);
         case Site::FriendGift: return coop::friendship::on_gift_apply(c);
+        case Site::UseRefused: return coop::owner::on_use_refused(c, addr - st().base);
         default: return 0;
     }
 }
@@ -458,6 +468,7 @@ void remove() {   // the registry has removed the hooks
     coop::records::reset();
     coop::answers::reset();
     coop::jobs::reset();
+    coop::owner::reset();
 }
 
 }  // namespace

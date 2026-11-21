@@ -435,6 +435,15 @@ midhook 0x7100643938
 #   only caller the A press 0x710031347c after a claimed talk), declared below under journal roles; and the "fed" notice 0x7100136548
 #   (SC, &actor id, item; only caller the field feed 0x7100597820, held-item command kind 9's execute)
 entryhook 0x7100136548
+#   only caller the A press 0x710031347c after a claimed talk), declared below under journal roles
+#   Seamless co-op, gimmick ownership (pkp_coop_owner.cpp): the `tbz w0, #0` after a gimmick use posts its press to the contents
+#   (0x7100765b54, or 0x71007659c8 that returns its answer), whose false (a content took it) returns without giving the object back, in class 0x32688e0 0x71007c0be0, 0x3265b20
+#   0x710079cf40, 0x327a3b8 0x7100848860, 0x3265668 0x710079aa80 and 0x326dc98's use 0x71007e77a4 (x19 = the gimmick)
+midhook 0x71007c141c
+midhook 0x710079d558
+midhook 0x7100848eac
+midhook 0x710079b178
+midhook 0x71007e78f4
 #   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): talk conditions
 #   0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0` after IsOnline), and condition 0x22, the one instruction `b IsOnline`;
 #   the quest pump 0x710011b600 at `tbz w0, #0` after the flag read; the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item
