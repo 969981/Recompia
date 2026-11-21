@@ -367,7 +367,6 @@ int on_talk_kind(::Ctx* c);    // midhook 0x4c06d8: a member's talk takes the ho
 int on_talk_own(::Ctx* c);     // midhook 0x4c0574: a member is the own player of a creature living in the group's town
 int on_cond_parent(::Ctx* c);   // midhook 0x4d35f8: talk condition 0x52 answers a member as the host
 int on_cond_visitor(::Ctx* c);  // entry 0x4d0620: talk condition 0x25 (IsVisitor) is false for a member
-int on_swap_parent(::Ctx* c);   // midhook 0x4a1adc: the Star Piece swap (slot 119) reads a member's parent term from the group's record
 // This process's player holds a character's talk and the talk runs.
 bool talking();
 // The messages and member events (pkp_coop_link.cpp).
@@ -631,5 +630,11 @@ int on_remove_store(::Ctx* c);
 void tick(::Ctx* c);
 void reset();
 }  // namespace takeout
+// ---- the Star Piece swap in a member's talk (pkp_coop_talk.cpp) ----
+namespace talk {
+// The hook site (pkp_coop.cpp): midhook 0x4a1adc in script callback slot 119 0x4a17fc. A member's parent term is the group's record of
+// the creature (its copy of the host's has parents), as for the host; returns 0.
+int on_swap_parent(::Ctx* c);
+}  // namespace talk
 
 }  // namespace nxrt::games::pkp::coop
