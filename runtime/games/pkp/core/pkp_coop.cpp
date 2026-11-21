@@ -70,6 +70,7 @@ enum class Site : uintptr_t {
     Friendship,       // the friendship that completion step adds: skipped as decided at GoalCount
     GeneralGoal,      // a general request's completion, right before its town goal +1: a replay of another player's hand-in skips
                       // it, so each hand-in counts once; the talker's own hand-in shares its reward with the group
+    CleanCount,       // the sludge cleaning count's online gate (Lapras's request): the authority counts the group's cleanings
     // ---- the session ----
     PastTitle,        // the title's result getter: while the title waits for a press, the co-op save continues with no press, and its
                       // "did not disconnect correctly" mark is cleared (pkp_coop_title.cpp)
@@ -228,6 +229,8 @@ constexpr CoopSite kSites[] = {
     {{0x61858c, 0xb4000040u, false}, Site::GoalCount},       // cbz x0, 0x618594 (x0 = the challenge manager, before bl 0x618b00)
     {{0x619410, kPacibsp, true}, Site::Friendship},
     {{0x621be8, 0xb4000040u, false}, Site::GeneralGoal},     // cbz x0, 0x621bf0 (x0 = the challenge manager, before bl 0x618b00)
+    {{0x6522ec, 0x36000080u, false}, Site::CleanCount},      // tbz w0, #0, 0x6522fc (w0 = IsOnline's answer) in 0x6520e0
+    {{0x652940, 0x36000080u, false}, Site::CleanCount},      // tbz w0, #0, 0x652950 in 0x652880
     {{0xa88214, 0xb00156c8u, true}, Site::PastTitle},        // adrp x8, ...
     {{0x231890, kPacibsp, true}, Site::SimStep},
     {{0xbd45c, 0xb9400008u, true}, Site::TripFile},          // ldr w8, [x0]
@@ -395,6 +398,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::GoalCount: return coop::outcomes::on_goal_count(c);
         case Site::Friendship: return coop::outcomes::on_friendship(c);
         case Site::GeneralGoal: return coop::requests::on_general_goal(c);
+        case Site::CleanCount: return coop::requests::on_clean_count(c);
         case Site::AreaMove: return coop::travel::on_area_move(c);
         case Site::GateEntry: return coop::travel::on_gate_entry(c);
         case Site::ShopGrant: return coop::purchases::on_grant(c);

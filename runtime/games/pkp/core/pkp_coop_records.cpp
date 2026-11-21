@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Game layer: seamless co-op's story records (pkp_coop_internal.h). The authority's story records reach every member's own save.
 //
-// Seven records of the save (pkp_layout.h; modding-docs coop-v2/role-census/followup/STORY-RECORDS.md sections 1-2, QUEST-EFFECTS-RE C3)
+// Eight records of the save (pkp_layout.h; modding-docs coop-v2/role-census/followup/STORY-RECORDS.md sections 1-2, QUEST-EFFECTS-RE C3)
 // hold story state that the game writes only where co-op lets the story's world part run, the authority:
 //   1 m_effectCommandSaveData (STGDAT, R+0x972ba8, 0x1e4 bytes): the quest effects 0x13 0x17 0x1b 0x1c 0x1d 0x21 0x2a 0x2e 0x31 0x32
 //     0x33 (world kinds: on_quest_effect skips them on a member), the wild pop runtime (+0xb8 timer, +0xc1 popped: 0x1b44e0 / 0x1b8540
@@ -18,6 +18,9 @@
 //   7 the event campaign history (m_eventCampaignHistory, R+0x6cec38, 15 slots of 6 bytes): which campaigns this save has seen
 //     (bit 0) and closed (bit 3). The campaign creatures' talk test 0x29d910 and the area test 0x284660 read it on each process;
 //     the group's is the authority's (owner decision), so a member's test answers as the host's (role row 0x29dcc8).
+//   8 the cleaning count (R+0x4a4401, u8): the sludge cleanings unique request type 0x2c tests (0x6142d0; Lapras's request 128 asks
+//     for 80). Its writers 0x6520e0 / 0x652880 count only on the authority in a session (pkp_coop_requests.cpp on_clean_count), so
+//     the group's count is the authority's.
 // Nothing carries any of them, so a member's copy never was the group's: the host's town register, an NPC's specialty-work flag, the
 // stage-2 start's clear of chara 0x5d's +0xc (0xb4b60 clears it only on a visitor), request 73's slot clear (0x13a9b0) stayed apart.
 // Every field is copied: each is save data the game keeps per save, none a pointer or a handle of this process (the record's own
@@ -95,6 +98,7 @@ constexpr Record kRecords[] = {
     {5, "hint groups", layout::kSaveHintGroups, layout::kHintGroupsBytes, false},
     {6, "materials drop", layout::kSaveDrop, layout::kDropRecordBytes, false},
     {7, "campaign history", layout::kSaveCampaignHistory, layout::kCampaignHistoryBytes, false},
+    {8, "cleaning count", layout::kSaveCleanCount, 1, false},
 };
 constexpr size_t kCount = sizeof kRecords / sizeof kRecords[0];
 constexpr size_t kMaxBytes = layout::kTownRecordBytes;
@@ -135,11 +139,11 @@ struct State {
     // A member.
     Copy theirs[kCount];               // the authority's latest copy
     Copy written[kCount];              // what this save held right after the last write or check (the own-writes baseline)
-    double logged_at[kCount] = {-1e9, -1e9, -1e9, -1e9, -1e9, -1e9, -1e9};
+    double logged_at[kCount] = {-1e9, -1e9, -1e9, -1e9, -1e9, -1e9, -1e9, -1e9};
     unsigned unlogged[kCount] = {};    // writes since the last line
     Check checks[kCount];
 };
-static_assert(kCount == 7, "logged_at has one start value per record");
+static_assert(kCount == 8, "logged_at has one start value per record");
 State& st() {
     static State s;
     return s;
