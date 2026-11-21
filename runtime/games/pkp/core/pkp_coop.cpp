@@ -247,6 +247,14 @@ constexpr CoopSite kSites[] = {
     {{0x7e78f4, 0x36000da0u, false}, Site::UseRefused},      // tbz w0, #0, 0x7e7aa8 (class 0x326dc98)
     // a newly met creature moving in (pkp_coop_newcomer.cpp)
     {{0x48235c, 0x97fcdcc6u, false}, Site::Befriend},        // bl 0x3b9674 (x0 = the creature's component, x1 = &own user id)
+    // gimmick ownership, more classes (pkp_coop_owner.cpp): the same `tbz w0, #0` after the press went to the contents
+    {{0x7b9b0c, 0x36000320u, false}, Site::UseRefused},      // tbz w0, #0, 0x7b9b70 (class 0x3268000, its use)
+    {{0x7b80d0, 0x36003d40u, false}, Site::UseRefused},      // tbz w0, #0, 0x7b8878 (class 0x3268000, the host's deferred use)
+    {{0x82b8e4, 0x36000a80u, false}, Site::UseRefused},      // tbz w0, #0, 0x82ba34 (class 0x32762f8)
+    {{0x7e469c, 0x3607e5c0u, false}, Site::UseRefused},      // tbz w0, #0, 0x7e4354 (class 0x326d7e0)
+    {{0x808d68, 0x360003a0u, false}, Site::UseRefused},      // tbz w0, #0, 0x808ddc (class 0x3271340)
+    {{0x83d0b0, 0x36000580u, false}, Site::UseRefused},      // tbz w0, #0, 0x83d160 (class 0x3278b08)
+    {{0x85eae0, 0x36000b20u, false}, Site::UseRefused},      // tbz w0, #0, 0x85ec44 (classes 0x327cf68 / 0x327d8d8 / 0x327e248)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
