@@ -18,8 +18,8 @@
 // first 8 bytes, the field object's vtable, are left out: pkp_layout.h starts it at +0x8). The host-only timers (+0xb8, +0x1c4) are
 // ticked by no member, so the authority's value is the only one there is. Town bit 4 (a move pending) is acted on only by 0x115ee4,
 // which skips a visitor: harmless as copied.
-// The authority: every kSendEvery seconds (the story digest's period) it sends each record that changed since it last sent it
-// (StoryRecord, a record per message), and all of them when this process or another member joins and every kAllEvery seconds (a
+// The authority: every kSendEvery seconds (the story digest's period), under its own menus and talks too, it sends each record that
+// changed since it last sent it (StoryRecord, a record per message), and all of them when this process or another member joins and every kAllEvery seconds (a
 // copy sent while a member was not joined yet is sent again that way, as the requests' whole list is). The effect-command record is
 // STGDAT: whether the game keeps one per area is not settled, so it carries the authority's area and a member takes it only there.
 // A member keeps the authority's latest copy of each record (one received before it can be written waits, never dropped) and, once
@@ -122,6 +122,7 @@ struct State {
     Copy sent[kCount];                 // what was sent last, per record
     double sent_at = -1e9, all_at = -1e9;
     bool send_all = true;
+    int settled_stage = -1;            // the area play last ran in (-1: none yet)
     // A member.
     Copy theirs[kCount];               // the authority's latest copy
     Copy written[kCount];              // what this save held right after the last write or check (the own-writes baseline)
@@ -190,18 +191,23 @@ void check_copy(size_t i, const Copy& t) {
 // The authority: the records that changed since they were last sent (all of them when due).
 void send(bool in_game) {
     State& s = st();
-    if (!in_game || !link::is_authority() || !(session_bits() & layout::kSessionOnline) || !link::member_count()) return;
+    // Not gated on in_game: that is play mode's "playing", false under every game menu, choice box and talk box, so the authority,
+    // whose player is in one most of the time, sent only in the gaps (alpha 6: copies 32..110 s apart, changes waiting up to 40 s).
+    // Reading its own save is safe on the game thread at any time; only the effect-command record (STGDAT) is held after a stage
+    // change until play has run in the new area once, so a copy is never taken from the area data while it loads.
+    if (!link::is_authority() || !(session_bits() & layout::kSessionOnline) || !link::member_count() || !local_player()) return;
+    const uint8_t stage = area_stage();
+    if (in_game) s.settled_stage = stage;
     const double now = qpc::seconds();
     if (now - s.sent_at < kSendEvery) return;
     s.sent_at = now;
     const uint64_t root = save_root();
     if (!root) return;
     const bool all = s.send_all || now - s.all_at >= kAllEvery;
-    const uint8_t stage = area_stage();
     for (size_t i = 0; i < kCount; ++i) {
         const Record& rec = kRecords[i];
         const uint64_t at = record_at(root, rec);
-        if (!at) continue;
+        if (!at || (rec.per_area && s.settled_stage != stage)) continue;   // sent once settled: its stage then differs from the last
         const uint8_t* now_bytes = reinterpret_cast<const uint8_t*>(at);
         Copy& last = s.sent[i];
         const bool changed = !last.have || (rec.per_area && last.stage != stage) || std::memcmp(last.bytes.data(), now_bytes, rec.size);
