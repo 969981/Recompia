@@ -10,6 +10,7 @@
 ### Co-op
 - Teammates see the same story talks as the host: each character's next story talk, the professor's included, and the objective that goes with it. A story talk a teammate plays now moves the story on for the whole group
 - A story scene is no longer lost when a teammate is talking to one of its characters, or is far away in a scene of their own with them: in the opening, watering the thirsty water creature while a teammate talks to the professor left it thirsty for good. The scene now waits while the teammate is really talking to or playing a scene with that character, and starts a few seconds after they are done, or within seconds when they are not busy with it
+- A teammate who meets the creature that comes to a new habitat goes straight on into its talk that asks to move in, as the host does. Before, that talk was dropped and the teammate had to press twice more to talk to it
 - A tip that waits for an action (a pop-up that stays until you did something) now closes for everyone once any player has done it, and a tip one player has seen counts as seen for all
 - The Habitat Dex shows a teammate's habitat hints too: the creature silhouettes on a habitat's page that one player unlocked are there for everyone
 - Something a teammate was using when they left the session (the lighthouse, for one) can be used again by everyone else. Before, it said "Someone else is using this right now." until the world was loaded again
