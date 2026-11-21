@@ -41,6 +41,7 @@ elseif(APPLE)
 else()
     message(FATAL_ERROR "nxrt targets native Windows x64, Apple Silicon macOS and Linux (x86-64, aarch64) only")
 endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/guest_layout.cmake")   # the target's guest base (NXRT_GUEST_BASE), when not the canonical one
 
 # The generated-code ABI header (Ctx, call_indirect, ...) lives in the recompiler (recomp/include/nxrecomp/).
 # Found next to the checkout (../recomp) or, for a git worktree under runtime-wt/<name>, two levels up (../../recomp).

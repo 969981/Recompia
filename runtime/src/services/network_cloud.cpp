@@ -22,6 +22,7 @@
 #include "nxrt/config.h"
 #include "nxrt/log.h"
 #include "nxrt/dispatch.h"
+#include "nxrt/memory.h"
 #include "nxrt/module.h"
 #include <atomic>
 #include "../net/win_sock.h"
@@ -852,12 +853,13 @@ int so_error(int fd) {
 // FiberType in the x0 slot and "entry | 1" in the x30 slot). Lifted code cannot return into another function's host frame, so each
 // guest fiber gets a host fiber (Windows fibers): the replacement below keeps the guest-visible frames exactly as the SDK writes them
 // and switches the host stack with them. Addresses are for the 2.0.1 sdk image at 0x7500000000 (build 2.0.1a); other builds: off.
+// They are written for the canonical layout (nxrt/memory.h); mem::kGuestSlide moves them to the build's guest base.
 // Limit: a fiber must be resumed on the guest thread that last ran it (the lifted code holds that thread's Ctx).
 // =============================================================================================================================================
 namespace {
 
-constexpr uint64_t kSdkBase = 0x7500000000ull;
-constexpr uint64_t kMainBase = 0x7100000000ull;
+constexpr uint64_t kSdkBase = 0x7500000000ull + mem::kGuestSlide;
+constexpr uint64_t kMainBase = 0x7100000000ull + mem::kGuestSlide;
 constexpr uint64_t kDispatchFiber = kSdkBase + 0x14f648;   // nn::os::detail::DispatchFiberContext
 constexpr uint64_t kFiberEntry = kSdkBase + 0x14ba10;      // where a new fiber starts (x0 = its FiberType)
 

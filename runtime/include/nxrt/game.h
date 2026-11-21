@@ -23,6 +23,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "nxrt/memory.h"
+
 struct Ctx;   // the guest CPU context (nxrecomp/ctx.h)
 
 namespace nxrt {
@@ -87,7 +89,7 @@ struct Info {
     const char* short_title = "";           // a short name for sentences ("Choose your game files again in the Recompia launcher"): "Recompia" (empty: product)
     uint64_t program_id = 0;                // the Switch title id
     const char* version = "";               // the game version the hooks were found in: "2.0.1"
-    uint64_t main_base = 0x7100000000ull;   // where main is mapped (the lifter's base for it): hook offsets are relative to this
+    uint64_t main_base = mem::kMainBase;    // where main is mapped (the lifter's base for it): hook offsets are relative to this
     uint32_t languages = 0;                 // control.nacp SupportedLanguage: bit n = services::Language n (0: American English only)
     Platform platform = Platform::Switch1;  // the console the game targets
 

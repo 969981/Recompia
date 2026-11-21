@@ -60,6 +60,8 @@ option(PKP_RT_DLL "build the runtime as a shared library for release model (b): 
 if(PKP_RT_DLL AND NOT WIN32)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
+# The target's guest base, for the runtime below, the module table and the player build's guest_base.txt (one definition).
+include("${PKP_RUNTIME_DIR}/cmake/guest_layout.cmake")
 add_subdirectory("${PKP_RUNTIME_DIR}" runtime)
 
 # The module list (names, bases, load order) is recomp/games/pkp/config.py: the imported libraries below and the header
@@ -136,6 +138,13 @@ if(PKP_RT_DLL)
         endforeach()
     endif()
     nxrt_bundle_libusb(pkp_rt)   # libusb-1.0.dll for SDL's USB controllers; make-release.ps1 ships it next to pkp.exe
+    # The guest base this library is built for when it is not the canonical one: a kit ships it as sdk/guest_base.txt, and
+    # pkp_build.py lifts for it. Removed when not set, so a reverted definition leaves no stale file.
+    if(DEFINED NXRT_GUEST_BASE)
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/guest_base.txt" "${NXRT_GUEST_BASE}\n")
+    else()
+        file(REMOVE "${CMAKE_CURRENT_BINARY_DIR}/guest_base.txt")
+    endif()
     if(APPLE)
         # The game executable of model (b): src/pkp_stub.cpp and the lifted modules, linked against the dylib. It carries the
         # __GUEST segment (the main executable's header is what reserves the range before libmalloc runs), and finds the dylib
