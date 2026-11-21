@@ -167,6 +167,13 @@ enum class Site : uintptr_t {
     // ---- the talk conditions inside a member's talk (pkp_coop_talk.cpp) ----
     TalkCondParent,   // talk condition 0x52's role test: a member answers as the host, from the group's record of the creature
     TalkCondVisitor,  // talk condition 0x25 (IsVisitor): false for a member, so it gets no visitor-only talk the host would not
+    // ---- a gimmick's release on a member's busy request queue, the ownership log (pkp_coop_linkqueue.cpp, pkp_coop_owner.cpp) ----
+    ReleaseGate,      // a close's "every request answered" test before its release record: let through, the record is kept instead
+    RequestSend,      // the generic request send: a release record the busy queue would refuse is kept and sent once it is idle
+    OwnerApply,       // the ownership apply (take / release): logged; a member's new take drops a kept release of the same object
+    OwnerPress,       // the player's press on an object: remembered for the busy line's log
+    OwnerNotice,      // the message log's post: "Someone else is using this right now." logged with the object
+    OwnerRefused,     // a member's grant reply: a take the host turned down is logged
 };
 
 struct CoopSite {
@@ -286,6 +293,18 @@ constexpr CoopSite kSites[] = {
     // the talk conditions inside a member's talk (pkp_coop_talk.cpp)
     {{0x4d35f8, 0x52000008u, false}, Site::TalkCondParent},  // eor w8, w0, #1 (w0 = IsHost's answer, in condition 0x52)
     {{0x4d0620, 0x17ed9c29u, true}, Site::TalkCondVisitor},  // b 0x376c4 (condition 0x25, all of it)
+    // a gimmick's release on a member's busy request queue, the ownership log (pkp_coop_linkqueue.cpp, pkp_coop_owner.cpp)
+    {{0x7b8b68, 0x36000980u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x7b8c98 (class 0x3268000's close 0x7b8960)
+    {{0x82a558, 0x36000920u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x82a67c (class 0x32762f8's close 0x82a460)
+    {{0x7e20b0, 0x36000180u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x7e20e0 (0x7e2030, class 0x326d7e0)
+    {{0x83bec0, 0x36000120u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x83bee4 (0x83bc40, class 0x3278b08)
+    {{0x83c288, 0x36000180u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x83c2b8 (0x83c228, class 0x3278b08)
+    {{0x83e310, 0x36000160u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x83e33c (0x83e1c0)
+    {{0x214974, kPacibsp, true}, Site::RequestSend},
+    {{0x538f60, 0x79400008u, true}, Site::OwnerApply},       // ldrh w8, [x0]
+    {{0x313eb4, 0xd63f0100u, false}, Site::OwnerPress},      // blr x8 (x0 = the object, x8 its slot 5 handler)
+    {{0xa8fba0, kPacibsp, true}, Site::OwnerNotice},
+    {{0x539620, kPacibsp, true}, Site::OwnerRefused},
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -376,6 +395,12 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::HostUseEnd: return coop::owner::on_host_use_end(c);
         case Site::TalkCondParent: return coop::talk::on_cond_parent(c);
         case Site::TalkCondVisitor: return coop::talk::on_cond_visitor(c);
+        case Site::ReleaseGate: return coop::linkqueue::on_release_gate(c, addr - st().base);
+        case Site::RequestSend: return coop::linkqueue::on_send_request(c);
+        case Site::OwnerApply: return coop::owner::on_owner_apply(c);
+        case Site::OwnerPress: return coop::owner::on_press(c);
+        case Site::OwnerNotice: return coop::owner::on_notice(c);
+        case Site::OwnerRefused: return coop::owner::on_grant_reply(c);
         default: return 0;
     }
 }

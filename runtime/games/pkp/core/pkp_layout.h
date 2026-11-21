@@ -276,5 +276,8 @@ constexpr uint64_t kTitleNameMissing = 0xf71250;   // () -> bit 0: the player's 
 // Save root + kSaveFlags (the CMNDAT header copy): bit kSaveUncleanExit = the last save was written online ("did not disconnect").
 constexpr uint64_t kSaveFlags = 0xa0;
 constexpr uint8_t kSaveUncleanExit = 0x2;
+// ---- gimmick ownership, the tester log (pkp_coop_owner.cpp) ----
+constexpr uint64_t kPlacedObjects = 0x35616f0;      // [main+]: the placed-object manager (its map at +0x46d0)
+constexpr uint64_t kPlacedObjectAt = 0x753200;      // (manager, x, y, z) -> the placed object at the cell, 0 when none
 
 }  // namespace nxrt::games::pkp::layout
