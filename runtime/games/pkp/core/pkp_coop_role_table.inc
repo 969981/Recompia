@@ -94,9 +94,9 @@ PKP_ROLE_BIT(0x4a3d0, 8, 2, 0x3717fee8u, "town flags", "town flag bit 3 by creat
 // world's. Callback 75 (0x498238, w2 = 1) changes every such block (0x1f1200: grid and placed-object calls): a member's local
 // change of the world, so that call keeps the visitor's answer (PKP_ROLE_KEEP). The fall-through reloads x8 at once.
 PKP_ROLE_BIT(0x1f0f84, 8, 2, 0x371011c8u, "talk", "talk callback 45 sees the blocks near the creature (talk 316 when one is near, not always 321)")
-// 0x988fe0(obj, level): a level change of a house this player owns (owner id at the object's entry vs the own id) posts "Your
-// comfort level is now N!" (message 0xec, 0xa8ec90); in stage 0xc only a visitor does not get it. Display only; w0 is read by the
-// `eor` alone.
+// 0x988fe0(obj, level): a level change of a house this player owns (the owner id at the object's entry vs 0x2fc0bc, the own id
+// R+0x13d3a89) posts "Your comfort level is now N!" (message 0xec, 0xa8ec90); in stage 0xc only a visitor does not get it.
+// Display only; w0 is read by the `eor` alone.
 PKP_ROLE_ROW(0x98906c, IsVisitor, 0x52000008u, "notice", "in stage 0xc the comfort-level notice of a house this player owns shows")
 // 0x7fe270 (gimmick class 0x32701a0 slot 103): after a use of types 0x6e / 0x16 the 1 s object timer +0x44 starts, which the class's
 // own step (slot 22, 0x7fb894) counts down and slot 87 (0x7fe260) reads. Its sibling uses start the same timer on every process
@@ -105,13 +105,10 @@ PKP_ROLE_ROW(0x7fe42c, IsVisitor, 0x37000100u, "gimmicks", "this gimmick's short
 // Unique request 73's state byte R+0x6facfd (R+0x6fabd9 + 73 * 4): pkp_coop_requests.cpp keeps it the group's (taken on, fulfilled,
 // done), and the request is a story one. 0x34b20 refuses its creature while the request is 2..4; 0x13aaf4 (creature screen 0xf17d30)
 // answers "held by the story" while it is 2 or 3 and the creature's stage record (R+0x972c26 + 0x5f92b4, mirrored) agrees. Both
-// only refuse, and the fall-through of each is `bl 0x77ecb0`.
+// only answer no (0x34b20 returns 0 to its callers, 0xf17d30 refuses its action), and the fall-through of each is `bl 0x77ecb0`.
 PKP_ROLE_BIT(0x34c68, 8, 2, 0x37100308u, "story request", "the creature of the story request 73 is not free while that request is open")
 PKP_ROLE_BIT(0x13ab38, 8, 2, 0x37100548u, "story request", "the creature screen refuses its action for that creature while the request is open")
 PKP_ROLE_BIT(0x13aba8, 8, 2, 0x371001c8u, "story request", "the same, the inlined second test")
-// 0x1aadfc, the pick-up check: off Cloud Island a non-visitor is refused "You shouldn't pick this up while there's stuff in the
-// way." (0x753420 on the block grid, 0x783fe0, message 0x106); a visitor skips the test. The member's grid is the world's copy.
-PKP_ROLE_BIT(0x1ab158, 8, 2, 0x37101228u, "pick up", "picking up an object with things on top is refused with the game's message")
 
 #ifdef PKP_ROLE_KEEP
 // PKP_ROLE_KEEP(site, fn, from, why): at the row at site (in the function fn), when fn's frame record (x29 + 8, the caller's x30;

@@ -51,7 +51,6 @@
 - Teammates now get the same answers as the host from the story and town records at a few more places: a creature the story keeps for one of its requests is not free for them, and a creature the town records leave out is left out for them too
 - A talk that depends on the blocks near a creature now picks the same lines for a teammate as for the host
 - Teammates now see the comfort-level notice of their own house in every area
-- Teammates are now stopped with the game's "You shouldn't pick this up while there's stuff in the way." like the host
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five
