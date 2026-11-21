@@ -192,6 +192,9 @@ enum class Type : uint32_t {
     DropLeaving = 53,
     DropWait = 54,
     DropClosing = 55,
+    // ---- the story talks (pkp_coop_skits.cpp): u8 the authority's stage, u16 count, then per character u16 data id, u16 scene,
+    // u16 content, u8 timer on, u32 timer (f32 bits) ----
+    StorySkits = 56,
 };
 
 // Builds one payload: the header, then the fields in order.

@@ -59,6 +59,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop_wirelog.cpp"
         "${_pkp}/core/pkp_coop_digest.cpp"
         "${_pkp}/core/pkp_coop_records.cpp"
+        "${_pkp}/core/pkp_coop_skits.cpp"
         "${_pkp}/core/pkp_coop_role.cpp"
         "${_pkp}/core/pkp_coop_jobs.cpp"
         "${_pkp}/core/pkp_coop_friendship.cpp"
