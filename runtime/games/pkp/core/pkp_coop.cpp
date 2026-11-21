@@ -71,8 +71,8 @@ enum class Site : uintptr_t {
     // ---- the session ----
     PastTitle,        // the title's result getter: while the title waits for a press, the co-op save continues with no press, and its
                       // "did not disconnect correctly" mark is cleared (pkp_coop_title.cpp)
-    SimStep,          // the simulation step 0x231890: reserved for the pause while the session waits for a dropped member; not handled
-                      // yet, the game's own code runs
+    SimStep,          // the simulation step 0x231890: skipped while the group waits for a dropped member and nothing is in flight
+                      // (pkp_coop_drop.cpp); the network and the menus run on
     TripFile,         // the trip filers (0xbd45c, 0xbdc68, 0xbdd28, the kick 0x5483a0, the host's StageMove 0xbe5f0): reserved for
                       // shutting the doors out of the session other than Save and Quit and the group's own moves; not handled yet,
                       // the game's own code runs
@@ -409,6 +409,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::TakeoutStore: return coop::takeout::on_remove_store(c);
         // a dropped player is waited for (pkp_coop_drop.cpp)
         case Site::TripFile: return coop::drop::on_trip_file(c, addr - st().base);
+        case Site::SimStep: return coop::drop::on_sim_step(c);
         default: return 0;
     }
 }

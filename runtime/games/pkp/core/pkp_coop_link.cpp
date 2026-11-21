@@ -84,6 +84,7 @@ constexpr Route kRoutes[] = {
     // a dropped player is waited for
     {wire::Type::DropHere, Path::ToAuthority, &drop::on_here_message},
     {wire::Type::DropLeaving, Path::ToAuthority, &drop::on_leaving_message},
+    {wire::Type::DropWait, Path::FromAuthority, &drop::on_wait_message},
 };
 
 struct State {

@@ -438,7 +438,7 @@ void reset();
 
 namespace lock {
 // The local character's input lock, claimed by one part each: the bit stays set while any claim is on the character.
-enum class Holder : uint8_t { Name, Gate };
+enum class Holder : uint8_t { Name, Gate, Drop };
 void hold(Holder who, uint64_t chara);   // idempotent; a claim on another character is let go first
 void release(Holder who);                // no claim left on the character: the lock is cleared
 }  // namespace lock
@@ -638,9 +638,13 @@ void on_member(int node, bool joined, bool self);
 // The messages (pkp_coop_link.cpp).
 void on_here_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);      // the authority: a member's key, it is in the world
 void on_leaving_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // the authority: a member's own leave is filed
+void on_wait_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);      // a member: who the authority waits for
 // The hook sites (pkp_coop.cpp): the entries of the trip filers (site: its main offset). A filed leave is announced; returns 0.
 int on_trip_file(::Ctx* c, uint64_t site);
-// Announces this member to the authority; the authority's waits and their ends (once a frame, after the channel's handlers).
+// Entry 0x231890, the simulation step: skipped (returns 1, x0 = 1) while the wait pauses the world on this process.
+int on_sim_step(::Ctx* c);
+// Announces this member to the authority; the authority's waits, countdown and their ends; this player's hold while anyone is
+// awaited (once a frame, after the channel's handlers).
 void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace drop

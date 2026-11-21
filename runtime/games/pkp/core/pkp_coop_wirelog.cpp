@@ -131,6 +131,7 @@ const char* type_name(uint32_t type) {
     // a dropped player is waited for
     case wire::Type::DropHere: return "DropHere";
     case wire::Type::DropLeaving: return "DropLeaving";
+    case wire::Type::DropWait: return "DropWait";
     }
     return "?";
 }

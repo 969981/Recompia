@@ -78,6 +78,9 @@
 //   DropHere    +2 u8[16] the member's key, +18 u8 1 once its player is in the world (0: in the session, still arriving)
 //               (a member, at each session join; the authority waits only for members that said it)
 //   DropLeaving nothing more                                 (a member's own leave is filed: its leave that follows is no drop)
+//   DropWait    +2 u8 count n, then n times: u8[16] member key, u8 state (1 awaited, 2 joining again, 3 back, 4 no longer awaited), u16
+//               seconds left on the authority's clock, u8 name length m, m bytes the player's name (UTF-8)   (the authority, every
+//               second while anyone is awaited and at each change; count 0: no one is)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -152,6 +155,7 @@ enum class Type : uint32_t {
     // ---- a dropped player is waited for (pkp_coop_drop.cpp) ----
     DropHere = 52,
     DropLeaving = 53,
+    DropWait = 54,
 };
 
 // Builds one payload: the header, then the fields in order.

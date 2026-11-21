@@ -294,5 +294,10 @@ constexpr uint32_t kTripRecordReady = 5;
 // leaves; doors refuse reason 2) and the kick handler 0x5483a0's (RequestRejectMember: reason 1, kind 8 home).
 constexpr uint64_t kPauseFileReturn = 0xfba740, kKickFileReturn = 0x54841c;
 constexpr uint32_t kTripDisband = 0, kTripLeave = 4;
+// kStateAutosaveFlags: a save was asked for now (the autosave starts it at its next step).
+constexpr uint32_t kAutosaveAskedNow = 0x4;
+// The network manager NM = *(main + kNetManager); NM + kNetQualityTimer: f32 seconds a member's ping has been over 1499 (0x53ca60;
+// at 20 s it self-disconnects, reason 0).
+constexpr uint64_t kNetManager = 0x3561a20, kNetQualityTimer = 0xb3374;
 
 }  // namespace nxrt::games::pkp::layout
