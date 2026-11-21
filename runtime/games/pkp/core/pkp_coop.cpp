@@ -435,6 +435,7 @@ void install(const FeatureInstall& in) {
         s.key[i] = static_cast<uint8_t>(nib(launch.member[2 * i]) << 4 | nib(launch.member[2 * i + 1]));
     s.base = in.base;
     coop::wirelog::install();
+    coop::savecopy::install();   // before the game opens its save
     s.hooks = &in.hooks;
     s.armed.store(false);
     s.checked.store(false);
@@ -512,6 +513,7 @@ void game_frame(::Ctx* c) {
     coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::newcomer::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::takeout::tick(c);
+    coop::savecopy::tick(c);
 }
 
 void remove() {   // the registry has removed the hooks
@@ -561,6 +563,7 @@ void remove() {   // the registry has removed the hooks
     coop::doors::reset();
     coop::title::reset();
     coop::takeout::reset();
+    coop::savecopy::reset();
 }
 
 }  // namespace

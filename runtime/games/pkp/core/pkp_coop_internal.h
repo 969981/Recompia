@@ -50,6 +50,8 @@
 //   pkp_coop_doors.cpp    the session's doors in the menus: the PC's Link Play screen makes no session call, the pause menu never
 //                         sends a teammate home or rejects one; Save and Quit stays
 //   pkp_coop_title.cpp    a co-op start goes past the title screen on its own, with no "did not disconnect correctly" message
+//   pkp_coop_savecopy.cpp the one shared save: the authority's save points copied to every member's co-op folder, stamped
+//                         (pkp_coop_saveset.cpp: the folder's files on disk)
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -630,5 +632,19 @@ int on_remove_store(::Ctx* c);
 void tick(::Ctx* c);
 void reset();
 }  // namespace takeout
+// ---- the one shared save (pkp_coop_savecopy.cpp) ----
+namespace savecopy {
+// At the feature's install, before the game opens its save: a received copy left half moved is completed; this PC's copy is read.
+void install();
+// The messages (pkp_coop_link.cpp).
+void on_have_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);    // the authority: a member's copy
+void on_offer_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: the authority's copy, announced
+void on_chunk_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: a part of one of its files
+// A member event (pkp_coop_link.cpp on_member): self, this process joined or left a session.
+void on_member(int node, bool joined, bool self);
+// The authority finds its save points and sends copies; a member says hello and takes a received copy (once a frame).
+void tick(::Ctx* c);
+void reset();
+}  // namespace savecopy
 
 }  // namespace nxrt::games::pkp::coop
