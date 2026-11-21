@@ -151,7 +151,18 @@ val uiAssets = tasks.register<Copy>("uiAssets") {
     into("licenses") {
         from(rootProject.file("../../tools/release/licenses")) {
             include("LICENSE.Inter.OFL-1.1.txt", "LICENSE.SDL3.zlib.txt", "LICENSE.libcxxabi.Apache-2.0-LLVM-exception.txt")
+            // libpkp_rt.so's own third-party code, as tools/release/licenses/README.txt lists it for pkp_rt (the launcher's are left out)
+            include("LICENSE.Dear-ImGui.MIT.txt", "LICENSE.volk.MIT.txt", "LICENSE.VulkanMemoryAllocator.MIT.txt",
+                    "LICENSE.Vulkan-Headers.Apache-2.0.txt", "LICENSE.Vulkan-Headers.MIT.txt", "LICENSE.Vulkan-Headers.md",
+                    "LICENSE.zstd.BSD-3-Clause.txt", "LICENSE.miniz.MIT.txt", "LICENSE.Modtopia.MIT.txt", "LICENSE.SMAA.MIT.txt",
+                    "LICENSE.NVIDIA-Image-Scaling.MIT.txt", "LICENSE.FidelityFX-FSR1.MIT.txt", "LICENSE.FidelityFX-API.MIT.txt",
+                    "LICENSE.Streamline-headers.MIT.txt", "LICENSE.nvn-header-h1k421.MIT.txt", "LICENSE.astc-encoder.Apache-2.0.txt",
+                    "LICENSE.bc7enc_rdo.MIT-Apache-2.0.txt", "LICENSE.DejaVu-fonts.Bitstream-Vera.txt",
+                    "LICENSE.FontAwesome-Free.CC-BY-4.0-MIT-OFL.txt", "LICENSE.pokopia-native.MIT.txt", "LICENSE.pokopia-coop.MIT.txt",
+                    "LICENSE.totk-pc-recomp.MIT.txt", "LICENSE.libnx.ISC.txt")
         }
+        // what the runtime takes from which project, with the licence texts it quotes (Ryujinx and ryubing among them)
+        from(rootProject.file("../../runtime/THIRD_PARTY_NOTICES.md"))
         // Qualcomm Snapdragon Game Super Resolution (BSD-3-Clause), in the runtime
         from(rootProject.file("../../runtime/third_party/qualcomm_sgsr")) {
             include("LICENSE*")
