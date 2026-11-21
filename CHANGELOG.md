@@ -31,6 +31,7 @@
 - Co-op and Link Play now really check that every player has the same gameplay mods (Modtopia) on. Before, the mods were left out of the check, so players with different mods could join each other
 - When the host runs another Recompia version, the launcher now says so, instead of saying the host has different mods on
 - When co-op can't run with the installed game (after an update that needs **Set up again**, or a game version this build doesn't match), the game now says so on screen at start-up and again when you reach your world, instead of quietly loading your own world
+- Feeding a creature now counts for the group when a teammate does it, not only when the host does: food a teammate hands a creature is eaten in the host's world too, so the group's creature and its requests count it
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

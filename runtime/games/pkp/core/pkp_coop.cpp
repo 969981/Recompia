@@ -138,6 +138,8 @@ enum class Site : uintptr_t {
     // ---- the creature events (pkp_coop_feed.cpp) ----
     TalkedTo,         // the contents scheduler's "talked to" notice, which skips a visitor: a member's talk is posted on the
                       // authority, so content records waiting on that talk run for the group
+    Fed,              // the "fed" notice of a field feed (held-item command kind 9), which skips a visitor: a member's feed is made
+                      // on the authority too, so the group's creature eats it
 };
 
 struct CoopSite {
@@ -227,6 +229,7 @@ constexpr CoopSite kSites[] = {
     {{0x643938, 0x37001220u, false}, Site::BuyCount},        // tbnz w0, #0, 0x643b7c (w0 = the visitor test 0x376c4)
     // the creature events (pkp_coop_feed.cpp)
     {{0x1355ec, kPacibsp, true}, Site::TalkedTo},
+    {{0x136548, kPacibsp, true}, Site::Fed},
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -302,6 +305,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::ClaimVisitor: return coop::money::on_claim_visitor(c);
         case Site::BuyCount: return coop::challenges::on_buy_visitor(c);
         case Site::TalkedTo: return coop::feed::on_talked_to(c);
+        case Site::Fed: return coop::feed::on_fed(c);
         default: return 0;
     }
 }

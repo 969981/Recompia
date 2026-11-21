@@ -432,7 +432,9 @@ midhook 0x71003b7cd0
 midhook 0x7100645d18
 midhook 0x7100643938
 #   Seamless co-op, creature events (pkp_coop_feed.cpp): the contents scheduler's "talked to" notice 0x71001355ec (SC, &actor id;
-#   only caller the A press 0x710031347c after a claimed talk), declared below under journal roles
+#   only caller the A press 0x710031347c after a claimed talk), declared below under journal roles; and the "fed" notice 0x7100136548
+#   (SC, &actor id, item; only caller the field feed 0x7100597820, held-item command kind 9's execute)
+entryhook 0x7100136548
 #   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): talk conditions
 #   0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0` after IsOnline), and condition 0x22, the one instruction `b IsOnline`;
 #   the quest pump 0x710011b600 at `tbz w0, #0` after the flag read; the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item
