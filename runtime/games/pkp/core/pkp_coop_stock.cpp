@@ -4,8 +4,8 @@
 // every member's shop reads the authority's numbers. The coins stay each buyer's own (the buy takes them on the buyer's process).
 //
 // The game, 2.0.1 (modding-docs coop-v2/SHOP-STOCK-RE.md, SHOP-UNLOCK-RE.md):
-//   the own record   save root + 0x6ae708 + entry * 8 (entries 1..0x7ff): +1 flags (bit 1 bought, bit 2 in the lineup, bit 3),
-//                    +2 u8 stock left. On Cloud Island the game uses another record (+0xf9357c), which this part leaves alone.
+//   the own record   save root + 0x6ae708 + entry * 8 (entries 1..0x7ff): +0 bit 2 in today's lineup (0x5bdb4c reads it), +1 flags
+//                    (bit 1 bought), +2 u8 stock left. On Cloud Island the game uses another record (+0xf9357c), which this part leaves alone.
 //   0x646864(M, e)   the stock left. Not a visitor: the own record. A visitor off Cloud Island: the guest purchase history
 //                    0x608654(R+0x6ae700, the host's id, 0, e), its own count per visited world (0 when it has none), so a member's
 //                    shop counted the member's own buys only, against no one else's.
@@ -22,8 +22,9 @@
 //   - 0x632380 (entry hook) does not run: the authority's restock reaches the member with its next StockState. (Besides the
 //     records it writes R+0x6b77bc (0xb4 bytes) and the u8 R+0x6b7870 on a non-visitor; a visitor, every member, never did.)
 //   All three only once the member holds the authority's records (StockState); before that the game's own paths run.
-//   - the bought bit and the lineup bits come with the stock bytes: the authority sets the bought bit of every purchase in its log
-//     (pkp_coop_purchases.cpp gives it there), so a buying member's bit is the group's.
+//   - the bought bit comes with the stock bytes: the authority sets the bought bit of every purchase in its log
+//     (pkp_coop_purchases.cpp gives it there), so a buying member's bit is the group's. The lineup (+0) is not sent: a member's
+//     shop reads the lineup from its copy of the host's shop, which pkp_coop_shop_rows.cpp fills.
 // The authority reads its own records once a second and sends them (StockState) when they changed, and to a member that asks.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"

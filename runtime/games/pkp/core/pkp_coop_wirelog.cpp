@@ -151,6 +151,7 @@ const char* type_name(uint32_t type) {
     // the shared shop stock
     case wire::Type::StockState: return "StockState";
     case wire::Type::StockAsk: return "StockAsk";
+    case wire::Type::ShopRows: return "ShopRows";
     }
     return "?";
 }

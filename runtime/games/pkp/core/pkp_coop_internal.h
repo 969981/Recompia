@@ -286,6 +286,17 @@ void on_member_joined();    // another member joined: the records are sent again
 void reset();
 }  // namespace stock
 
+namespace shoprows {
+// The message (pkp_coop_link.cpp): a member, the authority's answer for every shop row.
+void on_rows_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// The authority computes its rows over several frames and sends them when they change; a member writes them into its copy of the
+// host's shop (once a frame; the authority only in the world).
+void tick(::Ctx* c, bool in_game);
+void on_session_change();   // this process joined or left: sent again, a member's set is dropped
+void on_member_joined();    // another member joined: the rows are sent again
+void reset();
+}  // namespace shoprows
+
 namespace pclock {
 // The hook site (pkp_coop.cpp): entry 0x1364f4 (SC, u8), the kind-28 notice of the PC's Shop pane (1) and challenges pane (0).
 int on_pane_notice(::Ctx* c);

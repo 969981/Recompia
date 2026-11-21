@@ -555,6 +555,7 @@ void game_frame(::Ctx* c) {
     coop::hints::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::purchases::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::stock::tick(c);
+    coop::shoprows::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::pclock::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::money::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::bags::tick(c);
@@ -608,6 +609,7 @@ void remove() {   // the registry has removed the hooks
     coop::hints::reset();
     coop::purchases::reset();
     coop::stock::reset();
+    coop::shoprows::reset();
     coop::pclock::reset();
     coop::money::reset();
     coop::talk::reset();

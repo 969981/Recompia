@@ -58,6 +58,7 @@ constexpr Route kRoutes[] = {
     {wire::Type::PurchaseLog, Path::FromAuthority, &purchases::on_log_message},
     {wire::Type::StockAsk, Path::ToAuthority, &stock::on_ask_message},
     {wire::Type::StockState, Path::FromAuthority, &stock::on_state_message},
+    {wire::Type::ShopRows, Path::FromAuthority, &shoprows::on_rows_message},
     {wire::Type::EventHistory, Path::Shared, &events::on_history_message},
     {wire::Type::StoryLines, Path::Shared, &events::on_lines_message},
     {wire::Type::DexKnown, Path::Shared, &discovery::on_dex_message},
@@ -193,6 +194,7 @@ void on_member(const ch::MemberEvent& e) {
         hints::on_session_change();
         purchases::on_session_change();
         stock::on_session_change();
+        shoprows::on_session_change();
         money::on_session_change();
         digest::on_session_change();
         records::on_session_change();
@@ -215,6 +217,7 @@ void on_member(const ch::MemberEvent& e) {
         hints::on_member_joined();
         money::on_member_joined();
         stock::on_member_joined();
+        shoprows::on_member_joined();
         bags::on_member_joined(e.node);
         records::on_member_joined();
         skits::on_member_joined();
