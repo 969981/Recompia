@@ -50,7 +50,9 @@
 //                                     ring is not written by a talk there (its writer 0x3b8128 runs from 0x2a25c0, whose callers are
 //                                     0x4eab20 for a creature a player made appear, 0x2a0b40 whose one caller seen, the host's 0x2aec60,
 //                                     passes w4 = 1, which skips it, and RequestAcquaintance for the characters of idx 0x400..0x40e):
-//                                     a member got talk id 4 from every resident. w0 is not read after the tbz
+//                                     a member whose copy holds a resident's parents gets talk id 4 for it, and for 0x52 / 0x72 /
+//                                     0xaf the host path 0x4c06e0, where the host goes on to the later stages for all of them.
+//                                     w0 is not read after the tbz
 // The refusal's line goes to the game's message log through notice::line (pkp_coop_notice.cpp), on the talker's slot; the slot of
 // this player's own talk starts is handed to the notices.
 #include "core/pkp_coop_internal.h"
