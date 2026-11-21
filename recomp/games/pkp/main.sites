@@ -694,3 +694,8 @@ midhook 0x71004c0574
 #   `tbz w0, #0` after the grant's data apply (vt+0x2f8; x23 = the gimmick, x19 = the reply), whose false skips the use, and after
 #   which class 0x326dc98 runs none
 midhook 0x7100539b44
+#   Seamless co-op, the talk conditions inside a member's talk (pkp_coop_talk.cpp): in talk condition 0x52 0x71004d3368, the
+#   `eor w8, w0, #1` after its IsHost call (x19 = the parent terms, w21 = the data id, w22 = the row term), and talk condition 0x25
+#   0x71004d0620 (`b IsVisitor`, reached through the condition table)
+midhook 0x71004d35f8
+entryhook 0x71004d0620
