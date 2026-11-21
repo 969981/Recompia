@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Game layer: the co-op input lock (pkp_coop_internal.h). Two parts of co-op freeze the local player's input: the name prompt
-// (pkp_coop_catchup.cpp) and the wait for every member (pkp_coop_gate.cpp). Both use the game's own lock, bit layout::kInputLockBit of
-// the byte at character + layout::kInputLock. The bit is one flag, so a holder that cleared it would free a character the other still
+// Game layer: the co-op input lock (pkp_coop_internal.h). Three parts of co-op freeze the local player's input: the name prompt
+// (pkp_coop_catchup.cpp), the wait for every member (pkp_coop_gate.cpp) and the wait for a dropped one (pkp_coop_drop.cpp). All use the game's own lock, bit layout::kInputLockBit of
+// the byte at character + layout::kInputLock. The bit is one flag, so a holder that cleared it would free a character another still
 // wants held: each holder keeps its own claim here, and the bit is written clear only when no claim is left on that character.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
@@ -11,7 +11,7 @@ namespace nxrt::games::pkp::coop::lock {
 
 namespace {
 
-constexpr size_t kHolders = 2;
+constexpr size_t kHolders = 3;
 
 struct State {
     uint64_t claim[kHolders] = {};   // the character each holder's claim is on; 0: none

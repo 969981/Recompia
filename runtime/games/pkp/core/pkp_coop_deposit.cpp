@@ -62,6 +62,7 @@
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
+#include "core/pkp_strings.h"
 #include "core/pkp_tables.h"
 
 #include <cstddef>
@@ -475,10 +476,9 @@ void apply_answer(::Ctx* c, const Answer& v) {
         if (v.stage) set_stage(c, a.lo, a.hi, v.stage);
         NXLOG_I(kTag, "Co-op deposit: the authority refused this member's deposit (ask %llx, reason %u); the items stay in the drop, "
                 "its stage here is %u", static_cast<unsigned long long>(a.id), static_cast<unsigned>(v.why), v.stage);
-        notice::post(v.why == Why::Stage ? "The materials were not used: the group's drop had moved on already. They are still in the drop."
-                     : v.why == Why::Needs ? "The materials were not used: the group's world doesn't meet this step's needs yet. They are "
-                                             "still in the drop."
-                                           : "The materials were not used: the host's world has no drop there. They are still in the drop.");
+        using strings::Str;
+        notice::post(strings::get(base(), v.why == Why::Stage ? Str::CoopDepositStage
+                                          : v.why == Why::Needs ? Str::CoopDepositNeeds : Str::CoopDepositNoDrop));
     }
     s.asking = false;
 }
@@ -495,7 +495,7 @@ void member_tick(::Ctx* c, bool in_game) {
             s.asking = false;
             NXLOG_W(kTag, "Co-op deposit: no answer to ask %llx in %.0f s; dropped, the items stay in the drop",
                     static_cast<unsigned long long>(s.ask.id), kGiveUp);
-            notice::post("The host did not answer: your materials are still in the drop.");
+            notice::post(strings::get(base(), strings::Str::CoopDepositNoAnswer));
         } else if (now >= s.ask.next) {
             s.ask.next = now + kResend;
             wire::Writer w(link::self());
@@ -525,7 +525,7 @@ bool take_grant(::Ctx*, uint64_t g) {
     State& s = st();
     if (!member() || !guest::ok(g, layout::kDropTimer + 4) || guest::deref(g) != base() + layout::kDropClass) return false;
     if (s.asking || s.use != Use::None) {
-        if (!s.busy_told) notice::post("Your last deposit is still waiting for the host's answer.");
+        if (!s.busy_told) notice::post(strings::get(base(), strings::Str::CoopDepositBusy));
         s.busy_told = true;
         return false;
     }

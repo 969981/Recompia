@@ -308,5 +308,22 @@ constexpr uint64_t kPlayedScenes = 0x4a2cec;        // save root +: m_playedCont
 // ---- co-op, a creature's talk record (pkp_coop_talkrec.cpp): 0x38 bytes per chara (< kFriendCount), save root + ----
 constexpr uint64_t kTalkRecOwn = 0x93ba0, kTalkRecHostCopy = 0x15567a8, kTalkRecCloud = 0xae5138, kTalkRecSize = 0x38;
 constexpr uint64_t kTalkRecArmed = 0x10;   // u8, set by script callback slot 195 (0x4ae68c), read by conditions 29 / 31 of main+0x34c3060
+// ---- a dropped player is waited for (pkp_coop_drop.cpp; modding-docs coop-session/LEAVE-DOORS-RE.md, DISCONNECT-RE.md) ----
+// The trip filers (main offsets of their entries): 0xbd45c(record, reason, member, flag) files a leave or a send-home, 0xbdc68(record)
+// the host's Close the Connection; both file only while the record's u32 phase (game state + kTripRecord) is >= kTripRecordReady.
+constexpr uint64_t kFileTrip = 0xbd45c, kCloseTrip = 0xbdc68;
+constexpr uint64_t kTripRecord = 0x3bb600;
+constexpr uint32_t kTripRecordReady = 5;
+// Return addresses into the filers' callers: the pause menu's 0xbd45c call (state 0x10: reason 0 the host disbands, 4 a teammate
+// leaves; doors refuse reason 2) and the kick handler 0x5483a0's (RequestRejectMember: reason 1, kind 8 home).
+constexpr uint64_t kPauseFileReturn = 0xfba740, kKickFileReturn = 0x54841c;
+constexpr uint32_t kTripDisband = 0, kTripLeave = 4;
+// kStateAutosaveFlags: a save was asked for now (the autosave starts it at its next step).
+constexpr uint32_t kAutosaveAskedNow = 0x4;
+// The network manager NM = *(main + kNetManager); NM + kNetQualityTimer: f32 seconds a member's ping has been over 1499 (0x53ca60;
+// at 20 s it self-disconnects, reason 0).
+constexpr uint64_t kNetManager = 0x3561a20, kNetQualityTimer = 0xb3374;
+// Error 3103: KTGL_ONLINE_E_SESSIONP2P_NETWORK_LOST, the result 0x547278 shows when the session's network is gone.
+constexpr uint32_t kErrorSessionLost = 0x80401103;
 
 }  // namespace nxrt::games::pkp::layout

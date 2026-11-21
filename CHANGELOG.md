@@ -58,6 +58,7 @@
 - A talk that depends on the blocks near a creature now picks the same lines for a teammate as for the host
 - Teammates now see the comfort-level notice of their own house in every area
 - Teammates can give a creature a Star Piece and get its item in exchange, as the host can. Before, the creature always said it wasn't a good time
+- When a teammate's connection drops, the others no longer lose the session: the world pauses and waits up to 2:00 for them, with a countdown that names who is awaited ((+) stops waiting), and the teammate who dropped rejoins in place through the normal join, bag and all. Save and Quit always stays possible, and the host closing the session is told apart from a drop
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five
