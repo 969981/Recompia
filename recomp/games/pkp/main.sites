@@ -699,3 +699,8 @@ midhook 0x7100539b44
 #   close 0x71007e67c0 (x0 the gimmick; from its slot 22 0x71007e633c, and a tail from 0x71007e6680), after which nothing frees the
 #   host's take
 entryhook 0x71007e67c0
+#   Seamless co-op, the talk conditions inside a member's talk (pkp_coop_talk.cpp): in talk condition 0x52 0x71004d3368, the
+#   `eor w8, w0, #1` after its IsHost call (x19 = the parent terms, w21 = the data id, w22 = the row term), and talk condition 0x25
+#   0x71004d0620 (`b IsVisitor`, reached through the condition table)
+midhook 0x71004d35f8
+entryhook 0x71004d0620

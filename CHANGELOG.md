@@ -45,6 +45,8 @@
 - In a co-op session the PC's Link Play menu no longer opens, joins, closes or leaves a session (the launcher runs it), and the pause menu no longer sends a teammate home or turns one away. Each player still leaves with Save and Quit: the host's ends the session for everyone, a teammate's leaves it
 - A co-op start now goes past the title screen on its own into the group's world (a player whose name still needs entering gets the title as before, to press A and enter it), and a co-op save no longer says the game did not disconnect correctly
 - Teammates no longer get "Someone else is using this right now." at the object the story fills with materials in stages after the host has used it once
+- A talk that depends on the item a player holds now picks the same lines for a teammate as for the host
+- Teammates no longer get a visitor's greeting from two special creatures where the host gets the creature's usual talk
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

@@ -164,6 +164,9 @@ enum class Site : uintptr_t {
                       // from a grant): the object is given back
     // ---- gimmick ownership, the host's own use of the story's materials drop ends (pkp_coop_owner.cpp) ----
     HostUseEnd,       // class 0x326dc98's close: the host's own use is given back, which nothing in the class does
+    // ---- the talk conditions inside a member's talk (pkp_coop_talk.cpp) ----
+    TalkCondParent,   // talk condition 0x52's role test: a member answers as the host, from the group's record of the creature
+    TalkCondVisitor,  // talk condition 0x25 (IsVisitor): false for a member, so it gets no visitor-only talk the host would not
 };
 
 struct CoopSite {
@@ -280,6 +283,9 @@ constexpr CoopSite kSites[] = {
     {{0x539b44, 0x36000120u, false}, Site::GrantNoUse},      // tbz w0, #0, 0x539b68 (w0 = vt+0x2f8's answer, x23 the gimmick)
     // gimmick ownership, the host's own use of the story's materials drop ends (pkp_coop_owner.cpp)
     {{0x7e67c0, kPacibsp, true}, Site::HostUseEnd},          // class 0x326dc98's close (x0 = the gimmick)
+    // the talk conditions inside a member's talk (pkp_coop_talk.cpp)
+    {{0x4d35f8, 0x52000008u, false}, Site::TalkCondParent},  // eor w8, w0, #1 (w0 = IsHost's answer, in condition 0x52)
+    {{0x4d0620, 0x17ed9c29u, true}, Site::TalkCondVisitor},  // b 0x376c4 (condition 0x25, all of it)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -368,6 +374,8 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         // a co-op start past the title (pkp_coop_title.cpp)
         case Site::PastTitle: return coop::title::on_past_title(c);
         case Site::HostUseEnd: return coop::owner::on_host_use_end(c);
+        case Site::TalkCondParent: return coop::talk::on_cond_parent(c);
+        case Site::TalkCondVisitor: return coop::talk::on_cond_visitor(c);
         default: return 0;
     }
 }
