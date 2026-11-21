@@ -11,8 +11,12 @@
 // The lock is given back (TalkDone, or by the authority itself) when the talk's event chain ends, when the press started no talk after
 // all, when nothing of the talk is running any more (watchdog, below) and, on the authority, when its holder leaves the session.
 // A talk an event starts from inside its own chain (w3 = 0) to the character this player holds is never refused and takes no lock:
-// the event's talk already holds this player's lock for it, and that caller does not look at the answer. One to another character
-// asks for that character's lock as a press does. A member's talk takes the host's path in the talk handler (on_talk_kind),
+// the event's talk already holds this player's lock for it, and that caller does not look at the answer. A chained talk to a
+// character of this player's own running event (its runner's actor list, slot w1) that no other player holds is this player's at
+// once: the talk runs on that call (0x48fd50 never presses again, so asking would lose it: a member's confirm talk with a creature
+// that just appeared at a habitat, event 3708 -> callback 11), and a member tells the authority with the same TalkAsk; an answer
+// naming another holder drops the claim (the talk already runs). Any other chained talk asks as a press does. A member's talk takes
+// the host's path in the talk handler (on_talk_kind),
 // so a member gets the character's own talk, quest talks too, instead of the visitor's stub; the lock above keeps it to one player.
 // A member is also the own player of every creature that lives in the group's town (on_talk_own): its talks with a resident go on to
 // the same later stages as the host's, outside Cloud Island (whose records and visitor rules are the game's own).
@@ -122,6 +126,8 @@ constexpr uint32_t kDataIds = 0x3ff;      // data ids 1..0x3ff, as 0x285434 acce
 constexpr uint32_t kOtherKey = 0x80000000u;
 constexpr uint64_t kSlotReg = 1, kActorReg = 2, kTalkedReg = 22, kNoTalkSlotReg = 19;
 constexpr uint64_t kRunners = 0x35650f8, kRunnerSize = 0x2010, kRunnerSlot = 0x2000;
+constexpr uint64_t kRunActors = 0x1a88, kRunActorCount = 0x1a90;   // runner +: the event's u16 actor ids (pointer, count)
+constexpr uint64_t kMaxRunActors = 64;
 constexpr uint64_t kQueue = 0x3565100, kQueueSlot = 0x20fa0, kQueuePending = 0x20e08;
 constexpr uint32_t kRunnerIdle = 9;
 constexpr uint8_t kSlots = 2;
@@ -224,6 +230,18 @@ bool slot_idle(uint8_t slot) {
            guest::rd<uint32_t>(pending) == 0;
 }
 
+// The u16 actor id at id is in the actor list of the slot's runner: the event running there is about that character.
+bool in_running_event(uint8_t slot, uint64_t id) {
+    const uint64_t run = guest::rd<uint64_t>(base() + kRunners) + slot * kRunnerSize;
+    if (!guest::ok(run, kRunnerSize) || !guest::ok(id, 2)) return false;
+    const uint64_t list = guest::rd<uint64_t>(run + kRunActors), count = guest::rd<uint64_t>(run + kRunActorCount);
+    if (!count || count > kMaxRunActors || !guest::ok(list, count * 2)) return false;
+    const uint16_t actor = guest::rd<uint16_t>(id);
+    for (uint64_t i = 0; i < count; ++i)
+        if (guest::rd<uint16_t>(list + i * 2) == actor) return true;
+    return false;
+}
+
 }  // namespace
 
 int on_talk_start(::Ctx* c) {
@@ -261,6 +279,16 @@ int on_talk_start(::Ctx* c) {
     if (link::is_authority()) {
         set_holder(chara, self);
         s.held = Held{chara, slot, true, now, 0};
+        return 0;
+    }
+    if (!(c->x[kFlagsReg] & 1) && in_running_event(slot, c->x[kActorReg])) {   // chained from this player's own event with it
+        s.held = Held{chara, slot, true, now, 0};
+        if (s.asked == chara) s.asked = 0;
+        link::to_authority(wire::Type::TalkAsk, wire::Writer(self).u32(chara).take());
+        NXLOG_I(kTag, "Co-op talk: character %u claimed for a talk chained from this player's event", chara);
+        journal::Rec(journal::Area::Talk, "lock").in("character=0x%08x (data id %u, idx %u) slot=%u", chara, chara >> 16 & 0x7fff,
+                                                     chara & 0xffff, slot)
+            .out("chained from this player's own event: talk runs, the authority is told");
         return 0;
     }
     if (s.asked != chara || now - s.asked_at > kAskAgain) {
@@ -366,6 +394,14 @@ bool talking() {
     return s.held && s.held->talking;
 }
 
+uint32_t character_key(::Ctx* c, uint64_t id) { return character_of(c, id); }
+
+bool held_elsewhere(uint32_t key) {
+    const State& s = st();
+    const auto it = key ? s.holders.find(key) : s.holders.end();
+    return it != s.holders.end() && it->second != link::self();
+}
+
 void on_ask(::Ctx*, int, uint8_t origin, wire::Reader& r) {
     State& s = st();
     const uint32_t chara = r.u32();
@@ -401,7 +437,11 @@ void on_holder(::Ctx*, int, uint8_t, wire::Reader& r) {
     } else if (holder == link::self() && !(s.held && s.held->chara == chara)) {   // a grant asked for before another press: not wanted
         link::to_authority(wire::Type::TalkDone, wire::Writer(link::self()).u32(chara).take());
     }
-    if (s.held && s.held->chara == chara && holder != link::self()) s.held.reset();
+    if (s.held && s.held->chara == chara && holder != link::self()) {   // the authority's order gave it to another player
+        if (s.held->talking && holder != wire::kNobody)
+            journal::Rec(journal::Area::Talk, "lock").in("character=0x%08x", chara).out("held by n%u after all; the talk runs on", holder);
+        s.held.reset();
+    }
 }
 
 void on_member(::Ctx*, int node, bool joined, bool authority, bool self) {

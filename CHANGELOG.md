@@ -2,14 +2,23 @@
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's shared rules for every player and the logs; saves and shaders are kept, no shader is translated again).
+**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's cleaning count, co-op's shared rules for every player and the logs; saves and shaders are kept, no shader is translated again).
 
 ### Game
 - Mouse mode: the game's pointer is drawn where the mouse really is at render sizes other than 1920x1080 (it drifted away from the mouse at 1440p and above) (#806)
 
 ### Co-op
+- Teammates see the same story talks as the host: each character's next story talk, the professor's included, and the objective that goes with it. A story talk a teammate plays now moves the story on for the whole group
+- A story scene is no longer lost when a teammate is talking to one of its characters, or is far away in a scene of their own with them: in the opening, watering the thirsty water creature while a teammate talks to the professor left it thirsty for good. The scene now waits while the teammate is really talking to or playing a scene with that character, and starts a few seconds after they are done, or within seconds when they are not busy with it
+- A teammate who meets the creature that comes to a new habitat goes straight on into its talk that asks to move in, as the host does. Before, that talk was dropped and the teammate had to press twice more to talk to it
+- A tip that waits for an action (a pop-up that stays until you did something) now closes for everyone once any player has done it, and a tip one player has seen counts as seen for all
+- Cleaning sludge in co-op counts toward a creature's cleaning request (the water creature that asks for the sludge to be cleaned): the host's world keeps the group's count, and teammates see it. Before, no cleaning done in co-op ever counted, so the request could never be finished
+- The Habitat Dex shows a teammate's habitat hints too: the creature silhouettes on a habitat's page that one player unlocked are there for everyone
 - Something a teammate was using when they left the session (the lighthouse, for one) can be used again by everyone else. Before, it said "Someone else is using this right now." until the world was loaded again
 - The Shop on the PC menu is no longer greyed out for teammates who join the host
+- The shops share one stock in a co-op session: what anyone buys counts against the group's stock, the daily restock is the host's, and every teammate sees the host's numbers. Coins stay each buyer's own
+- A teammate's shop now gets the host's catalog: which rows are unlocked, today's lineup and the rows' hints come from the host. Before, a teammate saw only the "Today only" row
+- A teammate who is behind the host in the story is no longer stuck on the PC menu after the challenges: a lesson lock the teammate's game cannot end is ended for them
 - A teammate who joins after a story step no longer keeps hearing an old step's music (Kyogre's music kept playing after Kyogre had left). The host's music for the area now reaches every teammate, which also fixes saves that kept the wrong music
 - Teammates now get Life Coins, and each player claims their own: every player can claim each finished challenge at the PC for themselves and gets its coins into their own wallet, once, including challenges the host claimed first (a teammate's PC showed 0, and only the host could claim). Coins stay each player's own, as in the game's Link Play. Use **Set up again** once after updating to relink the game. Your shaders are kept.
 - A teammate's shop buys now count toward the town's "buy items" challenges
@@ -28,6 +37,7 @@
 - Creature requests are shared: when one player hands a request in, it is done for the whole group. Its bubble goes away above the creature for everyone, nobody has to talk to the creature again, and the items it gives go to every player
 - Talking to a character now counts for the group's story when a teammate does it, not only when the host does: a story step that waits for someone to talk to a creature moves on for a teammate's talk too
 - Teammates can put items into chests and drop items on the ground again. Since the co-op bags change, the host turned every such store or drop down ("A communication error occurred") and the items were lost: in neither the bag nor the chest. If the host does turn one down, the items now come back to the bag
+- Teammates can put resources into a building kit again. The host turned most of them down ("A communication error occurred. Your items have been reset.") and the items were lost: in neither the bag nor the kit
 - Over the internet, a teammate whose connection drops large packets can talk to creatures again: the game's large packets now travel over the TCP link, so one lost packet no longer holds up everything the teammate sends after it
 - Co-op and Link Play now really check that every player has the same gameplay mods (Modtopia) on. Before, the mods were left out of the check, so players with different mods could join each other
 - When the host runs another Recompia version, the launcher now says so, instead of saying the host has different mods on
@@ -63,6 +73,9 @@
 - The record of event campaigns is the group's: teammates get the host's, so a campaign creature can be talked to by a teammate whenever the host could
 
 
+### Online
+- **Create a new Cloud Island** no longer crashes the game when no Cloud Islands server is set (the launcher's Cloud Islands switch off, or signed out). The game now shows its own communication error and you can carry on playing. The Online events switch still tells the game it is connected, so events that need a connection start as before
+
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five
 - pkp.log now records much more for bug reports: quests and quest steps, talks, bags and storage boxes, area trips step by step, events, area levels and every co-op message, with the expected result next to the real one
@@ -73,6 +86,7 @@
 - Pausing Set up on Windows now stops all of the compiler's work. Before, part of it kept running until the launcher closed, and the next **Set up again** could sit at "Linking pkp.exe"
 - Linux: the launcher finds its setup tools and game folder when its AppImage was unpacked into a plain folder, as RecompLauncher installs it. Before, Set up looked in the wrong folder
 - Installed through RecompLauncher, the launcher leaves updates to RecompLauncher and always uses its own install folder as the game folder, even when another copy on the PC has a different Install folder set
+- Releases carry a `recomplauncher.json`: RecompLauncher starts the right launcher file, backs up the `save` folder after each session and shows when a PC is below what the game needs
 
 ## 0.16.0 (build T: Tapir)
 
