@@ -92,6 +92,11 @@ constexpr Route kRoutes[] = {
     {wire::Type::SaveChunk, Path::FromAuthority, &savecopy::on_chunk_message},
     // a creature's talk record flag a member's talk arms
     {wire::Type::TalkRecArmed, Path::ToAuthority, &talkrec::on_armed_message},
+    // a dropped player is waited for
+    {wire::Type::DropHere, Path::ToAuthority, &drop::on_here_message},
+    {wire::Type::DropLeaving, Path::ToAuthority, &drop::on_leaving_message},
+    {wire::Type::DropWait, Path::FromAuthority, &drop::on_wait_message},
+    {wire::Type::DropClosing, Path::FromAuthority, &drop::on_closing_message},
 };
 
 struct State {
@@ -164,6 +169,7 @@ void on_member(const ch::MemberEvent& e) {
     talk::on_member(st().ctx, e.node, e.joined, e.authority, self);
     gimmicks::on_member(e.node, e.joined, self);
     savecopy::on_member(e.node, e.joined, self);
+    drop::on_member(e.node, e.joined, self);
     if (self) {
         story::on_session_change();
         quests::on_session_change();

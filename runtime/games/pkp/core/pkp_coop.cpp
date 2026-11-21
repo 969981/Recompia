@@ -73,17 +73,18 @@ enum class Site : uintptr_t {
     // ---- the session ----
     PastTitle,        // the title's result getter: while the title waits for a press, the co-op save continues with no press, and its
                       // "did not disconnect correctly" mark is cleared (pkp_coop_title.cpp)
-    SimStep,          // the simulation step 0x231890: reserved for the pause while the session waits for a dropped member; not handled
-                      // yet, the game's own code runs
-    TripFile,         // the trip filers (0xbd45c, 0xbdc68, 0xbdd28, the kick 0x5483a0, the host's StageMove 0xbe5f0): reserved for
-                      // shutting the doors out of the session other than Save and Quit and the group's own moves; not handled yet,
-                      // the game's own code runs
-    DropCheck,        // the drop check 0xbca8c: reserved for the pause (a drop filing no trip home); not handled yet, the game's own
-                      // code runs (a visitor whose session ended is sent home, and pkp_coop_session.cpp joins again)
+    SimStep,          // the simulation step 0x231890: skipped while the group waits for a dropped member and nothing is in flight
+                      // (pkp_coop_drop.cpp); the network and the menus run on
+    TripFile,         // the trip filers (0xbd45c, 0xbdc68, 0xbdd28, the kick 0x5483a0, the host's StageMove 0xbe5f0): Save and Quit
+                      // and the group's moves run (a member's leave and the host's close are announced first); the kick's "go
+                      // home" filing is refused in a session (pkp_coop_drop.cpp)
+    DropCheck,        // the drop check 0xbca8c: not handled, the game's own code runs (a process whose session ended is sent home,
+                      // and pkp_coop_session.cpp joins again; pkp_coop_drop.cpp keeps that trip). It is entered every frame the trip
+                      // record is idle (0xbaf54's tail call) and decides inside
     AreaMove,         // the area move by destination index: in a session it waits for the group's poll (pkp_coop_travel.cpp)
     GateEntry,        // an area gate's entry (its passage): in a session it waits for the group's poll, before anything fades
-    Error3103,        // the online error display 0x547278 (error 3103, the session was lost): reserved for holding it back while the
-                      // session waits for a reconnect; not handled yet, the game's own code runs
+    Error3103,        // the online error display 0x547278: error 3103 (the session was lost) is held back in a co-op session and its
+                      // rejoin window says it instead (pkp_coop_drop.cpp)
     LinkMenu,         // the PC's Link Play screen's state entry: in a session, a state that makes a session call is refused, the
                       // co-op session is the launcher's (pkp_coop_doors.cpp)
     PauseMenu,        // the pause menu's state entry: in a session, the host's "send this member home" and a member's rejection are
@@ -433,6 +434,10 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::StoryFollow: return coop::follow::on_story_follow(c);
         case Site::TalkRecArmed: return coop::talkrec::on_armed(c);
         case Site::TalkSwapParent: return coop::talk::on_swap_parent(c);
+        // a dropped player is waited for (pkp_coop_drop.cpp)
+        case Site::TripFile: return coop::drop::on_trip_file(c, addr - st().base);
+        case Site::SimStep: return coop::drop::on_sim_step(c);
+        case Site::Error3103: return coop::drop::on_error(c);
         default: return 0;
     }
 }
@@ -542,6 +547,7 @@ void game_frame(::Ctx* c) {
     coop::follow::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::savecopy::tick(c);
     coop::talkrec::tick();
+    coop::drop::tick(c, s.in_game.load(std::memory_order_relaxed));
 }
 
 void remove() {   // the registry has removed the hooks
@@ -595,6 +601,7 @@ void remove() {   // the registry has removed the hooks
     coop::follow::reset();
     coop::savecopy::reset();
     coop::talkrec::reset();
+    coop::drop::reset();
 }
 
 }  // namespace

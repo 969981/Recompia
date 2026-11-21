@@ -138,6 +138,11 @@ const char* type_name(uint32_t type) {
     case wire::Type::SaveOffer: return "SaveOffer";
     case wire::Type::SaveChunk: return "SaveChunk";
     case wire::Type::TalkRecArmed: return "TalkRecArmed";
+    // a dropped player is waited for
+    case wire::Type::DropHere: return "DropHere";
+    case wire::Type::DropLeaving: return "DropLeaving";
+    case wire::Type::DropWait: return "DropWait";
+    case wire::Type::DropClosing: return "DropClosing";
     }
     return "?";
 }
