@@ -76,11 +76,12 @@ enum class Site : uintptr_t {
     TripFile,         // the trip filers (0xbd45c, 0xbdc68, 0xbdd28, the kick 0x5483a0, the host's StageMove 0xbe5f0): Save and Quit
                       // and the group's moves run (a member's leave and the host's close are announced first); the kick's "go
                       // home" filing is refused in a session (pkp_coop_drop.cpp)
-    DropCheck,        // the drop check 0xbca8c: the game's own code runs (a process whose session ended is sent home, and
-                      // pkp_coop_session.cpp joins again); a wait on this process ends first (pkp_coop_drop.cpp)
+    DropCheck,        // the drop check 0xbca8c: not handled, the game's own code runs (a process whose session ended is sent home,
+                      // and pkp_coop_session.cpp joins again; pkp_coop_drop.cpp keeps that trip). It is entered every frame the trip
+                      // record is idle (0xbaf54's tail call) and decides inside
     AreaMove,         // the area move by destination index: in a session it waits for the group's poll (pkp_coop_travel.cpp)
     GateEntry,        // an area gate's entry (its passage): in a session it waits for the group's poll, before anything fades
-    Error3103,        // the online error display 0x547278: error 3103 (the session was lost) is held back after a co-op session, the
+    Error3103,        // the online error display 0x547278: error 3103 (the session was lost) is held back in a co-op session and its
                       // rejoin window says it instead (pkp_coop_drop.cpp)
     LinkMenu,         // the PC's Link Play screen's state entry: in a session, a state that makes a session call is refused, the
                       // co-op session is the launcher's (pkp_coop_doors.cpp)
@@ -410,7 +411,6 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         // a dropped player is waited for (pkp_coop_drop.cpp)
         case Site::TripFile: return coop::drop::on_trip_file(c, addr - st().base);
         case Site::SimStep: return coop::drop::on_sim_step(c);
-        case Site::DropCheck: return coop::drop::on_drop_check(c);
         case Site::Error3103: return coop::drop::on_error(c);
         default: return 0;
     }

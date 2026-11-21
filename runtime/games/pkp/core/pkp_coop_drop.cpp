@@ -48,8 +48,8 @@
 // says it is rejoining, with a countdown on its own clock (it hears no one), and error 3103 is held back (its applet shows nothing on
 // PC, the log keeps it). At the end without a rejoin it says so in plain words; the session part keeps trying, so the player is in a
 // state from which the group can be joined again. On a process that still has the session the game's drop check does not file
-// anything; if it ever runs during a wait (this process's own session is unusable after all), the wait ends first and the game
-// files as it would.
+// anything (0xbca8c is entered every frame the trip record is idle, from 0xbaf54's tail call; its own tests decide, so it is not
+// hooked: this process's own channel leave is what ends a wait here).
 //
 // The trip filers, every caller (extract calls.tsv; modding-docs coop-session/LEAVE-DOORS-RE.md 2..4):
 //   0xbd45c(record, reason, member, flag): the pause menu (0xfb9ea0 state 0x10, return 0xfba740: reason 0 the host disbands, 4 a teammate
@@ -99,10 +99,24 @@ constexpr double kSilence = 5.0;        // a member that heard no DropWait for t
 constexpr double kNoticeSeconds = 2.5, kNoticeEvery = 1.0;
 constexpr double kLogEvery = 30.0;      // the countdown in the log
 constexpr double kArrivalMax = 60.0;    // a node that joined during a wait runs the world this long at most until it is in
+constexpr double kFiledMax = 3.0;       // a leave or close filed whose trip has not started by then was refused
 constexpr uint8_t kWaiting = 1, kJoining = 2, kBack = 3, kGivenUp = 4;
 
-// Player-visible text: English here, one place (the co-op string table takes these lines at the merge).
-std::string say(const char* english) { return english; }
+// Player-visible text: English here, one place (the co-op string table takes these lines at the merge). Each is a whole sentence;
+// %s takes a player's name or a time, in order.
+std::string say(const char* english, const std::string& a = {}, const std::string& b = {}) {
+    std::string out;
+    int arg = 0;
+    for (const char* q = english; *q; ++q) {
+        if (q[0] == '%' && q[1] == 's') {
+            out += arg++ == 0 ? a : b;
+            ++q;
+        } else {
+            out += *q;
+        }
+    }
+    return out;
+}
 
 struct Node {
     bool known = false;     // it said DropHere this session
@@ -129,6 +143,10 @@ struct State {
     double walk_since = -1.0;   // the player can walk since (negative: not now)
     bool leaving = false;       // this member filed its own leave
     bool closing = false;       // the authority closes the session for everyone (it said so, or this process is it)
+    double filed_at = 0.0;      // this process's own leave or close was filed at (cleared if the trip never starts)
+    bool filed_ran = false;     // ... and its trip record went busy since
+    bool loaded = false;        // a member: its world loaded (play mode left the game) since its session join
+    double joined_at = 0.0;
     // the authority
     Node nodes[kNodes];
     std::vector<Awaited> awaited;   // the authority's waits; a member's copy of the authority's word
@@ -217,7 +235,7 @@ void end_wait(State& s, size_t i, uint8_t how, const char* why) {
     s.awaited.erase(s.awaited.begin() + static_cast<std::ptrdiff_t>(i));
     a.state = how;
     NXLOG_I(kTag, "Co-op drop: %s (member %s) %s; %zu still awaited", a.name.c_str(), hex_key(a.key).c_str(), why, s.awaited.size());
-    notices::post(kNotice, how == kBack ? a.name + say(" is back") : say("Playing on without ") + a.name, 4.0);
+    notices::post(kNotice, how == kBack ? say("%s is back.", a.name) : say("Playing on without %s.", a.name), 4.0);
     s.showing = false;
     s.ended.push_back(a);
     s.next_send = 0.0;
@@ -256,11 +274,10 @@ void show(State& s, double now) {
     s.posted = now;
     s.showing = true;
     const Awaited& a = s.awaited.front();
-    std::string text = a.state == kJoining ? a.name + say(" is joining the group again: ")
-                                           : say("Waiting for ") + a.name + say(" to come back: ");
-    text += clock_text(a.left);
-    if (s.awaited.size() > 1) text += say(" (and ") + std::to_string(s.awaited.size() - 1) + say(" more)");
-    text += say(". Press (+) to stop waiting");
+    std::string text = a.state == kJoining ? say("%s is joining the group again: %s", a.name, clock_text(a.left))
+                                           : say("Waiting for %s to come back: %s", a.name, clock_text(a.left));
+    if (s.awaited.size() > 1) text += " " + say("(and %s more)", std::to_string(s.awaited.size() - 1));
+    text += " " + say("Press + to stop waiting.");
     notices::post(kNotice, text, kNoticeSeconds);
 }
 
@@ -339,8 +356,8 @@ void lost_tick(State& s, double now) {
         NXLOG_W(kTag, "Co-op drop: not back in a session within %.0f s%s; the session part keeps trying", kLimit,
                 s.error_held ? " (error 3103 was held back)" : "");
         notices::post(kNotice,
-                      s.lost_authority ? say("The group did not come back in time. Your world goes on; they can join again at any time")
-                                       : say("Could not rejoin the group in time. The game keeps trying, or start co-op again from the launcher"),
+                      s.lost_authority ? say("The group did not come back in time. Your world goes on; they can join again at any time.")
+                                       : say("Could not rejoin the group in time. The game keeps trying, or start co-op again from the launcher."),
                       10.0);
         return;
     }
@@ -349,8 +366,8 @@ void lost_tick(State& s, double now) {
     s.showing = true;
     const unsigned left = static_cast<unsigned>(s.lost_until - now + 0.999);
     notices::post(kNotice,
-                  (s.lost_authority ? say("Lost the connection to the group. Waiting for it to come back: ")
-                                    : say("Lost the connection to the group. Rejoining: ")) + clock_text(left),
+                  s.lost_authority ? say("Lost the connection to the group. Waiting for it to come back: %s", clock_text(left))
+                                   : say("Lost the connection to the group. Rejoining: %s", clock_text(left)),
                   kNoticeSeconds);
 }
 
@@ -362,7 +379,7 @@ void on_member(int node, bool joined, bool self) {
         if (joined) {
             if (s.lost) {
                 NXLOG_I(kTag, "Co-op drop: back in a session %.0f s after the connection was lost", kLimit - (s.lost_until - qpc::seconds()));
-                notices::post(kNotice, say("Back with the group"), 4.0);
+                notices::post(kNotice, say("Back with the group."), 4.0);
                 s.lost = false;
                 s.showing = false;
             }
@@ -371,6 +388,10 @@ void on_member(int node, bool joined, bool self) {
             s.member = !link::is_authority();
             s.here_sent = s.ready_sent = false;
             s.leaving = s.closing = false;
+            s.walk_since = -1.0;
+            s.loaded = false;
+            s.joined_at = qpc::seconds();
+            s.error_held = false;
             for (Node& n : s.nodes) n = Node{};
             return;
         }
@@ -384,11 +405,11 @@ void on_member(int node, bool joined, bool self) {
             s.lost = true;
             s.lost_authority = !s.member;
             s.lost_until = qpc::seconds() + kLimit;
-            s.error_held = false;
             s.posted = 0.0;
             NXLOG_I(kTag, "Co-op drop: rejoin window of %.0f s (the game's own trip runs; the session part joins again)", kLimit);
         }
         s.in = s.member = false;
+        s.walk_since = -1.0;
         for (Node& n : s.nodes) n = Node{};
         s.awaited.clear();
         s.ended.clear();
@@ -405,6 +426,11 @@ void on_member(int node, bool joined, bool self) {
     }
     s.arrival_at[node] = 0.0;
     Node& n = s.nodes[node];
+    for (Awaited& a : s.awaited)
+        if (n.known && a.joining && std::memcmp(a.key, n.key, kMemberKeyBytes) == 0) {
+            a.joining = false;   // it dropped again mid-join: still awaited, the world may pause again
+            NXLOG_I(kTag, "Co-op drop: %s left again while joining; still awaited", a.name.c_str());
+        }
     if (!n.known)
         NXLOG_I(kTag, "Co-op drop: node %d left; it never said it waits for drops (an older build): no wait", node);
     else if (n.leaving || s.closing)
@@ -470,7 +496,7 @@ void on_wait_message(::Ctx*, int, uint8_t, wire::Reader& r) {
         if (std::memcmp(a.key, member_key_bytes(), kMemberKeyBytes) == 0) continue;   // this player itself, coming back
         if (a.state == kBack || a.state == kGivenUp) {
             NXLOG_I(kTag, "Co-op drop: the authority says %s %s", a.name.c_str(), a.state == kBack ? "is back" : "is no longer awaited");
-            notices::post(kNotice, a.state == kBack ? a.name + say(" is back") : say("Playing on without ") + a.name, 4.0);
+            notices::post(kNotice, a.state == kBack ? say("%s is back.", a.name) : say("Playing on without %s.", a.name), 4.0);
             s.showing = false;
             continue;
         }
@@ -494,6 +520,8 @@ int on_trip_file(::Ctx* c, uint64_t site) {
                             (site == layout::kFileTrip && from == layout::kPauseFileReturn && static_cast<uint32_t>(c->x[1]) == layout::kTripDisband);
         if (closes && record_phase() >= layout::kTripRecordReady && !s.closing) {
             s.closing = true;
+            s.filed_at = qpc::seconds();
+            s.filed_ran = false;
             link::to_members(wire::Type::DropClosing, wire::Writer(link::self()).take());
             NXLOG_I(kTag, "Co-op drop: the host closes the session with Save and Quit; the members are told it is no drop");
             s.awaited.clear();
@@ -511,29 +539,20 @@ int on_trip_file(::Ctx* c, uint64_t site) {
     if (from == layout::kPauseFileReturn && static_cast<uint32_t>(c->x[1]) == layout::kTripLeave &&
         record_phase() >= layout::kTripRecordReady && !s.leaving) {
         s.leaving = true;
+        s.filed_at = qpc::seconds();
+        s.filed_ran = false;
         link::to_authority(wire::Type::DropLeaving, wire::Writer(link::self()).take());
         NXLOG_I(kTag, "Co-op drop: this member leaves with Save and Quit; the authority is told it is no drop");
     }
     return 0;
 }
 
-// Entry 0xbca8c, the drop check (only caller the tail of the trip record step 0xbaf54; void): it files only when this process's own
-// session is unusable. A wait on this process ends first; the game's own filing runs (returns 0).
-int on_drop_check(::Ctx*) {
-    State& s = st();
-    if (s.awaited.empty() && !s.holding) return 0;
-    NXLOG_W(kTag, "Co-op drop: the game's drop check runs here: this process's own session is gone; the wait ends");
-    s.awaited.clear();
-    s.ended.clear();
-    release(s, "this process's own session is gone");
-    return 0;
-}
-
-// Entry 0x547278(NM, error), the online error display; *(u32*)error is the KTGL result. Error 3103 is held back on a process that was
-// in a co-op session this launch: the rejoin window says what happened instead (returns 1, w0 = 1 as the display's own end).
+// Entry 0x547278(NM, error), the online error display; *(u32*)error is the KTGL result. Error 3103 is held back while this process is in
+// a co-op session or its rejoin window (the error comes about 30 ms after the network is gone, maybe before the channel's leave is
+// drained): the window says what happened instead (returns 1, w0 = 1 as the display's own end). After the window it is shown.
 int on_error(::Ctx* c) {
     State& s = st();
-    if (!s.ever_in || !guest::ok(c->x[1], 4) || guest::rd<uint32_t>(c->x[1]) != layout::kErrorSessionLost) return 0;
+    if (!(s.in || s.lost) || !guest::ok(c->x[1], 4) || guest::rd<uint32_t>(c->x[1]) != layout::kErrorSessionLost) return 0;
     if (!s.error_held) NXLOG_I(kTag, "Co-op drop: error 3103 (the session's network was lost) held back; the rejoin window says it");
     s.error_held = true;
     c->x[0] = 1;
@@ -551,6 +570,17 @@ void tick(::Ctx*, bool in_game) {
     State& s = st();
     const double now = qpc::seconds();
     if (s.in && link::in_session()) {
+        if (!in_game) s.loaded = true;
+        if ((s.leaving || s.closing) && s.filed_at > 0.0) {
+            if (record_phase() < layout::kTripRecordReady) {
+                s.filed_ran = true;
+            } else if (!s.filed_ran && now - s.filed_at > kFiledMax) {
+                NXLOG_W(kTag, "Co-op drop: the %s filed %.0f s ago never started its trip; a leave from now on is a drop again",
+                        s.leaving ? "leave" : "close", kFiledMax);
+                s.leaving = s.closing = false;
+                s.filed_at = 0.0;
+            }
+        }
         if (session::can_walk(in_game)) {
             if (s.walk_since < 0.0) s.walk_since = now;
         } else if (!s.paused) {
@@ -561,7 +591,10 @@ void tick(::Ctx*, bool in_game) {
                 s.here_sent = true;
                 send_here(false);
             }
-            if (!s.ready_sent && s.walk_since >= 0.0 && now - s.walk_since >= kSettle) {
+            // In the world: walking kSettle after the join's world load (a rejoin can start in the home world, still walking);
+            // without a load seen, kArrivalMax after the join.
+            const bool walked = s.walk_since >= 0.0 && now - s.walk_since >= kSettle;
+            if (!s.ready_sent && walked && (s.loaded || now - s.joined_at >= kArrivalMax)) {
                 s.ready_sent = true;
                 send_here(true);
             }

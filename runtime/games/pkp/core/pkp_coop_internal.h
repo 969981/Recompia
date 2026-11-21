@@ -645,9 +645,7 @@ void on_closing_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   
 int on_trip_file(::Ctx* c, uint64_t site);
 // Entry 0x231890, the simulation step: skipped (returns 1, x0 = 1) while the wait pauses the world on this process.
 int on_sim_step(::Ctx* c);
-// Entry 0xbca8c, the drop check: a wait here ends; the game's filing runs (returns 0).
-int on_drop_check(::Ctx* c);
-// Entry 0x547278, the online error display: error 3103 held back after a co-op session (returns 1), anything else shown.
+// Entry 0x547278, the online error display: error 3103 held back in a co-op session and its rejoin window (returns 1), anything else shown.
 int on_error(::Ctx* c);
 // Announces this member to the authority; the authority's waits, countdown and their ends; this player's hold while anyone is
 // awaited (once a frame, after the channel's handlers).
