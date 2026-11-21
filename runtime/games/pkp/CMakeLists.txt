@@ -80,6 +80,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop_savecopy.cpp"
         "${_pkp}/core/pkp_coop_talkrec.cpp"
         "${_pkp}/core/pkp_coop_drop.cpp"
+        "${_pkp}/core/pkp_coop_quality.cpp"
         "${_pkp}/core/pkp_journal.cpp"
         "${_pkp}/core/pkp_journal_feature.cpp"
         "${_pkp}/core/pkp_journal_actor.cpp"

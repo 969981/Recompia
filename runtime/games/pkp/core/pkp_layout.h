@@ -325,6 +325,9 @@ constexpr uint32_t kAutosaveAskedNow = 0x4;
 // The network manager NM = *(main + kNetManager); NM + kNetQualityTimer: f32 seconds a member's ping has been over 1499 (0x53ca60;
 // at 20 s it self-disconnects, reason 0).
 constexpr uint64_t kNetManager = 0x3561a20, kNetQualityTimer = 0xb3374;
+// The same step's results: the level (u32; 0 good, 1 and 2 "unstable", 3 the self-disconnect), the worst member's loss (10000 minus
+// its received / sent ratio in 1/10000, i32) and ping (ms, i32).
+constexpr uint64_t kNetQualityLevel = 0xb336c, kNetQualityLoss = 0xb3378, kNetQualityPing = 0xb337c;
 // Error 3103: KTGL_ONLINE_E_SESSIONP2P_NETWORK_LOST, the result 0x547278 shows when the session's network is gone.
 constexpr uint32_t kErrorSessionLost = 0x80401103;
 

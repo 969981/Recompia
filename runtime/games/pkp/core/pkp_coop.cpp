@@ -449,7 +449,9 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::SceneStart: return coop::contents::on_scene_start(c);
         // a dropped player is waited for (pkp_coop_drop.cpp)
         case Site::TripFile: return coop::drop::on_trip_file(c, addr - st().base);
-        case Site::SimStep: return coop::drop::on_sim_step(c);
+        case Site::SimStep:
+            coop::quality::on_sim_step(c);   // never handled: the step goes on
+            return coop::drop::on_sim_step(c);
         case Site::Error3103: return coop::drop::on_error(c);
         default: return 0;
     }
@@ -623,6 +625,7 @@ void remove() {   // the registry has removed the hooks
     coop::savecopy::reset();
     coop::talkrec::reset();
     coop::drop::reset();
+    coop::quality::reset();
 }
 
 }  // namespace

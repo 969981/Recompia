@@ -781,4 +781,10 @@ void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace drop
 
+namespace quality {
+// Entry 0x231890, the simulation step (pkp_coop.cpp): logs a change of the game's link-quality level (never handled: returns 0).
+int on_sim_step(::Ctx* c);
+void reset();
+}  // namespace quality
+
 }  // namespace nxrt::games::pkp::coop
