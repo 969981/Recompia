@@ -147,6 +147,8 @@ enum class Site : uintptr_t {
                       // event does not start
     // ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----
     Befriend,         // the talk end step's befriend call: a member's first talk with a new creature is made on the authority
+    // ---- a shared object a member was using when it left (pkp_coop_gimmicks.cpp) ----
+    SharedLeave,      // a multi-user object's own "member left" step (MemberDelete): the character the leaver had at it is let go too
 };
 
 struct CoopSite {
@@ -255,6 +257,9 @@ constexpr CoopSite kSites[] = {
     {{0x808d68, 0x360003a0u, false}, Site::UseRefused},      // tbz w0, #0, 0x808ddc (class 0x3271340)
     {{0x83d0b0, 0x36000580u, false}, Site::UseRefused},      // tbz w0, #0, 0x83d160 (class 0x3278b08)
     {{0x85eae0, 0x36000b20u, false}, Site::UseRefused},      // tbz w0, #0, 0x85ec44 (classes 0x327cf68 / 0x327d8d8 / 0x327e248)
+    // a shared object a member was using when it left (pkp_coop_gimmicks.cpp): vt+0x228 of the two multi-user classes
+    {{0x74cc60, kPacibsp, true}, Site::SharedLeave},         // class 0x3262c80 (category 2)
+    {{0x7568f0, kPacibsp, true}, Site::SharedLeave},         // class 0x3263160 (category 0x13)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -334,6 +339,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::FriendGift: return coop::friendship::on_gift_apply(c);
         case Site::UseRefused: return coop::owner::on_use_refused(c, addr - st().base);
         case Site::Befriend: return coop::newcomer::on_befriend(c);
+        case Site::SharedLeave: return coop::gimmicks::on_shared_leave(c, addr - st().base);
         default: return 0;
     }
 }
