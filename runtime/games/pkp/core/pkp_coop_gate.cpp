@@ -8,6 +8,7 @@
 // notice that the player can join at any time. A late joiner or a new player taking a free place makes a character as usual and
 // catches up through the story, requests, recipes and catch-up parts. coop_members of 0 or 1: the gate does nothing.
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_strings.h"
 
 #include <algorithm>
 #include <string>
@@ -41,8 +42,9 @@ void show(State& s, int missing) {
     if (missing == s.shown && now - s.posted < kNoticeRepeat) return;
     s.shown = missing;
     s.posted = now;
-    notices::post(kNotice, "Waiting for " + std::to_string(missing) + (missing == 1 ? " more player" : " more players") +
-                               " to join before the story starts", kNoticeSeconds);
+    notices::post(kNotice,
+                  missing == 1 ? strings::get(base(), strings::Str::CoopWaitingOne) : strings::fmt(base(), strings::Str::CoopWaitingMany, missing),
+                  kNoticeSeconds);
 }
 
 // After the start: members are missing (left, or not here this time). Said in a session, once per change of the missing count;
@@ -51,8 +53,9 @@ void show_absent(State& s, int missing) {
     if (missing == s.shown || !link::in_session()) return;
     s.shown = missing;
     if (missing > 0)
-        notices::post(kNotice, missing == 1 ? "1 player is not here; they can join at any time" :
-                                              std::to_string(missing) + " players are not here; they can join at any time", 6.0);
+        notices::post(kNotice,
+                      missing == 1 ? strings::get(base(), strings::Str::CoopAbsentOne) : strings::fmt(base(), strings::Str::CoopAbsentMany, missing),
+                      6.0);
 }
 
 void let_go(State& s) {

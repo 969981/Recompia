@@ -117,6 +117,7 @@
 // the same call through effect 0x33's handler; the add keeps one slot per creature (0x5f9a3c overwrites the creature's slot), so
 // an appearance armed twice is armed once. The member's own call still runs, as before.
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_journal.h"
 #include "core/pkp_layout.h"
@@ -186,12 +187,14 @@ constexpr uint64_t kWildPopEffectFn = 0x123008;   // effect 0x33's handler: the 
 constexpr uint8_t kWildPopEffect = 0x33;
 constexpr size_t kWildPopQueue = 16;   // a member's appearances waiting for the channel
 
-// The abilities a line names; any other is "something new".
+// The abilities a line names (pkp_strings_table.h); any other is "something new".
 struct AbilityName {
     uint16_t id;
-    const char* name;
+    strings::Str name;
 };
-constexpr AbilityName kAbilityNames[] = {{17, "the creature list"}, {76, "the creature list"}, {10, "Water Gun"}, {55, "Water Gun"}, {101, "Water Gun"}};
+constexpr AbilityName kAbilityNames[] = {{17, strings::Str::CoopAbilityCreatureList}, {76, strings::Str::CoopAbilityCreatureList},
+                                         {10, strings::Str::CoopAbilityWater}, {55, strings::Str::CoopAbilityWater},
+                                         {101, strings::Str::CoopAbilityWater}};
 
 struct State {
     uint8_t sent[kQuestMax] = {};      // per quest (id - 1): the state last shared from here
@@ -598,7 +601,7 @@ void send_digest() {
 
 const char* ability_name(uint16_t id) {
     for (const AbilityName& a : kAbilityNames)
-        if (a.id == id) return a.name;
+        if (a.id == id) return strings::get(base(), a.name);
     return nullptr;
 }
 
@@ -607,7 +610,8 @@ void ability_line(uint8_t origin, uint16_t id) {
     State& s = st();
     const char* name = ability_name(id);
     const std::string who = notice::name_of(origin);
-    const std::string text = name ? who + " unlocked " + name + ". You have it too!" : who + " unlocked something new. You have it too!";
+    const std::string text = name ? strings::fmt(base(), strings::Str::CoopAbilityNamed, who, name)
+                                  : strings::fmt(base(), strings::Str::CoopAbilityNew, who);
     if (text == s.last_ability_line) return;
     s.last_ability_line = text;
     notice::post(text);
@@ -989,7 +993,7 @@ void on_states_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
     const double now = qpc::seconds();
     if (n <= 8 && completed && now - s.story_line_at >= kNoticeGap) {
         s.story_line_at = now;
-        notice::post(notice::name_of(origin) + " finished a step of a request. Your story moves on too!");
+        notice::post(strings::fmt(base(), strings::Str::CoopStoryStep, notice::name_of(origin)));
     }
     catch_up(c);
 }
@@ -1049,7 +1053,7 @@ void on_digest_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
         const double now = qpc::seconds();
         if (now - s.story_line_at >= kNoticeGap) {
             s.story_line_at = now;
-            notice::post("Caught up with your group's story.");
+            notice::post(strings::get(base(), strings::Str::CoopStoryCaughtUp));
         }
     }
     catch_up(c);

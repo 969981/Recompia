@@ -80,6 +80,7 @@
 // the host's goal, on a member the game sends it to the host (CM frame 0x631020 -> 0x633150, RequestChallengeProgress; host
 // handler 0x54fbc0 -> 0x54fd60). So in a session a replay skips the goal (x0 = 0 at 0x621be8) and each hand-in counts once.
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 #include "core/pkp_tables.h"
@@ -403,10 +404,9 @@ void apply(::Ctx* c, uint64_t recs) {
         int& first = to == kDone ? closed : take && p.there != kDone ? taken : finished;   // only the bit: it was listed already
         if (first < 0) first = p.origin;
     }
-    if (taken >= 0) line(notice::name_of(static_cast<uint8_t>(taken)) + " took on a creature request. It is in your requests too!");
-    else if (finished >= 0)
-        line(notice::name_of(static_cast<uint8_t>(finished)) + " finished a creature request. It is in your requests too!");
-    else if (closed >= 0) line("A creature request was finished. It is done for the whole group!");
+    if (taken >= 0) line(strings::fmt(base(), strings::Str::CoopRequestTaken, notice::name_of(static_cast<uint8_t>(taken))));
+    else if (finished >= 0) line(strings::fmt(base(), strings::Str::CoopRequestFinished, notice::name_of(static_cast<uint8_t>(finished))));
+    else if (closed >= 0) line(strings::get(base(), strings::Str::CoopRequestClosed));
 }
 
 }  // namespace

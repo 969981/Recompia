@@ -19,6 +19,7 @@
 #include "ui/pkp_save_now.h"
 #include "ui/pkp_key_guide.h"
 #include "core/pkp_guest.h"
+#include "core/pkp_language.h"
 #include "core/pkp_layout.h"
 #include "core/pkp_settings.h"
 
@@ -77,11 +78,6 @@ struct State {
 };
 
 State g;
-
-uint32_t language() {
-    const uint64_t lp = rd<uint64_t>(g.base + layout::kLanguage);
-    return lp && guest::ok(lp, 4) ? rd<uint32_t>(lp) : 1;
-}
 
 // The button of an action (input manager table, [main+0x3561718] +0xcd8), -1 if unknown.
 int button_of(uint16_t act) {
@@ -148,8 +144,8 @@ void part_filled(::Ctx* c, const key_guide::Part& p) {
         if (button_of(kButtons[i].act) == kButtons[i].button && !used[kButtons[i].button]) pick = i;
     g.button.store(pick >= 0 ? static_cast<int>(kButtons[pick].pad) : -1, std::memory_order_release);
     if (pick >= 0) key_guide::set_icon(c, p, kButtons[pick].act);
-    const uint32_t lang = language();
-    key_guide::set_text(c, p, kLabel[lang < 9 ? lang : 1]);
+    const uint32_t lang = language::index(g.base);
+    key_guide::set_text(c, p, kLabel[lang]);
     key_guide::set_click_layout(g.client, key_guide::layout_of(c, p));
     if (!g.logged_fill) {
         g.logged_fill = true;

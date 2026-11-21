@@ -24,6 +24,7 @@
 // member named (0xe7da08 at 0xfba7bc, which asks it to file kind 8 home). When 0xbd45c refuses, the menu enters state 1 (0xfba744:
 // 0xfb8f58(menu, 1, 1)); both refusals here do the same.
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 
@@ -76,7 +77,7 @@ int on_link_menu(::Ctx* c) {
     const uint32_t back = s.refusing ? kLinkPageState : kLinkFirstState;
     NXLOG_I(kTag, "Co-op doors: the Link Play screen's state 0x%x (a session call) is refused in the co-op session, back to state %u", state,
             back);
-    notices::post(kNotice, "In co-op, the launcher runs the session: Link Play can't change it", kNoticeSeconds);
+    notices::post(kNotice, strings::get(base(), strings::Str::CoopDoorsLinkMenu), kNoticeSeconds);
     s.refusing = true;
     guest::call(c, base() + layout::kLinkMenuEnter, screen, back);
     s.refusing = false;
@@ -92,7 +93,7 @@ int on_pause_menu(::Ctx* c) {
     if (!send_home && state != kPauseReject) return 0;
     NXLOG_I(kTag, "Co-op doors: the pause menu's %s member %u is refused in the co-op session", send_home ? "send-home of" : "rejection of",
             member);
-    notices::post(kNotice, "In co-op, teammates can't be sent home: each player leaves with Save and Quit", kNoticeSeconds);
+    notices::post(kNotice, strings::get(base(), strings::Str::CoopDoorsSendHome), kNoticeSeconds);
     guest::call(c, base() + layout::kPauseMenuEnter, menu, kPauseFirstState, 1);
     return 1;
 }

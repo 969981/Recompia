@@ -41,6 +41,7 @@
 // Each process reads its lists each frame and sends what grew, and every list every kAllEvery seconds and when it or another member
 // joins, through the authority.
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 
@@ -74,6 +75,8 @@ constexpr int kGateSessionReg = 0, kGateIdReg = 20;
 
 enum class Set : uint8_t { Move, Emote, Area, Building, AreaGate };
 
+using S = strings::Str;
+
 struct List {
     uint8_t wire_id;                 // UnlockKnown +2
     Set set;
@@ -84,17 +87,18 @@ struct List {
     uint8_t skip_first, skip_last;   // ids never shared (skip_first > skip_last: none)
     bool authority_only;             // taken only from the authority
     bool loud;                       // the game has an event for it
-    const char* one;
+    const char* one;                 // the log's words (NXLOG)
     const char* many;
+    strings::Str shared, count_one, count_many;   // the player's line for one with the game's event, and the batch's counts
     uint64_t visitor_field = 0;      // non-zero: on a Link Play visitor the game reads the entry at R + this + id * stride instead
 };
 constexpr List kLists[] = {
-    {1, Set::Move, 0x6d82f0, 8, 0x01, 1, 0x3c, 0x14, 0x18, false, true, "move", "moves"},
-    {2, Set::Emote, 0x6d84f4, 1, 0x01, 1, 0x64, 1, 0, false, true, "emote", "emotes"},
-    {3, Set::Area, 0x6d7775, 0x34, 0x10, 1, 5, 1, 0, true, false, "area", "areas"},
-    {4, Set::Building, 0x73b1d4, 1, 0x01, 0, 0x7f, 1, 0, false, false, "building", "buildings"},
+    {1, Set::Move, 0x6d82f0, 8, 0x01, 1, 0x3c, 0x14, 0x18, false, true, "move", "moves", S::CoopSharedMove, S::CoopMovesOne, S::CoopMovesMany},
+    {2, Set::Emote, 0x6d84f4, 1, 0x01, 1, 0x64, 1, 0, false, true, "emote", "emotes", S::CoopSharedEmote, S::CoopEmotesOne, S::CoopEmotesMany},
+    {3, Set::Area, 0x6d7775, 0x34, 0x10, 1, 5, 1, 0, true, false, "area", "areas", S::CoopSharedArea, S::CoopAreasOne, S::CoopAreasMany},
+    {4, Set::Building, 0x73b1d4, 1, 0x01, 0, 0x7f, 1, 0, false, false, "building", "buildings", S::CoopSharedBuilding, S::CoopBuildingsOne, S::CoopBuildingsMany},
     {5, Set::AreaGate, layout::kSaveGateHistory, 1, 0x01, 0, layout::kGateCount - 1, 1, 0, false, false, "area gate", "area gates",
-     layout::kSaveGateMirror},
+     S::CoopSharedGate, S::CoopGatesOne, S::CoopGatesMany, layout::kSaveGateMirror},
 };
 constexpr size_t kListCount = sizeof kLists / sizeof kLists[0];
 constexpr const List& kGateList = kLists[4];
@@ -187,15 +191,13 @@ void batch_line() {
     for (size_t k = 0; k < kListCount; ++k) {
         ListState& ls = s.lists[k];
         if (!ls.quiet) continue;
-        if (done) parts += done + 1 == lists ? " and " : ", ";
-        char part[48];
-        std::snprintf(part, sizeof part, "%u %s", ls.quiet, ls.quiet == 1 ? kLists[k].one : kLists[k].many);
-        parts += part;
+        if (done) parts += strings::get(base(), done + 1 == lists ? S::CoopListAnd : S::CoopListComma);
+        parts += ls.quiet == 1 ? strings::get(base(), kLists[k].count_one) : strings::fmt(base(), kLists[k].count_many, ls.quiet);
         ++done;
         ls.quiet = 0;
     }
-    notice::post(notice::name_of(static_cast<uint8_t>(s.batch_origin < 0 ? 0 : s.batch_origin)) + " unlocked " + parts +
-                 " for you too!");
+    notice::post(strings::fmt(base(), S::CoopUnlockedBatch, notice::name_of(static_cast<uint8_t>(s.batch_origin < 0 ? 0 : s.batch_origin)),
+                              parts));
     s.batch_origin = -1;
 }
 
@@ -268,7 +270,7 @@ void apply(::Ctx* c, uint64_t root) {
             if (!set_now) continue;
             if (loud) {
                 loud_done = true;
-                notice::post(notice::name_of(ls.origin[id]) + " shared a new " + l.one + " with you!");
+                notice::post(strings::fmt(base(), l.shared, notice::name_of(ls.origin[id])));
             } else {
                 if (s.batch_origin < 0) s.batch_origin = ls.origin[id];
                 ++ls.quiet;

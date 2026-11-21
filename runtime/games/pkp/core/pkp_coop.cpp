@@ -8,6 +8,7 @@
 // not the expected instruction, or a midhook site the lifted libraries lack, removes every co-op hook.
 #include "core/pkp_coop.h"
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 #include "core/pkp_settings.h"
@@ -16,6 +17,7 @@
 #include <atomic>
 #include <cctype>
 #include <cstddef>
+#include <optional>
 
 #include "nxrt/hooks.h"
 #include "nxrt/log.h"
@@ -322,7 +324,7 @@ struct State {
     std::atomic<bool> armed{false};
     std::atomic<bool> checked{false};
     std::atomic<bool> in_game{false};   // play mode's, from its frame (main thread) for the game-frame tick
-    const char* off_text = nullptr;     // the site check turned co-op off: the notice's text, posted again once gameplay starts (frame only)
+    std::optional<strings::Str> off_text;   // the site check turned co-op off: the notice's text, posted again once gameplay starts (frame only); its language is read at each post
 };
 State& st() {
     static State s;
@@ -454,8 +456,8 @@ void frame(bool in_game, double, play::GameFrame*) {
     State& s = st();
     s.in_game.store(in_game, std::memory_order_relaxed);
     if (s.off_text && in_game) {
-        notices::post(kOffNotice, s.off_text, kOffNoticeSeconds);
-        s.off_text = nullptr;
+        notices::post(kOffNotice, strings::get(s.base, *s.off_text), kOffNoticeSeconds);
+        s.off_text.reset();
     }
     if (!s.ids[0] || s.checked.exchange(true)) return;
     HookSite at[kSiteCount];
@@ -468,10 +470,9 @@ void frame(bool in_game, double, play::GameFrame*) {
                 static_cast<unsigned long long>(bad->site), word, bad->word,
                 relink ? " (the lift has no hook site there: Set up again)"
                        : " (this game build or dump is not the one co-op was made for)");
-        s.off_text = relink ? "Co-op is off: press Set up again in the launcher, then start the game again"
-                            : "Co-op is off: this game version doesn't match this Recompia build";
-        notices::post(kOffNotice, s.off_text, kOffNoticeSeconds);
-        if (in_game) s.off_text = nullptr;   // already in gameplay: this showing is the gameplay one
+        s.off_text = relink ? strings::Str::CoopOffSetUpAgain : strings::Str::CoopOffVersion;
+        notices::post(kOffNotice, strings::get(s.base, *s.off_text), kOffNoticeSeconds);
+        if (in_game) s.off_text.reset();   // already in gameplay: this showing is the gameplay one
         return;
     }
     s.armed.store(true, std::memory_order_release);
@@ -519,7 +520,7 @@ void remove() {   // the registry has removed the hooks
     s.armed.store(false);
     s.checked.store(false);
     s.in_game.store(false);
-    s.off_text = nullptr;
+    s.off_text.reset();
     for (uint32_t& h : s.ids) h = 0;
     s.hooks = nullptr;
     coop::bags::reset();   // first: it writes its records' files under this player's member key
