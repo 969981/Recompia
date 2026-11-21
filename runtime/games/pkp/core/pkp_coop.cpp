@@ -140,6 +140,8 @@ enum class Site : uintptr_t {
                       // authority, so content records waiting on that talk run for the group
     Fed,              // the "fed" notice of a field feed (held-item command kind 9), which skips a visitor: a member's feed is made
                       // on the authority too, so the group's creature eats it
+    // ---- a member's talk gift (pkp_coop_friendship.cpp) ----
+    FriendGift,       // the host's apply of a member's talk gift: its friendship is made on the authority outside Cloud Island too
 };
 
 struct CoopSite {
@@ -230,6 +232,8 @@ constexpr CoopSite kSites[] = {
     // the creature events (pkp_coop_feed.cpp)
     {{0x1355ec, kPacibsp, true}, Site::TalkedTo},
     {{0x136548, kPacibsp, true}, Site::Fed},
+    // a member's talk gift (pkp_coop_friendship.cpp)
+    {{0x21c46c, 0x12000003u, false}, Site::FriendGift},      // and w3, w0, #0x1 (w0 = Cloud Island, 0x46e308's w3 at 0x21c484)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -306,6 +310,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::BuyCount: return coop::challenges::on_buy_visitor(c);
         case Site::TalkedTo: return coop::feed::on_talked_to(c);
         case Site::Fed: return coop::feed::on_fed(c);
+        case Site::FriendGift: return coop::friendship::on_gift_apply(c);
         default: return 0;
     }
 }

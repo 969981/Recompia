@@ -514,6 +514,7 @@ namespace friendship {
 int on_add_points(::Ctx* c);   // entry 0x3a89fc: a member's gain is sent to the authority
 int on_flag_17a(::Ctx* c);     // midhook 0x4ab358: a member's friend record flag +0x17a is sent to the authority
 int on_name_tag(::Ctx* c);     // midhook 0x3b7cd0: a member's name-tag friendship test reads its copy of the host's records
+int on_gift_apply(::Ctx* c);   // midhook 0x21c46c: the authority's apply of a member's talk gift makes its friendship
 // The messages (pkp_coop_link.cpp).
 void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);     // the authority: a member's gain or flag
 void on_state_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: the authority's friend records
