@@ -1,3 +1,34 @@
+# Fork of Recompia focused on Android builds
+
+This fork follows the project's `main` and adds what it takes to build and play Recompia on Android phones (arm64). It began as
+an experiment in running the game on a phone and now runs there. Every change here is meant for the project itself: desktop
+players should use the project's own releases.
+
+## No game code or data
+
+This repository contains no game code, no game data and nothing derived from either: no dump files, no translated or compiled
+game code, no shaders, textures, saves or screenshots of the game. To play, you need your own dump of the game (see `LEGAL.md`);
+the game is built from it on your own device.
+
+## How changes flow
+
+- Each change is a small, focused pull request with its own description.
+- It is merged into this fork first (branch `android`, the default here; `main` mirrors the project's `main`).
+- The same branch is then offered to the project as a pull request, unchanged.
+- Changes for Android do not alter anything for Windows, Linux or macOS players.
+
+## Upstream
+
+The project: https://github.com/Dittobyte/Recompia
+
+## Contact
+
+Bugs that happen only in the Android build: this fork's GitHub issues. Bugs that also happen on desktop: the project's issues.
+
+---
+
+*The project's own README follows.*
+
 <h1 align="center">
   <img src="docs/assets/logo.png" alt="Recompia" width="420">
 </h1>
