@@ -256,5 +256,10 @@ constexpr uint64_t kFriendGift = 0x175;      // u8 once-gate of a gift's friends
 constexpr uint64_t kFriendDaily = 0x177;     // u8 once-gate of the talk / play friendship (0x4aae54 slot 174 and five more callers)
 constexpr uint64_t kFriendFlag17a = 0x17a;   // u8 set by script callback slot 175 (0x4ab268)
 constexpr uint64_t kFriendOnce17d = 0x17d;   // u8 once-gate of 0x3a83a0's friendship (0x3a8954 reads, 0x3a8d44 sets)
+// ---- gimmick ownership (pkp_coop_owner.cpp; modding-docs coop-v2/role-census/build/owner.md) ----
+constexpr uint64_t kOwnIndexOf = 0x25a480;          // () -> u8 this process's member index (NM+0xb3381), the owner byte's value
+constexpr uint64_t kGimmickOwnerApply = 0x538f60;   // (&kind, x, y, z, &idx, take, quiet, slot): an ownership take or release
+constexpr uint64_t kGimmickOwnerMsg = 0x74fd48;     // (msg): builds a SyncGimmickOwnership message
+constexpr uint64_t kSendToHostForced = 0x30c69c;    // (msg): sends a message to the host, past the NM+0xb3348 send gate
 
 }  // namespace nxrt::games::pkp::layout

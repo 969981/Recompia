@@ -432,7 +432,18 @@ midhook 0x71003b7cd0
 midhook 0x7100645d18
 midhook 0x7100643938
 #   Seamless co-op, creature events (pkp_coop_feed.cpp): the contents scheduler's "talked to" notice 0x71001355ec (SC, &actor id;
+#   only caller the A press 0x710031347c after a claimed talk), declared below under journal roles; and the "fed" notice 0x7100136548
+#   (SC, &actor id, item; only caller the field feed 0x7100597820, held-item command kind 9's execute)
+entryhook 0x7100136548
 #   only caller the A press 0x710031347c after a claimed talk), declared below under journal roles
+#   Seamless co-op, gimmick ownership (pkp_coop_owner.cpp): the `tbz w0, #0` after a gimmick use posts its press to the contents
+#   (0x7100765b54, or 0x71007659c8 that returns its answer), whose false (a content took it) returns without giving the object back, in class 0x32688e0 0x71007c0be0, 0x3265b20
+#   0x710079cf40, 0x327a3b8 0x7100848860, 0x3265668 0x710079aa80 and 0x326dc98's use 0x71007e77a4 (x19 = the gimmick)
+midhook 0x71007c141c
+midhook 0x710079d558
+midhook 0x7100848eac
+midhook 0x710079b178
+midhook 0x71007e78f4
 #   Not hooked now (the retired Story co-op's sites, kept so a co-op part that needs one does not need another lift): talk conditions
 #   0x19 (`mov w8, #1` after IsOnline) and 0x60 (`tbnz w0, #0` after IsOnline), and condition 0x22, the one instruction `b IsOnline`;
 #   the quest pump 0x710011b600 at `tbz w0, #0` after the flag read; the pickup 0x71009cdba0 and the removal 0x71009cb680 of an item
@@ -655,3 +666,9 @@ entryhook 0x71005c04d4
 #   Seamless co-op, the ability check (pkp_coop_story.cpp): in 0x7100113f10(id, member), the `tbz w8, #2, 0x7100114048` (w8 = GM+0x90)
 #   of the member-0xff branch, where a visitor goes on to read the host's join-time member record (0x71000b19d8) instead of its own bits
 midhook 0x71001140e8
+#   Seamless co-op, a member's talk gift (pkp_coop_friendship.cpp): in the host's talk-end apply 0x71002197a0, the `and w3, w0, #0x1`
+#   after the Cloud Island test that becomes the gift re-run 0x710046e308's w3 (its friendship part) at 0x710021c484
+midhook 0x710021c46c
+#   Seamless co-op, a newly met creature moving in (pkp_coop_newcomer.cpp): in the talk event's end step 0x7100481e2c, its
+#   `bl 0x71003b9674` (the befriend: x0 = the creature's component, x1 = &own user id), which on a member never reaches the host
+midhook 0x710048235c

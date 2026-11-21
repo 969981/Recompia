@@ -32,6 +32,11 @@
 - Co-op and Link Play now really check that every player has the same gameplay mods (Modtopia) on. Before, the mods were left out of the check, so players with different mods could join each other
 - When the host runs another Recompia version, the launcher now says so, instead of saying the host has different mods on
 - When co-op can't run with the installed game (after an update that needs **Set up again**, or a game version this build doesn't match), the game now says so on screen at start-up and again when you reach your world, instead of quietly loading your own world
+- Feeding a creature now counts for the group when a teammate does it, not only when the host does: food a teammate hands a creature is eaten in the host's world too, so the group's creature and its requests count it
+- A present a teammate gives a creature in a talk now adds to the group's friendship with it, as the host's presents do
+- An object whose press goes to a story step instead of its normal use is free again right after. Before, the player who pressed it kept it, and everyone else got "Someone else is using this right now." there for the rest of the session
+- The time of day in the story's opening now changes for teammates too: the evening and the morning after the night by the campfire reached only the host, and a teammate's clock could stay stuck at night
+- A newly discovered creature can now move in when a teammate talks to it first, not only the host: it becomes the town's resident for the whole group, and no longer asks the host again whether it can live here
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

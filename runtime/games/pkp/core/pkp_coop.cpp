@@ -138,6 +138,15 @@ enum class Site : uintptr_t {
     // ---- the creature events (pkp_coop_feed.cpp) ----
     TalkedTo,         // the contents scheduler's "talked to" notice, which skips a visitor: a member's talk is posted on the
                       // authority, so content records waiting on that talk run for the group
+    Fed,              // the "fed" notice of a field feed (held-item command kind 9), which skips a visitor: a member's feed is made
+                      // on the authority too, so the group's creature eats it
+    // ---- a member's talk gift (pkp_coop_friendship.cpp) ----
+    FriendGift,       // the host's apply of a member's talk gift: its friendship is made on the authority outside Cloud Island too
+    // ---- gimmick ownership (pkp_coop_owner.cpp) ----
+    UseRefused,       // a gimmick press a story content took instead of the use: the object is given back, as when the class's
+                      // event does not start
+    // ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----
+    Befriend,         // the talk end step's befriend call: a member's first talk with a new creature is made on the authority
 };
 
 struct CoopSite {
@@ -227,6 +236,17 @@ constexpr CoopSite kSites[] = {
     {{0x643938, 0x37001220u, false}, Site::BuyCount},        // tbnz w0, #0, 0x643b7c (w0 = the visitor test 0x376c4)
     // the creature events (pkp_coop_feed.cpp)
     {{0x1355ec, kPacibsp, true}, Site::TalkedTo},
+    {{0x136548, kPacibsp, true}, Site::Fed},
+    // a member's talk gift (pkp_coop_friendship.cpp)
+    {{0x21c46c, 0x12000003u, false}, Site::FriendGift},      // and w3, w0, #0x1 (w0 = Cloud Island, 0x46e308's w3 at 0x21c484)
+    // gimmick ownership (pkp_coop_owner.cpp): the `tbz w0, #0` after a use posts its press to the contents, five classes
+    {{0x7c141c, 0x3607dec0u, false}, Site::UseRefused},      // tbz w0, #0, 0x7c0ff4 (class 0x32688e0)
+    {{0x79d558, 0x36000120u, false}, Site::UseRefused},      // tbz w0, #0, 0x79d57c (class 0x3265b20)
+    {{0x848eac, 0x3607ed40u, false}, Site::UseRefused},      // tbz w0, #0, 0x848c54 (class 0x327a3b8)
+    {{0x79b178, 0x3607ec40u, false}, Site::UseRefused},      // tbz w0, #0, 0x79af00 (class 0x3265668)
+    {{0x7e78f4, 0x36000da0u, false}, Site::UseRefused},      // tbz w0, #0, 0x7e7aa8 (class 0x326dc98)
+    // a newly met creature moving in (pkp_coop_newcomer.cpp)
+    {{0x48235c, 0x97fcdcc6u, false}, Site::Befriend},        // bl 0x3b9674 (x0 = the creature's component, x1 = &own user id)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -302,6 +322,10 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::ClaimVisitor: return coop::money::on_claim_visitor(c);
         case Site::BuyCount: return coop::challenges::on_buy_visitor(c);
         case Site::TalkedTo: return coop::feed::on_talked_to(c);
+        case Site::Fed: return coop::feed::on_fed(c);
+        case Site::FriendGift: return coop::friendship::on_gift_apply(c);
+        case Site::UseRefused: return coop::owner::on_use_refused(c, addr - st().base);
+        case Site::Befriend: return coop::newcomer::on_befriend(c);
         default: return 0;
     }
 }
@@ -405,6 +429,7 @@ void game_frame(::Ctx* c) {
     coop::answers::tick();
     coop::friendship::tick(c);
     coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::newcomer::tick(c, s.in_game.load(std::memory_order_relaxed));
 }
 
 void remove() {   // the registry has removed the hooks
@@ -449,6 +474,8 @@ void remove() {   // the registry has removed the hooks
     coop::records::reset();
     coop::answers::reset();
     coop::jobs::reset();
+    coop::owner::reset();
+    coop::newcomer::reset();
 }
 
 }  // namespace

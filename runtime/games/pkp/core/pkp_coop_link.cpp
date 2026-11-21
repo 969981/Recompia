@@ -79,6 +79,8 @@ constexpr Route kRoutes[] = {
     {wire::Type::FriendState, Path::FromAuthority, &friendship::on_state_message},
     {wire::Type::CreatureEvent, Path::ToAuthority, &feed::on_event_message},
     {wire::Type::TravelAsk, Path::ToAuthority, &travel::on_ask_message},
+    // a newly met creature moving in
+    {wire::Type::NewcomerAsk, Path::ToAuthority, &newcomer::on_ask_message},
 };
 
 struct State {

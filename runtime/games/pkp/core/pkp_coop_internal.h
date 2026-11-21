@@ -9,6 +9,7 @@
 //   pkp_coop_quests.cpp   the quest authority: in a session only the authority moves quests on; a member asks it for its player's steps
 //   pkp_coop_talk.cpp     the talk lock: one player at a time talks to a character
 //   pkp_coop_gimmicks.cpp a gimmick a member was using when it left: freed, so the others can use it again
+//   pkp_coop_owner.cpp    a gimmick whose press a story content took instead of its use: given back, so the others can use it
 //   pkp_coop_catchup.cpp  what the talker's talk gives the talker alone (a name, items) given to every other member too
 //   pkp_coop_gate.cpp     the wait for every member: this player's input is held until the whole group is in the session
 //   pkp_coop_lock.cpp     the input lock the catch-up's name prompt and the gate share
@@ -45,6 +46,7 @@
 //   pkp_coop_friendship.cpp a member's friendship gains with a creature made on the authority (the group's), its records shown to all
 //   pkp_coop_challenges.cpp what a member does counts toward the group's challenges (its shop buys)
 //   pkp_coop_feed.cpp     what a member's player did to a creature (talked to it), posted to the authority's contents scheduler
+//   pkp_coop_newcomer.cpp a member's first talk with a new creature (it moves in) made on the authority, as the host's own talk
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -520,6 +522,7 @@ namespace friendship {
 int on_add_points(::Ctx* c);   // entry 0x3a89fc: a member's gain is sent to the authority
 int on_flag_17a(::Ctx* c);     // midhook 0x4ab358: a member's friend record flag +0x17a is sent to the authority
 int on_name_tag(::Ctx* c);     // midhook 0x3b7cd0: a member's name-tag friendship test reads its copy of the host's records
+int on_gift_apply(::Ctx* c);   // midhook 0x21c46c: the authority's apply of a member's talk gift makes its friendship
 // The messages (pkp_coop_link.cpp).
 void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);     // the authority: a member's gain or flag
 void on_state_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: the authority's friend records
@@ -538,11 +541,33 @@ namespace feed {
 // The hook site (pkp_coop.cpp): entry 0x1355ec, the contents scheduler's "talked to" notice. On a member in the session the talk is
 // queued for the authority; the game's own code runs everywhere (returns 0).
 int on_talked_to(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0x136548, the "fed" notice of a field feed (from 0x597820 only). On a member in the session the
+// feed is queued for the authority, which makes the creature eat it there; the game's own code runs everywhere (returns 0).
+int on_fed(::Ctx* c);
 // The message (pkp_coop_link.cpp): a member's creature event, posted on the authority at a safe moment.
 void on_event_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // Sends a member's events and posts the authority's received ones (once a frame, after the channel's handlers).
 void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace feed
+// ---- a gimmick press a story content took instead of the use (pkp_coop_owner.cpp) ----
+namespace owner {
+// The hook sites (pkp_coop.cpp): midhooks at the `tbz w0` after a use posts its press to the contents (0x765b54) in five gimmick
+// classes (site: its main offset). In a session, a press a content took gives the object back as the class's failed event start
+// does; returns 0.
+int on_use_refused(::Ctx* c, uint64_t site);
+void reset();
+}  // namespace owner
+// ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----
+namespace newcomer {
+// The hook site (pkp_coop.cpp): midhook 0x48235c, the talk end step's `bl 0x3b9674` (the befriend). On a member in the session, a
+// creature with no parents yet is queued for the authority; the game's own call runs on (returns 0).
+int on_befriend(::Ctx* c);
+// The message (pkp_coop_link.cpp): a member's new creature, befriended on the authority at a safe moment.
+void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// Sends a member's new creatures; the authority makes the waiting ones (once a frame, after the channel's handlers).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace newcomer
 
 }  // namespace nxrt::games::pkp::coop
