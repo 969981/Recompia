@@ -262,5 +262,8 @@ constexpr uint64_t kGimmickOwnerApply = 0x538f60;   // (&kind, x, y, z, &idx, ta
 constexpr uint64_t kGimmickOwnerMsg = 0x74fd48;     // (msg): builds a SyncGimmickOwnership message
 constexpr uint64_t kSendToHostForced = 0x30c69c;    // (msg): sends a message to the host, past the NM+0xb3348 send gate
 constexpr uint64_t kSendGate = 0x25af7c;            // () -> u8 NM+0xb3348, the gate 0x2cb584 drops a message at
+// ---- gimmick ownership, the tester log (pkp_coop_owner.cpp) ----
+constexpr uint64_t kPlacedObjects = 0x35616f0;      // [main+]: the placed-object manager (its map at +0x46d0)
+constexpr uint64_t kPlacedObjectAt = 0x753200;      // (manager, x, y, z) -> the placed object at the cell, 0 when none
 
 }  // namespace nxrt::games::pkp::layout

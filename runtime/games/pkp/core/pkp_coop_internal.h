@@ -286,6 +286,14 @@ void tick(::Ctx* c, bool in_game);
 void reset();
 // A member: a request went to the host and its answer is not taken yet (q[0] != q[1]); false with no world.
 bool unanswered();
+// ---- a gimmick's release record (pkp_coop_linkqueue.cpp) ----
+// The hook sites (pkp_coop.cpp): midhooks at the `tbz w0` after a close's `bl 0x313418` (site: its main offset), turned true on a
+// member in a session; entry 0x214974, the generic request send, whose release records (by return address) are kept when the queue
+// would refuse them. Each returns what the site's hook returns.
+int on_release_gate(::Ctx* c, uint64_t site);
+int on_send_request(::Ctx* c);
+// This member took the object (kind, packed cell) again: a release still kept for it is dropped.
+void on_take(::Ctx* c, uint16_t kind, uint32_t cell);
 }  // namespace linkqueue
 
 namespace bag {
@@ -566,6 +574,14 @@ int on_use_refused(::Ctx* c, uint64_t site);
 // gives the object back; returns 0.
 int on_grant_no_use(::Ctx* c);
 void reset();
+// ---- the release a member's queue held too long, the tester log (pkp_coop_owner.cpp) ----
+// A member: gives the object (kind, packed cell as the release record and SyncGimmickOwnership carry it) back with the forced Sync.
+void give_back_cell(::Ctx* c, uint16_t kind, uint32_t cell);
+// The hook sites (pkp_coop.cpp), logging only (each returns 0): entry 0x538f60, the ownership apply; midhook 0x313eb4, the player's
+// press; entry 0xa8fba0, the message log's post (the busy line).
+int on_owner_apply(::Ctx* c);
+int on_press(::Ctx* c);
+int on_notice(::Ctx* c);
 }  // namespace owner
 // ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----
 namespace newcomer {

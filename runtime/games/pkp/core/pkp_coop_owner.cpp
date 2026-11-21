@@ -78,6 +78,15 @@
 //                                     0x539b44, x23 = the gimmick found at the cell with the reply's kind, w0 = vt+0x2f8's answer.
 //                                     Kinds of categories 2 / 0x13 take with the host's index (NM+0xb3380), so the owner check
 //                                     leaves them alone
+//
+// The tester log (rate-limited, kLinesPerMinute per kind of line, on every process in a session): every ownership apply 0x538f60
+// (entry hook; a take or a release, on the host for its own and every member's, on a member for its granted takes) with the object's
+// kind, cell, slot, the index it is for, the owner the object has before it (a take of an object someone else holds is a refusal),
+// and this process's index; every "Someone else is using this right now." shown (entry hook 0xa8fba0, the message log's post,
+// x1 = {u32 +0 0x44, u16 +8 0x10d} at every gimmick 0x10d site, e.g. 0x7b997c..0x7b998c), with the object this player pressed last
+// (midhook 0x313eb4, the player's call of an object's interaction handler: x0 the object; a gimmick's busy line comes from inside
+// that call). An object is named only once the placed-object lookup 0x753200([main+0x35616f0], x, y, z), the game's own lookup in
+// the grant reply (0x539b00), finds a gimmick of that kind at its cell: then its vt+0x2c8 (owner of a slot) is safe to call.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -87,6 +96,7 @@
 #include <cstring>
 
 #include "nxrt/log.h"
+#include "nxrt/qpc.h"
 
 namespace nxrt::games::pkp::coop::owner {
 
@@ -105,6 +115,17 @@ constexpr uint8_t kAnySlot = 0xff;
 
 constexpr uint64_t kOwnerOf = 0x2c8, kBaseRelease = 0x490;   // gimmick vtable +
 constexpr uint64_t kReleaseReason = 6;                       // as the classes pass it: no second cell report
+
+// The tester log.
+constexpr int kLinesPerMinute = 30;
+constexpr double kPressWindow = 1.0;                         // a busy line names the press this many seconds back at most
+constexpr uint32_t kNoticeCategory = 0x44, kBusyText = 0x10d;
+constexpr uint64_t kNoticeText = 8;                          // the notice's u16 text id
+constexpr uint8_t kUnknown = 0xfe;                           // the owner could not be read (an owner index is 0..3 or 0xff)
+struct Limit {
+    double start = -1e9;
+    int n = 0, left_out = 0;
+};
 
 enum class Slot : uint8_t { Reg, Byte57, Any };
 enum class How : uint8_t {
@@ -141,10 +162,28 @@ struct State {
     alignas(16) uint8_t msg[kMsgBytes] = {};   // guest addresses are host addresses
     alignas(8) uint16_t kind = 0;
     alignas(8) uint8_t index = 0;
+    Limit takes, releases, busy;
+    uint64_t press = 0;       // the object this player pressed last, and when
+    double press_at = -1e9;
 };
 State& st() {
     static State s;
     return s;
+}
+
+// A member's give-back: SyncGimmickOwnership, take 0, sent to the host past the send gate, as 0x848ebc..0x848fb0 makes it.
+void send_release(::Ctx* c, uint16_t kind, uint32_t cell, uint8_t slot) {
+    State& s = st();
+    if (!(guest::call(c, base() + layout::kIsVisitor, 0) & 1)) return;
+    std::memset(s.msg, 0, sizeof s.msg);
+    const uint64_t m = reinterpret_cast<uint64_t>(s.msg);
+    guest::call(c, base() + layout::kGimmickOwnerMsg, m);
+    guest::wr<uint32_t>(m + kMsgCell, cell);
+    guest::wr<uint16_t>(m + kMsgKind, kind);
+    guest::wr<uint8_t>(m + kMsgIndex, static_cast<uint8_t>(guest::call(c, base() + layout::kOwnIndexOf, 0)));
+    guest::wr<uint8_t>(m + kMsgSlot, slot);
+    guest::wr<uint8_t>(m + kMsgTake, 0);
+    guest::call(c, base() + layout::kSendToHostForced, m);
 }
 
 // The give-back of one owner slot as 0x848ebc..0x848fb0 makes it.
@@ -164,16 +203,47 @@ void give_back(::Ctx* c, uint64_t g, uint8_t slot) {
                           reinterpret_cast<uint64_t>(&s.index), 0, 0, slot});
         return;
     }
-    if (!(guest::call(c, base() + layout::kIsVisitor, 0) & 1)) return;
-    std::memset(s.msg, 0, sizeof s.msg);
-    const uint64_t m = reinterpret_cast<uint64_t>(s.msg);
-    guest::call(c, base() + layout::kGimmickOwnerMsg, m);
-    guest::wr<uint32_t>(m + kMsgCell, (lo & 0xfff) | ((lo >> 16) & 0xff) << 12 | static_cast<uint32_t>(hi) << 20);
-    guest::wr<uint16_t>(m + kMsgKind, s.kind);
-    guest::wr<uint8_t>(m + kMsgIndex, s.index);
-    guest::wr<uint8_t>(m + kMsgSlot, slot);
-    guest::wr<uint8_t>(m + kMsgTake, 0);
-    guest::call(c, base() + layout::kSendToHostForced, m);
+    send_release(c, s.kind, (lo & 0xfff) | ((lo >> 16) & 0xff) << 12 | static_cast<uint32_t>(hi) << 20, slot);
+}
+
+// A rate-limited line of one kind: true while the minute's lines are not used up.
+bool allow(Limit& l, const char* what) {
+    const double now = qpc::seconds();
+    if (now - l.start >= 60.0) {
+        if (l.left_out) NXLOG_I(kTag, "Co-op owner: %d more %s lines in the last minute left out", l.left_out, what);
+        l = Limit{now, 0, 0};
+    }
+    if (l.n < kLinesPerMinute) {
+        ++l.n;
+        return true;
+    }
+    ++l.left_out;
+    return false;
+}
+
+// The gimmick at a cell when it has this kind (see the header), else 0.
+uint64_t gimmick_at(::Ctx* c, uint16_t kind, uint32_t x, uint32_t y, uint32_t z) {
+    const uint64_t map = guest::rd<uint64_t>(base() + layout::kPlacedObjects);
+    if (!guest::ok(map, 8)) return 0;
+    const uint64_t g = guest::call(c, base() + layout::kPlacedObjectAt, map, x, y, z);
+    if (!guest::ok(g, 0x60)) return 0;
+    const uint64_t kind_of = guest::deref(guest::deref(g) + kKindOf);
+    if (!kind_of || static_cast<uint16_t>(guest::call(c, kind_of, g)) != kind) return 0;
+    return guest::deref(guest::deref(g) + kOwnerOf) ? g : 0;
+}
+
+// The pressed object g when the lookup at its cell finds this very object (a placed gimmick), else 0. Nothing on g is called before.
+uint64_t gimmick_at_object(::Ctx* c, uint64_t g, uint32_t x, uint32_t y, uint32_t z) {
+    const uint64_t map = guest::rd<uint64_t>(base() + layout::kPlacedObjects);
+    if (!guest::ok(map, 8)) return 0;
+    if (guest::call(c, base() + layout::kPlacedObjectAt, map, x, y, z) != g) return 0;
+    return guest::deref(guest::deref(g) + kKindOf) && guest::deref(guest::deref(g) + kOwnerOf) ? g : 0;
+}
+
+// The owner of a slot of a gimmick gimmick_at() found (slot 0xff: the one-slot classes' slot 0), kUnknown for none.
+uint8_t owner_now(::Ctx* c, uint64_t g, uint8_t slot) {
+    if (!g) return kUnknown;
+    return static_cast<uint8_t>(guest::call(c, guest::deref(guest::deref(g) + kOwnerOf), g, slot == kAnySlot ? 0 : slot));
 }
 
 }  // namespace
@@ -237,9 +307,75 @@ int on_grant_no_use(::Ctx* c) {
     return 0;
 }
 
+void give_back_cell(::Ctx* c, uint16_t kind, uint32_t cell) {
+    if (link::in_session() && !link::is_authority()) send_release(c, kind, cell, kAnySlot);
+}
+
+int on_owner_apply(::Ctx* c) {
+    if (!link::in_session()) return 0;
+    const uint64_t kind_at = c->x[0], index_at = c->x[4];
+    if (!guest::ok(kind_at, 2) || !guest::ok(index_at, 1)) return 0;
+    const uint16_t kind = guest::rd<uint16_t>(kind_at);
+    const uint8_t index = guest::rd<uint8_t>(index_at);
+    const uint32_t x = c->x[1] & 0xfff, y = c->x[2] & 0xff, z = c->x[3] & 0xfff;   // as 0x539ad0..0x539ad8 unpack the cell
+    const bool take = c->x[5] & 1, quiet = c->x[6] & 1;
+    const uint8_t slot = static_cast<uint8_t>(c->x[7]);
+    const uint8_t own = static_cast<uint8_t>(guest::call(c, base() + layout::kOwnIndexOf, 0));
+    if (take && index == own && !link::is_authority()) linkqueue::on_take(c, kind, x | y << 12 | z << 20);
+    State& s = st();
+    if (!allow(take ? s.takes : s.releases, take ? "take" : "release")) return 0;
+    const uint8_t before = owner_now(c, gimmick_at(c, kind, x, y, z), slot);
+    const bool refused = take && before != kAnySlot && before != kUnknown && before != index;
+    NXLOG_I(kTag, "Co-op owner: %s kind %u at (%u,%u,%u) slot %u for index %u%s (owner before %u%s; this process index %u, %s)",
+            refused ? "take REFUSED" : take ? "take" : "release", kind, x, y, z, slot, index, quiet ? " quiet" : "", before,
+            before == kAnySlot ? " free" : before == kUnknown ? " unknown" : "", own, link::is_authority() ? "host" : "member");
+    return 0;
+}
+
+int on_press(::Ctx* c) {
+    if (!link::in_session()) return 0;
+    st().press = c->x[0];
+    st().press_at = qpc::seconds();
+    return 0;
+}
+
+int on_notice(::Ctx* c) {
+    if (!link::in_session()) return 0;
+    const uint64_t n = c->x[1];
+    if (!guest::ok(n, kNoticeText + 2) || guest::rd<uint32_t>(n) != kNoticeCategory || guest::rd<uint16_t>(n + kNoticeText) != kBusyText)
+        return 0;
+    State& s = st();
+    if (!allow(s.busy, "busy")) return 0;
+    const uint8_t own = static_cast<uint8_t>(guest::call(c, base() + layout::kOwnIndexOf, 0));
+    const char* who = link::is_authority() ? "host" : "member";
+    const uint64_t g = s.press;
+    if (qpc::seconds() - s.press_at > kPressWindow || !guest::ok(g, 0x60)) {
+        NXLOG_I(kTag, "Co-op owner: busy line shown, no recent press (this process index %u, %s)", own, who);
+        return 0;
+    }
+    const uint64_t vt = guest::deref(g);
+    const uint32_t lo = guest::rd<uint32_t>(g + kCellLo);
+    const uint32_t x = lo & 0xfff, y = (lo >> 16) & 0xff, z = guest::rd<uint16_t>(g + kCellHi) & 0xfffu;
+    // Named only when the lookup by its cell finds this very object: the press may have been on something that is not a gimmick, whose
+    // vtable has no kind slot to call.
+    const uint64_t found = gimmick_at_object(c, g, x, y, z);
+    if (!found) {
+        NXLOG_I(kTag, "Co-op owner: busy line shown after a press on class main+0x%llx at (%u,%u,%u), not a placed gimmick (this "
+                "process index %u, %s)", static_cast<unsigned long long>(vt - base()), x, y, z, own, who);
+        return 0;
+    }
+    NXLOG_I(kTag, "Co-op owner: busy line shown for kind %u (class main+0x%llx) at (%u,%u,%u), owner %u (this process index %u, %s)",
+            static_cast<unsigned>(guest::call(c, guest::deref(vt + kKindOf), g) & 0xffff), static_cast<unsigned long long>(vt - base()),
+            x, y, z, owner_now(c, g, 0), own, who);
+    return 0;
+}
+
 void reset() {
     for (bool& b : st().logged) b = false;
     for (bool& b : st().grant_logged) b = false;
+    st().takes = st().releases = st().busy = Limit{};
+    st().press = 0;
+    st().press_at = -1e9;
 }
 
 }  // namespace nxrt::games::pkp::coop::owner

@@ -694,3 +694,17 @@ midhook 0x71004c0574
 #   `tbz w0, #0` after the grant's data apply (vt+0x2f8; x23 = the gimmick, x19 = the reply), whose false skips the use, and after
 #   which class 0x326dc98 runs none
 midhook 0x7100539b44
+#   Seamless co-op, a gimmick's release on a member's busy request queue (pkp_coop_linkqueue.cpp): the `tbz w0, #0` after the
+#   "every request answered" test 0x7100313418 that skips a close's release record, in 0x71007b8960 (class 0x3268000),
+#   0x710082a460 (0x32762f8), 0x71007e2030 (0x326d7e0), 0x710083bc40 and 0x710083c228 (0x3278b08), 0x710083e1c0; the generic
+#   request send 0x7100214974 is declared above (journal services)
+midhook 0x71007b8b68
+midhook 0x710082a558
+midhook 0x71007e20b0
+midhook 0x710083bec0
+midhook 0x710083c288
+midhook 0x710083e310
+#   Seamless co-op, the ownership log (pkp_coop_owner.cpp): the ownership apply 0x7100538f60 (&kind, x, y, z, &idx, take, quiet,
+#   slot) and the message log's post 0x7100a8fba0 (the busy line); the press 0x7100313eb4 is declared above (journal interact)
+entryhook 0x7100538f60
+entryhook 0x7100a8fba0

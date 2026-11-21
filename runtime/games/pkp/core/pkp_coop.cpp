@@ -155,6 +155,12 @@ enum class Site : uintptr_t {
     // ---- gimmick ownership, a grant that starts no use (pkp_coop_owner.cpp) ----
     GrantNoUse,       // a member's ownership grant after which no use runs (its data apply vt+0x2f8 failed, or the class runs none
                       // from a grant): the object is given back
+    // ---- a gimmick's release on a member's busy request queue, the ownership log (pkp_coop_linkqueue.cpp, pkp_coop_owner.cpp) ----
+    ReleaseGate,      // a close's "every request answered" test before its release record: let through, the record is kept instead
+    RequestSend,      // the generic request send: a release record the busy queue would refuse is kept and sent once it is idle
+    OwnerApply,       // the ownership apply (take / release): logged; a member's new take drops a kept release of the same object
+    OwnerPress,       // the player's press on an object: remembered for the busy line's log
+    OwnerNotice,      // the message log's post: "Someone else is using this right now." logged with the object
 };
 
 struct CoopSite {
@@ -270,6 +276,17 @@ constexpr CoopSite kSites[] = {
     {{0x4c0574, 0x36000140u, false}, Site::TalkOwn},         // tbz w0, #0, 0x4c059c (w0 = 0x332c80's answer)
     // gimmick ownership, a grant that starts no use (pkp_coop_owner.cpp)
     {{0x539b44, 0x36000120u, false}, Site::GrantNoUse},      // tbz w0, #0, 0x539b68 (w0 = vt+0x2f8's answer, x23 the gimmick)
+    // a gimmick's release on a member's busy request queue, the ownership log (pkp_coop_linkqueue.cpp, pkp_coop_owner.cpp)
+    {{0x7b8b68, 0x36000980u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x7b8c98 (class 0x3268000's close 0x7b8960)
+    {{0x82a558, 0x36000920u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x82a67c (class 0x32762f8's close 0x82a460)
+    {{0x7e20b0, 0x36000180u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x7e20e0 (0x7e2030, class 0x326d7e0)
+    {{0x83bec0, 0x36000120u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x83bee4 (0x83bc40, class 0x3278b08)
+    {{0x83c288, 0x36000180u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x83c2b8 (0x83c228, class 0x3278b08)
+    {{0x83e310, 0x36000160u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x83e33c (0x83e1c0)
+    {{0x214974, kPacibsp, true}, Site::RequestSend},
+    {{0x538f60, 0x79400008u, true}, Site::OwnerApply},       // ldrh w8, [x0]
+    {{0x313eb4, 0xd63f0100u, false}, Site::OwnerPress},      // blr x8 (x0 = the object, x8 its slot 5 handler)
+    {{0xa8fba0, kPacibsp, true}, Site::OwnerNotice},
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -352,6 +369,11 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::SharedLeave: return coop::gimmicks::on_shared_leave(c, addr - st().base);
         case Site::TalkOwn: return coop::talk::on_talk_own(c);
         case Site::GrantNoUse: return coop::owner::on_grant_no_use(c);
+        case Site::ReleaseGate: return coop::linkqueue::on_release_gate(c, addr - st().base);
+        case Site::RequestSend: return coop::linkqueue::on_send_request(c);
+        case Site::OwnerApply: return coop::owner::on_owner_apply(c);
+        case Site::OwnerPress: return coop::owner::on_press(c);
+        case Site::OwnerNotice: return coop::owner::on_notice(c);
         default: return 0;
     }
 }
