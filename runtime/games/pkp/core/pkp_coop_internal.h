@@ -620,5 +620,12 @@ namespace title {
 int on_past_title(::Ctx* c);
 void reset();
 }  // namespace title
+// ---- a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp) ----
+namespace takeout {
+// The hook site (pkp_coop.cpp): midhook 0x2eea74 in the shared move 0x2ee774, the `and w3, w0, #1` after its IsVisitor call that picks
+// the store the moved item is removed from. Called by the take-out screen for kinds 0x14 / 0x1a, a visitor's answer becomes 0 (the
+// own store, the one listed); returns 0.
+int on_remove_store(::Ctx* c);
+}  // namespace takeout
 
 }  // namespace nxrt::games::pkp::coop
