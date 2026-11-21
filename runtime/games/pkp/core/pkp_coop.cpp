@@ -190,6 +190,9 @@ enum class Site : uintptr_t {
     TalkRecArmed,     // script callback 195's set of the talk record's +0x10: a member's is set in the authority's record too
     // ---- the Star Piece swap in a member's talk (pkp_coop_talk.cpp) ----
     TalkSwapParent,   // script callback slot 119's parent term: a member's is the group's record of the creature, as for the host
+    // ---- an event's end on a member (pkp_coop_feed.cpp) ----
+    EventEnded,       // the contents notifier, called by the three "event ended" notifiers: a member's is posted on the authority too,
+                      // so content records waiting on a scene a member played run for the group
 };
 
 struct CoopSite {
@@ -332,6 +335,8 @@ constexpr CoopSite kSites[] = {
     {{0x4ae7e8, 0x940b4132u, false}, Site::TalkRecArmed},    // bl 0x77ecb0 (after strb w9, [x8, #0x10] off Cloud Island; w23 = chara)
     // the Star Piece swap in a member's talk (pkp_coop_talk.cpp)
     {{0x4a1adc, 0x2a0802d8u, false}, Site::TalkSwapParent},  // orr w24, w22, w8 (w8 = the parent term, w24 = the data id, in 0x4a17fc)
+    // an event's end on a member (pkp_coop_feed.cpp): the journal's entry site of the contents notifier, shared
+    {{0x1353a0, kPacibsp, true}, Site::EventEnded},
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -434,6 +439,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::StoryFollow: return coop::follow::on_story_follow(c);
         case Site::TalkRecArmed: return coop::talkrec::on_armed(c);
         case Site::TalkSwapParent: return coop::talk::on_swap_parent(c);
+        case Site::EventEnded: return coop::feed::on_event_ended(c);
         // a dropped player is waited for (pkp_coop_drop.cpp)
         case Site::TripFile: return coop::drop::on_trip_file(c, addr - st().base);
         case Site::SimStep: return coop::drop::on_sim_step(c);
@@ -538,6 +544,7 @@ void game_frame(::Ctx* c) {
     coop::trace::tick(s.in_game.load(std::memory_order_relaxed));
     coop::digest::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::records::tick(s.in_game.load(std::memory_order_relaxed));
+    coop::skits::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::answers::tick();
     coop::friendship::tick(c);
     coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
@@ -590,6 +597,7 @@ void remove() {   // the registry has removed the hooks
     coop::feed::reset();
     coop::session::reset();
     coop::records::reset();
+    coop::skits::reset();
     coop::answers::reset();
     coop::jobs::reset();
     coop::owner::reset();

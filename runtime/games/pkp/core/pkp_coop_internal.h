@@ -528,6 +528,16 @@ void on_session_change();   // this process joined or left: copies forgotten, al
 void on_member_joined();    // another member joined: all records sent again
 void reset();
 }  // namespace records
+// ---- the story talks (pkp_coop_skits.cpp): each character's story talk, its bubble and the objective that follows it ----
+namespace skits {
+// The message (pkp_coop_link.cpp): a member keeps the authority's story talks.
+void on_skits_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// The authority sends the story talks that changed; a member sets the authority's through the game's setter at a safe moment.
+void tick(::Ctx* c, bool in_game);
+void on_session_change();   // this process joined or left: copies forgotten, all sent again
+void on_member_joined();    // another member joined: all sent again
+void reset();
+}  // namespace skits
 // ---- the role answers (pkp_coop_role.cpp) ----
 namespace answers {
 // The hook sites (pkp_coop.cpp): one midhook per row of pkp_coop_role_table.inc, after a `bl` to a role getter or at a test of the
@@ -571,6 +581,10 @@ int on_talked_to(::Ctx* c);
 // The hook site (pkp_coop.cpp): entry 0x136548, the "fed" notice of a field feed (from 0x597820 only). On a member in the session the
 // feed is queued for the authority, which makes the creature eat it there; the game's own code runs everywhere (returns 0).
 int on_fed(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0x1353a0, the contents notifier, from one of the three "event ended" notifiers (0x1356b8,
+// 0x135720, 0x135788). On a member in the session the event's end is queued for the authority; the authority remembers its own
+// posts, so a member's of the same event is not posted twice. The game's own code runs everywhere (returns 0).
+int on_event_ended(::Ctx* c);
 // The message (pkp_coop_link.cpp): a member's creature event, posted on the authority at a safe moment.
 void on_event_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // Sends a member's events and posts the authority's received ones (once a frame, after the channel's handlers).

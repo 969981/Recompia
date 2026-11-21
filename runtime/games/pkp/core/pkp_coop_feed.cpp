@@ -51,12 +51,24 @@
 //   game's own 0x333be0(0x276540(creature), item, flag, 0, 0), as 0x597820 makes it; then 0x136548 as 0x597820 calls it. Never
 //   0x597820 itself: it would take the item out of the host's bag. The host's apply of a member's talk give (0x2197a0 at 0x21c440)
 //   makes the same 0x333be0 call on the host, so a fed creature on the authority is the game's own design for a visitor's give.
+// Kind 2, "event ended" (RE: modding-docs coop-v2/STORY-SKITS-RE.md section 4): an event's end posts kind 2 to list SC+0x8d0e0
+// through three notifiers, each writing one payload field of the block at SC+0x11aae0 before 0x1353a0 and clearing it after:
+// 0x1356b8(SC, scene 1..0xbb7) +0x12 (return 0x135700), 0x135720(SC, id 1..0x3e7) +0x14 (return 0x135768), 0x135788(SC, n 1..5)
+// +0x16 (return 0x1357d0). They have no visitor test, but they run only on the process whose player played the event (the
+// talker's runner 0x47e140), so a member's talk scene ended in its own scheduler alone: records waiting on "scene N ended"
+// (condition 0x3fc: a story talk's follow-up, the professor's next talk, the habitat confirm's step) never ran on the authority, and
+// the story talks they set (pkp_coop_skits.cpp) stayed the old ones for the whole group.
+//   0x1353a0 (entry hook, the journal's site too), called from one of the three: on a member the event (kind 2, stage, the value,
+//   the field) is queued and sent as kind 1's. The authority remembers each kind 2 posted in its scheduler (kRecent), and posts a
+//   member's with the game's own notifier at the same safe moment, unless the same one was posted there in the last kRecent seconds
+//   (an event every process played: the authority's own end came first).
 // The wire carries any creature event kind (wire::Type::CreatureEvent); a kind this build does not post is dropped by the authority.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 #include "core/pkp_tables.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <vector>
 
@@ -87,6 +99,25 @@ constexpr uint16_t kItemMask = 0x1fff;      // 0x597820's item: the bag entry +8
 constexpr uint16_t kFedFlag = 0x8000;       // kind 29's argument: 0x333be0's w2 (the item takes the low 13 bits)
 constexpr uint8_t kTalkedToKind = 1;        // the scheduler's kind for "talked to"
 constexpr uint8_t kFedKind = 29;            // the scheduler's kind for "fed" (0x136548 writes 0x1d)
+constexpr uint8_t kEndedKind = 2;           // the scheduler's kind for "event ended" (0x1356b8 / 0x135720 / 0x135788)
+constexpr uint64_t kNotice = 0x11aae0;      // SC + : u32 the notice kind, then its payload fields
+constexpr uint64_t kEndedList = 0x8d0e0;    // SC + : the "event ended" list the three notifiers pass to 0x1353a0
+// The three "event ended" notifiers, by the field they write (the event's arg): their entry, the return of their 0x1353a0 call,
+// the payload field's offset in the notice block and its size, and the bound on the value (1..max).
+struct Ender {
+    uint64_t entry, ret, field;
+    uint8_t size;
+    uint16_t max;
+    const char* name;
+};
+constexpr Ender kEnders[] = {
+    {0x1356b8, 0x135700, 0x12, 2, 0xbb7, "scene"},
+    {0x135720, 0x135768, 0x14, 2, 0x3e7, "id"},
+    {0x135788, 0x1357d0, 0x16, 1, 5, "n"},
+};
+constexpr size_t kEnderCount = sizeof kEnders / sizeof kEnders[0];
+constexpr double kRecent = 30.0;            // the authority: the same kind 2 posted there this recently makes a member's a repeat
+constexpr size_t kPostedMax = 32;
 constexpr double kSendWait = 30.0;          // a member's event is sent at the latest this long after the talk started
 constexpr double kDrop = 120.0;             // an event the authority found no safe moment for (its own talks can be long)
 constexpr size_t kQueue = 16;
@@ -100,11 +131,18 @@ struct Event {
     uint8_t origin;  // the authority: the member's node
 };
 
-const char* what(uint8_t kind) { return kind == kFedKind ? "feed of" : "talk to"; }
+const char* what(uint8_t kind) { return kind == kFedKind ? "feed of" : kind == kEndedKind ? "end of" : "talk to"; }
+
+// The authority: a kind 2 posted in its scheduler (its own or a member's), for the repeat test.
+struct Posted {
+    uint16_t arg, value;
+    double at;
+};
 
 struct State {
     std::vector<Event> outgoing;   // a member's events not sent yet
     std::vector<Event> incoming;   // the authority's received events not posted yet
+    std::vector<Posted> posted;    // the authority's kind 2 posts of the last kRecent seconds
 };
 State& st() {
     static State s;
@@ -141,7 +179,10 @@ void send() {
         if (!link::to_authority(wire::Type::CreatureEvent,
                                 wire::Writer(link::self()).u8(e.kind).u8(e.stage).u16(e.data).u16(e.arg).take()))
             break;   // kept for the next frame
-        NXLOG_I(kTag, "Co-op feed: %s character %u (stage %u, arg 0x%x), sent to the authority", what(e.kind), e.data, e.stage, e.arg);
+        if (e.kind == kEndedKind)
+            NXLOG_I(kTag, "Co-op feed: end of %s %u (stage %u), sent to the authority", kEnders[e.arg].name, e.data, e.stage);
+        else
+            NXLOG_I(kTag, "Co-op feed: %s character %u (stage %u, arg 0x%x), sent to the authority", what(e.kind), e.data, e.stage, e.arg);
         ++sent;
     }
     s.outgoing.erase(s.outgoing.begin(), s.outgoing.begin() + static_cast<std::ptrdiff_t>(sent));
@@ -156,10 +197,24 @@ bool is_food(::Ctx* c, uint16_t item) {
     return guest::ok(rec + kItemKind, 1) && guest::rd<uint8_t>(rec + kItemKind) == kFood;
 }
 
+// The authority: the same kind 2 was posted in its scheduler in the last kRecent seconds.
+bool posted_recently(uint16_t arg, uint16_t value) {
+    const double now = qpc::seconds();
+    for (const Posted& p : st().posted)
+        if (p.arg == arg && p.value == value && now - p.at < kRecent) return true;
+    return false;
+}
+
 // The authority: the game's own notice (and for kind 29 the feed) for its copy of the character. False when it has none.
 bool post(::Ctx* c, const Event& e) {
     const uint64_t gm = game_state();
     const uint64_t sched = guest::ok(gm, kScheduler + 8) ? guest::rd<uint64_t>(gm + kScheduler) : 0;
+    if (sched && e.kind == kEndedKind) {   // no character: the event's own notifier (on_event_ended remembers the post)
+        const Ender& n = kEnders[e.arg];
+        guest::call(c, base() + n.entry, sched, e.data);
+        NXLOG_I(kTag, "Co-op feed: node %u's end of %s %u posted to the contents here", e.origin, n.name, e.data);
+        return true;
+    }
     const uint64_t pm = guest::rd<uint64_t>(base() + layout::kPlayerManager);
     if (!sched || !pm) return false;
     const uint64_t actor = guest::call(c, base() + kFirstOf, pm, e.data);
@@ -188,7 +243,8 @@ void apply(::Ctx* c, bool in_game) {
     for (size_t i = 0; i < s.incoming.size();) {
         const Event& e = s.incoming[i];
         if (e.stage != here || now - e.at >= kDrop) {
-            NXLOG_I(kTag, "Co-op feed: node %u's %s character %u dropped (%s)", e.origin, what(e.kind), e.data,
+            NXLOG_I(kTag, "Co-op feed: node %u's %s %s %u dropped (%s)", e.origin, what(e.kind),
+                    e.kind == kEndedKind ? kEnders[e.arg].name : "character", e.data,
                     e.stage != here ? "another stage here" : "no safe moment");
             s.incoming.erase(s.incoming.begin() + static_cast<std::ptrdiff_t>(i));
             continue;
@@ -198,6 +254,10 @@ void apply(::Ctx* c, bool in_game) {
     if (s.incoming.empty() || !session::can_walk(in_game) || talk::talking()) return;
     const Event e = s.incoming.front();
     s.incoming.erase(s.incoming.begin());
+    if (e.kind == kEndedKind && posted_recently(e.arg, e.data)) {
+        NXLOG_I(kTag, "Co-op feed: node %u's end of %s %u: posted here already", e.origin, kEnders[e.arg].name, e.data);
+        return;
+    }
     if (!post(c, e))
         NXLOG_I(kTag, "Co-op feed: node %u's %s character %u dropped (no such character here)", e.origin, what(e.kind), e.data);
 }
@@ -223,11 +283,42 @@ int on_fed(::Ctx* c) {
     return 0;   // the game's own code runs on and returns at its visitor test
 }
 
+int on_event_ended(::Ctx* c) {
+    State& s = st();
+    if (!link::in_session()) return 0;
+    const uint64_t sc = c->x[0];
+    uint32_t kind = 0;
+    if (c->x[1] != sc + kEndedList || !guest::read(sc + kNotice, kind) || kind != kEndedKind) return 0;
+    for (size_t i = 0; i < kEnderCount; ++i) {
+        const Ender& n = kEnders[i];
+        if (c->x[30] != base() + n.ret || !guest::ok(sc + kNotice + n.field, n.size)) continue;
+        const uint16_t value = n.size == 1 ? guest::rd<uint8_t>(sc + kNotice + n.field) : guest::rd<uint16_t>(sc + kNotice + n.field);
+        if (static_cast<uint16_t>(value - 1) >= n.max) return 0;
+        if (link::is_authority()) {
+            const double now = qpc::seconds();
+            std::vector<Posted>& p = s.posted;
+            p.erase(std::remove_if(p.begin(), p.end(), [now](const Posted& q) { return now - q.at >= kRecent; }), p.end());
+            if (p.size() >= kPostedMax) p.erase(p.begin());
+            p.push_back(Posted{static_cast<uint16_t>(i), value, now});
+        } else if (quests::member_rules()) {
+            queue(kEndedKind, value, static_cast<uint16_t>(i));
+        }
+        return 0;   // the game's own notice runs here as well
+    }
+    return 0;
+}
+
 void on_event_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
     State& s = st();
     const uint8_t kind = r.u8(), at = r.u8();
     const uint16_t data = r.u16(), arg = r.u16();
-    if (!r.ok() || static_cast<uint16_t>(data - 1) >= kDataIdMax) return;
+    if (!r.ok()) return;
+    if (kind == kEndedKind) {
+        if (arg >= kEnderCount || static_cast<uint16_t>(data - 1) >= kEnders[arg].max || s.incoming.size() >= kQueue) return;
+        s.incoming.push_back(Event{kind, at, data, arg, qpc::seconds(), origin});
+        return;
+    }
+    if (static_cast<uint16_t>(data - 1) >= kDataIdMax) return;
     if (kind != kTalkedToKind && kind != kFedKind) {
         NXLOG_I(kTag, "Co-op feed: node %u's creature event kind %u is not one this build posts; dropped", origin, kind);
         return;
