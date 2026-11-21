@@ -30,6 +30,18 @@
 //   - (+) lets go of this player's hold: its lock and pause end (the menu opens, Save and Quit is there). On the authority that also
 //     ends the wait for everyone (the world runs on). A member that stops hearing the authority for kSilence lets go by itself.
 //   After kLimit the authority gives up: the others play on without the dropped player (it can still join later, as anyone can).
+//
+// The dropped process. Its own session is gone (the channel leaves on it at once: the ldn station loses the network), and a member
+// cannot tell its own drop from the host's. Its game handles that as before: error 3103 (0x80401103, KTGL SESSIONP2P_NETWORK_LOST;
+// shown by 0x547278 through the error applet), and the drop check 0xbca8c files the trip home (kind 0xE; the host's own: 0xbd548,
+// kind 4, a reload of its stage). That trip is kept: it is the one path that clears the game's session bits (GM+0x90 stays 05 until
+// the trip's stage entry, work/droprig peeks), and only with them clear does pkp_coop_session.cpp search and join again, the normal
+// join that gives the bag back (pkp_coop_bags.cpp) and catches the player up. So nobody waits on the dropped process: for kLimit it
+// says it is rejoining, with a countdown on its own clock (it hears no one), and error 3103 is held back (its applet shows nothing on
+// PC, the log keeps it). At the end without a rejoin it says so in plain words; the session part keeps trying, so the player is in a
+// state from which the group can be joined again. On a process that still has the session the game's drop check does not file
+// anything; if it ever runs during a wait (this process's own session is unusable after all), the wait ends first and the game
+// files as it would.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -98,6 +110,12 @@ struct State {
     uint64_t buttons = 0;
     bool showing = false;   // the countdown notice is up (an end's notice is not cleared by the release)
     double posted = 0.0;
+    // this process lost its session
+    bool ever_in = false;       // it was in a session this launch
+    bool lost = false;          // its session is gone, not by its own leave: it says it is rejoining
+    bool lost_authority = false;
+    double lost_until = 0.0;
+    bool error_held = false;    // error 3103 was held back during this loss
 };
 State& st() {
     static State s;
@@ -270,13 +288,44 @@ void hold_tick(State& s, bool in_game, double now) {
     show(s, now);
 }
 
+// The rejoin window on a process whose session is gone: the countdown, then the plain end.
+void lost_tick(State& s, double now) {
+    if (!s.lost) return;
+    if (now >= s.lost_until) {
+        s.lost = false;
+        s.showing = false;
+        NXLOG_W(kTag, "Co-op drop: not back in a session within %.0f s%s; the session part keeps trying", kLimit,
+                s.error_held ? " (error 3103 was held back)" : "");
+        notices::post(kNotice,
+                      s.lost_authority ? say("The group did not come back in time. Your world goes on; they can join again at any time")
+                                       : say("Could not rejoin the group in time. The game keeps trying, or start co-op again from the launcher"),
+                      10.0);
+        return;
+    }
+    if (now - s.posted < kNoticeEvery) return;
+    s.posted = now;
+    s.showing = true;
+    const unsigned left = static_cast<unsigned>(s.lost_until - now + 0.999);
+    notices::post(kNotice,
+                  (s.lost_authority ? say("Lost the connection to the group. Waiting for it to come back: ")
+                                    : say("Lost the connection to the group. Rejoining: ")) + clock_text(left),
+                  kNoticeSeconds);
+}
+
 }  // namespace
 
 void on_member(int node, bool joined, bool self) {
     State& s = st();
     if (self) {
         if (joined) {
+            if (s.lost) {
+                NXLOG_I(kTag, "Co-op drop: back in a session %.0f s after the connection was lost", kLimit - (s.lost_until - qpc::seconds()));
+                notices::post(kNotice, say("Back with the group"), 4.0);
+                s.lost = false;
+                s.showing = false;
+            }
             s.in = true;
+            s.ever_in = true;
             s.member = !link::is_authority();
             s.here_sent = s.ready_sent = false;
             s.leaving = false;
@@ -287,6 +336,14 @@ void on_member(int node, bool joined, bool self) {
             NXLOG_W(kTag, "Co-op drop: this process's session is gone%s", s.leaving ? " (its own leave)" : ": the connection to the group was lost");
         else if (s.in)
             NXLOG_W(kTag, "Co-op drop: the authority's channel left its session (every member is gone); no one is awaited");
+        if (s.in && !s.leaving) {
+            s.lost = true;
+            s.lost_authority = !s.member;
+            s.lost_until = qpc::seconds() + kLimit;
+            s.error_held = false;
+            s.posted = 0.0;
+            NXLOG_I(kTag, "Co-op drop: rejoin window of %.0f s (the game's own trip runs; the session part joins again)", kLimit);
+        }
         s.in = s.member = false;
         for (Node& n : s.nodes) n = Node{};
         s.awaited.clear();
@@ -368,6 +425,29 @@ int on_trip_file(::Ctx* c, uint64_t site) {
     return 0;
 }
 
+// Entry 0xbca8c, the drop check (only caller the tail of the trip record step 0xbaf54; void): it files only when this process's own
+// session is unusable. A wait on this process ends first; the game's own filing runs (returns 0).
+int on_drop_check(::Ctx*) {
+    State& s = st();
+    if (s.awaited.empty() && !s.holding) return 0;
+    NXLOG_W(kTag, "Co-op drop: the game's drop check runs here: this process's own session is gone; the wait ends");
+    s.awaited.clear();
+    s.ended.clear();
+    release(s, "this process's own session is gone");
+    return 0;
+}
+
+// Entry 0x547278(NM, error), the online error display; *(u32*)error is the KTGL result. Error 3103 is held back on a process that was
+// in a co-op session this launch: the rejoin window says what happened instead (returns 1, w0 = 1 as the display's own end).
+int on_error(::Ctx* c) {
+    State& s = st();
+    if (!s.ever_in || !guest::ok(c->x[1], 4) || guest::rd<uint32_t>(c->x[1]) != layout::kErrorSessionLost) return 0;
+    if (!s.error_held) NXLOG_I(kTag, "Co-op drop: error 3103 (the session's network was lost) held back; the rejoin window says it");
+    s.error_held = true;
+    c->x[0] = 1;
+    return 1;
+}
+
 // Entry 0x231890, the simulation step: skipped while paused (it returns 1, as its own end does).
 int on_sim_step(::Ctx* c) {
     if (!st().paused) return 0;
@@ -402,11 +482,13 @@ void tick(::Ctx*, bool in_game) {
         }
     }
     hold_tick(s, in_game, now);
+    lost_tick(s, now);
 }
 
 void reset() {
     State& s = st();
     if (s.holding) lock::release(lock::Holder::Drop);
+    if (s.showing) notices::post(kNotice, "", 0.0);
     s = State{};
 }
 
