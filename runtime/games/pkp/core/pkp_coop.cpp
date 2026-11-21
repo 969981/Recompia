@@ -8,6 +8,7 @@
 // not the expected instruction, or a midhook site the lifted libraries lack, removes every co-op hook.
 #include "core/pkp_coop.h"
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 #include "core/pkp_settings.h"
@@ -16,6 +17,7 @@
 #include <atomic>
 #include <cctype>
 #include <cstddef>
+#include <optional>
 
 #include "nxrt/hooks.h"
 #include "nxrt/log.h"
@@ -177,6 +179,16 @@ enum class Site : uintptr_t {
     // ---- a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp) ----
     TakeoutStore,     // the shared move's choice of the store a taken item is removed from: the take-out screen's removal of a
                       // member's ordered item or gift uses the own store it listed, not the visitor's temp list
+    // ---- a member's deposit into the story's materials drop (pkp_coop_deposit.cpp) ----
+    DepositStore,     // the container slice: a member's drop slice is its own store, so its screen, check and our clear share one
+    DepositConfirm,   // the drop's close after the screen's confirm: a member's deposit is stepped on the authority, not here
+    // ---- a story follow on a member (pkp_coop_follow.cpp) ----
+    StoryFollow,      // a story content's "follow this player" attach (0x2a1ed4, local only): on a member it does not run and the
+                      // authority makes it for its own copy of the creature, so no member takes the host's follow away
+    // ---- a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp) ----
+    TalkRecArmed,     // script callback 195's set of the talk record's +0x10: a member's is set in the authority's record too
+    // ---- the Star Piece swap in a member's talk (pkp_coop_talk.cpp) ----
+    TalkSwapParent,   // script callback slot 119's parent term: a member's is the group's record of the creature, as for the host
 };
 
 struct CoopSite {
@@ -310,6 +322,15 @@ constexpr CoopSite kSites[] = {
     {{0x539620, kPacibsp, true}, Site::OwnerRefused},
     // a member's take-out of its Ordered Items and Gifts (pkp_coop_takeout.cpp)
     {{0x2eea74, 0x12000003u, false}, Site::TakeoutStore},    // and w3, w0, #0x1 (w0 = IsVisitor's answer, w21 = the container kind)
+    // a member's deposit into the story's materials drop (pkp_coop_deposit.cpp)
+    {{0x5b1c84, kPacibsp, true}, Site::DepositStore},
+    {{0x7e693c, 0x36001ac0u, false}, Site::DepositConfirm},  // tbz w0, #0, 0x7e6c94 (w0 = 0xa94bbc's confirm flag, x19 the gimmick)
+    // a story follow on a member (pkp_coop_follow.cpp)
+    {{0x2a1ed4, 0xf0018f09u, true}, Site::StoryFollow},      // adrp x9, 0x3484000 (x0 = &the creature's actor id, w1 the flag)
+    // a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp)
+    {{0x4ae7e8, 0x940b4132u, false}, Site::TalkRecArmed},    // bl 0x77ecb0 (after strb w9, [x8, #0x10] off Cloud Island; w23 = chara)
+    // the Star Piece swap in a member's talk (pkp_coop_talk.cpp)
+    {{0x4a1adc, 0x2a0802d8u, false}, Site::TalkSwapParent},  // orr w24, w22, w8 (w8 = the parent term, w24 = the data id, in 0x4a17fc)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -322,7 +343,7 @@ struct State {
     std::atomic<bool> armed{false};
     std::atomic<bool> checked{false};
     std::atomic<bool> in_game{false};   // play mode's, from its frame (main thread) for the game-frame tick
-    const char* off_text = nullptr;     // the site check turned co-op off: the notice's text, posted again once gameplay starts (frame only)
+    std::optional<strings::Str> off_text;   // the site check turned co-op off: the notice's text, posted again once gameplay starts (frame only); its language is read at each post
 };
 State& st() {
     static State s;
@@ -407,6 +428,11 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::OwnerNotice: return coop::owner::on_notice(c);
         case Site::OwnerRefused: return coop::owner::on_grant_reply(c);
         case Site::TakeoutStore: return coop::takeout::on_remove_store(c);
+        case Site::DepositStore: return coop::deposit::on_store(c);
+        case Site::DepositConfirm: return coop::deposit::on_confirm(c);
+        case Site::StoryFollow: return coop::follow::on_story_follow(c);
+        case Site::TalkRecArmed: return coop::talkrec::on_armed(c);
+        case Site::TalkSwapParent: return coop::talk::on_swap_parent(c);
         default: return 0;
     }
 }
@@ -435,6 +461,7 @@ void install(const FeatureInstall& in) {
         s.key[i] = static_cast<uint8_t>(nib(launch.member[2 * i]) << 4 | nib(launch.member[2 * i + 1]));
     s.base = in.base;
     coop::wirelog::install();
+    coop::savecopy::install();   // before the game opens its save
     s.hooks = &in.hooks;
     s.armed.store(false);
     s.checked.store(false);
@@ -454,8 +481,8 @@ void frame(bool in_game, double, play::GameFrame*) {
     State& s = st();
     s.in_game.store(in_game, std::memory_order_relaxed);
     if (s.off_text && in_game) {
-        notices::post(kOffNotice, s.off_text, kOffNoticeSeconds);
-        s.off_text = nullptr;
+        notices::post(kOffNotice, strings::get(s.base, *s.off_text), kOffNoticeSeconds);
+        s.off_text.reset();
     }
     if (!s.ids[0] || s.checked.exchange(true)) return;
     HookSite at[kSiteCount];
@@ -468,10 +495,9 @@ void frame(bool in_game, double, play::GameFrame*) {
                 static_cast<unsigned long long>(bad->site), word, bad->word,
                 relink ? " (the lift has no hook site there: Set up again)"
                        : " (this game build or dump is not the one co-op was made for)");
-        s.off_text = relink ? "Co-op is off: press Set up again in the launcher, then start the game again"
-                            : "Co-op is off: this game version doesn't match this Recompia build";
-        notices::post(kOffNotice, s.off_text, kOffNoticeSeconds);
-        if (in_game) s.off_text = nullptr;   // already in gameplay: this showing is the gameplay one
+        s.off_text = relink ? strings::Str::CoopOffSetUpAgain : strings::Str::CoopOffVersion;
+        notices::post(kOffNotice, strings::get(s.base, *s.off_text), kOffNoticeSeconds);
+        if (in_game) s.off_text.reset();   // already in gameplay: this showing is the gameplay one
         return;
     }
     s.armed.store(true, std::memory_order_release);
@@ -512,6 +538,10 @@ void game_frame(::Ctx* c) {
     coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::newcomer::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::takeout::tick(c);
+    coop::deposit::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::follow::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::savecopy::tick(c);
+    coop::talkrec::tick();
 }
 
 void remove() {   // the registry has removed the hooks
@@ -519,7 +549,7 @@ void remove() {   // the registry has removed the hooks
     s.armed.store(false);
     s.checked.store(false);
     s.in_game.store(false);
-    s.off_text = nullptr;
+    s.off_text.reset();
     for (uint32_t& h : s.ids) h = 0;
     s.hooks = nullptr;
     coop::bags::reset();   // first: it writes its records' files under this player's member key
@@ -561,6 +591,10 @@ void remove() {   // the registry has removed the hooks
     coop::doors::reset();
     coop::title::reset();
     coop::takeout::reset();
+    coop::deposit::reset();
+    coop::follow::reset();
+    coop::savecopy::reset();
+    coop::talkrec::reset();
 }
 
 }  // namespace

@@ -82,3 +82,45 @@ PKP_ROLE_BIT(0x13b294, 8, 2, 0x37100068u, "talk", "the present limit: no present
 // reads only what the member has (the actor's own talk record +0x10, 0x332c80 / 0x3bad4c on the member's copy of the friend
 // records, the species talk table), as the TalkKind path already does for every other creature.
 PKP_ROLE_ROW(0x4c03e4, IsVisitor, 0x36000ac0u, "talk", "the first talk with a new creature of species 0x46 / 0x95 is the host's talk, not the visitor's own one")
+
+// ---- the census's last gates (coop-s7-rows) ----
+// 0x4a380(chara): town flag bit 3 (R+0x4a27cc, mirrored) after the resident and Cloud Island tests; its callers 0x4eed90, 0x4f06c0,
+// 0x5a2910 and 0x1c91e0 (through 0x284308's tail call) leave a creature out when it is set, as the 0x4a114 row's do. Its stage-start
+// caller 0x11915c writes the member's own story bytes R+0x4a2fb7 / +0x4a2f59 / +0x4a2fb8 (not mirrored) when it is set, so those
+// three calls keep the visitor's answer (the PKP_ROLE_KEEP rows below).
+PKP_ROLE_BIT(0x4a3d0, 8, 2, 0x3717fee8u, "town flags", "town flag bit 3 by creature leaves it out (work, talk and condition checks), as on the host")
+// 0x1f0f40(grid, &pos, w2): blocks near a position whose kind has flag bit 1. Talk callback 45 (0x4deb24, w2 = 0) only reads it: a
+// block nearby starts talk script 316, none script 321. The replicated block grid is the member's own copy, so the read is the
+// world's. Callback 75 (0x498238, w2 = 1) changes every such block (0x1f1200: grid and placed-object calls): a member's local
+// change of the world, so that call keeps the visitor's answer (PKP_ROLE_KEEP). The fall-through reloads x8 at once.
+PKP_ROLE_BIT(0x1f0f84, 8, 2, 0x371011c8u, "talk", "talk callback 45 sees the blocks near the creature (talk 316 when one is near, not always 321)")
+// 0x988fe0(obj, level): a level change of a house this player owns (the owner id at the object's entry vs 0x2fc0bc, the own id
+// R+0x13d3a89) posts "Your comfort level is now N!" (message 0xec, 0xa8ec90); in stage 0xc only a visitor does not get it.
+// Display only; w0 is read by the `eor` alone.
+PKP_ROLE_ROW(0x98906c, IsVisitor, 0x52000008u, "notice", "in stage 0xc the comfort-level notice of a house this player owns shows")
+// 0x7fe270 (gimmick class 0x32701a0 slot 103): after a use of types 0x6e / 0x16 the 1 s object timer +0x44 starts, which the class's
+// own step (slot 22, 0x7fb894) counts down and slot 87 (0x7fe260) reads. Its sibling uses start the same timer on every process
+// (0x7fca24, 0x7fd46c, 0x7fd588, 0x7fd658, no role test); only this one skips a visitor. Local object state, nothing sent.
+PKP_ROLE_ROW(0x7fe42c, IsVisitor, 0x37000100u, "gimmicks", "this gimmick's short timer after a use starts, as its siblings' do")
+// Unique request 73's state byte R+0x6facfd (R+0x6fabd9 + 73 * 4): pkp_coop_requests.cpp keeps it the group's (taken on, fulfilled,
+// done), and the request is a story one. 0x34b20 refuses its creature while the request is 2..4; 0x13aaf4 (creature screen 0xf17d30)
+// answers "held by the story" while it is 2 or 3 and the creature's stage record (R+0x972c26 + 0x5f92b4, mirrored) agrees. Both
+// only answer no (0x34b20 returns 0 to its callers, 0xf17d30 refuses its action), and the fall-through of each is `bl 0x77ecb0`.
+PKP_ROLE_BIT(0x34c68, 8, 2, 0x37100308u, "story request", "the creature of the story request 73 is not free while that request is open")
+PKP_ROLE_BIT(0x13ab38, 8, 2, 0x37100548u, "story request", "the creature screen refuses its action for that creature while the request is open")
+PKP_ROLE_BIT(0x13aba8, 8, 2, 0x371001c8u, "story request", "the same, the inlined second test")
+
+#ifdef PKP_ROLE_KEEP
+// PKP_ROLE_KEEP(site, fn, from, why): at the row at site (in the function fn), when fn's frame record (x29 + 8, the caller's x30;
+// fn sets x29 before the row on every path) is main + from, the row keeps the game's answer. from - 4 is checked to be `bl fn`.
+PKP_ROLE_KEEP(0x4a3d0, 0x4a380, 0x119250, "stage start, creature 0xdb: writes the own R+0x4a2fb7")
+PKP_ROLE_KEEP(0x4a3d0, 0x4a380, 0x1192b0, "stage start, creature 0x7d: writes the own R+0x4a2f59")
+PKP_ROLE_KEEP(0x4a3d0, 0x4a380, 0x119310, "stage start, creature 0xdc: writes the own R+0x4a2fb8")
+PKP_ROLE_KEEP(0x1f0f84, 0x1f0f40, 0x49832c, "talk callback 75 changes the blocks it finds")
+#endif
+// ---- the Star Piece swap (coop-s7-starpiece) ----
+// Script callback slot 119 0x4a17fc (talk 0x1b3: a creature takes the held Star Piece and gives its item), online, off Cloud Island,
+// GM+0x11 bit 0 clear: `bl IsHost` at 0x4a1b6c, then `eor w8, w0, #1` is the flag that queues line 438 ("not a good time") instead
+// of the swap. w0 is read by the `eor` alone. The swap's give (slot 27) and receive (slot 28) are the member's own bag; the give's
+// friendship reaches the authority by its talk-end apply (0x21c46c, pkp_coop_friendship.cpp). Its parent term: TalkSwapParent.
+PKP_ROLE_ROW(0x4a1b70, IsHost, 0x52000008u, "talk", "a creature takes a teammate's Star Piece and gives its item, as for the host")

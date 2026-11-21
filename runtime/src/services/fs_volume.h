@@ -93,6 +93,9 @@ public:
     // Test hook: the `nth` host operation at `point` from now on fails with the Win32 error `win32_error` (nth 0 = off). Process-wide.
     enum class IoPoint : int { kNone = 0, kWrite, kSetSize, kFlush, kCommitFlush, kDecide };
     static void set_io_failure_for_tests(IoPoint point, int nth, uint32_t win32_error);
+    // What commit() leaves as committed (fsapi::set_save_commit_hold): fn(root, rel) true holds the file rel. Process-wide; any thread.
+    using HoldFn = bool (*)(const std::string& root, const std::string& rel);
+    static void set_commit_hold(HoldFn fn);
 
 private:
     struct Impl;

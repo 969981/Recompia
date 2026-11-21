@@ -38,6 +38,7 @@
 //     kMarkMagic, 210 the last entry applied, 211..212 the log id. It is saved with the bag, so a give and its mark are kept or
 //     lost together. Another log (a new group's, or the authority's file lost) starts over at its first entry.
 #include "core/pkp_coop_internal.h"
+#include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_items.h"
 #include "core/pkp_layout.h"
@@ -269,31 +270,32 @@ bool give(::Ctx* c, const Entry& e) {
     State& s = st();
     const uint8_t cat = category(c, e.entry);
     ++s.remote;
+    bags::gain_begin(c);   // a bag give is credited to the bag record (no write-back takes it away)
     const bool given = guest::call(c, base() + kGrant, 0, e.entry, e.count, 0) & 1;
+    bags::gain_end(c);
     --s.remote;
     if (given && cat == kCategoryEvent) s.quiet_until = qpc::seconds() + kEventQuiet;
     if (!given && cat != kCategoryRecipe) {
         if (++s.tries < kTries) {
             s.retry_at = qpc::seconds() + kRetryAfter;
-            if (s.tries == 1) notice::post("A teammate's shop purchase could not be added here yet (is your bag full?). Trying again soon.");
+            if (s.tries == 1) notice::post(strings::get(base(), strings::Str::CoopBuyRetry));
             NXLOG_I(kTag, "Co-op purchases: purchase %u (shop entry %u x%u) not given here (try %d of %d)", e.seq, e.entry, e.count,
                     s.tries, kTries);
             return false;
         }
         NXLOG_W(kTag, "Co-op purchases: purchase %u (shop entry %u x%u) not given here after %d tries, skipped", e.seq, e.entry,
                 e.count, kTries);
-        notice::post("A teammate's shop purchase could not be added here.");
+        notice::post(strings::get(base(), strings::Str::CoopBuyFailed));
         s.tries = 0;
         return true;
     }
     s.tries = 0;
     if (!(guest::call(c, base() + kVisitorCheck, 0) & 1)) guest::call(c, base() + kBought, e.entry);
     const std::string name = item_name(c, e.entry);
-    std::string line = "A teammate bought ";
-    line += name.empty() ? std::string("something at the shop") : name;
-    if (e.count > 1) line += " x" + std::to_string(e.count);
-    line += ". You got it too!";
-    notice::post(line);
+    using strings::Str;
+    if (name.empty())
+        notice::post(e.count > 1 ? strings::fmt(base(), Str::CoopBoughtSomethingCount, e.count) : strings::get(base(), Str::CoopBoughtSomething));
+    else notice::post(e.count > 1 ? strings::fmt(base(), Str::CoopBoughtCount, name, e.count) : strings::fmt(base(), Str::CoopBought, name));
     NXLOG_I(kTag, "Co-op purchases: purchase %u (shop entry %u x%u, category 0x%x) given here", e.seq, e.entry, e.count, cat);
     return true;
 }
