@@ -70,6 +70,7 @@ enum class Site : uintptr_t {
     Friendship,       // the friendship that completion step adds: skipped as decided at GoalCount
     GeneralGoal,      // a general request's completion, right before its town goal +1: a replay of another player's hand-in skips
                       // it, so each hand-in counts once; the talker's own hand-in shares its reward with the group
+    CleanCount,       // the sludge cleaning count's online gate (Lapras's request): the authority counts the group's cleanings
     // ---- the session ----
     PastTitle,        // the title's result getter: while the title waits for a press, the co-op save continues with no press, and its
                       // "did not disconnect correctly" mark is cleared (pkp_coop_title.cpp)
@@ -116,6 +117,11 @@ enum class Site : uintptr_t {
                       // lists them as it does offline (#780)
     ShopTile,         // the PC menu's "a visitor may open the shop" test: a member opens it, which the member mask's cleared bit 23
                       // (no per-row visitor lock) would otherwise grey out
+    StockGet,         // the shop's stock left, on a member: the own record, which holds the authority's numbers (pkp_coop_stock.cpp)
+    StockSet,         // the shop's stock set, on a member: the own record, and the count taken goes to the authority
+    Restock,          // the daily lineup restock, on a member: not run (the authority's reaches it)
+    // ---- the PC menu's locks (pkp_coop_pclock.cpp) ----
+    PaneNotice,       // the kind-28 notice of the PC's Shop / challenges pane: a lock still set after it is ended here
     // ---- the discoveries ----
     DexScene,         // the "registered in the Pokédex" scene is queued on the finder's process: sent, so every member registers
                       // the creature and sees the same scene (pkp_coop_discovery.cpp)
@@ -190,6 +196,12 @@ enum class Site : uintptr_t {
     TalkRecArmed,     // script callback 195's set of the talk record's +0x10: a member's is set in the authority's record too
     // ---- the Star Piece swap in a member's talk (pkp_coop_talk.cpp) ----
     TalkSwapParent,   // script callback slot 119's parent term: a member's is the group's record of the creature, as for the host
+    // ---- an event's end on a member (pkp_coop_feed.cpp) ----
+    EventEnded,       // the contents notifier, called by the three "event ended" notifiers: a member's is posted on the authority too,
+                      // so content records waiting on a scene a member played run for the group
+    // ---- a content's scene refused by a character another player holds (pkp_coop_contents.cpp) ----
+    SceneTake,        // the event setup's "every character is ready" test: a remembered scene refused long enough starts anyway
+    SceneStart,       // the event start's IsMine of one character: the same scene takes a character another player holds
 };
 
 struct CoopSite {
@@ -217,6 +229,8 @@ constexpr CoopSite kSites[] = {
     {{0x61858c, 0xb4000040u, false}, Site::GoalCount},       // cbz x0, 0x618594 (x0 = the challenge manager, before bl 0x618b00)
     {{0x619410, kPacibsp, true}, Site::Friendship},
     {{0x621be8, 0xb4000040u, false}, Site::GeneralGoal},     // cbz x0, 0x621bf0 (x0 = the challenge manager, before bl 0x618b00)
+    {{0x6522ec, 0x36000080u, false}, Site::CleanCount},      // tbz w0, #0, 0x6522fc (w0 = IsOnline's answer) in 0x6520e0
+    {{0x652940, 0x36000080u, false}, Site::CleanCount},      // tbz w0, #0, 0x652950 in 0x652880
     {{0xa88214, 0xb00156c8u, true}, Site::PastTitle},        // adrp x8, ...
     {{0x231890, kPacibsp, true}, Site::SimStep},
     {{0xbd45c, 0xb9400008u, true}, Site::TripFile},          // ldr w8, [x0]
@@ -250,6 +264,10 @@ constexpr CoopSite kSites[] = {
     {{0xe889f8, kPacibsp, true}, Site::ShopGrant},
     {{0xe87260, kPacibsp, true}, Site::OfflineGoods},
     {{0xe8d428, kPacibsp, true}, Site::ShopTile},
+    {{0x646864, kPacibsp, true}, Site::StockGet},
+    {{0x646ae8, kPacibsp, true}, Site::StockSet},
+    {{0x632380, kPacibsp, true}, Site::Restock},
+    {{0x1364f4, kPacibsp, true}, Site::PaneNotice},
     {{0x637480, kPacibsp, true}, Site::ChallengePay},
     {{0x3b9060, kPacibsp, true}, Site::DexScene},
     {{0x45f2a0, 0x12003c28u, true}, Site::HabitatScene},     // and w8, w1, #0xffff
@@ -332,6 +350,10 @@ constexpr CoopSite kSites[] = {
     {{0x4ae7e8, 0x940b4132u, false}, Site::TalkRecArmed},    // bl 0x77ecb0 (after strb w9, [x8, #0x10] off Cloud Island; w23 = chara)
     // the Star Piece swap in a member's talk (pkp_coop_talk.cpp)
     {{0x4a1adc, 0x2a0802d8u, false}, Site::TalkSwapParent},  // orr w24, w22, w8 (w8 = the parent term, w24 = the data id, in 0x4a17fc)
+    // an event's end on a member (pkp_coop_feed.cpp): the journal's entry site of the contents notifier, shared
+    {{0x1353a0, kPacibsp, true}, Site::EventEnded},
+    {{0x4774e8, 0x3600013cu, false}, Site::SceneTake},       // tbz w28, #0, 0x47750c (w28 = all characters ready, x19 = the runner)
+    {{0x47bfe4, 0x0a000318u, false}, Site::SceneStart},      // and w24, w24, w0 (w0 = IsMine, x20 = &actor id, x19 = the runner)
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -376,11 +398,16 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::GoalCount: return coop::outcomes::on_goal_count(c);
         case Site::Friendship: return coop::outcomes::on_friendship(c);
         case Site::GeneralGoal: return coop::requests::on_general_goal(c);
+        case Site::CleanCount: return coop::requests::on_clean_count(c);
         case Site::AreaMove: return coop::travel::on_area_move(c);
         case Site::GateEntry: return coop::travel::on_gate_entry(c);
         case Site::ShopGrant: return coop::purchases::on_grant(c);
         case Site::OfflineGoods: return coop::purchases::on_offline_only(c);
         case Site::ShopTile: return coop::purchases::on_shop_tile(c);
+        case Site::StockGet: return coop::stock::on_get(c);
+        case Site::StockSet: return coop::stock::on_set(c);
+        case Site::Restock: return coop::stock::on_restock(c);
+        case Site::PaneNotice: return coop::pclock::on_pane_notice(c);
         case Site::ChallengePay: return coop::money::on_pay(c);
         case Site::JoinBagSend: return coop::bag::on_join_bag_send(c);
         case Site::MirrorFill: return coop::bags::on_mirror_fill(c);
@@ -434,9 +461,14 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::StoryFollow: return coop::follow::on_story_follow(c);
         case Site::TalkRecArmed: return coop::talkrec::on_armed(c);
         case Site::TalkSwapParent: return coop::talk::on_swap_parent(c);
+        case Site::EventEnded: return coop::feed::on_event_ended(c);
+        case Site::SceneTake: return coop::contents::on_scene_take(c);
+        case Site::SceneStart: return coop::contents::on_scene_start(c);
         // a dropped player is waited for (pkp_coop_drop.cpp)
         case Site::TripFile: return coop::drop::on_trip_file(c, addr - st().base);
-        case Site::SimStep: return coop::drop::on_sim_step(c);
+        case Site::SimStep:
+            coop::quality::on_sim_step(c);   // never handled: the step goes on
+            return coop::drop::on_sim_step(c);
         case Site::Error3103: return coop::drop::on_error(c);
         default: return 0;
     }
@@ -523,7 +555,12 @@ void game_frame(::Ctx* c) {
     coop::events::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::discovery::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::unlocks::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::tutorials::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::hints::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::purchases::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::stock::tick(c);
+    coop::shoprows::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::pclock::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::money::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::bags::tick(c);
     coop::talk::tick();
@@ -533,11 +570,13 @@ void game_frame(::Ctx* c) {
     coop::linkqueue::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::notice::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::placement::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::scenes::tick(c);
     coop::contents::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::gate::tick(s.in_game.load(std::memory_order_relaxed));
     coop::trace::tick(s.in_game.load(std::memory_order_relaxed));
     coop::digest::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::records::tick(s.in_game.load(std::memory_order_relaxed));
+    coop::skits::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::answers::tick();
     coop::friendship::tick(c);
     coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
@@ -570,7 +609,12 @@ void remove() {   // the registry has removed the hooks
     coop::events::reset();
     coop::discovery::reset();
     coop::unlocks::reset();
+    coop::tutorials::reset();
+    coop::hints::reset();
     coop::purchases::reset();
+    coop::stock::reset();
+    coop::shoprows::reset();
+    coop::pclock::reset();
     coop::money::reset();
     coop::talk::reset();
     coop::gimmicks::reset();
@@ -585,11 +629,13 @@ void remove() {   // the registry has removed the hooks
     coop::held::reset();
     coop::linkqueue::reset();
     coop::placement::reset();
+    coop::scenes::reset();
     coop::contents::reset();
     coop::friendship::reset();
     coop::feed::reset();
     coop::session::reset();
     coop::records::reset();
+    coop::skits::reset();
     coop::answers::reset();
     coop::jobs::reset();
     coop::owner::reset();
@@ -602,6 +648,7 @@ void remove() {   // the registry has removed the hooks
     coop::savecopy::reset();
     coop::talkrec::reset();
     coop::drop::reset();
+    coop::quality::reset();
 }
 
 }  // namespace

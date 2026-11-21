@@ -12,17 +12,20 @@
 //                                     the entry of kGrant once, on the buyer's process only.
 //   kBought(entry)                    the purchase record's bought bit (save root + 0x6ae709 + entry * 8, bit 1; CMNDAT). The buy sets it
 //                                     only when kVisitorCheck is 0, and so does a received purchase here.
-//   The stock: the game already keeps it with the host (a visitor's buy goes through the host), so a received purchase leaves it.
+//   The stock: the group's is the authority's (pkp_coop_stock.cpp), which a member's buy takes from; a received purchase leaves it.
+//   A member's bought bit comes from the authority's records there, as the authority sets it here for every purchase in the log.
 //   kOfflineOnly(entry)               the shop row's byte +0x23 bit 2 (shop rows: LINKDATA #70). Its only two callers, the shop's
 //                                     listing tests 0xe86494 (@0xe86674) and 0xe87424 (@0xe87628), hide such a row whenever IsOnline
 //                                     (0x207b0) is set: Packing Tips (the bag upgrades, items 0xf91..0xf94), PP Up, the handy bag and
 //                                     28 more rows (issue #780: the host's shop lacked them in co-op). In a co-op session it answers 0,
-//                                     so the shop lists them as offline. A member's shop is the game's visitor shop (it lists what the
-//                                     host's shop publishes, and its buys go through the host); what the host buys reaches it below.
+//                                     so the shop lists them as offline. A member's shop lists its rows and their items as the host's
+//                                     does (role rows 0xe85e0c / 0xe86520 / 0x63e450, pkp_coop_role_table.inc); what another player
+//                                     buys reaches it below.
 //   kShopTile()                       0xe8d428, the PC menu's shop tile test for a visitor (only caller 0xeff7a0, tile 1, with entry
 //                                     0): 1 when mask bit 23 (the per-row visitor lock) is set, online, not Cloud Island, a visitor.
 //                                     The tile's other way in, 0xe88524, wants the host. A member's mask has bit 23 cleared
-//                                     (pkp_coop_story.cpp), so the tile was grey on members; in a session it answers 1.
+//                                     (pkp_coop_story.cpp); in a session it answers 1. Tile 1 first needs one row listed (0xe86494
+//                                     over entries 1..0x7fe), which on a member needs the shop rows' role row 0xe85e0c.
 // Rules:
 //   - every purchase on a process in the session (the entry hook, not our own replays) goes to the log: the authority appends its
 //     own at once, a member sends it (Purchase) and the authority appends it. The log is the authority's, numbered from 1, kept in a
