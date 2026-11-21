@@ -48,6 +48,7 @@
 - A talk that depends on the item a player holds now picks the same lines for a teammate as for the host
 - Teammates no longer get a visitor's greeting from two special creatures where the host gets the creature's usual talk
 - A chest or other object a teammate closes is now always free again for everyone. Before, a close while the game was still waiting on the host could leave it held by that teammate, and everyone else got "Someone else is using this right now." for the rest of the session
+- A teammate's shop purchase or story catch-up item that arrives while their bag is being put back (after the host refused a box store, at an area change or when joining) is no longer lost
 
 ### Logs
 - pkp.log keeps the last five launches (pkp.log, then pkp.log.prev to pkp.log.prev4), and the log bundle takes all five

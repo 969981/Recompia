@@ -269,7 +269,9 @@ bool give(::Ctx* c, const Entry& e) {
     State& s = st();
     const uint8_t cat = category(c, e.entry);
     ++s.remote;
+    bags::gain_begin(c);   // a bag give is credited to the bag record (no write-back takes it away)
     const bool given = guest::call(c, base() + kGrant, 0, e.entry, e.count, 0) & 1;
+    bags::gain_end(c);
     --s.remote;
     if (given && cat == kCategoryEvent) s.quiet_until = qpc::seconds() + kEventQuiet;
     if (!given && cat != kCategoryRecipe) {

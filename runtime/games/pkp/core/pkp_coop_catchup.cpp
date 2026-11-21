@@ -203,7 +203,9 @@ void tick_gives(::Ctx* c) {
         guest::wr<uint16_t>(cmd + 4, item);
         guest::wr<uint32_t>(cmd + 8, count);
         ++s.remote;
+        bags::gain_begin(c);   // the give is credited to the bag record (no write-back takes it away)
         guest::call(c, base() + kGiveItems, cmd);
+        bags::gain_end(c);
         --s.remote;
         NXLOG_I(kTag, "Co-op catch-up: item %u x%u given here too", item, count);
     }
