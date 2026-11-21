@@ -74,6 +74,9 @@
 //               a kind the authority does not post is dropped)
 //   NewcomerAsk +2 u16 the creature's actor handle, +4 u16 its chara (< 0x41a), +6 u8 the origin's stage   (a member's first talk
 //               with a creature no player had befriended; the authority makes the host's befriend for it; pkp_coop_newcomer.cpp)
+//   StoryFollow +2 u8 the origin's stage, +3 u16 the creature's data id (1..0x3ff), +5 u8 the attach's flag   (a member's story
+//               content asked the creature to follow its player; the authority attaches its own copy to its own player unless it
+//               follows someone already; pkp_coop_follow.cpp)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -145,6 +148,8 @@ enum class Type : uint32_t {
     TravelAsk = 42,
     // ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----
     NewcomerAsk = 38,
+    // ---- a story follow on a member (pkp_coop_follow.cpp) ----
+    StoryFollow = 39,
 };
 
 // Builds one payload: the header, then the fields in order.

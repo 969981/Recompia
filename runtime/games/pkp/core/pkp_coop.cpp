@@ -178,8 +178,8 @@ enum class Site : uintptr_t {
     TakeoutStore,     // the shared move's choice of the store a taken item is removed from: the take-out screen's removal of a
                       // member's ordered item or gift uses the own store it listed, not the visitor's temp list
     // ---- a story follow on a member (pkp_coop_follow.cpp) ----
-    StoryFollow,      // a story content's "follow this player" attach (0x2a1ed4, local only): on a member it is the game's own join
-                      // request to the host instead, so the host's creature follows the member and no follow is taken away
+    StoryFollow,      // a story content's "follow this player" attach (0x2a1ed4, local only): on a member it does not run and the
+                      // authority makes it for its own copy of the creature, so no member takes the host's follow away
 };
 
 struct CoopSite {
@@ -518,6 +518,7 @@ void game_frame(::Ctx* c) {
     coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::newcomer::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::takeout::tick(c);
+    coop::follow::tick(c, s.in_game.load(std::memory_order_relaxed));
 }
 
 void remove() {   // the registry has removed the hooks
@@ -567,6 +568,7 @@ void remove() {   // the registry has removed the hooks
     coop::doors::reset();
     coop::title::reset();
     coop::takeout::reset();
+    coop::follow::reset();
 }
 
 }  // namespace
