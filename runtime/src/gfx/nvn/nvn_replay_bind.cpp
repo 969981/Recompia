@@ -2,6 +2,7 @@
 // Descriptor sets of the replay: the set memo, driver banks, set building per binding kind, render-scale support buffers, set binding.
 #include "nvn_replay_internal.h"
 #include "nxrt/perf_report.h"
+#include "nxrt/platform_facts.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -458,6 +459,7 @@ static VkBufferView texel_copy_view(uint64_t addr, uint64_t bytes, VkFormat fmt)
 }
 
 void prepare_texel_buffers(const ProgLayout& pl) {
+    if constexpr (!facts::kPhone) return;   // phones only: desktop GPUs keep upstream's skipped view
     // the game's texel buffers are 32-byte aligned: only a GPU that wants more needs copies (Adreno, some Intel); the rest skip the walk
     static const bool needed = device().properties().limits.minTexelBufferOffsetAlignment > 32;
     if (!needed) return;
@@ -714,8 +716,8 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                 if (sh.ok && sh.offset % ta == 0 && sh.buffer != resolve_buffer(addr, bytes).buffer) v = make_buffer_view(sh.buffer, sh.offset, bytes, vfmt);
                 if (v && storage) gpu_wrote(addr, bytes, kWriteStorage);
             }
-            if (!v && !storage && addr && bytes) v = texel_copy_view(addr, bytes, vfmt);
-            if (!v && !storage && addr && bytes) v = unaligned_texel_copy(addr, bytes, vfmt);
+            if (facts::kPhone && !v && !storage && addr && bytes) v = texel_copy_view(addr, bytes, vfmt);
+            if (facts::kPhone && !v && !storage && addr && bytes) v = unaligned_texel_copy(addr, bytes, vfmt);
             if (!v) {
                 if (r.tex && first_time_key(kFirstTexelBuffer, r.tex->id, d.shader->hash, b.name))
                     NXLOG_W(kTag, "texel buffer: texture %u (%s, target %d, %dx%dx%d, storage %llu bytes at %p) has no buffer view: shader %s binding %s (NVN slot %d, set %u binding %u)",

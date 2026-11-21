@@ -23,6 +23,7 @@
 #include <thread>
 
 #include "nxrt/config.h"
+#include "nxrt/platform_facts.h"
 #include "nxrt/diag.h"
 #include "nxrt/early_wake.h"
 #include "nxrt/frame_limiter.h"
@@ -363,7 +364,8 @@ bool create_slot(Slot& s) {
     const VkBufferUsageFlags usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
                                      VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |  // quad_args_gpu: indexed indirect arguments a dispatch writes
-                                     VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;   // copies of texel buffers at an offset the GPU cannot view
+                                     // phones (facts::kPhone): copies of texel buffers at an offset the GPU cannot view
+                                     (facts::kPhone ? VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT : 0u);
     if (d.create_buffer(kUploadBytes, usage, gfx::MemoryUse::Upload, &s.upload, "nvn upload") != VK_SUCCESS) return false;
     const VkMemoryPropertyFlags mp = d.memory_flags(s.upload);
     s.upload_dl = (mp & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0;
@@ -720,7 +722,8 @@ UploadAlloc Frame::staging(VkDeviceSize size) {
     const VkBufferUsageFlags usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
                                      VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |  // quad_args_gpu: indexed indirect arguments a dispatch writes
-                                     VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;   // copies of texel buffers at an offset the GPU cannot view
+                                     // phones (facts::kPhone): copies of texel buffers at an offset the GPU cannot view
+                                     (facts::kPhone ? VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT : 0u);
     if (g->dev->create_buffer(std::max<VkDeviceSize>(size, 256), usage, gfx::MemoryUse::Upload, &b, "nvn staging") != VK_SUCCESS) {
         NXLOG_E(kTag, "staging buffer of %llu bytes failed", static_cast<unsigned long long>(size));
         return {};
