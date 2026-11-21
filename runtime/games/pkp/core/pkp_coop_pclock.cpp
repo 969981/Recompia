@@ -14,14 +14,15 @@
 //   kind 28 notice   0x1364f4(SC, u8), from two panes only: the Shop pane 0xf0f870 (payload 1 at 0xf0f9d4, when lock bit 3 is set)
 //                    and the challenges pane (payload 0 at 0xf056fc, when bit 2 is set). Opening the locked tile's pane is the
 //                    lesson's end.
-//   0xeff9a8(_, t)   a tile's ability gate (tile 1: ability 30 through 0x377cc). A tile whose gate is shut cannot be opened, so a
+//   0xeff9a8(_, t)   a tile's ability gate through 0x377cc (jump table 0x283bbe6: tile 0 ability 27, tile 1 ability 30). A tile whose gate is shut cannot be opened, so a
 //                    lock to it can never end by the game's own way.
 //   0x43f2a4         event command 0x57 (bit 1's), the game's own clear: it waits while 0xa88630, bit 0 or 0xa87f88, then clears.
 // Rules, on any process in a session, the lock's bit set:
 //   - the Shop's lock only once its intro, scene 77, has played (before it the lesson is still starting);
 //   - the locked tile's pane sent its notice and kAfterNotice seconds later the lock is still set (the content that ends it is
 //     not armed here): cleared;
-//   - the locked tile's gate stays shut for kShut seconds: cleared (the player could not leave the menu);
+//   - on a member, the locked tile's gate stays shut for kShut seconds: cleared (the player could not leave the menu; the host's
+//     lesson is the game's own);
 //   - a clear waits as 0x43f2a4 does: while 0xa88630, bit 0 or 0xa87f88 holds.
 // Content 64's own clear runs first whenever it is armed; its scene 114 still follows the notice.
 #include "core/pkp_coop_internal.h"
@@ -46,7 +47,7 @@ constexpr uint64_t kWaitB = 0xa87f88;         // () -> bit 0: likewise
 constexpr uint64_t kPlayedFlags = 0x4a2cec;   // save root + : the played-scene bits (pkp_coop_events.cpp)
 constexpr uint32_t kShopIntro = 77;           // scene 77 (event 98): the Shop's intro, content 50 record 8
 constexpr double kAfterNotice = 5.0;
-constexpr double kShut = 15.0;
+constexpr double kShut = 30.0;
 constexpr double kEvery = 0.25;
 
 struct Lock {
@@ -99,7 +100,7 @@ void tick(::Ctx* c, bool in_game) {
         const bool open = guest::call(c, base() + kTileGate, 0, l.tile) & 1;
         if (open) s.shut[i] = 0.0;
         else if (!s.shut[i]) s.shut[i] = now;
-        const bool stuck = !open && now - s.shut[i] >= kShut;
+        const bool stuck = !open && now - s.shut[i] >= kShut && !link::is_authority();
         const bool unanswered = s.noticed[i] && now - s.noticed[i] >= kAfterNotice;
         if (!stuck && !unanswered) continue;
         if ((guest::call(c, base() + kWaitA, 0) & 1) || (bits & 1) || (guest::call(c, base() + kWaitB, 0) & 1)) continue;

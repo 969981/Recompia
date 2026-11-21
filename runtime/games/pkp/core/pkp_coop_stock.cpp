@@ -19,7 +19,9 @@
 //   - 0x646864 (entry hook) answers the own record's stock, which holds the authority's numbers (StockState);
 //   - 0x646ae8 (entry hook) writes the own record and sends the count taken to the authority (StockAsk), which takes it from the
 //     group's stock; the guest history is not used;
-//   - 0x632380 (entry hook) does not run: the authority's restock reaches the member with its next StockState.
+//   - 0x632380 (entry hook) does not run: the authority's restock reaches the member with its next StockState. (Besides the
+//     records it writes R+0x6b77bc (0xb4 bytes) and the u8 R+0x6b7870 on a non-visitor; a visitor, every member, never did.)
+//   All three only once the member holds the authority's records (StockState); before that the game's own paths run.
 //   - the bought bit and the lineup bits come with the stock bytes: the authority sets the bought bit of every purchase in its log
 //     (pkp_coop_purchases.cpp gives it there), so a buying member's bit is the group's.
 // The authority reads its own records once a second and sends them (StockState) when they changed, and to a member that asks.
@@ -57,6 +59,7 @@ struct State {
     bool sent = false;
     // a member
     bool have = false;         // a StockState arrived in this session
+    bool restock_told = false; // the skipped restock's line was written in this session
     double asked_at = -1e9;
     std::vector<Take> takes;   // counts taken here, not yet with the authority
 };
@@ -75,10 +78,11 @@ bool on_cloud_island() {
     return guest::ok(game, layout::kStateStage + 1) && guest::rd<uint8_t>(game + layout::kStateStage) == layout::kStageCloudIsland;
 }
 
-// A member of a session, off Cloud Island: the group's stock is the authority's.
+// A member of a session, off Cloud Island, that has the authority's records: the group's stock is the authority's. Until the
+// first StockState of the session (or with an authority whose build sends none) the game's own paths run.
 bool member_here() {
     constexpr uint8_t kMember = layout::kSessionOnline | layout::kSessionVisitor;
-    return link::in_session() && !link::is_authority() && (session_bits() & kMember) == kMember && !on_cloud_island();
+    return st().have && link::in_session() && !link::is_authority() && (session_bits() & kMember) == kMember && !on_cloud_island();
 }
 
 bool valid(uint64_t e) { return e >= 1 && e <= kEntryMax; }
@@ -160,7 +164,8 @@ int on_set(::Ctx* c) {
 
 int on_restock(::Ctx*) {
     if (!member_here()) return 0;
-    NXLOG_I(kTag, "Co-op stock: the daily restock is the authority's; skipped here");
+    if (!st().restock_told) NXLOG_I(kTag, "Co-op stock: the daily restock is the authority's; skipped here");
+    st().restock_told = true;
     return 1;
 }
 
@@ -209,6 +214,7 @@ void tick(::Ctx* c) {
 void on_session_change() {
     State& s = st();
     s.have = false;
+    s.restock_told = false;
     s.asked_at = -1e9;
     s.sent = false;
     s.read_at = -1e9;
