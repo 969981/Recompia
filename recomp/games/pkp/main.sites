@@ -695,3 +695,7 @@ midhook 0x71004c0574
 #   `tbz w0, #0` after the grant's data apply (vt+0x2f8; x23 = the gimmick, x19 = the reply), whose false skips the use, and after
 #   which class 0x326dc98 runs none
 midhook 0x7100539b44
+#   Seamless co-op, gimmick ownership, the host's own use of the story's materials drop ends (pkp_coop_owner.cpp): class 0x326dc98's
+#   close 0x71007e67c0 (x0 the gimmick; from its slot 22 0x71007e633c, and a tail from 0x71007e6680), after which nothing frees the
+#   host's take
+entryhook 0x71007e67c0

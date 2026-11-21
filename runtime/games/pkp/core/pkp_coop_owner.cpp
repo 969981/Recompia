@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Game layer: seamless co-op, a gimmick whose use did not start is given back (pkp_coop_internal.h; RE: modding-docs
+// Game layer: seamless co-op, a gimmick held with no use running is given back (pkp_coop_internal.h; RE: modding-docs
 // coop-v2/role-census/build/owner.md).
 //
 // A gimmick (a placed object one player uses at a time) keeps its user's member index in an owner byte, 0xff free; every other
@@ -44,6 +44,26 @@
 // and nothing in the class's code gives the byte back after a use (no 0x538f60 / vt+0x490 / Sync in 0x7e5f54..0x7e8044 but the
 // take). So here, at the same `tbz`, a grant for this class is given back at once, as a failed apply is: the press does
 // nothing and the object stays free.
+// What the class is: the one placed kind 0x1d9 (#956 category 0x4f; the factory 0x76c248 maps category 0x4f to slot 0x2d, filled
+// by 0x76bcc0 with the creator table 0x32853b0, whose creator 0x9fd6b8 makes this class), container type 0x11 (0x773c80 into
+// +0x4b). It is not a store: it is the story's materials drop with ten stages (+0x4a, table slot 0x144 = #1108; a row's +8..+0xa
+// item categories and +0xc..+0xe counts, +0 / +4 scenes). Its close 0x7e67c0 goes on only when this process's container screen
+// manager flags it (0xa94bbc at 0x7e6938: [0x3561780]+0x11d8 u8 +0x5a), checks the deposit against the row (0x78d050), queues the
+// row's scenes for the local player (0x2e6ce0, the scene queue), steps +0x4a and the record R+0x73b258 (+0xc = R+0x73b264, which
+// quest condition 9 reads), and only then takes the deposit out of the container (0x5b2f34). A member's use would make all of that
+// on its own copies (the deposit in its copy of the container record, the stage in its own common block), and no request carries a
+// deposit to the host: the class has no snapshot apply (vt+0x2f8 is the base) and sends nothing at its close, unlike the store
+// chests (class 0x3268000's close 0x7b8960: host release 0x538f60 take 0, a member's kind 0x1a / 0x19 / 0xf record through the
+// request queue 0x214974, which the host's handler checks against its copy of the member's bag and which releases the owner there,
+// 0x221d80). So a member's grant stays given back.
+// The host's own use takes the byte (0x7e7884: take 1, its own index) and nothing frees it again: not the close, not the class's
+// per-frame slot 22 0x7e633c or the base gimmick tick 0x75cb60 it calls (no 0x538f60, vt+0x480 / +0x490 or Sync within five calls;
+// the vt slots that tick calls are leaves here), and no reader of the character's gimmick cell ch+0x5a96 (the gimmick state
+// 0x6ce540 and the player-mode entry 0x3ee8fc release categories 0x18, 0xc, 0x22, 0x43 only; 0x2de2a0 category 0xc). After the
+// host used it once, a member's press there was refused for the rest of the session (0x10d once the host's take report reached
+// it). Here, at the close's entry, on the authority in a session, the host gives the byte back as the store chest's close does
+// (0x7b8b34: 0x538f60 take 0, quiet 0, slot 0xff), once it is the owner. Not covered: a use whose open finds no container record
+// (0x7e6680 leaves +0x4c 0 and the close never runs).
 //
 // The game, 2.0.1a (x19 = the gimmick at every site, w0 = 0x765b54's answer):
 //   class 0x32688e0 slot 5 0x7c0be0   the use at 0x7c13d8: 0x765b54 at 0x7c1418, `tbz w0, #0` 0x7c141c returns; a failed event
@@ -54,7 +74,9 @@
 //                                     0x538f60(slot u8 g+0x57, take 0, quiet 0), member 0x74fd48 Sync sent with 0x30c69c. One slot
 //   class 0x3265668 slot 5 0x79aa80   `tbz` 0x79b178 returns; 0x79b188 starts (0x79b7ec) or gives back with slot 0xff. One slot
 //   class 0x326dc98 slot 5 0x7e73e0   its use 0x7e77a4: `tbz` 0x7e78f4 after 0x7659c8 (which returns 0x765b54's answer) returns; the
-//                                     take there is slot 0xff. One slot (vt+0x328 = 1: slot 0xff is slot 0 for the setter)
+//                                     take there is slot 0xff. One slot (vt+0x328 = 1: slot 0xff is slot 0 for the setter).
+//                                     Its close 0x7e67c0(g) (x0 = the gimmick; called by slot 22 0x7e633c once the screen is
+//                                     shut, and tailed by 0x7e6680 with w1 clear) frees nothing
 //   classes with the base take vt+0x488 -> vt+0x478 0x767700 (online: free -> host 0x538f60 take slot 0xff and its answer, member
 //   the ownership request and 0; not free -> vt+0x2f0 owner == own; offline 1), then vt+0x400, then 0x7659c8:
 //     0x3268000 slot 5 0x7b9460 `tbz` 0x7b9b0c; its slot 22 0x7b7860 (the host's deferred use, flag +0x51) `tbz` 0x7b80d0
@@ -97,6 +119,7 @@ constexpr int kAnswerReg = 0, kGimmickReg = 19, kSlotReg = 21;
 constexpr int kReplyReg = 19, kGrantGimmickReg = 23;    // at 0x539b44
 constexpr uint64_t kReplySlot = 0x10;                   // reply +: the granted slot (u8)
 constexpr uint64_t kNoGrantUseClass = 0x326dc98;        // main +: the vtable of the class that runs no use from a grant
+constexpr int kGimmickArg = 0;                          // at 0x7e67c0's entry: x0 = the gimmick
 constexpr uint64_t kKindOf = 0x50;                      // gimmick vtable +: its kind (u16)
 constexpr uint64_t kCellLo = 0x18, kCellHi = 0x1c;      // gimmick +: u32 x | y << 16, u16 z
 constexpr uint64_t kMsgCell = 0x34, kMsgKind = 0x38, kMsgIndex = 0x9e, kMsgSlot = 0x9f, kMsgTake = 0xa0;
@@ -138,6 +161,7 @@ constexpr size_t kUseCount = sizeof kUses / sizeof kUses[0];
 struct State {
     bool logged[kUseCount] = {};
     bool grant_logged[2] = {};   // [applied]
+    bool end_logged = false;
     alignas(16) uint8_t msg[kMsgBytes] = {};   // guest addresses are host addresses
     alignas(8) uint16_t kind = 0;
     alignas(8) uint8_t index = 0;
@@ -237,9 +261,26 @@ int on_grant_no_use(::Ctx* c) {
     return 0;
 }
 
+int on_host_use_end(::Ctx* c) {
+    if (!link::in_session() || !link::is_authority()) return 0;
+    const uint64_t g = c->x[kGimmickArg];
+    if (!guest::ok(g, 0x60) || guest::deref(g) != base() + kNoGrantUseClass) return 0;
+    const uint64_t owner_of = guest::deref(guest::deref(g) + kOwnerOf);
+    if (!owner_of) return 0;
+    const uint8_t own = static_cast<uint8_t>(guest::call(c, base() + layout::kOwnIndexOf, 0));
+    if (static_cast<uint8_t>(guest::call(c, owner_of, g, 0)) != own) return 0;   // free, or not taken by the host's own use
+    give_back(c, g, kAnySlot);
+    if (!st().end_logged) {
+        st().end_logged = true;
+        NXLOG_I(kTag, "Co-op owner: the host's use of a kind 0x1d9 object ended; the object is given back");
+    }
+    return 0;
+}
+
 void reset() {
     for (bool& b : st().logged) b = false;
     for (bool& b : st().grant_logged) b = false;
+    st().end_logged = false;
 }
 
 }  // namespace nxrt::games::pkp::coop::owner

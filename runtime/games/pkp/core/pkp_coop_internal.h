@@ -568,6 +568,9 @@ int on_use_refused(::Ctx* c, uint64_t site);
 // (vt+0x2f8). In a session, on a member, a grant after which no use runs (the apply failed, or the class runs none from a grant)
 // gives the object back; returns 0.
 int on_grant_no_use(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0x7e67c0, class 0x326dc98's close. On the authority in a session, the host's own use is
+// given back (nothing in the class frees it); returns 0.
+int on_host_use_end(::Ctx* c);
 void reset();
 }  // namespace owner
 // ---- a newly met creature moving in (pkp_coop_newcomer.cpp) ----
