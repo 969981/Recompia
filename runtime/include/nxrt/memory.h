@@ -15,7 +15,7 @@ namespace nxrt::mem {
 // The canonical layout: every document, site list, config value and comment in this repository writes guest addresses as if the
 // layout started here (main at 0x7100000000), and every value is above what a Windows process with HIGHENTROPYVA off uses. A target
 // whose user address space cannot hold 0x7000000000..0x8000000000 builds with another base (runtime/cmake/guest_layout.cmake, the
-// only place one is chosen, reaches this file as NXRT_GUEST_BASE); the regions keep their offsets. No current target sets one.
+// only place one is chosen, reaches this file as NXRT_GUEST_BASE); the regions keep their offsets. Android does (0x1000000000).
 constexpr uint64_t kCanonicalBase = 0x7000000000ull;
 #ifdef NXRT_GUEST_BASE
 constexpr uint64_t kGuestBase = NXRT_GUEST_BASE;
