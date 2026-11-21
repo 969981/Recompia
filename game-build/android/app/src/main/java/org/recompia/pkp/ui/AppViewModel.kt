@@ -190,9 +190,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val controls = Ini.load(Paths.controlsIni)
         val facts = DeviceFacts.read(ctx)
         update { it.copy(facts = facts) }
+        ensurePromptIcons()
         val changed = PhoneDefaults.apply(ini, controls, Paths.dataRoot.path, facts)
         ini.save(Paths.pkpIni)
         if (changed) controls.save(Paths.controlsIni)
+    }
+
+    /** The button prompt icon pack ([prompts] dir, set by PhoneDefaults) in <data root>/assets/prompts: copied when missing or of
+     *  another size (an app update with a newer pack replaces it). Without it a PlayStation or Xbox pad shows the game's own glyphs. */
+    private fun ensurePromptIcons() {
+        runCatching {
+            val dst = File(Paths.assetsDir, "prompts/prompt_icons.pak")
+            ctx.assets.openFd("prompts/prompt_icons.pak").use { fd ->
+                if (dst.length() != fd.length) {
+                    dst.parentFile?.mkdirs()
+                    fd.createInputStream().use { i -> dst.outputStream().use { i.copyTo(it) } }
+                }
+            }
+        }
     }
 
     fun startBuild(fake: Boolean) = BuildService.start(ctx, JobKind.BUILD, fake = fake)

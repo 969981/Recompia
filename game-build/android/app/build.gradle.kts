@@ -96,6 +96,8 @@ android {
     sourceSets["main"].java.srcDir(sdlJavaDir)
     // Repo files the UI reads at run time, copied at build time so they never go stale (see uiAssets below)
     sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/uiAssets").get().asFile)
+    // the prompt icon pack is copied out by size (AppViewModel.ensurePromptIcons): stored uncompressed, so openFd gives its length
+    androidResources { noCompress += "pak" }
 
     packaging {
         jniLibs {
@@ -143,6 +145,8 @@ val uiAssets = tasks.register<Copy>("uiAssets") {
         rootProject.file("../../LEGAL.md"),
     )
     into(layout.buildDirectory.dir("generated/uiAssets"))
+    // the button prompt icon pack (Kenney Input Prompts, CC0, runtime/assets/prompts): copied to <data root>/assets/prompts at start
+    into("prompts") { from(rootProject.file("../../runtime/assets/prompts")) { include("prompt_icons.pak") } }
     // licence texts the About page shows for what the APK carries (font, SDL, LLVM's libc++ / clang / lld, bcdec in the runtime)
     into("licenses") {
         from(rootProject.file("../../tools/release/licenses")) {
@@ -153,6 +157,7 @@ val uiAssets = tasks.register<Copy>("uiAssets") {
             include("LICENSE*")
             rename { "LICENSE.Snapdragon-GSR.BSD-3-Clause.txt" }
         }
+        from(rootProject.file("../../runtime/assets/prompts")) { include("LICENSE-Kenney-InputPrompts.txt") }
     }
     // bcdec keeps its licence at the end of its header (MIT or public domain); plain File values for the configuration cache
     val bcdecHeader = rootProject.file("../../runtime/src/gfx/nvn/third_party/bcdec/bcdec.h")

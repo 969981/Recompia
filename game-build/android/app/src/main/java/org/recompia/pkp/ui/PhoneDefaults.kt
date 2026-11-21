@@ -64,6 +64,7 @@ object PhoneDefaults {
         missing("nvn", "depth_ro_keep", "1")
         missing("latency", "grid", "false")
         missing("nvn", "compute_shadows", "false")   // checked by eye on a phone: about 1.5 ms of GPU time and 21 MB of copies less per frame
+        missing("prompts", "dir", "$root/assets/prompts")   // the icon pack the app copies there: PlayStation and Xbox glyphs
         missing("pkp", "scene_upscaler", "1")   // SGSR (0 off, 1 SGSR, 2 bicubic): the phone default checked by eye
         if (lowMemory(f)) {
             // Low memory profile (8 GB phones, measured on a Tensor G2 / Mali-G710): a file-backed game heap in the cache folder (its
