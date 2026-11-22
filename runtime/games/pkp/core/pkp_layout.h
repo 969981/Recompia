@@ -189,6 +189,13 @@ constexpr uint64_t kRecipeSize = 6;              // record: +2 u16 the learn ord
 constexpr uint64_t kRecipeFlags = 4;
 constexpr uint8_t kRecipeKnown = 0x02;
 constexpr uint32_t kRecipeMax = 0x5db;          // the learn 0x2e7240 takes id < 0x5dc; its callers test id - 1 <= 0x5da
+// ---- m_itemHistory: save root + item id, one byte per item (0..0x11f7; modding-docs coop-v2/HAIRSTYLES-RE.md) ----
+// Bit 0 obtained (0x2e51d8 on a pickup, 0x2f6700 / 0x2f5f20 for a learned hairstyle / look); bit 1 the first obtain's mark and bit 6
+// (0x2e51d8), bit 4 tested with bit 0 (`& 0x11`) by the known tests 0x2f6580 / 0x2f5da0. A learned hairstyle is bit 0 of its hidden
+// hair item (item kind 20, items kHairItemFirst..+kHairItemCount-1), a learned look (outfit) of its look item (kind 19).
+constexpr uint64_t kSaveItemHistory = 0x6d6179;
+constexpr uint32_t kHairItemFirst = 2460, kHairItemCount = 13;
+constexpr uint32_t kLookItemFirst = 2400, kLookItemCount = 25;
 // ---- area gates (modding-docs coop-v2/AREA-GATE-RE.md) ----
 // Save root + id: m_gateHistory, bit 0 per gate id 0..kGateCount-1 (opened; the door's second press enters). Setter 0x5c059c refuses
 // whenever a Link Play session is open; getter 0x5c0504 reads kSaveGateMirror + id on a visitor (0x376c4), which no game code fills.

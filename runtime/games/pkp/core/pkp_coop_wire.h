@@ -38,8 +38,9 @@
 //   TipClosed   +2 u16 tip id (1..0x1f3): the waiting tip was closed on the origin
 //   HabitatHints +2 u16 count n, then n times: u16 creature id (1..0x3ff), u8[64] its habitat-hint bitmap on the origin   (pkp_coop_hints.cpp)
 //   UnlockKnown +2 u8 list, +3 u16 count n, then n times: u8 entry id the origin's player has   (pkp_coop_unlocks.cpp)
-//               lists: 1 moves (id 1..0x3c), 2 emotes (1..0x64), 3 areas visited (stage 1..5), 4 buildings built (0..0x7f);
-//               a list this build does not know is skipped
+//               lists: 1 moves (id 1..0x3c), 2 emotes (1..0x64), 3 areas visited (stage 1..5), 4 buildings built (0..0x7f),
+//               5 area gates opened (0..0x1f), 6 hairstyles learned (0..12: hair items 2460..2472), 7 looks learned (0..24: look
+//               items 2400..2424); a list this build does not know is skipped
 //   AbilityCleared +2 u16 count n, then n u8 ability ids (1..0xf9) a step took away on the origin (pkp_coop_story.cpp): every
 //               receiver clears them and never gives them back in this co-op run
 //   AreaMusic   +2 u8 the authority's area (stage), +3 u8 that area's quest music there (m_contentsBGM; 0: none), +4 u8 the play flag

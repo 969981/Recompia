@@ -14,6 +14,7 @@
 - Storage box tabs: paging from one tab of a big storage box into the next no longer shows an empty or wrong page for a moment before the new tab's items appear
 
 ### Co-op
+- A hairstyle or a look (outfit) one player learns is now learned for the whole group, including players who join later. Each player still wears their own look
 - A teammate's shop and challenge lists now follow the areas the host has opened, as the host's do. Before, a teammate's shop listed hundreds of rows from areas nobody had opened yet (every plush, for one), and the challenge lists showed those areas' challenges too
 - A teammate using the PC now counts for the story as the host's use does: the story steps that wait for someone to use the PC (the professor's walk over to it, for one) now move on when a teammate uses it, as long as the host is in the same area
 - A character with nothing new to say in the story now gives its ordinary talk in co-op, as it does in single player, instead of "Looks like they want to meet" the host

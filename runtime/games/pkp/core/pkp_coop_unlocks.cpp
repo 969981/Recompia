@@ -30,13 +30,22 @@
 //                                                and every press replayed the opening: on_area_gate_record lets it through. A visitor's
 //                                                getter (0x5c0504) reads the copy R + 0x1718470 + id (kSaveGateMirror), which no game
 //                                                code fills: on a visitor the entry is read there and both bytes are set.
+//   hairstyles R + 0x6d6179 + 2460 + id, id 0..12  m_itemHistory bit 0 of the 13 hidden hair items (kind 20; HAIRSTYLES-RE.md): the
+//                                                look-change menu's known test 0x2f6580 reads it in the own save, on a visitor too.
+//   looks     R + 0x6d6179 + 2400 + id, id 0..24  the same for the 25 look (outfit) items (kind 19; test 0x2f5da0). Both are set
+//                                                directly, as the bit setters 0x2f6700 / 0x2f5f20 do: the game's learns
+//                                                0x2f6340 / 0x2f5b60 call them, then copy the player's look (player + 0x37a8; 0x2f6340
+//                                                stores the hair at + 0x37d2) and queue their scene, and the current look stays
+//                                                each player's. Bit 0 only: the byte's other bits are this player's own (bit 1 the
+//                                                first obtain's mark, bit 6, bit 4).
 // The wheels (m_pokeSkillWheelHistory, m_communicationWheelHistory) are the player's own layout, filled by the learns above. The
-// other first-time lists stay per player (the RE notes: items, cooking, collections, photo frames and filters); the tips' history is shared by
-// pkp_coop_tutorials.cpp.
+// other first-time lists stay per player (the RE notes: the other items, cooking, collections, photo frames and filters); the tips'
+// history is shared by pkp_coop_tutorials.cpp.
 // Rules on a receiver: an entry another member has is set here at a safe moment (in the group's world, can walk, talks to no one),
 // kSettle seconds after it arrived and only if its bit is still clear (the game's own path, such as quest effect 2 on every process,
 // wins with its own scene). A few moves or emotes waiting: one a safe moment with the game's own event; more (a join's whole lists):
-// quietly, kApplyPerTick a frame, with one line in the message log. Areas, buildings and area gates are always quiet, with that line.
+// quietly, kApplyPerTick a frame, with one line in the message log. Areas, buildings, area gates, hairstyles and looks are always
+// quiet, with that line.
 // An area gate's door that is already loaded keeps its closed box until the next area load (0x7abe60 builds the open one from the
 // bit); its next press enters all the same (0x7b0c50 -> 0x7b0d80).
 // Each process reads its lists each frame and sends what grew, and every list every kAllEvery seconds and when it or another member
@@ -74,7 +83,7 @@ constexpr size_t kIds = 0x80;                  // every list's ids fit 0..0x7f
 // The setter's `tbnz w0, #0` after its session test (0x207b0): w0 bit 0 the session, w20 the gate id (< 0x20, tested before).
 constexpr int kGateSessionReg = 0, kGateIdReg = 20;
 
-enum class Set : uint8_t { Move, Emote, Area, Building, AreaGate };
+enum class Set : uint8_t { Move, Emote, Area, Building, AreaGate, ItemBit };
 
 using S = strings::Str;
 
@@ -100,6 +109,10 @@ constexpr List kLists[] = {
     {4, Set::Building, 0x73b1d4, 1, 0x01, 0, 0x7f, 1, 0, false, false, "building", "buildings", S::CoopSharedBuilding, S::CoopBuildingsOne, S::CoopBuildingsMany},
     {5, Set::AreaGate, layout::kSaveGateHistory, 1, 0x01, 0, layout::kGateCount - 1, 1, 0, false, false, "area gate", "area gates",
      S::CoopSharedGate, S::CoopGatesOne, S::CoopGatesMany, layout::kSaveGateMirror},
+    {6, Set::ItemBit, layout::kSaveItemHistory + layout::kHairItemFirst, 1, 0x01, 0, layout::kHairItemCount - 1, 1, 0, false, false,
+     "hairstyle", "hairstyles", S::CoopSharedHair, S::CoopHairsOne, S::CoopHairsMany},
+    {7, Set::ItemBit, layout::kSaveItemHistory + layout::kLookItemFirst, 1, 0x01, 0, layout::kLookItemCount - 1, 1, 0, false, false,
+     "look", "looks", S::CoopSharedLook, S::CoopLooksOne, S::CoopLooksMany},
 };
 constexpr size_t kListCount = sizeof kLists / sizeof kLists[0];
 constexpr const List& kGateList = kLists[4];
@@ -224,6 +237,9 @@ bool set_entry(::Ctx* c, uint64_t root, const List& l, uint32_t id, bool loud) {
     case Set::AreaGate:   // the game's setter refuses in a session (see the header); the own byte, and the copy a visitor reads
         set_bit(root + l.field + id * l.stride, l.bit);
         set_bit(entry_at(root, l, id), l.bit);
+        break;
+    case Set::ItemBit:    // the item-history bit alone, not the game's learn (it changes the player's look; see the header)
+        set_bit(root + l.field + id * l.stride, l.bit);
         break;
     }
     return true;
