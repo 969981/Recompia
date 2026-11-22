@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Temporal upscaling / anti-aliasing of the 3D scene: AMD FSR 3.1 (FidelityFX API, temporal_ffx.cpp), NVIDIA DLSS / DLAA (Streamline,
-// temporal_dlss.cpp), both SDKs loaded at run time (nothing is linked). The pass runs at the frame's last scene enlargement (nvn_replay_upscale.cpp temporal_where): on the HDR
+// temporal_dlss.cpp), both SDKs loaded at run time (nothing is linked), and Snapdragon Game Super Resolution 2 (temporal_sgsr2.cpp, plain
+// Vulkan compute, every platform). The pass runs at the frame's last scene enlargement (nvn_replay_upscale.cpp temporal_where): on the HDR
 // scene at the tone map when nothing enlarges it, else on the display-referred scene at the game's scene stretch or window composite.
 //
 // Inputs (docs/S14.md, "Temporal upscaling"):
@@ -81,6 +82,7 @@ void temporal_drop_camera();
 // gfx_device: the gfx::Device. Null when the SDK cannot be loaded or the GPU does not support it (logged once).
 TemporalBackend* temporal_ffx(void* gfx_device);
 TemporalBackend* temporal_dlss(void* gfx_device, bool dlaa);
+TemporalBackend* temporal_sgsr2(void* gfx_device);   // built everywhere
 // True when the backend's DLLs can be found (for the F1 page; does not load anything).
 bool temporal_ffx_available();
 bool temporal_dlss_available();

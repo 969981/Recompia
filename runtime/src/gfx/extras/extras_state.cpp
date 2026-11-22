@@ -59,7 +59,7 @@ Settings settings_from_config() {
     s.hdr.highlight_boost = std::clamp(config_get_double("hdr", "highlight_boost", 1.0), 0.0, 2.0);
 
     const std::string um = lower(config_get_str("upscale", "mode", "off"));
-    s.upscale.mode = um == "fsr1" || um == "spatial" ? UpscaleMode::Fsr1 : um == "fsr3" ? UpscaleMode::Fsr3 : um == "dlss" ? UpscaleMode::Dlss : um == "xess" ? UpscaleMode::Xess : um == "nis" ? UpscaleMode::Nis : um == "dlaa" ? UpscaleMode::Dlaa : um == "nearest" ? UpscaleMode::Nearest : UpscaleMode::Off;
+    s.upscale.mode = um == "fsr1" || um == "spatial" ? UpscaleMode::Fsr1 : um == "fsr3" ? UpscaleMode::Fsr3 : um == "dlss" ? UpscaleMode::Dlss : um == "xess" ? UpscaleMode::Xess : um == "nis" ? UpscaleMode::Nis : um == "dlaa" ? UpscaleMode::Dlaa : um == "nearest" ? UpscaleMode::Nearest : um == "sgsr2" ? UpscaleMode::Sgsr2 : UpscaleMode::Off;
     s.upscale.mode = upscale_mode_enabled(s.upscale.mode);
     const std::string uq = lower(config_get_str("upscale", "quality", "quality"));
     s.upscale.quality = uq == "native" || uq == "nativeaa" || uq == "aa" ? UpscaleQuality::Native : uq == "balanced" ? UpscaleQuality::Balanced
@@ -171,7 +171,7 @@ AaMode aa_mode() {
 int upscale_scene_scale() {
     upscale_mode();      // reads the settings once
     if (upscale_mode() == UpscaleMode::Dlaa) return 100;
-    if (upscale_temporal()) {
+    if (upscale_temporal() && upscale_mode() != UpscaleMode::Sgsr2) {   // SGSR 2 renders at the player's scene size (the phones' Resolution row)
         const int pct = quality_percent(upscale_quality());
         if (pct > 0) return pct;
     }
@@ -198,7 +198,7 @@ UpscaleQuality upscale_quality() {
 
 bool upscale_temporal() {
     const UpscaleMode m = upscale_mode();
-    return m == UpscaleMode::Fsr3 || m == UpscaleMode::Dlss || m == UpscaleMode::Dlaa;
+    return m == UpscaleMode::Fsr3 || m == UpscaleMode::Dlss || m == UpscaleMode::Dlaa || m == UpscaleMode::Sgsr2;
 }
 
 int quality_percent(UpscaleQuality q) {

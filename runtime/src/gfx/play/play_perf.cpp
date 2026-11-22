@@ -23,6 +23,7 @@ const char* upscale_name(extras::UpscaleMode m) {
         case extras::UpscaleMode::Nis: return "nis";
         case extras::UpscaleMode::Dlaa: return "dlaa";
         case extras::UpscaleMode::Nearest: return "nearest";
+        case extras::UpscaleMode::Sgsr2: return "sgsr2";
     }
     return "?";
 }

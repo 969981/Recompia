@@ -107,12 +107,15 @@ void res_set(S&, int pos) {   // the game ini at once: the scene follows from th
     gfx::tuning().res_pct.store(phone_res_value(), std::memory_order_relaxed);
 }
 constexpr Row live_row(Row r) { r.live = true; return r; }
-// A phone's one Upscaler row: Off or SGSR ([pkp] scene_upscaler: the 3D picture alone, enlarged in one step to the screen; menus native).
-// The choice also clears [upscale] mode (FSR 1 of older builds, no longer offered on a phone). Applies at once.
-int phone_upscaler_get(const S&) { return settings::get_int(settings::Key::SceneUpscaler) != 0 ? 1 : 0; }
+// A phone's one Upscaler row: Off, SGSR ([pkp] scene_upscaler) or SGSR 2 ([upscale] mode sgsr2, temporal): the 3D picture alone, enlarged
+// in one step to the screen; menus native. Each choice clears the other key (and FSR 1 of older builds). Applies at once.
+int phone_upscaler_get(const S& s) {
+    if (s.extras.upscale.mode == extras::UpscaleMode::Sgsr2) return 2;
+    return settings::get_int(settings::Key::SceneUpscaler) != 0 ? 1 : 0;
+}
 void phone_upscaler_set(S& s, int v) {
-    s.extras.upscale.mode = extras::UpscaleMode::Off;
-    settings::set_int(settings::Key::SceneUpscaler, v);   // the game ini, like a key row
+    s.extras.upscale.mode = v == 2 ? extras::UpscaleMode::Sgsr2 : extras::UpscaleMode::Off;
+    settings::set_int(settings::Key::SceneUpscaler, v == 1 ? 1 : 0);   // the game ini, like a key row
 }
 
 constexpr int kWidths[] = {1280, 1600, 1920, 2560, 3840}, kHeights[] = {720, 900, 1080, 1440, 2160};
@@ -134,7 +137,7 @@ constexpr const char* kShadowNames[] = {"Game Default", "High (2x)", "Very High 
 constexpr const char* kAstcKeys[] = {"fast", "high", "uncompressed"};
 constexpr const char* kUniformSnapshotKeys[] = {"auto", "on", "off"};
 constexpr const char* kWindowKeys[] = {"windowed", "borderless", "exclusive"};
-constexpr extras::UpscaleMode kUpscalers[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Nearest};
+constexpr extras::UpscaleMode kUpscalers[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Nearest, extras::UpscaleMode::Sgsr2};
 
 std::vector<std::string> g_devices;   // audio output names, refreshed when the screen opens
 
@@ -220,13 +223,13 @@ constexpr Row kDisplay[] = {
     when(choice("Dynamic Resolution Mode", "GPU Time: lower the resolution when the GPU falls behind. Heat: also hold it below what keeps the phone from throttling, so the GPU can run cooler.",
                 {"GPU Time", "Heat"}, 2, [](const S&) { return settings::get_str(settings::Key::DynamicResolutionMode) == "thermal" ? 1 : 0; },
                 [](S&, int v) { settings::set_str(settings::Key::DynamicResolutionMode, v ? "thermal" : "gpu"); }), nxrt::host_is_phone),
-    when(choice("Upscaler", "Sharpens the enlarged 3D picture with SGSR (Snapdragon Game Super Resolution); menus stay sharp.", {"Off", "SGSR"}, 2,
-                phone_upscaler_get, phone_upscaler_set), nxrt::host_is_phone),
+    when(choice("Upscaler", "Sharpens the enlarged 3D picture: SGSR (Snapdragon Game Super Resolution), or SGSR 2, which builds detail over several "
+                "frames; menus stay sharp.", {"Off", "SGSR", "SGSR 2"}, 3, phone_upscaler_get, phone_upscaler_set), nxrt::host_is_phone),
 };
 
 const Row kPerformance[] = {
-    when(choice("Upscaler", "How the picture is enlarged from a lower resolution.", {"Off", "FSR 1", "Nearest"}, 3,
-           [](const S& s) { for (int i = 0; i < 3; ++i) if (s.extras.upscale.mode == kUpscalers[i]) return i; return 0; },
+    when(choice("Upscaler", "How the picture is enlarged from a lower resolution.", {"Off", "FSR 1", "Nearest", "SGSR 2"}, 4,
+           [](const S& s) { for (int i = 0; i < 4; ++i) if (s.extras.upscale.mode == kUpscalers[i]) return i; return 0; },
            [](S& s, int v) { s.extras.upscale.mode = kUpscalers[v]; }), not_phone),
     when(number("Sharpness", "How much FSR 1 sharpens the picture.", 0, 20, "%.2f", 0, 0.05, ROW_STEP(extras.upscale.sharpness, 0.0, 0.05)), not_phone),
     when(number("Scene Resolution", "Renders the 3D scene smaller and keeps the menus sharp. 100% turns it off.", 25, 100, "%.0f%%", 0, 1, ROW_INT(extras.upscale.scene_scale)), not_phone),

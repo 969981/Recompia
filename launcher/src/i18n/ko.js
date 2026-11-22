@@ -387,6 +387,7 @@ export default {
   'Upscaler': '업스케일러',
   'FSR 1': 'FSR 1',
   'Nearest (sharp pixels)': '최근접(선명한 픽셀)',
+  'SGSR 2 (temporal)': 'SGSR 2(시간적)',
   'Upscaling quality': '업스케일링 품질',
   'Native': '네이티브',
   'Balanced': '균형',

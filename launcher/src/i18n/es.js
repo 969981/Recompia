@@ -387,6 +387,7 @@ export default {
   'Upscaler': 'Escalador',
   'FSR 1': 'FSR 1',
   'Nearest (sharp pixels)': 'El más cercano (píxeles nítidos)',
+  'SGSR 2 (temporal)': 'SGSR 2 (temporal)',
   'Upscaling quality': 'Calidad de escalado',
   'Native': 'Nativa',
   'Balanced': 'Equilibrada',

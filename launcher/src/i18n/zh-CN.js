@@ -387,6 +387,7 @@ export default {
   'Upscaler': '放大器',
   'FSR 1': 'FSR 1',
   'Nearest (sharp pixels)': '最近邻（锐利像素）',
+  'SGSR 2 (temporal)': 'SGSR 2（时域）',
   'Upscaling quality': '放大质量',
   'Native': '原生',
   'Balanced': '平衡',

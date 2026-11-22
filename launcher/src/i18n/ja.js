@@ -387,6 +387,7 @@ export default {
   'Upscaler': 'アップスケーラー',
   'FSR 1': 'FSR 1',
   'Nearest (sharp pixels)': '最近傍（くっきりしたピクセル）',
+  'SGSR 2 (temporal)': 'SGSR 2（テンポラル）',
   'Upscaling quality': 'アップスケーリング品質',
   'Native': 'ネイティブ',
   'Balanced': 'バランス',

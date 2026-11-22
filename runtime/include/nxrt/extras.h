@@ -34,11 +34,12 @@ struct HdrSettings {
 
 // Nis: NVIDIA Image Scaling v1.0.3 (spatial, any GPU). Fsr3, Dlss, Dlaa: temporal (Dlaa = DLSS at the input size).
 // Nearest: no filter, the low-res picture is enlarged with nearest-neighbour sampling (#232).
-enum class UpscaleMode : uint8_t { Off = 0, Fsr1, Fsr3, Dlss, Xess, Nis, Dlaa, Nearest };
+// Sgsr2: Snapdragon Game Super Resolution 2, temporal, plain Vulkan compute (every platform).
+enum class UpscaleMode : uint8_t { Off = 0, Fsr1, Fsr3, Dlss, Xess, Nis, Dlaa, Nearest, Sgsr2 };
 // ponytail: FSR 3, DLSS, DLAA, NIS and XeSS are switched off until they are reworked (#232): a file that names one runs as Off.
 // Re-enable one by returning it here (and listing it in the F1 page and the launcher again).
 inline UpscaleMode upscale_mode_enabled(UpscaleMode m) {
-    return m == UpscaleMode::Fsr1 || m == UpscaleMode::Nearest ? m : UpscaleMode::Off;
+    return m == UpscaleMode::Fsr1 || m == UpscaleMode::Nearest || m == UpscaleMode::Sgsr2 ? m : UpscaleMode::Off;
 }
 // Temporal quality preset: the input scale per side (native 1, quality 1/1.5, balanced 1/1.7, performance 1/2, ultra performance 1/3); Custom
 // keeps scene_scale. The scale only takes effect where the game renders the scene below its output (scene_scale); otherwise the temporal
@@ -120,7 +121,7 @@ void set_scene_upscale_live(int kind);
 void scene_auto_tick(int player_pct);
 int upscale_scene_scale_player();
 UpscaleQuality upscale_quality();
-bool upscale_temporal();            // the mode is FSR 3, DLSS or DLAA
+bool upscale_temporal();            // the mode is FSR 3, DLSS, DLAA or SGSR 2
 int quality_percent(UpscaleQuality q);   // the preset's input scale per side in percent (Custom: -1)
 // The part of the game's scene targets that its 3D scene covers, from texel 0, 0, per side (1 = all). A game whose dynamic-resolution path
 // renders the scene into the top-left of full-size targets (the game, for upscale_scene_scale) sets it; its tone-map draw samples the scene

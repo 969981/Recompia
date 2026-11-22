@@ -470,7 +470,8 @@ export const SECTIONS = [
             // they are reworked (#232) and run as off; add their options back here (and the dlss guard) when they return.
             id: 'upscale_mode', label: t('Upscaler'), type: 'select', ...fromSchema(controls('upscale', 'mode')),
             aliases: { spatial: 'fsr1', xess: 'off', fsr3: 'off', nis: 'off', dlss: 'off', dlaa: 'off' }, lock: (env) => env.dlssBusy,
-            options: [{ value: 'off', label: t('Off') }, { value: 'fsr1', label: t('FSR 1') }, { value: 'nearest', label: t('Nearest (sharp pixels)') }],
+            options: [{ value: 'off', label: t('Off') }, { value: 'fsr1', label: t('FSR 1') }, { value: 'nearest', label: t('Nearest (sharp pixels)') },
+              { value: 'sgsr2', label: t('SGSR 2 (temporal)') }],
           },
           {
             id: 'upscale_quality', label: t('Upscaling quality'), type: 'select', ...fromSchema(controls('upscale', 'quality')),

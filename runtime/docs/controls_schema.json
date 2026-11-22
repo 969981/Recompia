@@ -82,7 +82,7 @@
         {"key": "highlight_boost", "type": "real", "default": "1", "min": 0, "max": 2, "overridden_by": {"ini": "hdr.highlight_boost", "env": "NXRT_HDR_HIGHLIGHT_BOOST"}, "doc": "0 = the game's SDR look up to its own white, 1 = highlights reach the peak."}
     ]},
     {"name": "upscale", "keys": [
-        {"key": "mode", "type": "choice", "default": "off", "choices": ["off", "fsr1", "fsr3", "dlss", "xess", "nis", "dlaa", "nearest"], "overridden_by": {"ini": "upscale.mode", "env": "NXRT_UPSCALE_MODE"}, "doc": "Upscaler; spatial is read as fsr1, and a mode this build does not have reads as off."},
+        {"key": "mode", "type": "choice", "default": "off", "choices": ["off", "fsr1", "fsr3", "dlss", "xess", "nis", "dlaa", "nearest", "sgsr2"], "overridden_by": {"ini": "upscale.mode", "env": "NXRT_UPSCALE_MODE"}, "doc": "Upscaler; spatial is read as fsr1, and a mode this build does not have reads as off."},
         {"key": "aa", "type": "choice", "default": "off", "choices": ["off", "smaa_low", "smaa_medium", "smaa_high", "smaa_ultra"], "overridden_by": {"ini": "upscale.aa", "env": "NXRT_UPSCALE_AA"}, "doc": "Anti-aliasing of the 3D scene: SMAA on the HDR scene before the tone map (the HUD and the menus are not filtered)."},
         {"key": "quality", "type": "choice", "default": "quality", "choices": ["native", "quality", "balanced", "performance", "ultra_performance", "custom"], "overridden_by": {"ini": "upscale.quality", "env": "NXRT_UPSCALE_QUALITY"}, "doc": "The temporal modes' render scale preset."},
         {"key": "sharpness", "type": "real", "default": "0.8", "min": 0, "max": 1, "overridden_by": {"ini": "upscale.sharpness", "env": "NXRT_UPSCALE_SHARPNESS"}, "doc": "Sharpening (1 = sharpest)."},
