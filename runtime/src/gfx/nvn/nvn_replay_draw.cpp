@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Draws of the replay: pipeline keys, dynamic state and its shadow, begin_draw, primitive conversion, direct, indirect and feedback draws.
 #include "nvn_replay_internal.h"
+#include "nxrt/platform_facts.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -95,6 +96,8 @@ static void set_viewports_and_scissors() {
         float x = S.vp[i][0], y = S.vp[i][1], w = S.vp[i][2], h = S.vp[i][3];
         if (!S.nvp) { x = 0; y = 0; w = static_cast<float>(P.extent.width); h = static_cast<float>(P.extent.height); }
         else if (P.scale != 1.0f) { x *= P.scale; y *= P.scale; w *= P.scale; h *= P.scale; }
+        if constexpr (facts::kPhone)
+            if (i == 0) edge_guard_note(x, y, w, h);   // nvn_replay_edge.cpp
         // Upper-left origin: window y is the image row from the top and NDC +y is the top edge of the rectangle (negative height).
         // Lower-left origin (the GL convention): window y 0 is memory row 0 and NDC -y is the first row, so no flip.
         const bool lower_left = S.window_origin == NVN_WINDOW_ORIGIN_MODE_LOWER_LEFT;

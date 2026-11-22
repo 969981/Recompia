@@ -697,6 +697,10 @@ void temporal_gbuffer_note();
 void tonemap_for_draw(const ProgLayout& pl);
 void scene_stretch_for_draw(const ProgLayout& pl);
 void scene_sharpen_for_draw(const ProgLayout& pl);   // [gfx] scene_sharpen at the game's draw into the window texture (SceneStretch::into_window)
+// [gfx] edge_guard (phones, nvn_replay_edge.cpp): a pass's viewport 0 (image pixels) as it is set, and after the pass the edge of a scene
+// part repeated past it
+void edge_guard_note(float x, float y, float w, float h);
+void edge_guard_after_pass();
 void do_draw_arrays(const P_DrawArrays& p);
 void do_draw_elements(const P_DrawElements& p);
 struct QuadArgs {
