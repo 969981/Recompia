@@ -20,6 +20,7 @@
 #include "nxrt/host_device.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
+#include "nxrt/platform_facts.h"
 #include "nxrt/qpc.h"
 #include "kernel_internal.h"
 
@@ -138,7 +139,9 @@ bool wait_sleep(int64_t t0, int64_t ns, const uint32_t* token, const std::atomic
             *end = now;
             return false;
         }
-        if (rem <= kWaitSpinMaxNs) {
+        // Phones do not spin the remainder (facts::kPhone): it is waited for like the rest, so a sleep ends up to the wait's lateness
+        // late instead of keeping a core busy. Outdoors on a Tensor G2 (Mali-G710) the spin's clock reads alone were 0.7 % of the game's CPU time.
+        if (!facts::kPhone && rem <= kWaitSpinMaxNs) {
             for (;;) {
                 const int64_t t = qpc_ns();
                 *end = t;
