@@ -240,7 +240,7 @@ uint64_t import_resolve(uint32_t import_id) {
     return target;
 }
 
-void import_cache_invalidate() {
+void import_cache_invalidate() { if constexpr (facts::kPhone) import_epoch().fetch_add(1, std::memory_order_release);
     std::lock_guard<std::mutex> lk(g_lock);
     invalidate_caches_locked();
 }
