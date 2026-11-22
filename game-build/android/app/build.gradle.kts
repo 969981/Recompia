@@ -30,6 +30,11 @@ val allowDebugSignedRelease = providers.gradleProperty("allowDebugSignedRelease"
 val signingProps: Properties? = signingDir?.let { d -> file("$d/passwords.txt").takeIf { it.isFile && file("$d/release.jks").isFile }
     ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } } }
 
+// The release version (-Precompia.versionName=x.y.z, tools/android/release/build-apk.sh): the app's version name, and its version
+// code as major*10^6 + minor*10^4 + patch*100. Not given: the version below.
+val releaseVersion: List<Int>? = providers.gradleProperty("recompia.versionName").orNull
+    ?.let { Regex("""^(\d+)\.(\d+)\.(\d+)$""").find(it) }?.groupValues?.drop(1)?.map { it.toInt() }
+
 android {
     namespace = "org.recompia.pkp"
     compileSdk = 36
@@ -39,8 +44,8 @@ android {
         applicationId = "org.recompia.pkp"
         minSdk = 30
         targetSdk = 35
-        versionCode = 16000200   // 0.16.0.2: upstream v0.16.0 plus the fork sub-patch (major*10^6 + minor*10^4 + patch*100 + sub)
-        versionName = "0.16.0.2"
+        versionCode = releaseVersion?.let { it[0] * 1_000_000 + it[1] * 10_000 + it[2] * 100 } ?: 16000200   // major*10^6 + minor*10^4 + patch*100 + sub
+        versionName = releaseVersion?.joinToString(".") ?: "0.16.0.2"
         // Test entry points (fake builder, "Build from exefs only", shader test size): false here so R8 drops them and the
         // resource shrinker drops their strings; true for debug and internalTest.
         buildConfigField("boolean", "TEST_ENTRY_POINTS", "false")

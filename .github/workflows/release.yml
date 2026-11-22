@@ -6,6 +6,8 @@
 # with Recompia(.exe|.AppImage) and the starter under the old name, and the old-name copy PokopiaRecomp-<v>-<old token> with the full
 # launcher under the old name, the only archive a launcher from before the rename can match (shipped for three releases after it). The two Linux architectures are separate jobs on their own runners (ubuntu-22.04 and
 # ubuntu-22.04-arm): nothing is cross-compiled, so a native arm64 package is built by the same commands as the x64 one.
+# Android is a fifth package beside them: android-toolchain (the phone's own clang, cached) and android-apk (the app, one APK),
+# published with the archives.
 # A tag v<x.y.z> does this; a manual run without release_tag only builds (artifacts).
 # Manual runs with release_tag = v<x.y.z> publish the same way and GitHub creates the tag on the commit that was built. No test
 # or pull request checks.
@@ -1336,6 +1338,143 @@ jobs:
 
   # The licence notices of the Rust crates the launcher is built from (every package ships them in licenses/), generated from
   # Cargo.lock with a pinned cargo-about (launcher/about.toml, launcher/about.hbs).
+  # The phone's own compiler: clang + lld + llvm-ar for aarch64-linux-android as one executable (tools/android/ondevice/build-llvm.sh),
+  # which the Android app runs to build the game library from the player's dump. A full LLVM cross build, so it is its own job and
+  # cached on its script and versions: a run that changes neither takes the cache and is done in a minute.
+  android-toolchain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      ANDROID_NDK_VERSION: 28.2.13676358   # r28c, as game-build/android/app/build.gradle.kts ndkVersion
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: LLVM cache
+        id: llvm
+        uses: actions/cache@v4
+        with:
+          path: build/android-llvm
+          key: android-llvm-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('tools/android/ondevice/build-llvm.sh') }}
+
+      - name: LLVM for the phone (clang, lld, llvm-ar)
+        if: steps.llvm.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          # the cross build's tree needs more room than a runner has free: tools no job here uses go first
+          sudo rm -rf /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/boost
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends ninja-build
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$ANDROID_NDK_VERSION" > /dev/null
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION"
+          D="$RUNNER_TEMP/llvm" JOBS="$(nproc)" bash tools/android/ondevice/build-llvm.sh
+          mkdir -p build/android-llvm/llvm/bin build/android-llvm/llvm-android/lib/clang/19
+          cp "$RUNNER_TEMP/llvm/llvm/bin/llvm" build/android-llvm/llvm/bin/llvm
+          cp -a "$RUNNER_TEMP/llvm/llvm-android/lib/clang/19/include" build/android-llvm/llvm-android/lib/clang/19/
+
+      - name: Check
+        run: |
+          file build/android-llvm/llvm/bin/llvm
+          test -f build/android-llvm/llvm-android/lib/clang/19/include/arm_neon.h
+          tar -C build/android-llvm -cf build/android-llvm.tar .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-llvm
+          path: build/android-llvm.tar
+          compression-level: 6
+
+  # The Android app (arm64-v8a): the runtime, SDL, the on-device build kit, Mesa Turnip and the shader translator, assembled into one
+  # APK by tools/android/release/build-apk.sh. No game file is in it (the script checks the APK and the kit): the game library is built
+  # on the phone from the player's own dump. Signed with the repository's key (secrets ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD,
+  # ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD); a build-only run without them signs with the debug key, a publishing run stops.
+  android-apk:
+    needs: [release, android-toolchain]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+      ANDROID_NDK_VERSION: 28.2.13676358
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Third-party sources cache
+        uses: actions/cache@v4
+        with:
+          path: build/deps
+          key: nxrt-deps-android-v1
+
+      - name: Ryujinx sources cache
+        uses: actions/cache@v4
+        with:
+          path: refs/ryubing
+          key: ryujinx-${{ env.RYUBING_COMMIT }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-llvm
+          path: build
+
+      - name: Packages
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends ninja-build pkg-config flex bison patchelf zip unzip binutils
+          python3 -m pip install --upgrade "cmake>=3.28" pillow meson mako pyyaml
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$ANDROID_NDK_VERSION" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: APK
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [ -d refs/ryubing/.git ] || git clone --filter=blob:none https://git.ryujinx.app/ryubing/ryujinx.git refs/ryubing
+          git -C refs/ryubing checkout -f "$RYUBING_COMMIT"
+          export D="$RUNNER_TEMP/android"
+          mkdir -p "$D"
+          tar -C "$D" -xf build/android-llvm.tar
+          chmod +x "$D/llvm/bin/llvm"
+          if [ -n "$KEYSTORE_B64" ]; then
+            export RECOMPIA_SIGNING_DIR="$RUNNER_TEMP/signing"
+            mkdir -p "$RECOMPIA_SIGNING_DIR"
+            printf '%s' "$KEYSTORE_B64" | base64 -d > "$RECOMPIA_SIGNING_DIR/release.jks"
+            printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\n' "$KEYSTORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" > "$RECOMPIA_SIGNING_DIR/passwords.txt"
+          elif [ -n "$REL_TAG" ]; then
+            echo "::error::the signing secrets (ANDROID_KEYSTORE_B64 and the three beside it) are not set: a published APK is never signed with the debug key"
+            exit 1
+          else
+            export ALLOW_DEBUG_SIGNED=1
+          fi
+          DOTNET="$(command -v dotnet)" RYUBING="$PWD/refs/ryubing" NXRT_DEPS_DIR="$PWD/build/deps" PYTHON="$(command -v python3)" \
+            bash tools/android/release/build-apk.sh
+          rm -rf "$RUNNER_TEMP/signing"
+          mkdir -p build/apk
+          cp "$D"/out/Recompia-*-android-arm64.apk build/apk/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Recompia-${{ env.VERSION }}-android-arm64
+          path: build/apk/*.apk
+          compression-level: 0
+
   licenses:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -1391,7 +1530,7 @@ jobs:
   # The one place that writes into the release: it takes the archives the four package jobs produced (both names of each
   # platform) and the sources, uploads them, and writes one SHA256SUMS.txt over all of them. A platform job that failed leaves its archive out instead of failing this one.
   publish:
-    needs: [windows-package, linux-package, linux-arm64-package, macos-package, sources]
+    needs: [windows-package, linux-package, linux-arm64-package, macos-package, android-apk, sources]
     if: always() && !cancelled() && (github.ref_type == 'tag' || inputs.release_tag != '')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -1412,7 +1551,7 @@ jobs:
           cd build/assets
           ls -la
           rm -f SHA256SUMS.txt
-          archives=(./*.zip ./*.tar.gz ./*.tar.bz2)
+          archives=(./*.zip ./*.tar.gz ./*.tar.bz2 ./*.apk)
           sha256sum -b "${archives[@]}" | sed -E 's#\./##' > SHA256SUMS.txt || true
           cat SHA256SUMS.txt
           test -s SHA256SUMS.txt || { echo "::error::no release archives were built"; exit 1; }
