@@ -1642,6 +1642,14 @@ DWORD nxos_get_module_file_name(HMODULE mod, char* out, DWORD cap) {
     std::string path;
     if (!mod) {
         path = main_module()->path;
+#if defined(__ANDROID__)
+        // An app has no program folder of its own: the runtime library sits in the read-only nativeLibraryDir. Files the runtime
+        // keeps "next to the exe" (crash and freeze reports, asset folders) belong in the game folder, the working directory
+        // after --game, so the program answers as if it lived there.
+        char cwd[4096];
+        const size_t slash = path.find_last_of('/');
+        if (getcwd(cwd, sizeof cwd)) path = std::string(cwd) + "/" + (slash == std::string::npos ? path : path.substr(slash + 1));
+#endif
     } else {
         auto* m = as<ModuleObj>(mod, Kind::Module);
         if (!m) {
@@ -2490,8 +2498,8 @@ void install_signals() {
     {
         // Volatile sinks: the compiler drops calls whose result is unused (it did), and the stubs stayed unbound.
         static volatile intptr_t bind_sink = 0;
-        // pthread_t is a pointer on Darwin and an integer on glibc: through uintptr_t both are one cast away.
-        bind_sink = static_cast<intptr_t>(reinterpret_cast<uintptr_t>(::pthread_self()));
+        // pthread_t is a pointer on Darwin, unsigned long on glibc and long on bionic: a C cast to uintptr_t takes all three.
+        bind_sink = static_cast<intptr_t>((uintptr_t)::pthread_self());
         bind_sink = static_cast<intptr_t>(::write(-1, "x", 1));   // fd -1: fails with EBADF, binds the stub
         sigjmp_buf jb;
         const int jumped = sigsetjmp(jb, 1);
@@ -2613,7 +2621,12 @@ void RaiseException(DWORD code, DWORD flags, DWORD nargs, const ULONG_PTR* args)
 
 void nxos_install_altstack(void) {
     stack_t cur{};
+#if defined(__ANDROID__)
+    // bionic gives every thread a 16 KiB one of its own, too small for the handler (VEH chain, crash report): replaced below.
+    if (sigaltstack(nullptr, &cur) == 0 && (cur.ss_flags & SS_DISABLE) == 0 && cur.ss_size >= 64 * 1024) return;
+#else
     if (sigaltstack(nullptr, &cur) == 0 && (cur.ss_flags & SS_DISABLE) == 0) return;   // already installed
+#endif
     // A separate mapping, NOT a thread_local buffer: macOS puts the TLS block at the bottom of the thread's stack, so a static
     // altstack sat exactly where a stack overflow lands and the handler then overwrote the thread's deepest live frames (the
     // land thread's overflow turned into handler->note_fault recursion on 2026-11-10). 64 KiB of stack over a 64 KiB guard.

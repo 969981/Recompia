@@ -30,10 +30,43 @@
       "inherits": "macos-arm64",
       "binaryDir": "${sourceDir}/build/macos-arm64-debug",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "android-ndk",
+      "hidden": true,
+      "description": "Cross build for Android arm64-v8a with the NDK in ANDROID_NDK_HOME (r28c). android-30: memfd_create and ELF TLS (TLSDESC); c++_shared because libSDL3.so is C++ too; 16 KiB pages.",
+      "generator": "Ninja",
+      "toolchainFile": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "android-30",
+        "ANDROID_STL": "c++_shared",
+        "ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES": "ON",
+        "CMAKE_POSITION_INDEPENDENT_CODE": "ON"
+      },
+      "condition": {
+        "type": "notEquals",
+        "lhs": "$env{ANDROID_NDK_HOME}",
+        "rhs": ""
+      }
+    },
+    {
+      "name": "android-arm64",
+      "displayName": "Android arm64-v8a (Release)",
+      "description": "The runtime, the game modules, the graphics shell and SDL3 (shared, with its Java jar) for Android arm64-v8a.",
+      "inherits": "android-ndk",
+      "binaryDir": "${sourceDir}/build/android-arm64",
+      "cacheVariables": {
+        "NXRT_BUILD_GFX": "ON",
+        "NXRT_BUILD_GAMES": "ON",
+        "NXRT_GAMES": "pkp"
+      }
     }
   ],
   "buildPresets": [
     { "name": "macos-arm64", "configurePreset": "macos-arm64" },
-    { "name": "macos-arm64-debug", "configurePreset": "macos-arm64-debug" }
+    { "name": "macos-arm64-debug", "configurePreset": "macos-arm64-debug" },
+    { "name": "android-arm64", "configurePreset": "android-arm64" }
   ]
 }

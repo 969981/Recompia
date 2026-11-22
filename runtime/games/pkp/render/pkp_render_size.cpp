@@ -25,10 +25,12 @@
 #include <cstdint>
 
 #include "nxrt/extras.h"
+#include "nxrt/gfx_tuning.h"
 #include "nxrt/hooks.h"
 #include "nxrt/host_device.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
+#include "nxrt/platform_facts.h"
 #include "play_display.h"
 
 namespace nxrt::games::pkp::play_detail {
@@ -76,8 +78,15 @@ int hook_copy_params(::Ctx* c, uint64_t, void*) {
     const bool dyn = s.dynres.load(std::memory_order_relaxed);
     const int pct = std::clamp(extras::upscale_scene_scale(), 25, 100);
     if (g_scene_pct.exchange(pct, std::memory_order_relaxed) != pct)
-        NXLOG_I(kTag, "scene resolution %d%%: %ux%u of the %dx%d targets ([upscale] scene_scale%s)", pct, scene_side(s.w.load(), pct),
-                scene_side(s.h.load(), pct), s.w.load(), s.h.load(), dyn ? "; the cap of the game's dynamic resolution, upscaled by the game" : "");
+    {
+        // the game's sizes, and the pixels the back end renders them at ([display] render_scale)
+        const float rs = std::max(gfx::tuning().render_scale.load(std::memory_order_relaxed), 0.01f);
+        const auto px = [rs](uint32_t v) { return static_cast<unsigned>(std::lround(v * rs)); };
+        const uint32_t sw = scene_side(s.w.load(), pct), sh = scene_side(s.h.load(), pct);
+        NXLOG_I(kTag, "scene resolution %d%%: %ux%u of the %dx%d targets, %ux%u of %ux%u pixels at render scale %.2f ([upscale] scene_scale%s)", pct,
+                sw, sh, s.w.load(), s.h.load(), px(sw), px(sh), px(static_cast<uint32_t>(s.w.load())), px(static_cast<uint32_t>(s.h.load())), rs,
+                dyn ? "; the cap of the game's dynamic resolution, upscaled by the game" : "");
+    }
     const uint64_t mgr = c->x[0];
     if (!mgr || !mem::is_mapped(mgr, 16 + 2 * kViewStride)) {
         extras::scene_fraction_set(1.0f, 1.0f);
@@ -105,10 +114,24 @@ int hook_copy_params(::Ctx* c, uint64_t, void*) {
         return 0;
     }
     float fx = 1.0f, fy = 1.0f;
+    // A percent below 100 is one of the game's own levels (960x540 + 32x18 per level of the 1920x1080 table, scaled like the level getters):
+    // the level and the size the manager holds then agree, as when the game's own dynamic resolution picks them. Writing a size between levels
+    // with the top level left in place drew some passes at the wrong scale (a floating band of sky on the cliff, a grid on the ground at 50 %).
+    // The game's table starts at 50 % (level 0); level 0 itself (exactly half the targets) still drew the sky band and the ground rectangles
+    // on desktop, level 1 (51.7 %) and above did not, so the lowest level used is 1. ponytail: cause of the level-0 case not found; lift the
+    // floor once it is.
+    // Phones only (facts::kPhone): elsewhere the percent the player chose is the size, as before (a 33 % or 50 % upscaler preset keeps its
+    // pixel count), with the top level left in place.
+    const bool by_level = facts::kPhone && pct < 100;
+    const int lvl = !by_level ? kFullLevel : std::clamp(static_cast<int>(std::lround((pct * kTableW / 100.0 - 960.0) / 32.0)), 1, kFullLevel - 1);
     for (int i = 0; i < views; ++i) {
         const uint64_t v = mgr + i * kViewStride;
         const uint32_t mw = rd<uint32_t>(v + kMaxW), mh = rd<uint32_t>(v + kMaxH);
-        const uint32_t sw = pct >= 100 ? mw : scene_side(mw, pct), sh = pct >= 100 ? mh : scene_side(mh, pct);
+        const int W = s.w.load(std::memory_order_relaxed), H = s.h.load(std::memory_order_relaxed);
+        const uint32_t sw = pct >= 100 ? mw : !by_level ? scene_side(mw, pct)
+                                                        : static_cast<uint32_t>(static_cast<uint64_t>(mw) * level_size(lvl, true) / std::max(1, W)) & ~1u;
+        const uint32_t sh = pct >= 100 ? mh : !by_level ? scene_side(mh, pct)
+                                                        : static_cast<uint32_t>(static_cast<uint64_t>(mh) * level_size(lvl, false) / std::max(1, H)) & ~1u;
         if (dyn) {
             wr<uint32_t>(v + kCurW, std::min(rd<uint32_t>(v + kCurW), sw));
             wr<uint32_t>(v + kCurH, std::min(rd<uint32_t>(v + kCurH), sh));
@@ -116,7 +139,7 @@ int hook_copy_params(::Ctx* c, uint64_t, void*) {
         }
         wr<uint32_t>(v + kCurW, sw);
         wr<uint32_t>(v + kCurH, sh);
-        wr<uint8_t>(v + kLvlCur, rd<uint8_t>(v + kLvlMax));
+        wr<uint8_t>(v + kLvlCur, by_level ? static_cast<uint8_t>(lvl) : rd<uint8_t>(v + kLvlMax));
         const uint32_t tw = rd<uint32_t>(v + kTgtW), th = rd<uint32_t>(v + kTgtH);   // the targets the scene is drawn into
         if (i == 0 && tw > 0 && th > 0) {
             fx = static_cast<float>(sw) / static_cast<float>(tw);

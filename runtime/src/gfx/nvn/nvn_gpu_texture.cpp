@@ -7,7 +7,9 @@
 // Readback (download_texture) copies a render target back and tiles it into the game's storage.
 #include "nvn_gpu_texture_internal.h"
 #include <bit>
+#include <unordered_set>
 
+#include "nxrt/host_device.h"
 #include "nvn_thread.h"   // BigThread: the texture-arming worker gets a stack of its own (the guest code cannot exhaust it)
 
 namespace nxrt::nvn::be {
@@ -49,8 +51,10 @@ VkFormat promoted_view_format(const TexGpu& g, VkFormat f) {
     // An ASTC view (a texture view naming its ASTC format, sRGB or not) of an image stored transcoded (BC7, or the disk cache's RGBA8/BC5)
     // reads the image's own format, as its sRGB or UNORM partner like the view asks. Mario Kart World's character and course materials
     // name their format in the view; before, they sampled the black dummy.
-    if (g.transcoded && f >= VK_FORMAT_ASTC_4x4_UNORM_BLOCK && f <= VK_FORMAT_ASTC_12x12_SRGB_BLOCK) {
-        const bool want_srgb = ((f - VK_FORMAT_ASTC_4x4_UNORM_BLOCK) & 1) != 0;
+    // A BCn view of an image decoded from BCn (a GPU without BC: bc_decode_format) reads the image's own format the same way.
+    if (g.transcoded && ((f >= VK_FORMAT_ASTC_4x4_UNORM_BLOCK && f <= VK_FORMAT_ASTC_12x12_SRGB_BLOCK) ||
+                         (g.fmt && g.fmt->bc && f >= VK_FORMAT_BC1_RGB_UNORM_BLOCK && f <= VK_FORMAT_BC7_SRGB_BLOCK))) {
+        const bool want_srgb = is_srgb(f);
         const VkFormat partner = srgb_partner(g.format);
         if (partner == VK_FORMAT_UNDEFINED) return g.format;
         const bool img_srgb = is_srgb(g.format);
@@ -131,6 +135,10 @@ static bool scale_keeps_levels(const Shape& s, float scale) {
     return side >= 1 && s.levels <= static_cast<uint32_t>(std::bit_width(side));
 }
 
+// [gfx] texture_cap: guest storage of the dropped levels so far (estimate: 3/4 of each capped texture), logged every 50 textures
+static std::atomic<int64_t> g_cap_saved{0};
+static std::atomic<uint32_t> g_cap_count{0};
+
 TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     auto* g = new TexGpu();
     { std::lock_guard<std::mutex> lk(g_live_mu); g_live_set.insert(g); }
@@ -177,7 +185,9 @@ TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     // entry's format; prepare_texture is then told the image's format and delivers the entry's data (docs/S4f.md).
     VkFormat entry = VK_FORMAT_UNDEFINED;
     if (to_bc7 && !texprep::peek_entry_format(t, entry)) entry = cache_entry_format(*t);   // the background job already found the cache entry
-    const VkFormat want = to_bc7 ? (entry != VK_FORMAT_UNDEFINED ? entry : bc7_format) : g->fmt->vk;
+    // BCn on a GPU without textureCompressionBC: the image is made in the format prepare_texture decodes the blocks into.
+    const bool bc_decode = g->fmt->bc && !ft.bc;
+    const VkFormat want = to_bc7 ? (entry != VK_FORMAT_UNDEFINED ? entry : bc7_format) : bc_decode ? bc_decode_format(g->fmt->vk) : g->fmt->vk;
     const VkFormat alt = to_bc7 ? (entry != VK_FORMAT_UNDEFINED ? bc7_format : VK_FORMAT_UNDEFINED) : g->fmt->vk_fallback;
 
     std::string why = std::string("no Vulkan format for NVN format ") + g->fmt->name;
@@ -208,7 +218,7 @@ TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     }
 
     g->format = chosen;
-    g->transcoded = to_bc7;
+    g->transcoded = to_bc7 || bc_decode;
     if (to_bc7 && (chosen == VK_FORMAT_R8G8B8A8_UNORM || chosen == VK_FORMAT_R8G8B8A8_SRGB) && astc_quality() == AstcQuality::Uncompressed) note_uncompressed_image(*t);
     g->mutable_fmt = srgb_partner(chosen) != VK_FORMAT_UNDEFINED || bit_alias_class(chosen);
     g->aspect = aspect_bits(g->fmt);
@@ -264,6 +274,30 @@ TexGpu* create_texture_gpu(Texture* t, float want_scale) {
                         s.base.height, static_cast<unsigned>(t->b.flags), s.levels, s.layers, s.samples, w, h, want_scale);
         }
     }
+    // [gfx] texture_cap = N (default 0): block-compressed, sampled-only textures with a mip chain and a side of at least
+    // [gfx] texture_cap_min_px (default 1024) get an image without their top N levels (half the size per level: about 75 % less memory
+    // per level dropped). Views map guest levels down (tex_sampled_view), uploads skip the dropped levels; derivative LOD picks the same
+    // texel density, an explicit LOD 0 reads the first kept level. Not for render targets, sparse, 3D or multisampled textures.
+    static const uint32_t cap = static_cast<uint32_t>(std::clamp<int64_t>(config_get_int("gfx", "texture_cap", 0), 0, 4));
+    static const uint32_t cap_min = static_cast<uint32_t>(std::max<int64_t>(1, config_get_int("gfx", "texture_cap_min_px", 1024)));
+    // The guest format is block-compressed, so the game can never render or store into it, whatever usage the host image got (a decoded
+    // RGBA8 image on a GPU without BC carries attachment usage).
+    if (cap && g->fmt->bc && !t->vpool && is.type == VK_IMAGE_TYPE_2D && is.samples == 1 && g->scale == 1.0f &&
+        std::max(is.base.width, is.base.height) >= cap_min && is.levels > cap) {
+        is.base.width = std::max(1u, is.base.width >> cap);
+        is.base.height = std::max(1u, is.base.height >> cap);
+        is.levels -= cap;
+        g->level_skip = cap;
+        g->base = is.base;
+        g->levels = is.levels;
+        static std::atomic<int> logged{0};
+        if (logged.fetch_add(1) < 20)
+            NXLOG_I(kTag, "texture %u: %s %ux%u, %u levels: top %u level(s) dropped ([gfx] texture_cap): image %ux%u, %u levels", t->id, g->fmt->name,
+                    s.base.width, s.base.height, s.levels, cap, is.base.width, is.base.height, is.levels);
+        const int64_t saved = g_cap_saved.fetch_add(static_cast<int64_t>(t->storage_size) * 3 / 4) + static_cast<int64_t>(t->storage_size) * 3 / 4;
+        if (const uint32_t n = g_cap_count.fetch_add(1) + 1; n % 50 == 0)
+            NXLOG_I(kTag, "texture_cap: %u textures capped, about %lld MiB of guest-format levels dropped", n, static_cast<long long>(saved >> 20));
+    }
     std::string why2;
     if (device().create_image(make_desc(is, chosen, usage, flags), &g->img, &why2) != VK_SUCCESS)
         return fail("create_image: " + why2);
@@ -304,11 +338,38 @@ static bool is_shadow_map(const Texture& t) {
            (t.b.width & (t.b.width - 1)) == 0 && !(t.b.flags & NVN_TEXTURE_FLAGS_LINEAR);
 }
 
+// [gfx] ui_native: the window textures (the presented picture, where a game draws its 2D after the 3D scene) are rendered at the
+// swapchain's width instead of the render scale: the 2D is drawn at the screen's resolution while the 3D passes keep the low internal
+// size, and the draw that copies the scene into the window texture enlarges it. 0 when off or not known yet.
+static std::unordered_set<uint32_t> g_ui_depth;   // depth targets of passes on a window texture (render thread): they keep its scale
+static float ui_native_scale_impl(const Texture& t) {
+    // default on for a phone; off elsewhere: there the present then stops upscaling, so a desktop player's chosen upscaler would no
+    // longer reach the final picture (it would override a player's setting)
+    static const bool on = nxrt::config_get_bool("gfx", "ui_native", host_is_phone());
+    if (!on || t.b.width <= 0 || (!t.is_display && !g_ui_depth.count(t.id))) return 0.0f;
+    static float sc = 0.0f;
+    if (sc == 0.0f) {
+        gfx::Renderer* r = renderer();
+        const VkExtent2D e = r ? r->extent() : VkExtent2D{};
+        if (e.width == 0) return 0.0f;
+        const float rs = render_scale_now();
+        sc = std::clamp(static_cast<float>(e.width) / static_cast<float>(t.b.width), rs, 1.0f);
+        NXLOG_I(kTag, "ui_native: window textures (%dx%d) at scale %.3f (swapchain %ux%u, render scale %.3f): the 2D at the screen's resolution", t.b.width,
+                t.b.height, sc, e.width, e.height, rs);
+    }
+    return sc;
+}
+
 static float attachment_scale(const Texture& t) {
+    if (const float u = ui_native_scale_impl(t); u > 0.0f) return u;
     if (is_shadow_map(t)) {
-        const float ss = gfx::tuning().shadow_scale.load(std::memory_order_relaxed);   // live: tex_scale_wanted differs from the image's scale, the next pass remakes it
+        // [gfx] shadow_map_scale (0.25..1, default 1; the phone app's "Shadow quality" row writes it): shadow maps rendered smaller than
+        // the guest made them (0.5: half the size per side). Multiplies the shadow quality's scale.
+        static const float trim = static_cast<float>(std::clamp(nxrt::config_get_double("gfx", "shadow_map_scale", 1.0), 0.25, 1.0));
+        const float ss = gfx::tuning().shadow_scale.load(std::memory_order_relaxed) * trim;   // live: tex_scale_wanted differs from the image's scale, the next pass remakes it
         static int logged = 0;
-        if (logged++ < 8) NXLOG_I(kTag, "shadow map candidate: texture %u %s %ux%u (shadow scale %.0f)", t.id, t.fmt->name, t.b.width, t.b.height, ss);
+        if (logged++ < 8) NXLOG_I(kTag, "shadow map candidate: texture %u %s %ux%u (shadow scale %.2f: rendered at %ux%u)", t.id, t.fmt->name, t.b.width, t.b.height, ss,
+                                 static_cast<unsigned>(t.b.width * ss), static_cast<unsigned>(t.b.height * ss));
         return ss;
     }
     const float sc = render_scale_now();
@@ -449,6 +510,11 @@ static void arm_worker() {
     }
 }
 }  // namespace tex
+
+float ui_native_scale(const Texture& t) { return tex::ui_native_scale_impl(t); }
+// A depth target used with a window texture keeps the window texture's scale in its other passes too (without this the 2D's depth buffer was
+// remade at both scales every frame, once per pass kind).
+void ui_native_note_depth(const Texture& t) { if (t.fmt && t.fmt->aspect != kAspectColor) tex::g_ui_depth.insert(t.id); }
 
 std::mutex& tex_arm_import_mutex() { return g_arm_import_mu; }
 

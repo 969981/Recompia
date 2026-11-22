@@ -14,7 +14,7 @@ gfx::PresentMode present_mode_for(const DisplaySettings& d) {
 }
 
 // [display] fps_snap = auto|true|false (controls.ini / F1 "Cap FPS to 30 for Steam Deck"; NXRT_DISPLAY_FPS_SNAP overrides it), read on every apply_frame_cap. auto (default) = on for a detected Steam Deck
-// only (host_is_steam_deck: its 90 / 60 Hz panel has no VRR), off on every other machine (a desktop screen may be VRR, and a
+// (host_is_steam_deck: its 90 / 60 Hz panel has no VRR) and a phone (host_is_phone), off on every other machine (a desktop screen may be VRR, and a
 // player's chosen 40 must stay 40). Returns the divisor k (>= 2) the cap snaps to, or 0 with *reason set to why it does not.
 // The first half of that decision, without the cap: the player has vsync on and fps_snap says the screen is a fixed-refresh panel.
 static bool snap_wanted(const DisplaySettings& d, const char** reason) {
@@ -24,7 +24,8 @@ static bool snap_wanted(const DisplaySettings& d, const char** reason) {
     const bool forced_off = mode == "false" || mode == "off" || mode == "0";
     if (!d.vsync) { *reason = "vsync off"; return false; }
     if (forced_off) { *reason = "fps_snap off"; return false; }
-    if (!forced_on && !host_is_steam_deck()) { *reason = "fps_snap auto, not a Steam Deck"; return false; }
+    // a phone's panel has no VRR either: auto snaps there too, so a cap is a whole number of refreshes (120 Hz: 30, 24, 20)
+    if (!forced_on && !host_is_steam_deck() && !host_is_phone()) { *reason = "fps_snap auto, not a Steam Deck or a phone"; return false; }
     return true;
 }
 
@@ -68,11 +69,14 @@ void apply_frame_cap(const Settings& s) {
         // above it (a 90 Hz panel at its refresh rate, the ceiling 60).
         static const bool grid = config_get_bool("latency", "grid", true);
         static const bool snap_ceiling = config_get_bool("latency", "snap_ceiling", true);
+        // [latency] grid_late = wait (default, as before) | now: a frame that misses its grid point starts at once (RefreshSync::late_now)
+        static const bool grid_late_now = config_get_str("latency", "grid_late", "wait") == "now";
         FrameLimiter::RefreshSync sync;
         if (fixed) {
             sync.hz = static_cast<double>(panel_hz);
             sync.grid = grid;
             sync.snap_ceiling = snap_ceiling;
+            sync.late_now = grid_late_now;
         }
         st.limiter.set_refresh_sync(sync);
     }

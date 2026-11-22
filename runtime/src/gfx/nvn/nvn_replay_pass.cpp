@@ -7,6 +7,70 @@ namespace nxrt::nvn::be::gpu {
 namespace replay {
 Pass P;
 
+// ---- [prof] pass_stats ------------------------------------------------------------------------------------------------------
+int pass_stats_level() {
+    static const int v = static_cast<int>(nxrt::config_get_int("prof", "pass_stats", 0));
+    return v;
+}
+namespace {
+struct PassStats {
+    uint64_t passes = 0, empty = 0, fbl = 0, ro = 0, layered = 0, draws = 0;
+    uint64_t color_att = 0, color_load = 0, depth_att = 0, depth_load = 0;
+    uint64_t px_color = 0, px_depth = 0, px_load = 0;            // attachment pixels per pass begin (a full tile load or store each on GMEM)
+    uint64_t clears_first = 0, clears_mid = 0, dclears = 0, discard_c = 0, discard_d = 0;
+    uint64_t first_present = 0, listed_frame = 0;
+};
+PassStats g_ps;
+}  // namespace
+
+void pass_stats_discard(bool depth) { (depth ? g_ps.discard_d : g_ps.discard_c)++; }
+
+static void pass_stats_end() {
+    PassStats& s = g_ps;
+    const uint64_t now = counters().presents.load(std::memory_order_relaxed);
+    if (!s.first_present) s.first_present = now ? now : 1;
+    s.passes++;
+    s.draws += P.draws;
+    if (P.draws == 0) s.empty++;
+    if (P.fbl) s.fbl++;
+    if (P.depth_ro) s.ro++;
+    if (P.layers > 1) s.layered++;
+    const uint64_t px = static_cast<uint64_t>(P.extent.width) * P.extent.height * P.layers;
+    for (uint32_t i = 0; i < P.ncolor && i < 8; ++i) {
+        if (!P.color_fmt[i]) continue;
+        s.color_att++;
+        s.px_color += px;
+        if ((P.loaded >> i) & 1) { s.color_load++; s.px_load += px; }
+    }
+    if (P.depth_fmt) {
+        s.depth_att++;
+        s.px_depth += px;
+        if (P.loaded_d) { s.depth_load++; s.px_load += px; }
+    }
+    s.clears_first += P.clears_first;
+    s.clears_mid += P.clears_mid;
+    s.dclears += P.dclears;
+    if (pass_stats_level() >= 2 && s.listed_frame == now) {
+        NXLOG_I("nvn.passes", "frame %llu pass: %ux%u x%u, colour %u (fmt %d, loaded mask %x), depth fmt %d%s%s, draws %u, clears before draws %u / after %u (depth %u)%s",
+                static_cast<unsigned long long>(now), P.extent.width, P.extent.height, P.layers, P.ncolor, static_cast<int>(P.color_fmt[0]), P.loaded,
+                static_cast<int>(P.depth_fmt), P.loaded_d ? " loaded" : P.depth_fmt ? " cleared/fresh" : "", P.depth_ro ? " read-only" : "", P.draws, P.clears_first,
+                P.clears_mid, P.dclears, P.fbl ? ", FEEDBACK LOOP" : "");
+    }
+    const uint64_t frames = now > s.first_present ? now - s.first_present : 0;
+    if (frames >= 300) {
+        const double f = static_cast<double>(frames);
+        NXLOG_I("nvn.passes", "pass stats, %llu frames, per frame: passes %.1f (empty %.1f, feedback loop %.1f, depth read-only %.1f, layered %.1f), draws %.0f | colour attachments %.1f "
+                "(LOAD %.1f), depth %.1f (LOAD %.1f) | Mpx per frame: colour %.2f, depth %.2f, loaded %.2f | clears before the first draw %.1f, after %.1f, depth via "
+                "ClearAttachments %.1f | discards colour %.1f, depth %.1f (ignored)",
+                static_cast<unsigned long long>(frames), s.passes / f, s.empty / f, s.fbl / f, s.ro / f, s.layered / f, s.draws / f, s.color_att / f, s.color_load / f,
+                s.depth_att / f, s.depth_load / f, s.px_color / f / 1e6, s.px_depth / f / 1e6, s.px_load / f / 1e6, s.clears_first / f, s.clears_mid / f, s.dclears / f,
+                s.discard_c / f, s.discard_d / f);
+        s = PassStats();
+        s.first_present = now;
+        s.listed_frame = now + 150;   // list the passes of one frame in the middle of the next window (level 2)
+    }
+}
+
 static VkImageLayout color_layout(uint8_t fbl, uint32_t slot) {
     return (fbl >> slot) & 1 ? VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 }
@@ -51,6 +115,7 @@ void end_pass(bool to_pass) {
     xfb_end_in_pass();
     vkCmdEndRendering(F->cb);
     P.open = false;
+    if (pass_stats_level() > 0) pass_stats_end();
     if (gpass_on()) {
         char b[112];
         std::snprintf(b, sizeof b, "pass %ux%u c%u:%d d%d%s", P.extent.width, P.extent.height, P.ncolor, static_cast<int>(P.color_fmt[0]), static_cast<int>(P.depth_fmt),
@@ -124,10 +189,14 @@ float attach_targets(bool fix) {
     for (uint32_t i = 0; i < S.ncolor && i < 8; ++i) if (S.color_tex[i]) ts[n++] = S.color_tex[i].get();
     if (S.depth_tex) ts[n++] = S.depth_tex.get();
     float lo = 0.0f, hi = 0.0f;
+    // [gfx] ui_native: a pass on a window texture brings its other attachments (the 2D's depth buffer) to the window texture's scale
+    float ui = 0.0f;
+    for (uint32_t i = 0; i < n && ui == 0.0f; ++i) ui = ui_native_scale(*ts[i]);
+    if (ui > 0.0f && fix && S.depth_tex) ui_native_note_depth(*S.depth_tex);
     for (uint32_t i = 0; i < n; ++i) {
         if (!tex_gpu_attachment(ts[i])) continue;
         if (fix) {
-            const float want = tex_scale_wanted(ts[i]);
+            const float want = ui > 0.0f ? ui : tex_scale_wanted(ts[i]);
             if (want != tex_scale(ts[i])) tex_rescale(ts[i], *F, want, "used as a render target");
         }
         const float sc = tex_scale(ts[i]);
@@ -221,6 +290,7 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
         colors[i].imageView = v;
         colors[i].imageLayout = cl;
         colors[i].loadOp = fresh ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+        if (!fresh) P.loaded |= static_cast<uint8_t>(1u << i);
         colors[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         P.color_fmt[i] = tex_attachment_format(t, P.color[i].view_format);
         const VkExtent3D e = tex_image_extent(t, P.color[i].level);
@@ -242,6 +312,7 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
             depth.imageView = stencil.imageView = v;
             depth.imageLayout = stencil.imageLayout = dlayout;
             depth.loadOp = stencil.loadOp = (fresh && !depth_ro) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+            P.loaded_d = depth.loadOp == VK_ATTACHMENT_LOAD_OP_LOAD;
             depth.storeOp = stencil.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
             depth.clearValue.depthStencil = {1.0f, 0};
             stencil.clearValue.depthStencil = {1.0f, 0};

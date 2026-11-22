@@ -1,0 +1,17 @@
+.gradle/
+.kotlin/
+build/
+# the Kotlin package org.recompia.pkp.build is source, not build output (the rule above and the root .gitignore's build/ match it)
+!app/src/main/java/org/recompia/pkp/build/
+!app/src/debug/java/org/recompia/pkp/build/
+local.properties
+*.so
+*.apk
+*.aab
+*.idsig
+*.jks
+*.keystore
+app/src/main/jniLibs/
+app/src/main/assets/recompia-toolchain*
+app/src/main/assets/gpu/
+app/src/main/assets/shaders/

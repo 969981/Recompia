@@ -27,7 +27,7 @@
 //   max_frames=<n>         end the run (fail) after n frames; wall_timeout_s=<s> (default 900 with a script) ends it with exit code 124
 //   freeze_exit=1          a watchdog freeze ends the run with exit code 5 (default on with a script)
 //   shot_dir=<dir>         default <out>/shots; require_shots=1 turns a missing screenshot provider into a failure
-//   game_base=<addr>       base of the game's main module (default 0x7100000000)
+//   game_base=<addr>       base of the game's main module (default: the game's main_base)
 // Probe layout overrides ([probe] section): state_manager=<addr> (a CStateManager the hooks did not see), see the game's probes
 // (GameProbes below).
 #pragma once

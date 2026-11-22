@@ -3,9 +3,10 @@
 # SHA256. The archives are cached in NXRT_DEPS_DIR (shared by checkouts and worktrees, survives a clean build); the
 # extracted sources and the SDL build live in the build directory. Licences and pins are listed in THIRD_PARTY_NOTICES.md and README.md.
 include(FetchContent)
-if(APPLE)
+# The cache belongs to the machine that builds (an Android build is a cross build from a Linux or macOS host).
+if(CMAKE_HOST_APPLE)
     set(_nxrt_default_deps "$ENV{HOME}/Library/Caches/nxrt/deps")
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
     # XDG: ~/.cache/nxrt/deps unless XDG_CACHE_HOME says otherwise.
     if(DEFINED ENV{XDG_CACHE_HOME} AND NOT "$ENV{XDG_CACHE_HOME}" STREQUAL "")
         set(_nxrt_default_deps "$ENV{XDG_CACHE_HOME}/nxrt/deps")
@@ -56,9 +57,19 @@ FetchContent_Declare(zstd
     URL_HASH SHA256=eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3
     SOURCE_SUBDIR none)
 
-# SDL: static, only what a game needs.
-set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-set(SDL_STATIC ON CACHE BOOL "" FORCE)
+# SDL: static, only what a game needs. Android: shared, because SDLActivity loads libSDL3.so by name and SDL's JNI entry point
+# (JNI_OnLoad) must be exported from it; inside libpkp_rt.so the export map (game-build/src/pkp_rt.exports) would hide it. The jar
+# is SDL's Java half (org.libsdl.app) built from the same sources, for the app project. NXRT_SDL3 is the target to link.
+if(ANDROID)
+    set(SDL_SHARED ON CACHE BOOL "" FORCE)
+    set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+    set(SDL_ANDROID_JAR ON CACHE BOOL "" FORCE)
+    set(NXRT_SDL3 SDL3::SDL3-shared)
+else()
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    set(NXRT_SDL3 SDL3::SDL3-static)
+endif()
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_TESTS OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -132,6 +143,10 @@ target_include_directories(nxrt_volk SYSTEM PUBLIC "${volk_SOURCE_DIR}" "${vulka
 if(APPLE)
     # MoltenVK: no VK_USE_PLATFORM_WIN32_KHR, and the surface comes from VK_EXT_metal_surface through SDL.
     target_compile_definitions(nxrt_volk PUBLIC VK_NO_PROTOTYPES VK_USE_PLATFORM_METAL_EXT)
+elseif(ANDROID)
+    # The surface comes from SDL through VK_KHR_android_surface; the NDK has no X11 or Wayland headers. volk and SDL open the
+    # same loader, the system's libvulkan.so.
+    target_compile_definitions(nxrt_volk PUBLIC VK_NO_PROTOTYPES VK_USE_PLATFORM_ANDROID_KHR)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # The surface comes from SDL, but the extensions it reports have to be types volk knows. X11 is always there (Xwayland
     # counts); Wayland only when its headers are installed, which keeps the build free of a libwayland-dev requirement.

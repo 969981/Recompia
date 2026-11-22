@@ -600,4 +600,13 @@ BOOL nxos_find_next(HANDLE h, WIN32_FIND_DATAW* data) {
     return TRUE;
 }
 
+std::string nxos_app_data_dir() {
+#if defined(__ANDROID__)
+    return ".";
+#else
+    const char* home = getenv("HOME");
+    return std::string(home && *home ? home : ".") + "/Library/Application Support";
+#endif
+}
+
 #endif  // !_WIN32

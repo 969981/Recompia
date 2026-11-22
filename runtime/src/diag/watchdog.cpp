@@ -36,6 +36,8 @@ using Clock = std::chrono::steady_clock;
 
 std::atomic<uint64_t> g_frames{0};
 std::atomic<uint64_t> g_progress{0};   // heartbeats that are not frames (diag_progress)
+std::atomic<bool> g_suspended{false};  // diag_set_suspended: the OS has stopped the app
+std::atomic<uint64_t> g_suspends{0};
 std::atomic<uint32_t> g_fires{0};
 std::atomic<bool> g_running{false};
 
@@ -385,6 +387,7 @@ void run_loop(Control* c) {
                 emit_dump(c->report_path, h2);
             }
         }
+        if (g_suspended.load(std::memory_order_relaxed)) last_change = now;   // stopped by the OS: no frame is due
         const double idle_s = std::chrono::duration<double>(now - last_change).count();
         if (!fired && idle_s >= c->threshold_s) {
             fired = true;
@@ -460,6 +463,12 @@ void diag_frame_tick() {
 }
 
 uint64_t diag_frame_count() { return g_frames.load(std::memory_order_relaxed); }
+
+void diag_set_suspended(bool on) {
+    if (on) g_suspends.fetch_add(1, std::memory_order_relaxed);
+    g_suspended.store(on, std::memory_order_relaxed);
+}
+uint64_t diag_suspend_count() { return g_suspends.load(std::memory_order_relaxed); }
 
 std::string diag_thread_dump() { return dump_text(); }
 

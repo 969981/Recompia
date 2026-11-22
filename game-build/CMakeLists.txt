@@ -60,6 +60,8 @@ option(PKP_RT_DLL "build the runtime as a shared library for release model (b): 
 if(PKP_RT_DLL AND NOT WIN32)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
+# The target's guest base, for the runtime below, the module table and the player build's guest_base.txt (one definition).
+include("${PKP_RUNTIME_DIR}/cmake/guest_layout.cmake")
 add_subdirectory("${PKP_RUNTIME_DIR}" runtime)
 
 # The module list (names, bases, load order) is recomp/games/pkp/config.py: the imported libraries below and the header
@@ -84,8 +86,8 @@ endforeach()
 # separately links against. On Windows pkp.exe is linked on the player's PC from the libraries lifted out of their own dump and
 # src/pkp_stub.cpp (tools/build/pkp_build.py in the package, with the bundled Zig); on macOS and Linux the same pair is built here,
 # because the exe needs the Mach-O __GUEST segment / the lift already ran. Nothing lifted is imported into the runtime library itself.
-if(PKP_RT_DLL AND NOT WIN32 AND NOT APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    message(FATAL_ERROR "PKP_RT_DLL is the Windows, macOS and Linux release model (b)")
+if(PKP_RT_DLL AND NOT WIN32 AND NOT APPLE AND NOT ANDROID AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "PKP_RT_DLL is the Windows, macOS, Linux and Android release model (b)")
 endif()
 if(PKP_RT_DLL)
     if(WIN32)
@@ -136,6 +138,13 @@ if(PKP_RT_DLL)
         endforeach()
     endif()
     nxrt_bundle_libusb(pkp_rt)   # libusb-1.0.dll for SDL's USB controllers; make-release.ps1 ships it next to pkp.exe
+    # The guest base this library is built for when it is not the canonical one: a kit ships it as sdk/guest_base.txt, and
+    # pkp_build.py lifts for it. Removed when not set, so a reverted definition leaves no stale file.
+    if(DEFINED NXRT_GUEST_BASE)
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/guest_base.txt" "${NXRT_GUEST_BASE}\n")
+    else()
+        file(REMOVE "${CMAKE_CURRENT_BINARY_DIR}/guest_base.txt")
+    endif()
     if(APPLE)
         # The game executable of model (b): src/pkp_stub.cpp and the lifted modules, linked against the dylib. It carries the
         # __GUEST segment (the main executable's header is what reserves the range before libmalloc runs), and finds the dylib
@@ -153,6 +162,16 @@ if(PKP_RT_DLL)
             "${PKP_RUNTIME_DIR}/assets/prompts/prompt_icons.pak" "$<TARGET_FILE_DIR:pkp>/prompts/prompt_icons.pak")
         add_custom_command(TARGET pkp POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${NXRT_MOLTENVK_LIBRARY}" "$<TARGET_FILE_DIR:pkp>/libvulkan.1.dylib")
+    elseif(ANDROID)
+        # Android: the game is the shared library libpkpgame.so (src/pkp_stub_android.cpp gives it the SDL_main that SDLActivity
+        # calls, src/pkp_stub.cpp the module tables), linked against libpkp_rt.so; the app loads libSDL3.so and libpkp_rt.so from
+        # its APK and this library from app-private storage. The version script keeps the lifted functions out of the dynamic
+        # symbol table (pkp_build.py --target android-arm64 links the same way).
+        add_library(pkpgame SHARED src/pkp_stub_android.cpp src/pkp_stub.cpp)
+        set_source_files_properties(src/pkp_stub.cpp PROPERTIES COMPILE_DEFINITIONS "PKP_VERSION=\"${PKP_VERSION}\";main=pkp_stub_main")
+        target_include_directories(pkpgame PRIVATE "${PKP_GEN_INCLUDE}")
+        target_link_libraries(pkpgame PRIVATE ${PKP_MODULE_LIBS} pkp_rt)
+        target_link_options(pkpgame PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/pkpgame_android.ver" "-Wl,--strip-debug")
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         # The same pair on Linux: src/pkp_stub.cpp and the lifted modules, linked against libpkp_rt.so, which the executable finds
         # next to itself ($ORIGIN). No __GUEST segment: the guest ranges are reserved by the runtime (mmap MAP_FIXED_NOREPLACE), and

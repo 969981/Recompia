@@ -1,0 +1,7 @@
+/* The dynamic symbols of the Android game library libpkpgame.so: the entry SDL looks up and the API number (pkp_rt_api.h). */
+PKPGAME_1 {
+  global:
+    SDL_main;
+    pkp_rt_api;
+  local: *;
+};

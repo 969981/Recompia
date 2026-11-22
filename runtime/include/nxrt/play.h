@@ -16,7 +16,7 @@
 //   controls = controls.ini     the settings file (play_types.h documents the format); written with the factory settings when missing
 //   capture_mouse = 1           capture the pointer (relative mode) while the game is being played
 //   quit_on_close = 1           closing the window ends the process (exit code 0)
-//   game_base = 0x7100000000    base of the game's main module
+//   game_base = <addr>          base of the game's main module (default: the game's main_base)
 //   log_status = 0              1: one status line per second in the log (context, aim state, input counts)
 #pragma once
 #include <cstdint>

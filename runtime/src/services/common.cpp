@@ -417,9 +417,8 @@ std::string save_dir() {
     const char* appdata = std::getenv("APPDATA");
     return std::string(appdata && *appdata ? appdata : ".") + "\\" + (folder && *folder ? folder : "nxrt") + "\\save";
 #else
-    // The Windows default is %APPDATA%\<folder>\save; macOS keeps the same data under Application Support.
-    const char* home = std::getenv("HOME");
-    return std::string(home && *home ? home : ".") + "/Library/Application Support/" + (folder && *folder ? folder : "nxrt") + "/save";
+    // The Windows default is %APPDATA%\<folder>\save; elsewhere the platform's data folder (nxos_app_data_dir) takes its place.
+    return nxos_app_data_dir() + "/" + (folder && *folder ? folder : "nxrt") + "/save";
 #endif
 }
 

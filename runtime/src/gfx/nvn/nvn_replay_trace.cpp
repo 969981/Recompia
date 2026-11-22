@@ -24,8 +24,9 @@ static std::vector<int64_t> g_trace_extra;   // more frames to trace
 static std::string g_trigger_fs;
 static std::string g_cs_missing;   // the untranslated block(s) of the bound compute program ("cs -" dispatches)
 
-// Debug: [nvn] skip_fs_file = FILE (env NXRT_NVN_SKIP_FS_FILE). FILE holds fragment shader hash prefixes separated by blanks; draws whose fragment
-// shader starts with one of them are not drawn. The file is read again twice a second, so it can change while the game runs.
+// Debug: [nvn] skip_fs_file = FILE (env NXRT_NVN_SKIP_FS_FILE). FILE holds fragment (or compute) shader hash prefixes separated by blanks; draws whose fragment
+// shader starts with one of them are not drawn, dispatches whose compute shader does are not run. The file is read again twice a second, so it
+// can change while the game runs.
 static std::vector<std::string> g_skip_fs;
 static int g_draw_idx = 0;   // draws begun in this frame (counted while g_trace_hooks: skip_fs_file sets it for the whole run)
 static const std::string& skip_fs_file() {
@@ -108,6 +109,15 @@ void trace_begin_submit() {
 bool trace_skip_draw() {
     ++g_draw_idx;
     return S.stage[kFragment] && skip_fs_draw(S.stage[kFragment]->hash);
+}
+
+// Dispatches go by the same file: a hash prefix there also matches compute shaders ("#n" draw numbers do not count dispatches).
+bool trace_skip_dispatch(const std::string& cs_hash) {
+    const int n = g_draw_idx;
+    g_draw_idx = 0;                       // keeps "#n" entries from matching a dispatch
+    const bool skip = skip_fs_draw(cs_hash);
+    g_draw_idx = n;
+    return skip;
 }
 
 void trace_note_fs() {

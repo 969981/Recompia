@@ -427,6 +427,13 @@ uint64_t Overlay::set_keyboard_pad(uint64_t buttons, int lx, int ly) {
     }
     if (quit) {                      // the prompt takes the pad before the keyboard does: fresh presses of A and B answer it
         const uint64_t fresh = b & ~s.pad_prev;
+        static int logged = 0;      // the first presses while a prompt is open: what reached it
+        if (fresh && logged < 8) {
+            ++logged;
+            NXLOG_I(kTag, "quit prompt: pad buttons pressed 0x%llx (A 0x%llx quits, B 0x%llx cancels, X 0x%llx settings)", static_cast<unsigned long long>(fresh),
+                    static_cast<unsigned long long>(hid::btn(hid::kBtnA)), static_cast<unsigned long long>(hid::btn(hid::kBtnB)),
+                    static_cast<unsigned long long>(hid::btn(hid::kBtnX)));
+        }
         if (!s.quit_confirmed && (fresh & hid::btn(hid::kBtnA))) s.quit_answer(true);
         else if (!s.quit_confirmed && (fresh & hid::btn(hid::kBtnB))) s.quit_answer(false);
         else if (!s.quit_confirmed && (fresh & hid::btn(hid::kBtnX))) s.quit_to_settings();

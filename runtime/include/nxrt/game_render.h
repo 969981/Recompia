@@ -64,8 +64,12 @@ struct LoopGuard {
 // (its texture coordinates span the fraction): a draw whose fragment shader is `shader`, into a colour target at least as large as its one
 // sampled 2D colour input, after the frame's tone-map draw. The same shader may make other copies (into smaller targets, or before the
 // tone map); they are left alone. The scene upscalers ([upscale] mode fsr1, nis, nearest) replace the bilinear stretch of that draw.
+// An entry with into_window set is instead the draw that enlarges a smaller scene image into the window texture (under a render scale
+// with the 2D at the screen's size, [gfx] ui_native): only [gfx] scene_sharpen acts there today; the player's scene upscaler
+// at that draw is a follow-up (it would change what an upscaler does with ui_native).
 struct SceneStretch {
     const char* shader = nullptr;           // the fragment shader's cache hash, as the back end names it ("c4664b38f6a87835")
+    bool into_window = false;
 };
 
 struct Render {
@@ -80,6 +84,10 @@ struct Render {
     // replay can leave the 2D out (nxrt/ui_layer.h).
     bool ui_after_picture = false;
     const SceneStretch* scene_stretch = nullptr;
+    uint32_t scene_stretch_count = 0;
+    // The lowest [upscale] scene_scale percent the game's picture stays correct at (automatic resolution and a game's settings rows go no
+    // lower). 25 = the key's own limit.
+    int scene_scale_min = 25;
 };
 
 }  // namespace nxrt::game

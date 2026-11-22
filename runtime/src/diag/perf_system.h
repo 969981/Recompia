@@ -14,4 +14,12 @@ void perf_log_system(const perf::GpuFacts& gpu);
 // The GPU's PCIe link now: "gen 4 x16 (max gen 4 x16)", or "unknown" (no PCI address, no readable property: Wine's device tree).
 std::string perf_pcie_link(const perf::GpuFacts& gpu);
 
+// GPU load as the kernel publishes it, where it does (Adreno's kgsl: /sys/class/kgsl/kgsl-3d0): busy share of the last sampling window
+// (0..1) and the clock now and its current ceiling in MHz (0 when not published). False where no such file is readable (every desktop).
+struct GpuLoad {
+    double busy = 0;
+    int mhz = 0, max_mhz = 0;
+};
+bool perf_gpu_load(GpuLoad* out);
+
 }  // namespace nxrt::diag

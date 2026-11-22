@@ -62,7 +62,7 @@ constexpr double kTwoPi = 6.283185307179586;
 constexpr float kHalfPi = 1.5707964f;
 
 struct State {
-    uint64_t base = 0x7100000000ull;
+    uint64_t base = mem::kMainBase;
     play::GameHost* host = nullptr;
     std::atomic<int> w{kTableW}, h{kTableH};
     std::atomic<bool> dynres{false};

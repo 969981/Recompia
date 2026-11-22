@@ -17,11 +17,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD 11)
 
-# Native targets: Windows x64 (the shipped build), Apple Silicon macOS (docs/macos-port.md) and Linux x86-64
-# (docs/linux-port.md). Everything else is unsupported.
+# Native targets: Windows x64 (the shipped build), Apple Silicon macOS (docs/macos-port.md), Linux x86-64
+# (docs/linux-port.md) and Android arm64-v8a. Everything else is unsupported. NXRT_LINUX means a Linux kernel, as the compiler's
+# __linux__ does: glibc desktops and Android's bionic alike. NXRT_ANDROID adds what bionic and an app process do differently.
 if(WIN32)
     set(NXRT_WINDOWS TRUE)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR ANDROID)
+    if(ANDROID)
+        # The NDK toolchain file (CMakePresets.json android-ndk) sets ANDROID; only arm64-v8a has the AArch64 atomics the lifted
+        # code relies on.
+        if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+            message(FATAL_ERROR "nxrt builds for Android arm64-v8a only (CMAKE_SYSTEM_PROCESSOR is '${CMAKE_SYSTEM_PROCESSOR}')")
+        endif()
+        set(NXRT_ANDROID TRUE)
+    endif()
     # x86-64 and aarch64: the guest is AArch64; x86 translation uses cmpxchg16b (-mcx16) while arm64
     # uses native CASP and memory barriers (ctx.h).
     if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|arm64|aarch64)$")
@@ -39,8 +48,9 @@ elseif(APPLE)
                                                            "backend are comfortable at 13")
     endif()
 else()
-    message(FATAL_ERROR "nxrt targets native Windows x64, Apple Silicon macOS and Linux (x86-64, aarch64) only")
+    message(FATAL_ERROR "nxrt targets native Windows x64, Apple Silicon macOS, Linux (x86-64, aarch64) and Android arm64 only")
 endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/guest_layout.cmake")   # the target's guest base (NXRT_GUEST_BASE), when not the canonical one
 
 # The generated-code ABI header (Ctx, call_indirect, ...) lives in the recompiler (recomp/include/nxrecomp/).
 # Found next to the checkout (../recomp) or, for a git worktree under runtime-wt/<name>, two levels up (../../recomp).
@@ -90,6 +100,9 @@ if(NXRT_WINDOWS)
     list(FILTER NXRT_SOURCES EXCLUDE REGEX "/src/services/audio_sdl3\\.cpp$")
 else()
     list(FILTER NXRT_SOURCES EXCLUDE REGEX "/src/os/os_win32\\.cpp$")
+    if(NOT ANDROID)
+        list(FILTER NXRT_SOURCES EXCLUDE REGEX "/src/os/os_android_[^/]*\\.cpp$")   # player-installed GPU drivers: Android only
+    endif()
     # Subsystems built on a Windows-only SDK. Each has a POSIX counterpart on the milestone list in
     # docs/macos-port.md: Media Foundation movies (AVFoundation) and the XAudio2 sink (CoreAudio) are M3.
     list(FILTER NXRT_SOURCES EXCLUDE REGEX "/src/media/movie_mf\\.cpp$")
@@ -113,19 +126,31 @@ if(NOT NXRT_WINDOWS)
     # then reads a null guard and lets a caught fault become fatal (M3, 2026-11-10). Static TLS: the variable is in the
     # executable's own block. macOS: local-exec (the runtime is linked into the executable or into libpkp_rt.dylib, whose
     # TLS block is fixed at load). Linux: initial-exec, which a shared object may use and which resolves before main.
+    # Android: the default model. bionic refuses to dlopen a library with initial-exec TLS, and the app dlopens libpkp_rt.so. At
+    # android-30 the default is TLSDESC, whose resolver is a few loads once the thread's block for the library exists; the block is
+    # made on the thread's first access to any of the library's thread-locals, and every runtime thread writes t_tid / t_self when it
+    # starts or is adopted (os_posix.cpp), so a handler never makes it on such a thread.
     if(APPLE)
         set(_nxrt_tls_model "-ftls-model=local-exec")
-    else()
+    elseif(NOT NXRT_ANDROID)
         set(_nxrt_tls_model "-ftls-model=initial-exec")
     endif()
-    set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/src/os/os_posix.cpp"
-                                PROPERTIES COMPILE_OPTIONS "${_nxrt_tls_model}")
+    if(_nxrt_tls_model)
+        set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/src/os/os_posix.cpp"
+                                    PROPERTIES COMPILE_OPTIONS "${_nxrt_tls_model}")
+    endif()
 endif()
 
 if(NOT NXRT_WINDOWS)
     # `<windows.h>` and the other Win32 SDK headers resolve to src/os/compat/, which forward to the shim. Only on the non-Windows target,
     # so the Windows build keeps using the real SDK headers byte for byte.
     target_include_directories(nxrt PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src/os" "${CMAKE_CURRENT_SOURCE_DIR}/src/os/compat")
+    if(NXRT_ANDROID)
+        # The NDK r28 libc++ has no std::atomic_ref; the compat header supplies the members the tree uses (and is empty where the
+        # library has it). Every target that compiles runtime code links nxrt, so it reaches all of them.
+        target_compile_options(nxrt PUBLIC
+            "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/src/os/compat/atomic_ref_compat.h>")
+    endif()
     # astc2bc7's interface header (tools/textures). The transcoder itself is an x86 ISPC build, so the POSIX build uses
     # src/os/os_posix_a2b.cpp: the same helpers, and an honest "unsupported" for the kernels Metal replaces (D4).
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../tools/textures/include/astc2bc7.h")
@@ -136,6 +161,13 @@ if(NOT NXRT_WINDOWS)
                                           "-framework CoreGraphics"
                                           # the CoreAudio sink (services/audio_coreaudio.cpp) and its device list
                                           "-framework AudioToolbox" "-framework AudioUnit" "-framework CoreAudio")
+    elseif(NXRT_ANDROID)
+        # bionic has pthreads in libc and no libpthread to link.
+        # nativewindow: AHardwareBuffer (src/os/os_android_ahb.cpp, [nvn] pool_ahb); android: the thermal API (src/os/os_android_thermal.cpp)
+        target_link_libraries(nxrt PUBLIC ${CMAKE_DL_LIBS} nativewindow android)
+        # The Windows sources name their import libraries with #pragma comment(lib, ...); clang turns that into an ELF .deplibs
+        # entry, which lld (unlike GNU ld, and unlike Apple's linker) tries to resolve. They mean nothing off Windows.
+        target_link_options(nxrt PUBLIC "-Wl,--no-dependent-libraries")
     else()
         # Linux: dlopen/dlsym (plugins, the Vulkan loader) and pthreads. Both live in libc on a current glibc; naming them
         # keeps older glibc and other libc implementations working.
@@ -194,12 +226,13 @@ include(cmake/media_deps.cmake)   # libvpx for the Switch 2 video decoders (opti
 
 if(NXRT_BUILD_GFX)
     include(cmake/gfx.cmake)
+    include(cmake/android_vkdriver.cmake)   # Android: libadrenotools for [gfx] vulkan_driver_dir (src/os/os_android_vkdriver.cpp)
 endif()
-if(NXRT_LINUX AND TARGET SDL3::SDL3-static)
+if(NXRT_LINUX AND TARGET "${NXRT_SDL3}")
     # The Linux audio sink and output-device list (src/services/audio_sdl3.cpp) go through SDL3, which dlopen()s ALSA,
     # PulseAudio or PipeWire at run time: no audio headers to install, no extra package at run time, and the same library
     # the graphics shell already links. Without the graphics shell there is no SDL3, and Linux falls back to the null sink.
-    target_link_libraries(nxrt PRIVATE SDL3::SDL3-static)
+    target_link_libraries(nxrt PRIVATE ${NXRT_SDL3})
     target_compile_definitions(nxrt PRIVATE NXRT_HAVE_SDL3_AUDIO=1)
 endif()
 

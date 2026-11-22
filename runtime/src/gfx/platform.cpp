@@ -6,6 +6,8 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 
+#include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -14,9 +16,15 @@
 #include <vector>
 
 #include "nxrt/config.h"
+#include "nxrt/diag.h"
 #include "nxrt/host_device.h"
 #include "nxrt/input.h"
 #include "nxrt/log.h"
+#include "../os/os_android_vkdriver.h"
+
+#if defined(__ANDROID__)
+#include <android/native_window.h>
+#endif
 
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
@@ -57,10 +65,30 @@ float pixel_density() {
     return d > 0.f ? d : 1.f;
 }
 
-// Client size in pixels, 0 x 0 while minimised or without a window.
+// The window's native surface as SDL publishes it: on Android the ANativeWindow, released when the activity goes to the background
+// (surfaceDestroyed) and replaced by a new one on return; null for the life of a desktop window. Read from the render thread.
+std::atomic<void*> g_surface_seen{nullptr};       // the last non-null one
+std::atomic<uint64_t> g_surface_gen{0};
+void* window_surface_handle() {
+    return g_window ? SDL_GetPointerProperty(SDL_GetWindowProperties(g_window), SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr) : nullptr;
+}
+// True while a window that had a native surface has none (between surfaceDestroyed and surfaceCreated): nothing can be presented.
+bool surface_gone() { return g_surface_seen.load() && !window_surface_handle(); }
+
+// Client size in pixels, 0 x 0 while minimised, while the surface is gone, or without a window.
 void current_pixel_size(int* w, int* h) {
     int pw = 0, ph = 0;
-    if (g_window && !window_flag(SDL_WINDOW_MINIMIZED) && !SDL_GetWindowSizeInPixels(g_window, &pw, &ph)) pw = ph = 0;
+    if (g_window && !window_flag(SDL_WINDOW_MINIMIZED) && !surface_gone() && !SDL_GetWindowSizeInPixels(g_window, &pw, &ph)) pw = ph = 0;
+#if defined(__ANDROID__)
+    // SDL can report 0 x 0 when its surface event was missed at start (a surface lost and made again while the activity started): the
+    // native window itself still knows its size (negative while it is dead)
+    if (g_window && (pw <= 0 || ph <= 0) && !window_flag(SDL_WINDOW_MINIMIZED)) {
+        if (auto* aw = static_cast<ANativeWindow*>(window_surface_handle())) {
+            const int nw = ANativeWindow_getWidth(aw), nh = ANativeWindow_getHeight(aw);
+            if (nw > 0 && nh > 0) { pw = nw; ph = nh; }
+        }
+    }
+#endif
     if (w) *w = pw;
     if (h) *h = ph;
 }
@@ -378,6 +406,31 @@ void translate(const SDL_Event& ev) {
     }
 }
 
+// Phones (SDL's Android and iOS back ends; desktop SDL never sends these events). A watch runs while SDL queues the event, which matters:
+// on Android the pump that queues WILL_ENTER_BACKGROUND then blocks the thread that pumps (the game's main thread) until the app is back
+// (SDL_HINT_ANDROID_BLOCK_ON_PAUSE, default on), so the game is paused while hidden, as Android expects, and SDL pauses the audio. Nothing
+// is presented meanwhile: the watchdog and the hitch log are told, so a return is neither a freeze report nor a hitch.
+bool SDLCALL app_state_watch(void*, SDL_Event* ev) {
+    static Uint64 hidden_at = 0;   // the pumping thread only
+    switch (ev->type) {
+        case SDL_EVENT_WILL_ENTER_BACKGROUND:
+            hidden_at = SDL_GetTicks();
+            diag_set_suspended(true);
+            NXLOG_I(kTag, "the app goes to the background: the game waits until it is back");
+            break;
+        case SDL_EVENT_DID_ENTER_FOREGROUND:
+            diag_set_suspended(false);
+            NXLOG_I(kTag, "the app is back from the background after %.1f s", static_cast<double>(SDL_GetTicks() - hidden_at) / 1000.0);
+            break;
+        case SDL_EVENT_LOW_MEMORY:     // Android: every onTrimMemory / onLowMemory
+            NXLOG_I(kTag, "low memory signal from the OS");
+            break;
+        default:
+            break;
+    }
+    return true;
+}
+
 }  // namespace
 
 // ---- lifecycle ----------------------------------------------------------------------------------------------------
@@ -415,6 +468,9 @@ bool init(const InitOptions& opt) {
     SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, "0");
     SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SPEED_SCALE, "1");
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    // Phones and tablets (SDL's Android and iOS back ends read it; desktop ignores it): the game is landscape only, either way
+    // up. Without it SDL picks the orientation from the window's requested size and can lock the activity to portrait.
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
 #ifdef _WIN32
     // With libusb-1.0.dll beside the exe (#522) SDL_Init opens libusb and reads the descriptors of every USB device; on some PCs one
     // never answers and the game hung before its window (frame count 0). On Windows SDL needs libusb only for Nintendo's own
@@ -434,6 +490,7 @@ bool init(const InitOptions& opt) {
     g_inited = true;
     g_quit = false;
     g_gamepads = opt.gamepads;
+    SDL_AddEventWatch(app_state_watch, nullptr);
     const int v = SDL_GetVersion();
     const char* video = SDL_GetCurrentVideoDriver();   // wayland or x11 decides what the window system can say about HDR
     NXLOG_I(kTag, "SDL %d.%d.%d initialised (video %s, gamepads %s)", SDL_VERSIONNUM_MAJOR(v), SDL_VERSIONNUM_MINOR(v),
@@ -506,6 +563,39 @@ void set_window_title(const char* title) {
 
 void pixel_size(int* w, int* h) { current_pixel_size(w, h); }
 
+int window_modes() {
+#if defined(__ANDROID__)
+    return kModeBorderless;   // SDL's Android window is the activity's surface: one mode, whatever the settings say
+#else
+    return kModeWindowed | kModeBorderless | kModeExclusive;
+#endif
+}
+
+bool landscape_only() {
+#if defined(__ANDROID__)
+    return true;              // init() sets SDL_HINT_ORIENTATIONS to the two landscape orientations; SDL's Android back end honours it
+#else
+    return false;
+#endif
+}
+
+bool surface_replaceable() {
+#if defined(__ANDROID__)
+    return true;
+#else
+    return false;
+#endif
+}
+
+uint64_t surface_generation() {
+    void* h = window_surface_handle();
+    if (h) {
+        void* prev = g_surface_seen.exchange(h);
+        if (prev && prev != h) g_surface_gen.fetch_add(1);
+    }
+    return g_surface_gen.load();
+}
+
 bool set_window_size(int w, int h) { return g_window != nullptr && SDL_SetWindowSize(g_window, w, h); }
 
 bool minimized() { return window_flag(SDL_WINDOW_MINIMIZED); }
@@ -567,8 +657,19 @@ FullscreenMode fullscreen_mode() {
 
 float display_refresh_hz() {
     if (!g_window) return 0.f;
-    const SDL_DisplayMode* m = SDL_GetDesktopDisplayMode(SDL_GetDisplayForWindow(g_window));
-    return m ? m->refresh_rate : 0.f;
+    const SDL_DisplayID id = SDL_GetDisplayForWindow(g_window);
+    const SDL_DisplayMode* m = SDL_GetDesktopDisplayMode(id);
+    float hz = m ? m->refresh_rate : 0.f;
+#if defined(__ANDROID__)
+    // An adaptive phone panel reports the rate it idles at as the desktop mode (60 on a 120 Hz screen); the game is shown at the
+    // panel's highest rate, so that is the rate frame caps divide
+    int n = 0;
+    if (SDL_DisplayMode** modes = SDL_GetFullscreenDisplayModes(id, &n)) {
+        for (int i = 0; i < n; ++i) hz = std::max(hz, modes[i]->refresh_rate);
+        SDL_free(modes);
+    }
+#endif
+    return hz;
 }
 
 bool window_hdr(WindowHdr* out) {
@@ -745,6 +846,11 @@ const char* const* vulkan_instance_extensions(uint32_t* count) {
 
 bool create_vulkan_surface(void* vk_instance, uint64_t* surface_out) {
     if (!g_window || !vk_instance || !surface_out) return false;
+#if defined(__ANDROID__)
+    // A player-installed driver runs behind a private copy of the loader that SDL never opened (src/os/os_android_vkdriver.cpp):
+    // SDL would resolve vkCreateAndroidSurfaceKHR through the system loader, which cannot take this instance.
+    if (os::custom_vulkan_gipa()) return os::custom_vulkan_create_surface(vk_instance, window_surface_handle(), surface_out);
+#endif
     VkSurfaceKHR surface = nullptr;
     if (!SDL_Vulkan_CreateSurface(g_window, static_cast<VkInstance>(vk_instance), nullptr, &surface)) {
         NXLOG_E(kTag, "SDL_Vulkan_CreateSurface failed: %s", SDL_GetError());
@@ -756,6 +862,9 @@ bool create_vulkan_surface(void* vk_instance, uint64_t* surface_out) {
 
 void destroy_vulkan_surface(void* vk_instance, uint64_t surface) {
     if (!vk_instance || !surface) return;
+#if defined(__ANDROID__)
+    if (os::custom_vulkan_gipa()) return os::custom_vulkan_destroy_surface(vk_instance, surface);
+#endif
     SDL_Vulkan_DestroySurface(static_cast<VkInstance>(vk_instance),
                               reinterpret_cast<VkSurfaceKHR>(static_cast<uintptr_t>(surface)), nullptr);
 }
