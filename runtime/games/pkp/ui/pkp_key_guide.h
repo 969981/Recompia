@@ -54,7 +54,7 @@ uint64_t guide_row(::Ctx* c, uint32_t guide);    // a key guide's table row (Par
 uint64_t set_ids(::Ctx* c, uint32_t set);        // where a set's kSetSlots u16 key guide ids are, 0 if not readable
 int32_t state(uint64_t widget);                  // the widget's state (1 or 2 while on screen), -1 if not readable
 bool shown(uint64_t widget);                     // the widget is on screen (state 1 or 2)
-bool shows(uint64_t widget, uint32_t set);       // ... and its set is `set`
+bool shows(uint64_t widget, uint32_t set);       // ... and the set it took last is `set` (any thread)
 void take_set(::Ctx* c, uint64_t widget, uint32_t set);   // the widget takes the set again (0x7100ec5de0; the hooks run for it)
 void set_icon(::Ctx* c, const Part& p, uint16_t action);  // the part's button icon: the button of that action
 void set_text(::Ctx* c, const Part& p, const char* utf8); // the part's text

@@ -20,11 +20,11 @@ constexpr uint64_t kPartFilled = 0xec69b4;       // inline: a part has its icon 
 constexpr uint64_t kSetIcon = 0xa7dbcc;          // (part + 0x30, slot, action, 0, 0): a part's button icon
 constexpr uint64_t kSetTable = 0x1048;           // data table: key guide sets, up to six key guide ids (u16) per row (record at [row + 8])
 constexpr uint64_t kGuideTable = 0x1050;         // data table: key guides, {u16 action, ff, 00, u8 text, 7f, ..} per row
-constexpr uint64_t kWidgetState = 0x90;          // i32: 1 or 2 while shown
-constexpr uint64_t kWidgetSet = 0xf0;            // u8: the set it took last
+constexpr uint64_t kWidgetState = 0x90;          // i32: 1 or 2 while shown, 4 while it hides, 0 hidden
 constexpr uint64_t kWidgetEntries = 0xb0, kWidgetCount = 0xb8, kEntrySize = 0x360;
 constexpr uint32_t kIconSlot = 3;
 constexpr int kMaxClients = 4;
+constexpr int kMaxWidgets = 4;                   // one widget per player
 
 using guest::ok;
 using guest::rd;
@@ -34,19 +34,42 @@ struct Slot {
     Client client;
     std::atomic<uint64_t> layout{0};
 };
+// The set a widget took last, as seen by the fill hook. The widget's own set byte (+0xf0) and entry list (+0xb8) do not tell it: the
+// game clears both a few milliseconds after the layout pass while the placed parts stay on screen with the state at 2, so a check on
+// them lost the pause menu right after it opened (its Save prompt then took no pad button or click).
+struct Taken {
+    std::atomic<uint64_t> widget{0};
+    std::atomic<uint32_t> set{0};
+};
 struct State {
     uint64_t base = 0;
     Slot slots[kMaxClients];
     std::atomic<int> count{0};
+    Taken taken[kMaxWidgets];
 };
 State g;
 
 // Below the guest stack pointer, for the calls made from a hook.
 uint64_t call_sp(const ::Ctx* c) { return (c->x[31] - 0x100) & ~uint64_t{0xf}; }
 
+void note_taken(uint64_t widget, uint32_t set) {
+    for (Taken& t : g.taken) {
+        if (t.widget.load(std::memory_order_acquire) != widget) continue;
+        t.set.store(set, std::memory_order_release);
+        return;
+    }
+    for (Taken& t : g.taken) {
+        uint64_t free_slot = 0;
+        if (!t.widget.compare_exchange_strong(free_slot, widget, std::memory_order_acq_rel)) continue;
+        t.set.store(set, std::memory_order_release);
+        return;
+    }
+}
+
 int hook_fill_set(::Ctx* c, uint64_t, void*) {
     const uint64_t widget = c->x[0];
     const uint32_t set = static_cast<uint32_t>(c->x[1] & 0xff);
+    note_taken(widget, set);
     const int n = g.count.load(std::memory_order_acquire);
     for (int i = 0; i < n; ++i)
         if (g.slots[i].client.set_taken) g.slots[i].client.set_taken(c, widget, set);
@@ -74,20 +97,23 @@ void hook_part_filled(::Ctx* c, uint64_t, void*) {
 
 void install(const FeatureInstall& in) {
     g.base = in.base;
-    bool sets = false, layouts = false, parts = false;
+    bool layouts = false, parts = false;
     const int n = g.count.load(std::memory_order_acquire);
     for (int i = 0; i < n; ++i) {
-        sets |= g.slots[i].client.set_taken != nullptr;
         layouts |= g.slots[i].client.laying_out != nullptr;
         parts |= g.slots[i].client.part_filled != nullptr;
     }
-    if (sets) in.hooks.add_entry(in.base + kFillSet, &hook_fill_set);
+    if (n > 0) in.hooks.add_entry(in.base + kFillSet, &hook_fill_set);   // the set taken, for shows() and set_taken
     if (layouts) in.hooks.add_entry(in.base + kLayoutGuides, &hook_layout_guides);
     if (parts) in.hooks.add_inline(in.base + kPartFilled, &hook_part_filled);
 }
 
 void remove() {   // the registry has removed the hooks; the clients add themselves again at the next install
     for (Slot& s : g.slots) s.layout.store(0, std::memory_order_relaxed);
+    for (Taken& t : g.taken) {
+        t.widget.store(0, std::memory_order_relaxed);
+        t.set.store(0, std::memory_order_relaxed);
+    }
     g.count.store(0, std::memory_order_release);
 }
 
@@ -134,8 +160,10 @@ int32_t state(uint64_t widget) { return widget && ok(widget + kWidgetState, 4) ?
 bool shown(uint64_t widget) { return state(widget) - 1u < 2u; }
 
 bool shows(uint64_t widget, uint32_t set) {
-    if (!widget || !ok(widget + kWidgetSet, 8)) return false;
-    return rd<uint8_t>(widget + kWidgetSet) == set && rd<int32_t>(widget + kWidgetState) - 1u < 2u;
+    if (!widget) return false;
+    for (const Taken& t : g.taken)
+        if (t.widget.load(std::memory_order_acquire) == widget) return t.set.load(std::memory_order_acquire) == set && shown(widget);
+    return false;
 }
 
 void take_set(::Ctx* c, uint64_t widget, uint32_t set) { guest::call(c, g.base + kFillSet, widget, set); }
