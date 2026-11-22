@@ -557,6 +557,7 @@ void pcopy_note_write(uint64_t gpu_address, uint64_t size, VkBuffer hint = VK_NU
 // index buffer of an indirect draw): the rest of the range is copied too. No-op when copy mode is off.
 void pool_copy_touch(uint64_t gpu_address, uint64_t size);
 uint64_t pcopy_land(uint64_t reached);                // any thread: lands every recorded write of a serial <= reached (read_completed)
+void pcopy_ring_flush(VkCommandBuffer cb, uint64_t serial);   // phones, [nvn] pool_ring: end of a recording: GPU copies of its writes into the readback ring
 void pcopy_shutdown();                                // pool_shutdown: stops the landing thread, drops records
 void pcopy_log_summary(uint32_t presents);            // every 1200 presents (lazy_drop_idle)
 void pcopy_evict_for(uint64_t bytes);                 // over [nvn] pool_copy_mb: drops least recently used idle shadows first

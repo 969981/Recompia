@@ -7,7 +7,7 @@
 // negative-height viewport, a memory barrier after every pass, textures sampled by a draw are made current before the pass,
 // handles never dropped by count, deferred bind arrays read at record time.
 #include "nvn_replay_internal.h"
-
+#include "nxrt/platform_facts.h"
 namespace nxrt::nvn::be::gpu {
 namespace replay {
 constexpr int kMaxDepth = 8;
@@ -676,7 +676,7 @@ void replay_end_submit(Frame& f) {
         ft::SplitScope sp_(ft::kSplSetup);
         out_end_submit(F->cb, F->serial);
     }
-    end_pass();
+    end_pass(); if constexpr (facts::kPhone) pcopy_ring_flush(f.cb, f.serial);   // phones: the landing ring's GPU copies (nvn_pool_land.cpp)
     g_copies.end_submit(f.serial);
     g_q.end_submit();
     for (; g_dbg_depth > 0; --g_dbg_depth) vkCmdEndDebugUtilsLabelEXT(f.cb);   // labels cannot outlive their command buffer either
