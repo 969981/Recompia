@@ -72,7 +72,8 @@
 //   0x1353a0 (entry hook, as for kind 2), called from one of the two: on a member the notice (kind 14, stage, b, a | mode << 12,
 //   mode 0 for 0x135d80) is queued and sent as kind 1's. On the authority it is posted with the same notifier at the same safe
 //   moment; one notice is one post, so a press is posted there as often as it was on the member. The authority's own notices are
-//   never sent, so nothing comes back to it.
+//   never sent, so nothing comes back to it. Every 0x135d80 notice on the authority (its player's, or a member's posted there) is
+//   also handed to the contents scenes (pkp_coop_contents.cpp), whose lost-scene rows include a press a lost record waited on.
 // The wire carries any creature event kind (wire::Type::CreatureEvent); a kind this build does not post is dropped by the authority.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
@@ -342,7 +343,11 @@ void on_used(uint64_t sc, uint64_t list, uint64_t ret) {
     uint16_t object = 0, use = 0;
     if (!guest::read(sc + kUsedObject, object) || !guest::read(sc + kUsedUse, use)) return;
     if (static_cast<uint16_t>(object - 1) >= kObjectMax || static_cast<uint16_t>(use - 1) >= kUseMax) return;   // the notifiers' bounds
-    if (!link::is_authority() && quests::member_rules()) queue(kUsedKind, object, static_cast<uint16_t>(use | mode << kModeShift));
+    if (link::is_authority()) {
+        if (!mode) contents::on_object_used(object, use);   // its own press or a member's posted here: a lost scene may wait on it
+    } else if (quests::member_rules()) {
+        queue(kUsedKind, object, static_cast<uint16_t>(use | mode << kModeShift));
+    }
 }
 
 }  // namespace

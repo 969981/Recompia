@@ -424,6 +424,9 @@ int on_scene_start(::Ctx* c);
 // Asks the game again for a remembered scene at a safe moment until it plays (once a frame); on the authority, gives a quest a
 // scene it was waiting on that an older save lost.
 void tick(::Ctx* c, bool in_game);
+// The authority's contents got an "object used" notice (0x135d80: object kind, use category), its own player's or a member's
+// (pkp_coop_feed.cpp): a lost scene whose record waited on that use is looked at once, after the game's own records had their chance.
+void on_object_used(uint16_t object, uint16_t use);
 void reset();
 }  // namespace contents
 

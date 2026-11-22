@@ -24,10 +24,15 @@
 //                                     every actor is in the world, none it does not hold is a player and requests are under 4
 //   0x47bfe4 (midhook, in 0x47bf80)   `and w24, w24, w0`: w0 = the IsMine answer (vt+0x478) of the character whose u16 id is at x20
 //                                     (0 when it is not in the world), x19 = the runner. Only a character in the world is taken.
-//   Saves where it was lost already: a quest at 3 whose scene was lost is given it again when the player is where the record asked
-//   (kLost, the record's own condition from its content's data). Run on the authority only, like a quest step.
+//   Saves where it was lost already: a quest at 3 whose scene was lost is given it again when the record's own condition from its
+//   content's data holds (kLost: the player where the record asked, the press it waited for, or the scene before it played), in the
+//   quest's own area. Run on the authority only, like a quest step. Why a save keeps it lost: 0x134b80 takes a finished record out
+//   of its list through 0x132f00, which keeps only a mode-1 record (rec +0x10 == 1), whatever its 2000 command's queue did (0x12b544
+//   is void), and its saved progress says done; the retry above lives in memory only (dropped at a stage change, after kGiveUp, at a
+//   quit, and missing on builds before it), so a refusal it did not outlast stays in the save.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
+#include "core/pkp_journal.h"
 #include "core/pkp_layout.h"
 
 #include <cstddef>
@@ -69,15 +74,37 @@ constexpr uint64_t kRunActors = 0x1a88, kRunActorCount = 0x1a90;   // the event'
 constexpr uint64_t kRunRequests = 0x1ab0;     // u32: 0x476100 refuses the start at 4 or more
 constexpr size_t kMax = 8;
 
-// A scene a mode-0 record queued once and that was lost in a save already: the quest that waits on it, and the record's condition
-// (cells, x / z half-open, y any). Content 151 (#7249) record 9: `3000 (1000, -1, 1162)..(1035, -1, 1222) -> 2000 scene 150`.
+constexpr uint64_t kStageOf = 0x11ac38;      // (quest id) -> u8 the quest's area (its row +0xad)
+constexpr uint64_t kLevelOf = 0x58042c;      // (stage) -> u8 its Environment Level (condition 0x86b's getter)
+constexpr double kSettle = 5.0;              // a lost scene's condition held this long: the game's own record had its chance
+constexpr double kPressWait = 300.0;         // a press is looked at within this long (the first safe moment after kSettle; a
+                                             // press no record took opens the PC's menu first)
+
+// A scene a mode-0 record queued once and that was lost in a save already: the quest that waits on it (state 3), the scene, and the
+// record's condition besides that: the player in a box (cells, x / z half-open, y any), a use of an object (its 0x51e notice: object
+// kind and use category, on the authority), with the area's Environment Level at least level, and the scenes that must or must
+// not have played.
+enum class When : uint8_t { InBox, Press, After };
 struct Lost {
     uint32_t quest, scene;
-    int16_t x0, z0, x1, z1;
+    When when;
+    int16_t x0, z0, x1, z1;    // InBox
+    uint16_t object, use;      // Press
+    uint8_t level;             // 0: none
+    uint16_t after[2];         // After: one of these played
+    uint16_t none[3];          // none of these played (0: unused)
 };
 constexpr Lost kLost[] = {
-    {122, 150, 1000, 1162, 1035, 1222},
+    // Content 151 (#7249) record 9: `3000 (1000, -1, 1162)..(1035, -1, 1222) -> 2000 scene 150` (quest 122).
+    {122, 150, When::InBox, 1000, 1162, 1035, 1222, 0, 0, 0, {0, 0}, {150, 0, 0}},
+    // Content 131 (#7229, quest 102) record 5: `!ran 3, 51e (0xaa9 the PC, 0x1e2), 86b >= 3 -> 2000 scene 278`. Record 3 takes the
+    // same press for scene 352 (when its parent 2 is live) and blocks record 5 once it ran, lost or not; record 6 follows on either.
+    {102, 278, When::Press, 0, 0, 0, 0, 0xaa9, 0x1e2, 3, {0, 0}, {278, 352, 353}},
+    // Content 131 record 6: `OR{3fc scene 278 ended, 3fc scene 352 ended} -> 2000 scene 353` (polled). Scene 353 closes quests 102
+    // and 15.
+    {102, 353, When::After, 0, 0, 0, 0, 0, 0, 0, {278, 352}, {353, 0, 0}},
 };
+constexpr size_t kLostCount = sizeof kLost / sizeof kLost[0];
 
 struct Pending {
     uint32_t scene;
@@ -94,6 +121,8 @@ enum Branch : uint8_t { kWaits = 1, kNotBusy = 2, kEnded = 4, kLastResort = 8 };
 struct State {
     std::vector<Pending> pending;
     bool replaying = false;   // our own call of the command: not remembered again
+    double pressed[kLostCount] = {};   // a Press row's object was used here at (0: not since it was looked at)
+    double held[kLostCount] = {};      // a row's condition seen holding since (0: not holding)
 };
 State& st() {
     static State s;
@@ -274,6 +303,68 @@ bool in_box(const Lost& l) {
     return cx >= l.x0 && cx < l.x1 && cz >= l.z0 && cz < l.z1;
 }
 
+bool asked(uint32_t scene) {
+    for (const Pending& p : st().pending)
+        if (p.scene == scene) return true;
+    return false;
+}
+
+// The row's scene state: one of after played (or no such need), none of none played or asked for already.
+bool scenes_say_lost(const Lost& l) {
+    bool after = !l.after[0];
+    for (const uint16_t s : l.after) after = after || (s && played(s));
+    if (!after) return false;
+    for (const uint16_t s : l.none)
+        if (s && (played(s) || asked(s))) return false;
+    return true;
+}
+
+// The row's whole condition but the press itself (the authority, in the group's world): the quest waits, in its own area, at the
+// level, and the scenes say lost.
+bool holds(::Ctx* c, const Lost& l, uint8_t here) {
+    if (quest_state(l.quest) != 3 || (guest::call(c, base() + kStageOf, l.quest) & 0xff) != here) return false;
+    if (l.level && (guest::call(c, base() + kLevelOf, here) & 0xff) < l.level) return false;
+    if (l.when == When::InBox && !in_box(l)) return false;
+    return scenes_say_lost(l);
+}
+
+// Saves where a one-shot record's scene was lost already: one row a frame, at the retry's safe moment.
+void rescue(::Ctx* c, uint8_t here, double now) {
+    State& s = st();
+    for (size_t i = 0; i < kLostCount; ++i) {
+        const Lost& l = kLost[i];
+        if (l.when == When::Press) {
+            if (s.pressed[i] == 0.0 || now - s.pressed[i] < kSettle) continue;
+            const bool stale = now - s.pressed[i] >= kPressWait;
+            s.pressed[i] = 0.0;   // one look per press
+            if (quest_state(l.quest) != 3) continue;   // the usual case: nothing waits on this press
+            const bool lost = !stale && holds(c, l, here);
+            journal::Rec rec(journal::Area::Event, "lost scene");
+            rec.in("quest=%u state=%u object=0x%x use=0x%x scene=%u", l.quest, quest_state(l.quest), l.object, l.use, l.scene);
+            if (lost) {
+                rec.out("asked for again").expect("the record's scene, which this save lost");
+                remember(c, l.scene, "was lost in this save (the quest still waits on it; the record's press came again)");
+                return;
+            }
+            rec.out(stale ? "no safe moment in time" : "not needed: the record ran, or its condition is not met");
+            continue;
+        }
+        if (!holds(c, l, here)) {
+            s.held[i] = 0.0;
+            continue;
+        }
+        if (s.held[i] == 0.0) s.held[i] = now;
+        if (now - s.held[i] < kSettle) continue;
+        s.held[i] = 0.0;
+        journal::Rec(journal::Area::Event, "lost scene")
+            .in("quest=%u state=3 scene=%u", l.quest, l.scene)
+            .out("asked for again")
+            .expect("the record's scene, which this save lost");
+        remember(c, l.scene, "was lost in this save (quest is still waiting on it)");
+        return;
+    }
+}
+
 }  // namespace
 
 int on_play_scene(::Ctx* c) {
@@ -288,7 +379,7 @@ int on_play_scene(::Ctx* c) {
 void tick(::Ctx* c, bool in_game) {
     State& s = st();
     if (!c || !link::in_session() || !story::world_started()) {
-        s.pending.clear();
+        s = State{};
         return;
     }
     const double now = qpc::seconds();
@@ -315,15 +406,14 @@ void tick(::Ctx* c, bool in_game) {
         return;   // one a frame
     }
     // Saves where the scene was lost already (the authority: the group's quest).
+    if (link::is_authority()) rescue(c, here, now);
+}
+
+void on_object_used(uint16_t object, uint16_t use) {
     if (!link::is_authority()) return;
-    for (const Lost& l : kLost) {
-        if (quest_state(l.quest) != 3 || played(l.scene) || !in_box(l)) continue;
-        bool known = false;
-        for (const Pending& p : s.pending) known = known || p.scene == l.scene;
-        if (known) continue;
-        remember(c, l.scene, "was lost in this save (quest is still waiting on it)");
-        return;
-    }
+    State& s = st();
+    for (size_t i = 0; i < kLostCount; ++i)
+        if (kLost[i].when == When::Press && kLost[i].object == object && kLost[i].use == use) s.pressed[i] = qpc::seconds();
 }
 
 int on_scene_take(::Ctx* c) {
