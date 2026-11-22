@@ -268,8 +268,8 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
         static bool told = false;
         if (!told) {
             told = true;
-            NXLOG_I(kTag, "scene upscale: %s on the scene stretch %s, %ux%u -> %ux%u", extras::upscale_mode() == extras::UpscaleMode::Nis ? "NIS" : "FSR 1",
-                    S.stage[kFragment]->hash.c_str(), part.width, part.height, out.width, out.height);
+            NXLOG_I(kTag, "scene upscale: %s on the scene stretch %s, %ux%u -> %ux%u", cheap ? extras::scene_upscale_name()
+                    : extras::upscale_mode() == extras::UpscaleMode::Nis ? "NIS" : "FSR 1", S.stage[kFragment]->hash.c_str(), part.width, part.height, out.width, out.height);
         }
         return;
     }

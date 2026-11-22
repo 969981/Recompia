@@ -10,6 +10,7 @@
 #include <unordered_set>
 
 #include "nxrt/host_device.h"
+#include "nxrt/platform_facts.h"
 #include "nvn_thread.h"   // BigThread: the texture-arming worker gets a stack of its own (the guest code cannot exhaust it)
 
 namespace nxrt::nvn::be {
@@ -343,9 +344,9 @@ static bool is_shadow_map(const Texture& t) {
 // size, and the draw that copies the scene into the window texture enlarges it. 0 when off or not known yet.
 static std::unordered_set<uint32_t> g_ui_depth;   // depth targets of passes on a window texture (render thread): they keep its scale
 static float ui_native_scale_impl(const Texture& t) {
-    // default on for a phone; off elsewhere: there the present then stops upscaling, so a desktop player's chosen upscaler would no
-    // longer reach the final picture (it would override a player's setting)
-    static const bool on = nxrt::config_get_bool("gfx", "ui_native", host_is_phone());
+    // always on for a phone (its one-step upscale to the screen depends on it); off elsewhere: there the present then stops upscaling, so
+    // a desktop player's chosen upscaler would no longer reach the final picture (it would override a player's setting)
+    static const bool on = facts::kPhone || nxrt::config_get_bool("gfx", "ui_native", host_is_phone());
     if (!on || t.b.width <= 0 || (!t.is_display && !g_ui_depth.count(t.id))) return 0.0f;
     static float sc = 0.0f;
     if (sc == 0.0f) {
@@ -353,7 +354,11 @@ static float ui_native_scale_impl(const Texture& t) {
         const VkExtent2D e = r ? r->extent() : VkExtent2D{};
         if (e.width == 0) return 0.0f;
         const float rs = render_scale_now();
-        sc = std::clamp(static_cast<float>(e.width) / static_cast<float>(t.b.width), rs, 1.0f);
+        // A phone: the swapchain's size exactly, above the game's size too (wider than the 1920-wide targets on a foldable's near-square inner screen): the
+        // scene upscaler then enlarges the 3D picture in one step to the screen, the 2D is drawn at the screen's resolution and the present
+        // copies it 1:1. The render scale never goes above it there (the game layer's resolution ceiling is at most the screen).
+        if constexpr (facts::kPhone) sc = std::max(static_cast<float>(e.width) / static_cast<float>(t.b.width), rs);
+        else sc = std::clamp(static_cast<float>(e.width) / static_cast<float>(t.b.width), rs, 1.0f);
         NXLOG_I(kTag, "ui_native: window textures (%dx%d) at scale %.3f (swapchain %ux%u, render scale %.3f): the 2D at the screen's resolution", t.b.width,
                 t.b.height, sc, e.width, e.height, rs);
     }
