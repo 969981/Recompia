@@ -2,6 +2,8 @@
 // Render passes of the replay: dynamic rendering begun lazily on the current targets, ended with or without a barrier (tracked barriers).
 #include "nvn_replay_internal.h"
 #include "nxrt/diag.h"
+#include "nxrt/ab_switch.h"
+#include "nxrt/platform_facts.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -237,6 +239,16 @@ static std::string pass_report() {
     return out;
 }
 
+// [nvn] ro_store_none (phones, default on; A/B name "ro_store_none"): a pass whose depth/stencil attachment is read-only ends with
+// STORE_OP_NONE instead of STORE: the pass cannot write it (DEPTH_STENCIL_READ_ONLY_OPTIMAL), and NONE keeps its contents (core in Vulkan
+// 1.3, which the runtime requires), so a tiler skips writing the whole depth buffer back at the end of every such pass. The outdoor
+// lighting section has about 25 of them per frame (half-size D24S8 targets on a Tensor G2 (Mali-G710)). Same picture by construction.
+template <bool kOn = facts::kPhone>
+bool ro_store_none() {
+    static const bool on = config_get_bool("nvn", "ro_store_none", true);
+    return diag::ab("ro_store_none", on);
+}
+
 // Starts a pass on the current render targets if none is open for them. False when there is nothing to render to. fbl: the colour slots
 // that are in the feedback loop layout (a pass in another layout mode is ended: the layouts and the pipelines' feedback flag go together).
 bool ensure_pass(bool depth_ro, uint8_t fbl) {
@@ -314,6 +326,8 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
             depth.loadOp = stencil.loadOp = (fresh && !depth_ro) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
             P.loaded_d = depth.loadOp == VK_ATTACHMENT_LOAD_OP_LOAD;
             depth.storeOp = stencil.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            if constexpr (facts::kPhone)
+                if (depth_ro && ro_store_none()) depth.storeOp = stencil.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
             depth.clearValue.depthStencil = {1.0f, 0};
             stencil.clearValue.depthStencil = {1.0f, 0};
             P.depth_fmt = tex_vk_format(dt);
