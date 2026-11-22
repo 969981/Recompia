@@ -916,7 +916,7 @@ void image_barrier(VkCommandBuffer cb, VkImage image, VkImageLayout from, VkImag
 }
 
 void memory_barrier(VkCommandBuffer cb) {
-    g_gauge_barriers_mem.add(1); if constexpr (facts::kPhone) { if (barrier_batch().cb.load(std::memory_order_relaxed) == cb) { barrier_batch().mem = true; return; } }   // collected
+    g_gauge_barriers_mem.add(1); if constexpr (facts::kPhone) { if (barrier_batch().on(cb)) { barrier_batch().mem = true; return; } if (on_render_thread()) gfx::work_kinds().store(0, std::memory_order_relaxed); }   // vk_work_track.h
     VkMemoryBarrier2 b = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
     b.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     b.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;

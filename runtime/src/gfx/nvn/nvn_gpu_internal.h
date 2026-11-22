@@ -17,6 +17,7 @@
 
 #include <volk.h>
 
+#include "../vk_work_track.h"
 #include "nxrt/platform_facts.h"
 #include "nxrt/ab_switch.h"
 #include "nxrt/gfx.h"

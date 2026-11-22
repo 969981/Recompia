@@ -456,6 +456,58 @@ void end_pass_full_barrier() {
     end_pass();
     memory_barrier(F->cb);
 }
+// Phones, [nvn] barrier_bits (default on: measured on a Tensor G2, full barriers -58 %, passes -25 %, GPU Mcycles -8.8 %; A/B name "barrier_bits"): the game's nvnCommandBufferBarrier, about 133 a frame
+// outdoors (census: 0x3 ORDER_PRIMITIVES|ORDER_FRAGMENTS 69, 0x10 INVALIDATE_TEXTURE 51, 0x8 ORDER_INDIRECT_DATA 5, 0x12 4, 0x21 3,
+// 0x11 1; about 63 with a pass open, 70 with none), each ending the pass with full barriers.
+// With a pass open whose draws wrote only their attachments:
+// - ordering only (ORDER_PRIMITIVES, ORDER_FRAGMENTS(_TILED), INVALIDATE_ZCULL): the pass stays open, nothing is recorded (attachment writes
+//   follow primitive order inside a render pass; a draw that samples an attachment goes through its own feedback handling);
+// - with texture / descriptor invalidation: the pass ends as a tracked pass (its attachment writes are resolved at their next use).
+// With no pass open and no pass writes pending, from what was recorded since the last full barrier (vk_work_track.h: every memory-writing
+// command of any recording site marks its kind):
+// - nothing: no barrier (any bits);
+// - transfers only, ordering and texture / descriptor invalidation: a barrier from the transfers to every reading stage but the attachment
+//   stages (an image a transfer wrote changes layout before it is an attachment: that transition orders it);
+// - ORDER_INDIRECT_DATA (with ordering): all writes to the indirect reads (and the compute that fixes up indirect arguments) only.
+// Anything else (INVALIDATE_SHADER, compute, storage or draw work, a pass with storage writes): the full barrier as before.
+template <bool kOn = facts::kPhone>
+void barrier_op(uint32_t bits) {
+    constexpr uint32_t kOrderBits = 0x1 | 0x2 | 0x4 | 0x80;       // ORDER_PRIMITIVES, ORDER_FRAGMENTS, ORDER_FRAGMENTS_TILED, INVALIDATE_ZCULL
+    constexpr uint32_t kTexBits = 0x10 | 0x40;                    // INVALIDATE_TEXTURE, INVALIDATE_TEXTURE_DESCRIPTOR
+    constexpr uint32_t kIndirect = 0x8;                           // ORDER_INDIRECT_DATA
+    static const bool cfg = config_get_bool("nvn", "barrier_bits", true);
+    if (!g_bar.tracked || g_bar.pass_unsafe || !diag::ab("barrier_bits", cfg)) return end_pass_full_barrier();
+    if (P.open) {
+        if ((bits & ~(kOrderBits | kTexBits)) != 0) return end_pass_full_barrier();
+        if ((bits & kTexBits) == 0) return;                       // ordering only: keep the pass
+        end_pass(true);
+        return;
+    }
+    if (!g_bar.pending.empty()) return end_pass_full_barrier();  // earlier passes' writes waiting for a barrier: as before
+    const uint32_t k = gfx::work_kinds().load(std::memory_order_relaxed);
+    if (k == 0) return;                                          // no work since the last full barrier
+    VkMemoryBarrier2 m = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    if ((bits & ~(kOrderBits | kTexBits)) == 0 && k == gfx::kWorkTransfer) {
+        m.srcStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        m.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        m.dstStageMask = VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                         VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        m.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_UNIFORM_READ_BIT |
+                          VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_2_INDEX_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT |
+                          VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    } else if ((bits & ~(kOrderBits | kIndirect)) == 0 && (bits & kIndirect)) {
+        m.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        m.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+        m.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        m.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    } else {
+        return end_pass_full_barrier();
+    }
+    VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.memoryBarrierCount = 1;
+    di.pMemoryBarriers = &m;
+    vkCmdPipelineBarrier2(F->cb, &di);                           // scoped: the work kinds stay as they were (not a full barrier)
+}
 void prepare_texel_buffers(const ProgLayout& pl);   // draws: GPU copies of uniform texel buffers at offsets the GPU cannot view (nvn_replay_bind.cpp)
 float attach_targets(bool fix);
 bool ensure_pass(bool depth_ro = false, uint8_t fbl = 0);

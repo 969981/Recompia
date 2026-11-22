@@ -27,7 +27,7 @@
 #include "vk_gauges.h"
 #include "vk_perf_facts.h"
 #include "extras/temporal.h"
-
+#include "vk_work_track.h"   // phones: the replay's record of GPU work since its last full barrier
 #if defined(__APPLE__)
 #include <dlfcn.h>
 #endif
@@ -834,7 +834,7 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     dci.ppEnabledExtensionNames = dev_exts.data();
     r = vkCreateDevice(physical_, &dci, nullptr, &device_);
     if (r != VK_SUCCESS) return fail("vkCreateDevice failed (" + std::to_string(r) + ")");
-    volkLoadDevice(device_);
+    volkLoadDevice(device_); if constexpr (facts::kPhone) install_work_track();   // phones: vk_work_track.h
     vkGetDeviceQueue(device_, queue_family_, 0, &queue_);
 
     uint32_t nq = 0;
