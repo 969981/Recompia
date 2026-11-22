@@ -70,12 +70,12 @@
 //               pkp_coop_friendship.cpp)
 //   FriendState +2 u16 count n, then n times: u16 chara (< 0x41a), u16 friendship points (+0x2c), u16 meter (+0x2e), u8 the bytes
 //               +0x175, +0x177, +0x17a, +0x17d   (the authority's friend records that changed, or all set ones to a member that joins)
-//   CreatureEvent +2 u8 event kind (1: talked to, 29: fed), +3 u8 the origin's stage, +4 u16 the creature's data id (1..0x3ff), +6 u16
-//               the kind's argument (kind 1: 0; kind 29: bits 0..12 the item, bit 15 the feed's flag)   (pkp_coop_feed.cpp: a
-//               member's player did it; the authority makes it again for its own creature; a kind it does not post is dropped)
-//   CreatureEvent +2 u8 event kind (1: talked to), +3 u8 the origin's stage, +4 u16 the creature's data id (1..0x3ff), +6 u16 the
-//               kind's argument (kind 1: 0)   (pkp_coop_feed.cpp: a member's player did it; the authority posts it to its contents;
-//               a kind the authority does not post is dropped)
+//   CreatureEvent +2 u8 event kind (1: talked to, 29: fed, 2: event ended, 14: object used), +3 u8 the origin's stage, +4 u16 the
+//               kind's value (kinds 1 / 29: the creature's data id, 1..0x3ff; kind 2: the ended scene / id / n; kind 14: the object
+//               kind, 1..0xfff), +6 u16 the kind's argument (kind 1: 0; kind 29: bits 0..12 the item, bit 15 the feed's flag; kind 2:
+//               the notifier's field, 0..2; kind 14: bits 0..8 the use category (1..0x1ff), bits 12..13 the mode (0: the 0x135d80
+//               notice, 1..3: the 0x135cf4 one))   (pkp_coop_feed.cpp: a member's player did it; the authority makes it again for
+//               its own creature or posts it to its contents; a kind it does not post is dropped, so a new kind changes no layout)
 //   NewcomerAsk +2 u16 the creature's actor handle, +4 u16 its chara (< 0x41a), +6 u8 the origin's stage   (a member's first talk
 //               with a creature no player had befriended; the authority makes the host's befriend for it; pkp_coop_newcomer.cpp)
 //   DepositAsk  +2 u8[16] the asker's member key, +18 u64 ask id (the same on every resend), +26 u32 the drop's cell (x | y << 16),

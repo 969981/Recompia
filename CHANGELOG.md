@@ -14,6 +14,7 @@
 - Storage box tabs: paging from one tab of a big storage box into the next no longer shows an empty or wrong page for a moment before the new tab's items appear
 
 ### Co-op
+- A teammate using the PC now counts for the story as the host's use does: the story steps that wait for someone to use the PC (the professor's walk over to it, for one) now move on when a teammate uses it, as long as the host is in the same area
 - Teammates see the same story talks as the host: each character's next story talk, the professor's included, and the objective that goes with it. A story talk a teammate plays now moves the story on for the whole group
 - A story scene is no longer lost when a teammate is talking to one of its characters, or is far away in a scene of their own with them: in the opening, watering the thirsty water creature while a teammate talks to the professor left it thirsty for good. The scene now waits while the teammate is really talking to or playing a scene with that character, and starts a few seconds after they are done, or within seconds when they are not busy with it
 - A teammate who meets the creature that comes to a new habitat goes straight on into its talk that asks to move in, as the host does. Before, that talk was dropped and the teammate had to press twice more to talk to it

@@ -196,9 +196,10 @@ enum class Site : uintptr_t {
     TalkRecArmed,     // script callback 195's set of the talk record's +0x10: a member's is set in the authority's record too
     // ---- the Star Piece swap in a member's talk (pkp_coop_talk.cpp) ----
     TalkSwapParent,   // script callback slot 119's parent term: a member's is the group's record of the creature, as for the host
-    // ---- an event's end on a member (pkp_coop_feed.cpp) ----
-    EventEnded,       // the contents notifier, called by the three "event ended" notifiers: a member's is posted on the authority too,
-                      // so content records waiting on a scene a member played run for the group
+    // ---- an event's end, an object's use on a member (pkp_coop_feed.cpp) ----
+    ContentsNotice,   // the contents notifier, called by the three "event ended" notifiers and the two "object used" ones: a member's
+                      // is posted on the authority too, so content records waiting on a scene a member played or an object a member
+                      // used (the PC) run for the group
     // ---- a content's scene refused by a character another player holds (pkp_coop_contents.cpp) ----
     SceneTake,        // the event setup's "every character is ready" test: a remembered scene refused long enough starts anyway
     SceneStart,       // the event start's IsMine of one character: the same scene takes a character another player holds
@@ -351,7 +352,7 @@ constexpr CoopSite kSites[] = {
     // the Star Piece swap in a member's talk (pkp_coop_talk.cpp)
     {{0x4a1adc, 0x2a0802d8u, false}, Site::TalkSwapParent},  // orr w24, w22, w8 (w8 = the parent term, w24 = the data id, in 0x4a17fc)
     // an event's end on a member (pkp_coop_feed.cpp): the journal's entry site of the contents notifier, shared
-    {{0x1353a0, kPacibsp, true}, Site::EventEnded},
+    {{0x1353a0, kPacibsp, true}, Site::ContentsNotice},
     {{0x4774e8, 0x3600013cu, false}, Site::SceneTake},       // tbz w28, #0, 0x47750c (w28 = all characters ready, x19 = the runner)
     {{0x47bfe4, 0x0a000318u, false}, Site::SceneStart},      // and w24, w24, w0 (w0 = IsMine, x20 = &actor id, x19 = the runner)
 };
@@ -461,7 +462,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::StoryFollow: return coop::follow::on_story_follow(c);
         case Site::TalkRecArmed: return coop::talkrec::on_armed(c);
         case Site::TalkSwapParent: return coop::talk::on_swap_parent(c);
-        case Site::EventEnded: return coop::feed::on_event_ended(c);
+        case Site::ContentsNotice: return coop::feed::on_notice(c);
         case Site::SceneTake: return coop::contents::on_scene_take(c);
         case Site::SceneStart: return coop::contents::on_scene_start(c);
         // a dropped player is waited for (pkp_coop_drop.cpp)

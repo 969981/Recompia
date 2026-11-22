@@ -658,10 +658,11 @@ int on_talked_to(::Ctx* c);
 // The hook site (pkp_coop.cpp): entry 0x136548, the "fed" notice of a field feed (from 0x597820 only). On a member in the session the
 // feed is queued for the authority, which makes the creature eat it there; the game's own code runs everywhere (returns 0).
 int on_fed(::Ctx* c);
-// The hook site (pkp_coop.cpp): entry 0x1353a0, the contents notifier, from one of the three "event ended" notifiers (0x1356b8,
-// 0x135720, 0x135788). On a member in the session the event's end is queued for the authority; the authority remembers its own
-// posts, so a member's of the same event is not posted twice. The game's own code runs everywhere (returns 0).
-int on_event_ended(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0x1353a0, the contents notifier. From one of the three "event ended" notifiers (0x1356b8,
+// 0x135720, 0x135788): on a member in the session the event's end is queued for the authority; the authority remembers its own
+// posts, so a member's of the same event is not posted twice. From one of the two "object used" notifiers (0x135d80, 0x135cf4): on a
+// member in the session the notice is queued for the authority. The game's own code runs everywhere (returns 0).
+int on_notice(::Ctx* c);
 // The message (pkp_coop_link.cpp): a member's creature event, posted on the authority at a safe moment.
 void on_event_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // Sends a member's events and posts the authority's received ones (once a frame, after the channel's handlers).
