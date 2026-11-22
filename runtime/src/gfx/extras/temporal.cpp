@@ -143,6 +143,7 @@ struct State {
     double phase_seen[32][2] = {};
     std::chrono::steady_clock::time_point last_eval{};
     UpscaleMode last_mode = UpscaleMode::Off;
+    bool last_hdr = true;
     VkExtent2D max_render = {}, last_out = {};
     // GPU objects
     gfx::Device* dev = nullptr;
@@ -381,6 +382,12 @@ void temporal_note_gbuffer(const uint32_t* words, size_t n_words) {
     }
 }
 
+void temporal_drop_camera() {
+    State& s = st();
+    std::lock_guard<std::mutex> lk(s.mu);
+    s.have_cam = false;
+}
+
 bool temporal_camera_ready() {
     State& s = st();
     std::lock_guard<std::mutex> lk(s.mu);
@@ -388,7 +395,7 @@ bool temporal_camera_ready() {
 }
 
 VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView color, VkImageView depth, VkImageLayout depth_layout, VkExtent2D render,
-                              VkExtent2D out, bool depth_neg_one, VkExtent2D out_tex) {
+                              VkExtent2D out, bool depth_neg_one, VkExtent2D out_tex, bool hdr) {
     State& s = st();
     std::lock_guard<std::mutex> lk(s.mu);
     const UpscaleMode mode = upscale_mode();
@@ -450,7 +457,7 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
 
     // history: reset on the first frame, an output/mode change, a render size beyond the backend's capacity, or a camera cut. Dynamic-resolution
     // changes within the largest render size already given to the backend keep their history.
-    bool reset = !s.have_prev || mode != s.last_mode || render.width > s.max_render.width || render.height > s.max_render.height ||
+    bool reset = !s.have_prev || mode != s.last_mode || hdr != s.last_hdr || render.width > s.max_render.width || render.height > s.max_render.height ||
                  out.width != s.last_out.width || out.height != s.last_out.height;
     const auto now = std::chrono::steady_clock::now();
     double ms = s.evaluations ? std::chrono::duration<double, std::milli>(now - s.last_eval).count() : 16.7;
@@ -538,6 +545,7 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     auto ndc_at = [&](double t) { return (cur.p22 * cur.zsgn * t + cur.p23) / (a32 * t); };
     const bool inverted = ndc_at(1.0) > ndc_at(1000.0);
     f.depth_inverted = inverted;
+    f.hdr = hdr;
     const double z_near_ndc = inverted ? 1.0 : (depth_neg_one ? -1.0 : 0.0), z_far_ndc = inverted ? (depth_neg_one ? -1.0 : 0.0) : 1.0;
     auto dist_at = [&](double z) {
         const double den = z * a32 - cur.p22 * cur.zsgn;
@@ -563,8 +571,9 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
         f.cam_fwd[i] = static_cast<float>(cur.fwd[i]);
     }
     if (s.evaluations == 0)
-        NXLOG_I(kTag, "%s: render %ux%u -> %ux%u, depth %s, near %.3f far %.1f, vertical fov %.1f deg, motion vectors from depth + camera (camera motion only)",
-                be->name(), render.width, render.height, out.width, out.height, inverted ? "reversed" : "forward", static_cast<double>(f.near_z),
+        NXLOG_I(kTag, "%s: render %ux%u -> %ux%u (%s), depth %s, near %.3f far %.1f, vertical fov %.1f deg, motion vectors from depth + camera (camera motion only)",
+                be->name(), render.width, render.height, out.width, out.height, hdr ? "HDR scene at the tone map" : "display-referred scene at its enlargement",
+                inverted ? "reversed" : "forward", static_cast<double>(f.near_z),
                 static_cast<double>(f.far_z), static_cast<double>(f.fov_y) * 57.29578);
     if (!be->evaluate(cb, f)) return VK_NULL_HANDLE;
     barrier(cb, s.output.img.image, VK_IMAGE_LAYOUT_GENERAL, any, VK_ACCESS_2_MEMORY_WRITE_BIT,
@@ -579,6 +588,7 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     s.last_jit_px[1] = jpy;
     s.last_eval = now;
     s.last_mode = mode;
+    s.last_hdr = hdr;
     s.max_render.width = std::max(s.max_render.width, render.width);
     s.max_render.height = std::max(s.max_render.height, render.height);
     s.last_out = out;
