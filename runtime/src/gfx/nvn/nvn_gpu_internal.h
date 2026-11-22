@@ -296,6 +296,9 @@ bool tex_promoted(Texture* t);
 // the NVN format that is blitted from or to the texture (the GPU converts; a scaled image's region is scaled). The texture must be in
 // TRANSFER_DST_OPTIMAL (to_texture) or TRANSFER_SRC_OPTIMAL. False with *why set when no conversion is possible: nothing recorded.
 bool tex_copy_buffer_converted(Texture* t, Frame& f, VkBuffer buffer, const VkBufferImageCopy& c, bool to_texture, const char** why);
+// A phone's scene upscale (nvn_gpu_texture_blit.cpp): src (GENERAL layout, format src_fmt, at least ext) blitted 1:1 into level 0 / layer 0
+// of t. False, nothing recorded: t cannot take it (no transfer usage, depth, or a format without blit support).
+bool tex_blit_from(Texture* t, Frame& f, VkImage src, VkFormat src_fmt, VkExtent2D ext);
 // vkCmdResolveImage of s into d when their formats differ (d HDR-promoted): resolved into a transient image of s's format, blitted into
 // d. s in TRANSFER_SRC_OPTIMAL, d in TRANSFER_DST_OPTIMAL. False with *why set: nothing recorded.
 bool tex_resolve_converted(Texture* s, Texture* d, Frame& f, const VkImageResolve& r, const char** why);

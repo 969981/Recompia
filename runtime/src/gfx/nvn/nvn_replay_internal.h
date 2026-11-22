@@ -673,6 +673,7 @@ struct SceneOverride {   // owner: nvn_replay_upscale.cpp
     Texture* near[kSuNearMax] = {};
     uint32_t near_n = 0;
     bool stretch_armed = false;
+    bool skip_draw = false;        // a phone: the scene upscale wrote the stretch's target itself (scene_stretch_for_draw), the draw is skipped
     bool nearest(const Texture* t) const {
         for (uint32_t i = 0; i < near_n; ++i) if (near[i] == t) return true;
         return false;

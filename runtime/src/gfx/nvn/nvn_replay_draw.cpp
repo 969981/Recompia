@@ -457,6 +457,8 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
         else if (colour && g_cmd.fs_stretch == 2) scene_sharpen_for_draw(*pl);
         else if (colour && g_cmd.fs_stretch > 0) scene_stretch_for_draw(*pl);
         else g_su.clear();
+        if constexpr (facts::kPhone)
+            if (g_su.skip_draw) { g_su.skip_draw = false; return false; }   // the scene upscale wrote this draw's target
     }
     if (g_copies.fb_seen || (g_cmd.dirty & (kDesc | kPipe))) feedback_prepare(*pl);
     bool pass_ok;

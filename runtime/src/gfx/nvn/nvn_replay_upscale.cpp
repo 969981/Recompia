@@ -7,6 +7,7 @@
 #include "extras/sgsr_spatial.h"
 
 #include "nxrt/game_render.h"
+#include "nxrt/platform_facts.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -259,6 +260,27 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
         tex_transition(r.tex, *F, tex_sampled_layout(r.tex));
         VkImageView src = tex_sampled_view(r.tex, make_request(b, r));
         if (!src) return;
+        if constexpr (facts::kPhone) {
+            // A phone: SGSR / bicubic enlarge the scene part straight into the stretch's target and the game's draw is skipped. The draw reads
+            // its input at uv x fraction, so handing it the result needed an image of out / fraction (at 15 %: an RGBA16F image 6.7 times the screen per side, 1.4 GB,
+            // made when the Resolution was lowered: a phone was killed for memory); this needs one of the target's size.
+            if (cheap && (part.width < se.width || part.height < se.height)) {
+                VkImageView up = cheap->upscale(F->cb, src, part, VkExtent2D{se.width, se.height}, out, false, 1.0f, 0.0f, out);
+                shadow_invalidate();
+                memory_barrier(F->cb);
+                if (up && tex_blit_from(target, *F, cheap->image(), VK_FORMAT_R16G16B16A16_SFLOAT, out)) {
+                    memory_barrier(F->cb);
+                    g_su.skip_draw = true;
+                    static bool told_phone = false;
+                    if (!told_phone) {
+                        told_phone = true;
+                        NXLOG_I(kTag, "scene upscale: %s on the scene stretch %s, %ux%u -> %ux%u, written into its target (the draw is skipped)",
+                                extras::scene_upscale_name(), S.stage[kFragment]->hash.c_str(), part.width, part.height, out.width, out.height);
+                    }
+                }
+                return;   // without the blit the game's own stretch draws (bilinear)
+            }
+        }
         VkImageView up = su->upscale(F->cb, src, part, VkExtent2D{se.width, se.height}, out, false, 1.0f, extras::upscale_sharpness(), out_tex);
         shadow_invalidate();
         if (up) {
