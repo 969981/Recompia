@@ -129,10 +129,12 @@ fi
 apk=$(ls "$app"/app/build/outputs/apk/release/*.apk | head -n 1)
 unzip -Z1 "$apk" | check_no_game_data "the APK"
 for need in lib/$abi/libpkp_rt.so lib/$abi/libSDL3.so lib/$abi/libc++_shared.so lib/$abi/libpython_exec.so lib/$abi/libllvm_exec.so \
-            lib/$abi/libspirv_harness.so lib/$abi/libadrenotools.so assets/recompia-toolchain.tar.gz assets/gpu/turnip.zip \
+            lib/$abi/libspirv_harness.so lib/$abi/libadrenotools.so assets/recompia-toolchain.version assets/gpu/turnip.zip \
             assets/shaders/build_shaders.py assets/prompts/prompt_icons.pak assets/dump_hashes.json; do
     unzip -Z1 "$apk" | grep -qxF "$need" || { echo "error: the APK has no $need" >&2; exit 1; }
 done
+# the kit: the packager stores a .gz asset under its name without .gz (the app looks for both names)
+unzip -Z1 "$apk" | grep -qE '^assets/recompia-toolchain\.tar(\.gz)?$' || { echo "error: the APK has no on-device kit archive" >&2; exit 1; }
 mkdir -p "$D/out"
 out=$D/out/Recompia-$VERSION-android-arm64.apk
 cp "$apk" "$out"
