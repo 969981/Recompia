@@ -36,6 +36,10 @@ struct Tuning {
     std::atomic<uint64_t> csr_hash{0};     // the compute shader's hash (its 16 hex digits as a number); 0 = off
     std::atomic<int> csr_block{-1};        // the uniform block (NVN index, the N of cp_cN)
     std::atomic<uint32_t> csr_mask{0};     // bit i: the float at byte offset 4 * i of the block
+    // A phone: the GPU time of the last frame whose submissions all finished (the union of their timestamp pairs), in microseconds, and
+    // how many such frames there were; the game's dynamic resolution reads it. 0 = no timestamps (or not a phone).
+    std::atomic<uint32_t> gpu_frame_us{0};
+    std::atomic<uint64_t> gpu_frames{0};
 };
 
 Tuning& tuning();                          // process-wide

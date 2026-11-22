@@ -115,6 +115,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_view_offset.cpp"
         # render
         "${_pkp}/render/pkp_render_size.cpp"
+        "${_pkp}/render/pkp_dynres.cpp"
         "${_pkp}/render/pkp_render_targets.cpp"
         "${_pkp}/render/pkp_aspect.cpp"
         "${_pkp}/render/pkp_loading_backdrop.cpp"

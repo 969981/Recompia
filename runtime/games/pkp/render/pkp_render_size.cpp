@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include "nxrt/config.h"
 #include "nxrt/extras.h"
 #include "nxrt/gfx_tuning.h"
 #include "nxrt/hooks.h"
@@ -32,6 +33,7 @@
 #include "nxrt/memory.h"
 #include "nxrt/platform_facts.h"
 #include "play_display.h"
+#include "render/pkp_phone_res.h"
 
 namespace nxrt::games::pkp::play_detail {
 
@@ -43,6 +45,45 @@ inline std::atomic<int>& sub_level_pct() {
     static std::atomic<int> pct{0};
     return pct;
 }
+// A phone's resolution (render/pkp_phone_res.h): the ceiling the targets were made at, the highest percent at all and the screen, set
+// once at start (phone_res_install).
+std::atomic<int> g_ph_ceiling{100}, g_ph_max{100}, g_ph_win_w{0}, g_ph_win_h{0};
+
+// The render scale of a phone's targets (tw x th at scale 1) and, the first time, [pkp] resolution from the keys before it. The targets
+// are made at the player's percent of the screen (at most the whole screen, or the presented share of it under [gfx] present_scale: the
+// low-memory profile's 75, where more pixels than the swapchain would only be shrunk again; at least the back end's lowest render scale,
+// 0.25); the live percent then picks the scene's part of them (phone_scene_pct).
+float phone_res_install(const play::DisplaySettings& d, int window_w, int window_h, int tw, int th) {
+    const int top = static_cast<int>(std::clamp<int64_t>(config_get_int("gfx", "present_scale", 100), 25, 100));
+    g_ph_max.store(top);
+    g_ph_win_w.store(window_w);
+    g_ph_win_h.store(window_h);
+    if (settings::get_int(settings::Key::Resolution) <= 0) {
+        // [display] render_scale (percent of the game's targets, auto = 100) x [upscale] scene_scale, as a share of the screen: the same
+        // pixels as before (a near-square inner screen at 70 and 100: 62 % of that screen's width)
+        const int rs = d.render_scale > 0 ? d.render_scale : 100, ss = extras::upscale_scene_scale_player();
+        const int pct = std::clamp(static_cast<int>(std::lround(rs * ss / 100.0 * tw / std::max(1, window_w))), kPhoneResMin, 100);
+        settings::set_int(settings::Key::Resolution, pct);
+        NXLOG_I(kTag, "resolution: %d%% of the screen, from [display] render_scale %d and [upscale] scene_scale %d (the keys before [pkp] resolution)", pct, rs, ss);
+    }
+    const double per_pct = static_cast<double>(window_w) / std::max(1, tw) / 100.0;   // render scale per percent of the screen
+    const int lowest = static_cast<int>(std::ceil(0.25 / per_pct - 1e-6));
+    const int ceiling = std::clamp(phone_res_setting(), std::min(lowest, top), top);
+    g_ph_ceiling.store(ceiling);
+    const float scale = static_cast<float>(ceiling * per_pct);
+    NXLOG_I(kTag, "resolution: %d%% of the %dx%d screen (live from %d %% up to it; up to %d %% from the next start); the %dx%d targets are made at "
+            "%d %% of it (scale %.3f)", phone_res_value(), window_w, window_h, kPhoneResMin, top, tw, th, ceiling, static_cast<double>(scale));
+    return scale;
+}
+
+// The scene's percent of the targets for [pkp] resolution, lowered by the phone's dynamic resolution when it is on. [upscale]
+// scene_scale_watch, a test aid, wins over the setting with a percent of the screen too.
+int phone_scene_pct(bool dyn) {
+    const int c = g_ph_ceiling.load(std::memory_order_relaxed), w = extras::scene_scale_watch();
+    const int pct = dynres_pct(w > 0 ? std::clamp(w, std::min(kPhoneResMin, c), c) : phone_res_value(), dyn);
+    return std::clamp(static_cast<int>(std::lround(pct * 100.0 / c)), 1, 100);
+}
+
 uint32_t level_size(int level, bool width) {
     const int full = width ? st().w.load(std::memory_order_relaxed) : st().h.load(std::memory_order_relaxed);
     if (level == kFullLevel) return static_cast<uint32_t>(full);
@@ -85,8 +126,12 @@ std::atomic<float> g_vp_kx{1.0f}, g_vp_ky{1.0f};
 
 int hook_copy_params(::Ctx* c, uint64_t, void*) {
     State& s = st();
-    const bool dyn = s.dynres.load(std::memory_order_relaxed);
-    const int pct = std::clamp(extras::upscale_scene_scale(), 25, 100);
+    // a phone runs its own dynamic resolution (pkp_dynres.cpp): its percent is written like a fixed one, over the game's own pick
+    const bool dyn = !facts::kPhone && s.dynres.load(std::memory_order_relaxed);
+    const int pct = [&] {
+        if constexpr (facts::kPhone) return phone_scene_pct(s.dynres.load(std::memory_order_relaxed));
+        else return std::clamp(extras::upscale_scene_scale(), 25, 100);
+    }();
     if constexpr (facts::kPhone) sub_level_pct().store(pct < 50 ? pct : 0, std::memory_order_relaxed);   // below level 0: level_size
     if (g_scene_pct.exchange(pct, std::memory_order_relaxed) != pct)
     {
@@ -144,10 +189,6 @@ int hook_copy_params(::Ctx* c, uint64_t, void*) {
         const uint32_t sh = pct >= 100 ? mh : !by_level ? scene_side(mh, pct)
                                                         : static_cast<uint32_t>(static_cast<uint64_t>(mh) * level_size(lvl, false) / std::max(1, H)) & ~1u;
         if (dyn) {
-            // a phone (where the Dynamic Resolution row sits under Resolution): a cap below the game's own pick writes the cap's level
-            // with it, as without dynamic resolution (a size between levels drew the floating band and the ground grid, above)
-            if constexpr (facts::kPhone)
-                if (pct < 100 && (rd<uint32_t>(v + kCurW) > sw || rd<uint32_t>(v + kCurH) > sh)) wr<uint8_t>(v + kLvlCur, static_cast<uint8_t>(lvl));
             wr<uint32_t>(v + kCurW, std::min(rd<uint32_t>(v + kCurW), sw));
             wr<uint32_t>(v + kCurH, std::min(rd<uint32_t>(v + kCurH), sh));
             continue;
@@ -347,3 +388,19 @@ void install_render_size_hooks(uint64_t base) {
 }
 
 }  // namespace nxrt::games::pkp::play_detail
+
+namespace nxrt::games::pkp {
+
+int phone_res_ceiling() { return play_detail::g_ph_ceiling.load(std::memory_order_relaxed); }
+int phone_res_max() { return play_detail::g_ph_max.load(std::memory_order_relaxed); }
+int phone_res_setting() {
+    const int top = phone_res_max(), v = static_cast<int>(settings::get_int(settings::Key::Resolution));
+    return std::clamp(v > 0 ? v : top, kPhoneResMin, top);
+}
+int phone_res_value() { return std::min(phone_res_setting(), phone_res_ceiling()); }
+void phone_res_pixels(int pct, int* w, int* h) {
+    *w = static_cast<int>(std::lround(play_detail::g_ph_win_w.load(std::memory_order_relaxed) * pct / 100.0)) & ~1;
+    *h = static_cast<int>(std::lround(play_detail::g_ph_win_h.load(std::memory_order_relaxed) * pct / 100.0)) & ~1;
+}
+
+}  // namespace nxrt::games::pkp

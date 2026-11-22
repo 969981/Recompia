@@ -421,6 +421,8 @@ The game's own keys, in the `[pkp]` section of the game ini (`pkp.ini`; `nxrt.in
 | `pkp` | `kbm_icons` | `1` | `1` `0` | `NXRT_PKP_KBM_ICONS` | Keyboard and mouse icons in the game's button prompts. Next start. |
 | `pkp` | `quality_preset` | unset | `switch2` `high` `ultra` `steamdeck` `legion_go_s` `laptop` `desktop` | `NXRT_PKP_QUALITY_PRESET` | When set, the graphics preset (wins over the F1 page's). Next start. |
 | `pkp` | `fog_strength` | `1` | `0` to `1.5` (clamped into it) | `NXRT_PKP_FOG_STRENGTH` | Multiplier on the height fog's amount. Next start. |
+| `pkp` | `exposure_scaled` | `1` | `1` `0` | `NXRT_PKP_EXPOSURE_SCALED` | The exposure histogram measures the scene at the size it is rendered (off: the full 1080p layout, slower, same brightness). Next start. |
+| `pkp` | `scene_upscaler` | `0` | `0` to `2` (clamped into it) | `NXRT_PKP_SCENE_UPSCALER` | On a phone, the upscaler of the 3D picture: 0 off, 1 SGSR, 2 bicubic (with [gfx] ui_native the menus stay sharp). |
 | `pkp` | `lod_distance` | `1` | `0.25` to `8` (clamped into it) | `NXRT_PKP_LOD_DISTANCE` | When set, multiplier on the distance where placed objects switch to their low-detail model. Next start. |
 | `pkp` | `quality_probe` | `0` | `1` `0` | `NXRT_PKP_QUALITY_PROBE` | Log what the quality hooks see (diagnostics). Next start. |
 | `pkp` | `game_taa` | `0` | `0` to `2` (clamped into it) | `NXRT_PKP_GAME_TAA` | Experimental: 1 turns on the engine's camera TAA jitter, 2 also its TemporalAA3 pass switch (0: the game's). Next start. |
@@ -451,6 +453,7 @@ The game's own keys, in the `[pkp]` section of the game ini (`pkp.ini`; `nxrt.in
 | `pkp` | `save_now` | `1` | `1` `0` | `NXRT_PKP_SAVE_NOW` | The pause menu's Save prompt and the quick-save key write the save and keep the player in the world. Next start. |
 | `pkp` | `online_presence` | `0` | `1` `0` | `NXRT_PKP_ONLINE_PRESENCE` | Launcher only (online.rs): while the game runs, tell the Recompia online server that this player is online, with the launcher's online name, version, Windows or Linux and the creatures-at-home count. Sends data off the PC, so off by default. |
 | `pkp` | `online_events` | `1` | `1` `0` | `NXRT_PKP_ONLINE_EVENTS` | The game is told it has an internet connection, so events that need one the first time (Apples to Applin) can start. Nothing is sent: online services still fail. Next start. |
+| `pkp` | `resolution` | `0` | `0` to `100` (clamped into it) | `NXRT_PKP_RESOLUTION` | On a phone, the 3D picture's resolution in percent of the screen per side, 15 to 100 (0: worked out once from [display] render_scale and [upscale] scene_scale, the keys before it). |
 
 Retired keys, read and ignored without a warning (the next save leaves them out): `[pkp]` `link_story_coop`.
 

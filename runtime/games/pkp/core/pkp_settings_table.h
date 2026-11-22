@@ -119,6 +119,7 @@ inline constexpr Spec kSpecs[] = {
     // Read by the network services at start (game::Info::report_online, pkp_game.cpp). On by default so events that need a connection
     // start on their date; online services other than the clock and nifm answers still fail.
     b(OnlineEvents, "online_events", true, "The game is told it has an internet connection, so events that need one the first time (Apples to Applin) can start. Nothing is sent: online services still fail."),
+    live(i(Resolution, "resolution", 0, 0, 100, "On a phone, the 3D picture's resolution in percent of the screen per side, 15 to 100 (0: worked out once from [display] render_scale and [upscale] scene_scale, the keys before it)."))
 };
 static_assert(sizeof(kSpecs) / sizeof(kSpecs[0]) == static_cast<size_t>(Count), "one Spec per Key");
 
