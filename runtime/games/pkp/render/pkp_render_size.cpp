@@ -83,7 +83,12 @@ float phone_res_install(const play::DisplaySettings& d, int window_w, int window
 // scene_scale_watch, a test aid, wins over the setting with a percent of the screen too.
 int phone_scene_pct(bool dyn) {
     const int c = g_ph_ceiling.load(std::memory_order_relaxed), w = extras::scene_scale_watch();
-    const int pct = dynres_pct(w > 0 ? std::clamp(w, std::min(kPhoneResMin, c), c) : phone_res_value(), dyn);
+    const int cap = w > 0 ? std::clamp(w, std::min(kPhoneResMin, c), c) : phone_res_value();
+    const int pct = dynres_pct(cap, dyn);
+    gfx::Tuning& tu = gfx::tuning();   // the frame rate counter's resolution line
+    tu.res_pct.store(pct, std::memory_order_relaxed);
+    tu.res_cap.store(cap, std::memory_order_relaxed);
+    tu.res_dynamic.store(dyn, std::memory_order_relaxed);
     return std::clamp(static_cast<int>(std::lround(pct * 100.0 / c)), 1, 100);
 }
 
