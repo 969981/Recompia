@@ -156,6 +156,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/ui/pkp_sort.cpp"
         "${_pkp}/ui/pkp_box_tabs.cpp"
         "${_pkp}/ui/pkp_box_tabs_carry.cpp"
+        "${_pkp}/ui/pkp_box_tabs_store.cpp"
         "${_pkp}/ui/pkp_craft.cpp"
         "${_pkp}/ui/pkp_save_now.cpp"
         "${_pkp}/ui/pkp_item_edit.cpp"
