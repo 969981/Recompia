@@ -49,10 +49,13 @@ inline std::atomic<int>& sub_level_pct() {
 // once at start (phone_res_install).
 std::atomic<int> g_ph_ceiling{100}, g_ph_max{100}, g_ph_win_w{0}, g_ph_win_h{0};
 
-// The render scale of a phone's targets (tw x th at scale 1) and, the first time, [pkp] resolution from the keys before it. The targets
-// are made at the player's percent of the screen (at most the whole screen, or the presented share of it under [gfx] present_scale: the
-// low-memory profile's 75, where more pixels than the swapchain would only be shrunk again; at least the back end's lowest render scale,
-// 0.25); the live percent then picks the scene's part of them (phone_scene_pct).
+// The render scale of a phone's targets (tw x th at scale 1) and, the first time, [pkp] resolution from the keys before it. The live
+// percent then picks the scene's part of those targets (phone_scene_pct). The targets are made at the whole screen, so every percent is
+// live: measured on the desktop (a near-square window), a scene part of larger targets cost no more GPU time than targets of the scene's own size at
+// 62 % (50.7 / 49.0 against 49.7 ms a frame, within the runs' spread), and targets made small cost much more (25 % as targets at a 0.28
+// scale: 50 to 100 ms a frame; as 25 % of screen-scale targets: 19 ms). Under [gfx] present_scale (the low-memory profile's 75, the swapchain's share
+// of the screen) they are made at the player's percent instead, at least 50 % and at most that share, to keep memory (about 140 bytes per
+// pixel of the targets: a 4-megapixel screen is about 560 MiB of them); a higher percent then applies at the next start.
 float phone_res_install(const play::DisplaySettings& d, int window_w, int window_h, int tw, int th) {
     const int top = static_cast<int>(std::clamp<int64_t>(config_get_int("gfx", "present_scale", 100), 25, 100));
     g_ph_max.store(top);
@@ -68,11 +71,11 @@ float phone_res_install(const play::DisplaySettings& d, int window_w, int window
     }
     const double per_pct = static_cast<double>(window_w) / std::max(1, tw) / 100.0;   // render scale per percent of the screen
     const int lowest = static_cast<int>(std::ceil(0.25 / per_pct - 1e-6));
-    const int ceiling = std::clamp(phone_res_setting(), std::min(lowest, top), top);
+    const int ceiling = top >= 100 ? 100 : std::clamp(phone_res_setting(), std::min(std::max(lowest, 50), top), top);
     g_ph_ceiling.store(ceiling);
     const float scale = static_cast<float>(ceiling * per_pct);
-    NXLOG_I(kTag, "resolution: %d%% of the %dx%d screen (live from %d %% up to it; up to %d %% from the next start); the %dx%d targets are made at "
-            "%d %% of it (scale %.3f)", phone_res_value(), window_w, window_h, kPhoneResMin, top, tw, th, ceiling, static_cast<double>(scale));
+    NXLOG_I(kTag, "resolution: %d%% of the %dx%d screen (live from %d to %d %%%s); the %dx%d targets are made at %d %% of it (scale %.3f)", phone_res_value(),
+            window_w, window_h, kPhoneResMin, ceiling, ceiling < top ? ", higher from the next start" : "", tw, th, ceiling, static_cast<double>(scale));
     return scale;
 }
 

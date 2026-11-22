@@ -200,7 +200,7 @@
     <string name="ui_about">About</string>
     <string name="ui_about_detail">Version, licences, credits</string>
     <string name="ui_set_display">Display</string>
-    <string name="ui_set_display_note">The game starts at the resolution set here. In the game (pause menu, Settings, Display) a lower resolution and the upscaler change at once, a higher resolution at the next start. The other rows take effect the next time the game starts.</string>
+    <string name="ui_set_display_note">In the game (pause menu, Settings, Display) the resolution and the upscaler change at once; on a phone with less than 12 GB of memory a higher resolution than the one the game started with waits for the next start. The other rows take effect the next time the game starts.</string>
     <string name="ui_set_render_scale">Resolution</string>
     <string name="ui_set_dynres">Dynamic resolution</string>
     <string name="ui_set_dynres_note">Lowers the resolution while the phone cannot keep the frame rate, and raises it back up to the one above.</string>

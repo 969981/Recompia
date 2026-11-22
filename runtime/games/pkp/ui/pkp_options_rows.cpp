@@ -76,7 +76,8 @@ bool not_phone() { return !nxrt::host_is_phone(); }
 
 // A phone's Resolution row: [pkp] resolution (render/pkp_phone_res.h), percent of the screen per side in 5 % steps from kPhoneResMin up to
 // the screen (or its presented share); a value between the steps (worked out from the keys before it) is an entry of its own. Each entry
-// shows the 3D picture's size in pixels. Up to the targets of this start it changes at once; above them it applies at the next start.
+// shows the 3D picture's size in pixels. Up to the targets of this start (the whole screen, or on the low-memory profile the start
+// percent) it changes at once; above them it applies at the next start.
 std::vector<int> res_values() {
     std::vector<int> v;
     const int top = phone_res_max(), cur = phone_res_setting();
@@ -208,7 +209,7 @@ constexpr Row kDisplay[] = {
     when(autonum("Render Scale", "The game's resolution; 100% is 1920 x 1080. Auto follows the window.", 76, "%.0f%%", 20, 5,
             [](const S& s) { return s.display.render_scale <= 0 ? 0 : std::clamp((s.display.render_scale - 20) / 5, 1, 76); },
             [](S& s, int v) { s.display.render_scale = v <= 0 ? 0 : 20 + v * 5; play::quality_preset_edited(s.display, play::QualityField::RenderScale); }, true), not_phone),
-    when(live_row(dynamic("Resolution", "The 3D picture's resolution, in percent of the screen; menus and text stay sharp. Lower changes at once, higher from the next start.", res_text, res_max,
+    when(live_row(dynamic("Resolution", "The 3D picture's resolution, in percent of the screen; menus and text stay sharp. Changes at once (an entry marked next start: after a restart).", res_text, res_max,
                           res_get, res_set)), nxrt::host_is_phone),
     // a phone's Dynamic Resolution sits with its Resolution row (the Graphics tab's copy is left out there)
     when(choice("Dynamic Resolution", "Lowers the resolution below the one above while the GPU falls behind, and raises it back up to it.", kOffOn, 2,

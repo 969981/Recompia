@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Game layer: a phone's one resolution setting ([pkp] resolution, percent of the screen per side; pkp_render_size.cpp). The game's
-// targets are made once at start at that percent (the ceiling; never a setting of its own) and a live change picks the scene's part of
-// them through the game's own levels, so it never remakes a target. Targets larger than the scene cost GPU time in the passes that
-// cover the whole target (measured on a near-square desktop window: 63 ms a frame for 62 % of 100 % targets, 50 ms for 62 % targets), so a
-// value above the ceiling waits for the next start, where the targets follow it.
+// targets are made once at start (the ceiling, never a setting of its own: the whole screen, or on the low-memory profile the start
+// percent) and a change picks the scene's part of them through the game's own levels, so it never remakes a target. A value above the
+// ceiling waits for the next start.
 #pragma once
 
 namespace nxrt::games::pkp {
