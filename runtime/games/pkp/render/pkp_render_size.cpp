@@ -36,9 +36,19 @@
 namespace nxrt::games::pkp::play_detail {
 
 // ---- render resolution ----
+// Phones: a scene below the game's lowest level (level 0, half the targets). Every reader of the level sizes goes through the getters
+// below, so level 0 answers the smaller size while it is set (percent of the targets per side, 0 = off) and the level and the size the
+// manager holds still agree. Measured clean on the desktop down to 25 % of the targets.
+inline std::atomic<int>& sub_level_pct() {
+    static std::atomic<int> pct{0};
+    return pct;
+}
 uint32_t level_size(int level, bool width) {
     const int full = width ? st().w.load(std::memory_order_relaxed) : st().h.load(std::memory_order_relaxed);
     if (level == kFullLevel) return static_cast<uint32_t>(full);
+    if constexpr (facts::kPhone)
+        if (const int sub = sub_level_pct().load(std::memory_order_relaxed); level == 0 && sub > 0)
+            return std::max<uint32_t>(2, static_cast<uint32_t>(std::lround(full * sub / 100.0)) & ~1u);
     // the game's own table: levels 0..29 are 960x540 + 32x18 per level (scaled with the new top), 31..33 are 1440p, 4K, 8K (kept)
     static constexpr int kHighW[3] = {2560, 3840, 7680}, kHighH[3] = {1440, 2160, 4320};
     if (level > 33) return static_cast<uint32_t>(full);              // the game's own out-of-range answer is level 30's
@@ -77,6 +87,7 @@ int hook_copy_params(::Ctx* c, uint64_t, void*) {
     State& s = st();
     const bool dyn = s.dynres.load(std::memory_order_relaxed);
     const int pct = std::clamp(extras::upscale_scene_scale(), 25, 100);
+    if constexpr (facts::kPhone) sub_level_pct().store(pct < 50 ? pct : 0, std::memory_order_relaxed);   // below level 0: level_size
     if (g_scene_pct.exchange(pct, std::memory_order_relaxed) != pct)
     {
         // the game's sizes, and the pixels the back end renders them at ([display] render_scale)

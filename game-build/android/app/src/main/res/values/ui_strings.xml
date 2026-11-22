@@ -305,7 +305,7 @@
     <string name="ui_gpu_err_missing_lib">This driver package lacks the library its meta.json names (%1$s).</string>
     <string name="ui_gpu_err_arch">%1$s is not built for this phone (64-bit Arm needed).</string>
     <string name="ui_gpu_err_too_large">%1$s is larger than 256 MB.</string>
-    <string name="ui_set_render_note">Applies at the next start. Change Resolution live in the game\'s pause menu, Settings, Display, from this value down to about half of it.</string>
+    <string name="ui_set_render_note">Applies at the next start. Change Resolution live in the game\'s pause menu, Settings, Display, from this value down to a quarter of it.</string>
     <string name="ui_coop_group">Recompia: Co-op</string>
     <string name="ui_coop_players">Players: %1$s. You: %2$s.</string>
     <string name="ui_coop_you_host">Your copy hosts next.</string>

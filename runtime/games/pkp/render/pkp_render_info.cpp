@@ -65,8 +65,9 @@ constexpr game::LoopGuard kLoopGuards[] = {
 // The lowest dynamic-resolution level that renders correctly is level 1 (51.7 % of the targets; level 0, exactly half, shows a floating
 // band and rectangles: pkp_render_size.cpp); automatic resolution and the phone's Resolution row stay at or above it. On phones fix_rect
 // also matches the game's height-derived scene rects, which is what level 0 (like every level whose height loses a row) needed: measured
-// clean on the desktop on near-square targets with that match, so phones go down to level 0 (50 %).
-constexpr int kSceneScaleMin = facts::kPhone ? 50 : 52;
+// clean on the desktop on near-square targets with that match. Below level 0 phones answer a smaller level 0 (pkp_render_size.cpp level_size), measured
+// clean on the desktop at 40, 33 and 25 % of the targets, so phones go down to 25 % of the maximum.
+constexpr int kSceneScaleMin = facts::kPhone ? 25 : 52;
 constexpr game::SceneStretch kSceneStretch[] = {{"c4664b38f6a87835", false}, {"8526214507533768", true}};
 
 constexpr game::Render kRender = {&kReadbackDefer, &kCamera, kToneMaps, sizeof kToneMaps / sizeof kToneMaps[0],
