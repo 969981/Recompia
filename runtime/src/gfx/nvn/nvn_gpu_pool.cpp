@@ -33,7 +33,7 @@
 #include "nvn_thread.h"
 #include "nvn_mirror_cap.h"
 #include "nvn_gpu_pool_internal.h"
-#include "os_android_ahb.h"
+#include "../../os/os_android_ahb.h"
 
 namespace nxrt::nvn::be {
 
