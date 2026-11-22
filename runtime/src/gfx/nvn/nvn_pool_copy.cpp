@@ -117,8 +117,10 @@ const Cfg& cfg() {
         r.on = !r.automatic && (r.mode == "on" || r.mode == "1" || r.mode == "true");
         // Default 2 MiB: a shadow is at least one cell, and the game binds a few KiB here and there, so with cells of 16 MiB only 149 MiB of
         // 1092 MiB of live shadows held a copy in the world (headless PC run). Cells of 2 MiB: 378 MiB live, the same frame times; a range
-        // that runs into a cell another shadow holds gets a span of its own (83 spans instead of 11 in that run).
-        r.cell = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_cell_mb", 2), 1, 1024)) << 20;
+        // that runs into a cell another shadow holds gets a span of its own (83 spans instead of 11 in that run). 4 MiB with [nvn] pool_ahb:
+        // an AHB cell is GPU memory the phone cannot swap, held whole while any byte of it is bound, and a range across two cells is
+        // merged into one import (nvn_gpu_pool.cpp ahb_merge), so fewer, larger cells keep the merges and the fds down.
+        r.cell = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_cell_mb", pool_ahb_on() ? 4 : 2), 1, 1024)) << 20;
         r.idle = static_cast<uint32_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_idle", 600), 0, 1 << 30));
         // Default: 1536 MiB, or an eighth of the RAM Windows sees when that is less. The shadows are system RAM; at 1536 MiB an 8 GB laptop
         // (about 6 GB seen, the rest reserved for its integrated GPU) ran out of memory in the first area and was ended with 0xC0000409.

@@ -388,6 +388,7 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
     const ShaderInfo* cs = S.stage[kCompute];
     if (g_trace) trace_dispatch(x, y, z, indirect, cs);
     if (!cs) return;
+    if (g_trace_hooks && trace_skip_dispatch(cs->hash)) return;
     const ShaderInfo* stages[6] = {nullptr, nullptr, nullptr, nullptr, nullptr, cs};
     const ProgLayout* pl = prog_layout(stages);
     if (!pl) return;
@@ -410,6 +411,7 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
     if (!pipe) return;
     vkCmdBindPipeline(F->cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipe);
     g_cmd.bound_pipeline = VK_NULL_HANDLE;
+    g_csr_scale = indirect ? 1.0f : csr_scale_for(*pl);   // a game's screen-space reduction over a scaled image (gfx::Tuning::csr_*)
     support_for_draw(*pl, true);
     const BufRef ind = indirect ? held_or_pool(indirect, 12, kOutIndirect, true) : BufRef{};   // arguments a dispatch wrote: from the copy
     g_shadowing = compute_shadows_on();
@@ -430,6 +432,13 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
     if (indirect) {
         vkCmdDispatchIndirect(F->cb, ind.buffer, ind.offset);
     } else {
+        if (g_csr_scale != 1.0f) {
+            x = std::max<uint32_t>(1, static_cast<uint32_t>(std::ceil(x * g_csr_scale)));
+            y = std::max<uint32_t>(1, static_cast<uint32_t>(std::ceil(y * g_csr_scale)));
+            static bool told = false;
+            if (!told) { told = true; NXLOG_I(kTag, "compute: %s dispatched over its scaled image: %ux%u groups (scale %.3f)", cs->hash.c_str(), x, y, g_csr_scale); }
+            g_csr_scale = 1.0f;
+        }
         vkCmdDispatch(F->cb, x, y, z);
         if (gpass_on()) gstamp(("cs " + cs->hash.substr(0, 8)).c_str());
     }

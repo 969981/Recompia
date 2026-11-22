@@ -1,0 +1,21 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "include": [ "../runtime/CMakePresets.json" ],
+  "configurePresets": [
+    {
+      "name": "android-arm64-rt",
+      "displayName": "Android arm64-v8a: libpkp_rt.so (release model b)",
+      "description": "The runtime as libpkp_rt.so, libSDL3.so with its jar, and the libpkpgame.so target (needs PKP_LIB_DIR with the lifted Android archives). The NDK comes from ANDROID_NDK_HOME (r28c).",
+      "inherits": "android-ndk",
+      "binaryDir": "${sourceDir}/build/android-arm64-rt",
+      "cacheVariables": {
+        "PKP_RT_DLL": "ON",
+        "PKP_RELEASE": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "android-arm64-rt", "configurePreset": "android-arm64-rt", "targets": [ "pkp_rt", "SDL3-jar" ] }
+  ]
+}

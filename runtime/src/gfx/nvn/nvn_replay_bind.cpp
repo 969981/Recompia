@@ -2,6 +2,7 @@
 // Descriptor sets of the replay: the set memo, driver banks, set building per binding kind, render-scale support buffers, set binding.
 #include "nvn_replay_internal.h"
 #include "nxrt/perf_report.h"
+#include "nxrt/platform_facts.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -21,8 +22,10 @@ void SetState::begin_submit(Frame& f) {
 }
 
 // The scale nxrt/gfx_tuning.h asks for on uniform block `idx` of this binding's shader (1 = none): only the chosen fragment shader's block.
+float g_csr_scale = 1.0f;   // the dispatch being set up is a scaled screen-space reduction (do_dispatch, gfx::Tuning::csr_*)
 static float ufs_scale_for(const BindingDesc& d, int idx) {
     const nxrt::gfx::Tuning& t = nxrt::gfx::tuning();
+    if (g_csr_scale != 1.0f && d.nvn_stage == kCompute && idx == t.csr_block.load(std::memory_order_relaxed)) return g_csr_scale;
     const uint64_t want = t.ufs_hash.load(std::memory_order_relaxed);
     if (!want || d.nvn_stage != kFragment || idx != t.ufs_block.load(std::memory_order_relaxed)) return 1.0f;
     const float sc = t.ufs_scale.load(std::memory_order_relaxed);
@@ -406,6 +409,108 @@ static bool uniform_snapshot(uint64_t addr, uint64_t bind_size, VkDeviceSize ali
     return true;
 }
 
+// A uniform texel buffer whose texels start at an offset the GPU cannot view (minTexelBufferOffsetAlignment: 64 on Adreno, while guest
+// buffers may be aligned to less): a copy of the texels in the upload ring, viewed there, the way an unaligned uniform block is bound. One copy per
+// (address, size, format) in a submission; the view is destroyed when the submission has completed. Desktop GPUs accept 16 or less and
+// never come here. ponytail: a CPU copy reads the pool, so a texel buffer the GPU wrote in this submission is seen as it was before.
+static VkBufferView unaligned_texel_copy(uint64_t addr, uint64_t bytes, VkFormat fmt) {
+    struct Entry { uint64_t addr, bytes; VkFormat fmt; VkBufferView v; };
+    static std::vector<Entry> cache;       // this submission's copies (the upload memory is the submission's)
+    static const void* c_slot = nullptr;
+    static uint64_t c_serial = UINT64_MAX;
+    if (c_slot != F->slot || c_serial != F->serial) {
+        cache.clear();
+        c_slot = F->slot;
+        c_serial = F->serial;
+    }
+    for (const Entry& e : cache)
+        if (e.addr == addr && e.bytes == bytes && e.fmt == fmt) return e.v;
+    const VkDeviceSize align = std::max<VkDeviceSize>(256, device().properties().limits.minTexelBufferOffsetAlignment);
+    const UploadAlloc u = F->upload(bytes, align);
+    if (!u) return VK_NULL_HANDLE;
+    std::memcpy(u.ptr, host_ptr(addr), bytes);
+    VkBufferViewCreateInfo ci = {VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO};
+    ci.buffer = u.buffer;
+    ci.format = fmt;
+    ci.offset = u.offset;
+    ci.range = bytes;
+    VkBufferView v = VK_NULL_HANDLE;
+    if (vkCreateBufferView(vkdev(), &ci, nullptr, &v) != VK_SUCCESS) return VK_NULL_HANDLE;
+    F->defer([v] { vkDestroyBufferView(vkdev(), v, nullptr); });
+    cache.push_back({addr, bytes, fmt, v});
+    log_once(kOnceTexelUnalignedCpu, "a texel buffer starts at an offset the GPU cannot view: it is bound from a CPU copy in the upload ring");
+    return v;
+}
+
+// Uniform texel buffers a draw reads at an offset the GPU cannot view (Adreno: 64), copied on the GPU before the pass into a buffer of
+// their own: such a buffer may have been written on the GPU earlier in the frame, so a CPU copy of the pool can be stale (and a shader
+// that follows links stored in it may then never finish). One copy per
+// (address, size, format) in a submission; buffer and view are released when the submission has completed. Desktop GPUs never need one.
+struct TexelCopy { uint64_t addr, bytes; VkFormat fmt; VkBufferView view; };
+static std::vector<TexelCopy> g_texel_copies;
+static const void* g_tc_slot = nullptr;
+static uint64_t g_tc_serial = UINT64_MAX;
+
+static VkBufferView texel_copy_view(uint64_t addr, uint64_t bytes, VkFormat fmt) {
+    if (g_tc_slot != F->slot || g_tc_serial != F->serial) return VK_NULL_HANDLE;
+    for (const TexelCopy& c : g_texel_copies)
+        if (c.addr == addr && c.bytes == bytes && c.fmt == fmt) return c.view;
+    return VK_NULL_HANDLE;
+}
+
+void prepare_texel_buffers(const ProgLayout& pl) {
+    if constexpr (!facts::kPhone) return;   // phones only: desktop GPUs keep upstream's skipped view
+    // guest texel buffers may be aligned to as little as 32 bytes: only a GPU that wants more needs copies (Adreno, some Intel); the rest skip the walk
+    static const bool needed = device().properties().limits.minTexelBufferOffsetAlignment > 32;
+    if (!needed) return;
+    if (g_tc_slot != F->slot || g_tc_serial != F->serial) {
+        g_texel_copies.clear();
+        g_tc_slot = F->slot;
+        g_tc_serial = F->serial;
+    }
+    bool barrier = false;
+    for (const BindingDesc& d : pl.bindings) {
+        if (d.type != VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER) continue;
+        const DescriptorBinding& b = d.shader->refl.bindings[d.index];
+        const int component = b.image.component == ScalarType::Float ? 1 : b.image.component == ScalarType::Sint ? 2 : b.image.component == ScalarType::Uint ? 3 : 0;
+        TexResolved r = resolve_texture(d);
+        if (!r.tex) continue;
+        uint64_t addr = 0, bytes = 0;
+        VkFormat fmt = VK_FORMAT_UNDEFINED;
+        if (tex_buffer_view(r.tex, r.has_view ? &r.view : nullptr, component, VK_FORMAT_UNDEFINED, false, &addr, &bytes, &fmt) || !addr || !bytes) continue;
+        if (texel_copy_view(addr, bytes, fmt)) continue;
+        const BufRef br = resolve_buffer(addr, bytes);
+        if (!br.ok) continue;
+        gfx::Buffer buf;
+        if (device().create_buffer(bytes, VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, gfx::MemoryUse::GpuOnly, &buf,
+                                   "nvn texel copy") != VK_SUCCESS)
+            continue;
+        VkBufferViewCreateInfo ci = {VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO};
+        ci.buffer = buf.buffer;
+        ci.format = fmt;
+        ci.range = bytes;
+        VkBufferView v = VK_NULL_HANDLE;
+        if (vkCreateBufferView(vkdev(), &ci, nullptr, &v) != VK_SUCCESS) {
+            device().destroy_buffer(buf);
+            continue;
+        }
+        if (!barrier) {
+            end_pass();                 // a full barrier: earlier writes to the source land before the copy reads them
+            memory_barrier(F->cb);
+            barrier = true;
+        }
+        const VkBufferCopy c = {br.offset, 0, bytes};
+        vkCmdCopyBuffer(F->cb, br.buffer, buf.buffer, 1, &c);
+        F->defer([v, buf]() mutable {
+            vkDestroyBufferView(vkdev(), v, nullptr);
+            device().destroy_buffer(buf);
+        });
+        g_texel_copies.push_back({addr, bytes, fmt, v});
+        log_once(kOnceTexelUnaligned, "a texel buffer starts at an offset the GPU cannot view: a copy made on the GPU is bound");
+    }
+    if (barrier) memory_barrier(F->cb);     // the copies before the shaders that read them
+}
+
 // The set resolved from the current state: a set of this submission with the same contents (g_sets.cache), or a new one.
 static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
     RpScope rp_(kRpSetBuild);
@@ -473,7 +578,8 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                             if (u) {
                                 std::memcpy(u.ptr, host_ptr(bind.addr), n);
                                 if (tsr && n >= g_tsr.bytes) tsr_jitter(reinterpret_cast<uint32_t*>(u.ptr), static_cast<size_t>(n / 4));   // temporal upscaling
-                                const uint32_t mask = ufs != 1.0f ? nxrt::gfx::tuning().ufs_mask.load(std::memory_order_relaxed) : 0u;
+                                const uint32_t mask = ufs == 1.0f ? 0u : d.nvn_stage == kCompute ? nxrt::gfx::tuning().csr_mask.load(std::memory_order_relaxed)
+                                                                                 : nxrt::gfx::tuning().ufs_mask.load(std::memory_order_relaxed);
                                 for (uint32_t i = 0; i < 32; ++i) {
                                     if (!(mask & (1u << i)) || (i + 1) * 4 > n) continue;
                                     float v;
@@ -604,6 +710,14 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                 else log_once(kOnceOutTexel, "a draw reads a compute result held in the pool copy as a texel buffer the copy cannot serve: it reads the pool");
             }
             if (v && storage) gpu_wrote(addr, bytes, kWriteStorage);      // an image buffer may be written by the shader
+            if (!v && g_shadowing && addr && bytes) {                       // a dispatch: its compute shadow starts at offset 0
+                const BufRef sh = shadow_of(addr, bytes, resolve_buffer(addr, bytes), storage);
+                const VkDeviceSize ta = std::max<VkDeviceSize>(1, device().properties().limits.minTexelBufferOffsetAlignment);
+                if (sh.ok && sh.offset % ta == 0 && sh.buffer != resolve_buffer(addr, bytes).buffer) v = make_buffer_view(sh.buffer, sh.offset, bytes, vfmt);
+                if (v && storage) gpu_wrote(addr, bytes, kWriteStorage);
+            }
+            if (facts::kPhone && !v && !storage && addr && bytes) v = texel_copy_view(addr, bytes, vfmt);
+            if (facts::kPhone && !v && !storage && addr && bytes) v = unaligned_texel_copy(addr, bytes, vfmt);
             if (!v) {
                 if (r.tex && first_time_key(kFirstTexelBuffer, r.tex->id, d.shader->hash, b.name))
                     NXLOG_W(kTag, "texel buffer: texture %u (%s, target %d, %dx%dx%d, storage %llu bytes at %p) has no buffer view: shader %s binding %s (NVN slot %d, set %u binding %u)",
@@ -651,6 +765,7 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
 void support_for_draw(const ProgLayout& pl, bool compute) {
     g_sets.draw_support = UploadAlloc();
     if (render_scale() == 1.0f && gfx::tuning().shadow_scale.load(std::memory_order_relaxed) == 1.0f) return;
+    if (compute && g_csr_scale != 1.0f) return;   // a scaled reduction fetches the scaled image's own texels
     float sc[73];
     for (float& v : sc) v = 1.0f;
     int frag_count = 0;
@@ -708,6 +823,23 @@ void support_for_draw(const ProgLayout& pl, bool compute) {
     std::memcpy(u.ptr, &sb, sizeof sb);
     g_sets.support_scaled[key] = u;
     g_sets.draw_support = u;
+}
+
+// gfx::Tuning::csr_*: the scale of the image a game's screen-space reduction samples, when this dispatch is one and the image is scaled (1 otherwise).
+float csr_scale_for(const ProgLayout& pl) {
+    const uint64_t want = gfx::tuning().csr_hash.load(std::memory_order_relaxed);
+    const ShaderInfo* cs = S.stage[kCompute];
+    if (!want || !cs || std::strtoull(cs->hash.c_str(), nullptr, 16) != want) return 1.0f;
+    float sc = 1.0f;
+    int n = 0;
+    for (const BindingDesc& d : pl.bindings) {
+        if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
+        TexResolved r = resolve_texture(d);
+        if (!r.tex) continue;
+        sc = tex_scale(r.tex);
+        ++n;
+    }
+    return n == 1 && sc > 0.0f && sc < 1.0f ? sc : 1.0f;   // one sampled image, made smaller than its NVN size
 }
 
 void bind_sets(const ProgLayout& pl, VkPipelineBindPoint bp) {

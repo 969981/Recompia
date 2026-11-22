@@ -105,7 +105,7 @@ const game::Info& data_info() {
         g.short_title = "Recompia";
         g.program_id = 0x0400A3A01EE4C000ull;
         g.version = "2.0.1";
-        g.main_base = 0x7100000000ull;
+        g.main_base = mem::kMainBase;
         // control.nacp is not in the dump yet: every language for now (bits of services::Language)
         g.languages = 0x1ffffu;
         g.platform = game::Platform::Switch2;

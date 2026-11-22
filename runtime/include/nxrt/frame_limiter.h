@@ -45,6 +45,11 @@ public:
         // (snap_frame_cap: 60 on 90 Hz -> 45; 60 on 60 Hz stays 60): a ceiling between two divisors shows frames for uneven numbers of
         // refreshes, exactly what the snapped frame cap avoids. Never raised, so the ceiling's promise holds.
         bool snap_ceiling = false;
+        // A frame later than its grid point (by more than 0.1 refresh) starts at once instead of on the next point; its slot becomes the
+        // point just passed, so the frames after it keep k points of time each. A GPU-bound frame of 34 to 41 ms (k = 4 at 120 Hz)
+        // then runs at its own rate (25 to 29 fps, shown 4 or 5 refreshes apart) instead of being held to 41.7 ms (24 fps, always 5
+        // refreshes). On-time frames are paced exactly as before.
+        bool late_now = false;
     };
     void set_refresh_sync(const RefreshSync& sync);     // safe to call from any thread
     double refresh_hz() const;          // RefreshSync::hz (0: no fixed-refresh display)

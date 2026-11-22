@@ -172,6 +172,33 @@ void Fsr1Spatial::shutdown() {
     dev_ = nullptr;
 }
 
+// RCAS from easu_img_ into rcas_img_ over out, then the barrier that makes the result readable (upscale, sharpen_enlarged).
+void Fsr1Spatial::rcas_pass(VkCommandBuffer cb, float perceptual, VkExtent2D out, float prescale, float sharpness) {
+    VkDevice d = dev_->device();
+    {
+        RcasPush pc = {};
+        fsr1_rcas_consts(pc.con, (1.0f - std::clamp(sharpness, 0.0f, 1.0f)) * 2.0f);
+        pc.opt[0] = perceptual;
+        pc.opt[1] = static_cast<float>(out.width);
+        pc.opt[2] = static_cast<float>(out.height);
+        pc.opt[3] = prescale;
+        VkDescriptorSet set = rcas_sets_[next_rcas_];
+        next_rcas_ = (next_rcas_ + 1) % kSetRing;
+        VkDescriptorImageInfo si = {VK_NULL_HANDLE, easu_img_.img.view, VK_IMAGE_LAYOUT_GENERAL};
+        VkDescriptorImageInfo di = {VK_NULL_HANDLE, rcas_img_.img.view, VK_IMAGE_LAYOUT_GENERAL};
+        VkWriteDescriptorSet w[2] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+        w[0].dstSet = set; w[0].dstBinding = 0; w[0].descriptorCount = 1; w[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE; w[0].pImageInfo = &si;
+        w[1].dstSet = set; w[1].dstBinding = 1; w[1].descriptorCount = 1; w[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; w[1].pImageInfo = &di;
+        vkUpdateDescriptorSets(d, 2, w, 0, nullptr);
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rcas_);
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rcas_layout_, 0, 1, &set, 0, nullptr);
+        vkCmdPushConstants(cb, rcas_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof pc, &pc);
+        vkCmdDispatch(cb, (out.width + 15) / 16, (out.height + 15) / 16, 1);
+    }
+    image_barrier(cb, rcas_img_.img.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
+                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+}
+
 VkImageView Fsr1Spatial::upscale(VkCommandBuffer cb, VkImageView src, VkExtent2D in_view, VkExtent2D in_tex, VkExtent2D out, bool linear_hdr, float prescale, float sharpness,
                                  VkExtent2D out_tex) {
     if (!dev_ || !src || !out.width || !out.height || !in_view.width || !in_view.height) return VK_NULL_HANDLE;
@@ -217,28 +244,39 @@ VkImageView Fsr1Spatial::upscale(VkCommandBuffer cb, VkImageView src, VkExtent2D
     }
     image_barrier(cb, easu_img_.img.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
-    {   // RCAS
-        RcasPush pc = {};
-        fsr1_rcas_consts(pc.con, (1.0f - std::clamp(sharpness, 0.0f, 1.0f)) * 2.0f);
-        pc.opt[0] = perceptual;
-        pc.opt[1] = static_cast<float>(out.width);
-        pc.opt[2] = static_cast<float>(out.height);
-        pc.opt[3] = prescale;
-        VkDescriptorSet set = rcas_sets_[next_rcas_];
-        next_rcas_ = (next_rcas_ + 1) % kSetRing;
-        VkDescriptorImageInfo si = {VK_NULL_HANDLE, easu_img_.img.view, VK_IMAGE_LAYOUT_GENERAL};
-        VkDescriptorImageInfo di = {VK_NULL_HANDLE, rcas_img_.img.view, VK_IMAGE_LAYOUT_GENERAL};
-        VkWriteDescriptorSet w[2] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
-        w[0].dstSet = set; w[0].dstBinding = 0; w[0].descriptorCount = 1; w[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE; w[0].pImageInfo = &si;
-        w[1].dstSet = set; w[1].dstBinding = 1; w[1].descriptorCount = 1; w[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; w[1].pImageInfo = &di;
-        vkUpdateDescriptorSets(d, 2, w, 0, nullptr);
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rcas_);
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rcas_layout_, 0, 1, &set, 0, nullptr);
-        vkCmdPushConstants(cb, rcas_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof pc, &pc);
-        vkCmdDispatch(cb, (out.width + 15) / 16, (out.height + 15) / 16, 1);
+    rcas_pass(cb, perceptual, out, prescale, sharpness);
+    ++frames_;
+    return rcas_img_.img.view;
+}
+
+VkImageView Fsr1Spatial::sharpen_enlarged(VkCommandBuffer cb, VkImage src, VkExtent2D in_view, VkExtent2D out, bool linear_hdr, float prescale, float sharpness,
+                                          VkExtent2D out_tex) {
+    if (!dev_ || !src || !out.width || !out.height || !in_view.width || !in_view.height) return VK_NULL_HANDLE;
+    const VkExtent2D res{std::max(out.width, out_tex.width), std::max(out.height, out_tex.height)};
+    if (!ensure_target(easu_img_, out, "rcas enlarge") || !ensure_target(rcas_img_, res, "rcas sharpen")) return VK_NULL_HANDLE;
+    const bool fresh = !rcas_img_.initialised;
+    image_barrier(cb, easu_img_.img.image, easu_img_.initialised ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    image_barrier(cb, rcas_img_.img.image, rcas_img_.initialised ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    easu_img_.initialised = rcas_img_.initialised = true;
+    if (fresh && (res.width > out.width || res.height > out.height)) {   // as in upscale: the texel past out is read by the draw's filter
+        const VkClearColorValue zero{};
+        const VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdClearColorImage(cb, rcas_img_.img.image, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &all);
+        image_barrier(cb, rcas_img_.img.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
     }
-    image_barrier(cb, rcas_img_.img.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
-                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+    VkImageBlit b = {};
+    b.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    b.srcOffsets[1] = {static_cast<int32_t>(in_view.width), static_cast<int32_t>(in_view.height), 1};
+    b.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    b.dstOffsets[1] = {static_cast<int32_t>(out.width), static_cast<int32_t>(out.height), 1};
+    vkCmdBlitImage(cb, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, easu_img_.img.image, VK_IMAGE_LAYOUT_GENERAL, 1, &b, VK_FILTER_LINEAR);
+    image_barrier(cb, easu_img_.img.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+    rcas_pass(cb, linear_hdr ? 1.0f : 0.0f, out, prescale, sharpness);
     ++frames_;
     return rcas_img_.img.view;
 }

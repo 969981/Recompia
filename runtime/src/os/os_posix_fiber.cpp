@@ -10,7 +10,10 @@
 // thread-locals: a switch sets it before swapping and does not read it afterwards, when it may be on another thread.
 //
 // Windows ends the thread when a fiber's start routine returns; so does this. On Darwin the ucontext calls are
-// deprecated, and where they are not implemented CreateFiberEx fails with ERROR_NOT_SUPPORTED.
+// deprecated, and where they are not implemented CreateFiberEx fails with ERROR_NOT_SUPPORTED. Android's bionic has no
+// ucontext calls at all: there a fiber is the AArch64 callee-saved register set (AAPCS64: x19-x28, fp, lr, sp, d8-d15) and
+// fiber_swap below saves one and loads the other, which is everything a call boundary has to preserve. A thread per fiber
+// would not do: the lifted code on a fiber finds its guest thread through the running thread's thread-locals.
 #if defined(__APPLE__) && !defined(_XOPEN_SOURCE)
 #define _XOPEN_SOURCE 700   // <ucontext.h> refuses to compile without it on Darwin
 #endif
@@ -24,16 +27,34 @@
 
 #include <pthread.h>
 #include <sys/mman.h>
+#if defined(__ANDROID__)
+#include <cstdint>
+#else
 #include <ucontext.h>
+#endif
 #include <unistd.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <new>
 
 namespace {
 
+#if defined(__ANDROID__)
+struct Context {
+    uint64_t x19_x28[10];
+    uint64_t fp, lr, sp;
+    uint64_t d8_d15[8];   // the low 64 bits of v8-v15, all AAPCS64 keeps across a call
+};
+static_assert(sizeof(Context) == 168, "fiber_swap's offsets");
+#endif
+
 struct Fiber {
+#if defined(__ANDROID__)
+    Context ctx{};
+#else
     ucontext_t uc;
+#endif
     LPFIBER_START_ROUTINE start = nullptr;   // null: a thread converted to a fiber (it runs on the thread's own stack)
     LPVOID param = nullptr;
     void* map = nullptr;                     // the stack mapping, guard page included
@@ -51,6 +72,46 @@ void fiber_entry() {
 }
 
 }  // namespace
+
+#if defined(__ANDROID__)
+// Saves the callee-saved registers into *save and returns into the context in *load: where it last called fiber_swap, or, for a new
+// fiber, fiber_entry on the fiber's own stack (CreateFiberEx).
+extern "C" void nxos_fiber_swap(Context* save, const Context* load);
+asm(R"(
+    .text
+    .p2align 2
+    .globl nxos_fiber_swap
+    .hidden nxos_fiber_swap
+    .type nxos_fiber_swap, %function
+nxos_fiber_swap:
+    stp x19, x20, [x0, #0]
+    stp x21, x22, [x0, #16]
+    stp x23, x24, [x0, #32]
+    stp x25, x26, [x0, #48]
+    stp x27, x28, [x0, #64]
+    stp x29, x30, [x0, #80]
+    mov x9, sp
+    str x9, [x0, #96]
+    stp d8, d9, [x0, #104]
+    stp d10, d11, [x0, #120]
+    stp d12, d13, [x0, #136]
+    stp d14, d15, [x0, #152]
+    ldp x19, x20, [x1, #0]
+    ldp x21, x22, [x1, #16]
+    ldp x23, x24, [x1, #32]
+    ldp x25, x26, [x1, #48]
+    ldp x27, x28, [x1, #64]
+    ldp x29, x30, [x1, #80]
+    ldr x9, [x1, #96]
+    mov sp, x9
+    ldp d8, d9, [x1, #104]
+    ldp d10, d11, [x1, #120]
+    ldp d12, d13, [x1, #136]
+    ldp d14, d15, [x1, #152]
+    ret
+    .size nxos_fiber_swap, .-nxos_fiber_swap
+)");
+#endif
 
 LPVOID ConvertThreadToFiber(LPVOID param) {
     if (t_current) {
@@ -93,6 +154,13 @@ LPVOID CreateFiberEx(SIZE_T commit, SIZE_T reserve, DWORD flags, LPFIBER_START_R
     f->param = param;
     f->map = m;
     f->map_size = size + page;
+#if defined(__ANDROID__)
+    // The first switch "returns" into fiber_entry at the top of the stack (16-byte aligned, a zero frame pointer ends a stack
+    // walk). fiber_entry never returns, so nothing has to sit above it.
+    f->ctx.sp = reinterpret_cast<uint64_t>(static_cast<char*>(m) + page + size) & ~uint64_t{15};
+    f->ctx.lr = reinterpret_cast<uint64_t>(&fiber_entry);
+    f->ctx.fp = 0;
+#else
     if (getcontext(&f->uc) != 0) {
         munmap(m, size + page);
         delete f;
@@ -103,6 +171,7 @@ LPVOID CreateFiberEx(SIZE_T commit, SIZE_T reserve, DWORD flags, LPFIBER_START_R
     f->uc.uc_stack.ss_size = size;
     f->uc.uc_link = nullptr;
     makecontext(&f->uc, fiber_entry, 0);
+#endif
     return f;
 }
 
@@ -111,7 +180,11 @@ void SwitchToFiber(LPVOID fiber) {
     Fiber* from = t_current;
     if (!to || !from || to == from) return;   // only a fiber can switch (Windows: undefined otherwise); to itself: nothing to do
     t_current = to;
+#if defined(__ANDROID__)
+    nxos_fiber_swap(&from->ctx, &to->ctx);
+#else
     swapcontext(&from->uc, &to->uc);
+#endif
     // Resumed, maybe on another thread: the switch there made this fiber its current one. Nothing here reads t_current again.
 }
 

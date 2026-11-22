@@ -110,6 +110,7 @@ struct TexGpu {
     bool uploaded = false;                              // the image holds the storage's content (or the black fallback)
     bool gpu_written = false;                           // rendered by the GPU since the CPU last wrote the storage
     float scale = 1.0f;                                 // resolution scale: base is the NVN size times this ([gfx] render_scale, render targets only)
+    uint32_t level_skip = 0;                            // [gfx] texture_cap: guest levels dropped from the top (image level i = guest level i + level_skip)
     bool scale_blocked = false;                         // was scaled, brought back to 1 (bound as a storage image, or paired with an unscaled target)
     std::map<std::array<uint32_t, 12>, VkImageView> views;
     int refs = 1;                                       // texture objects over the same storage share one image (render thread)

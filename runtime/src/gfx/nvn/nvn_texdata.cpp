@@ -25,6 +25,12 @@
 #include "nvn_texup.h"
 #include "tegra_tiling.h"
 
+// bcdec (MIT or public domain, third_party/bcdec): the BCn decoder for GPUs without textureCompressionBC. PRECISE: BC4/BC5 SNORM decode.
+#define BCDEC_STATIC
+#define BCDEC_IMPLEMENTATION
+#define BCDEC_BC4BC5_PRECISE
+#include "bcdec/bcdec.h"
+
 namespace nxrt::nvn::be {
 namespace {
 
@@ -263,7 +269,7 @@ std::vector<LevelGeom> level_geometry(const TextureBuilderInfo& b, const TexLayo
     return g;
 }
 
-enum class Mode { Passthrough, Bc7, Rgba8, Bc5, Snorm10Wide };
+enum class Mode { Passthrough, Bc7, Rgba8, Bc5, Snorm10Wide, BcDecode };
 
 // The output level table of a mode (offsets and sizes in PreparedTexture::data; all layers of a level together).
 void build_level_table(Mode mode, const std::vector<LevelGeom>& geo, uint32_t layers, PreparedTexture& out) {
@@ -293,8 +299,9 @@ void build_level_table(Mode mode, const std::vector<LevelGeom>& geo, uint32_t la
                 pl.offset = out.level.empty() ? 0 : out.level.back().offset + out.level.back().size;
                 break;
             case Mode::Rgba8:
+            case Mode::BcDecode:   // out.block_bytes: the texel size of bc_decode_format
                 pl.row_blocks = g.w;
-                layer_bytes = static_cast<uint64_t>(g.w) * g.h * 4 * g.d;
+                layer_bytes = static_cast<uint64_t>(g.w) * g.h * (mode == Mode::Rgba8 ? 4 : out.block_bytes) * g.d;
                 pl.offset = out.level.empty() ? 0 : out.level.back().offset + out.level.back().size;
                 break;
         }
@@ -343,7 +350,104 @@ bool make_linear(const TexLayout& L, const std::vector<LevelGeom>& geo, const Fo
     return true;
 }
 
+// Bytes per texel of bc_decode_format.
+uint32_t bc_decode_bytes(VkFormat bc) {
+    switch (bc_decode_format(bc)) {
+        case VK_FORMAT_R8_UNORM: case VK_FORMAT_R8_SNORM: return 1;
+        case VK_FORMAT_R8G8_UNORM: case VK_FORMAT_R8G8_SNORM: case VK_FORMAT_R5G6B5_UNORM_PACK16: case VK_FORMAT_A1R5G5B5_UNORM_PACK16: return 2;
+        case VK_FORMAT_R16G16B16A16_SFLOAT: return 8;
+        default: return 4;
+    }
+}
+
+// [gfx] bc_decode_small (default false; only where the GPU has no BC): smaller, lossy decode formats: BC1 UNORM without alpha ->
+// R5G6B5, BC1 UNORM with 1-bit alpha -> A1R5G5B5, BC6H UFLOAT -> B10G11R11 (half the memory of RGBA8 / RGBA16F). sRGB BC1 stays RGBA8
+// (no 16-bit sRGB format exists). Read once, so every caller of bc_decode_format agrees.
+bool bc_decode_small() {
+    static const bool on = config_get_bool("gfx", "bc_decode_small", false);
+    return on;
+}
+
+// The 16 texels of one decoded block (RGBA8 at a pitch of 16 bytes per row, or RGBA16F at 32 for BC6H) packed in place into the small
+// format of bc_decode_format, at the small format's pitch (4 texels per row).
+void pack_small(VkFormat bc, uint8_t* blk) {
+    if (bc == VK_FORMAT_BC6H_UFLOAT_BLOCK) {   // half (unsigned) -> 11/11/10-bit floats: same exponent bias, mantissa cut
+        const uint16_t* in = reinterpret_cast<const uint16_t*>(blk);
+        uint32_t out[16];
+        for (int i = 0; i < 16; ++i)
+            out[i] = ((in[i * 4] >> 4) & 0x7FFu) | (((in[i * 4 + 1] >> 4) & 0x7FFu) << 11) | (((in[i * 4 + 2] >> 5) & 0x3FFu) << 22);
+        std::memcpy(blk, out, sizeof out);
+        return;
+    }
+    uint16_t out[16];
+    const bool alpha = bc == VK_FORMAT_BC1_RGBA_UNORM_BLOCK;
+    for (int i = 0; i < 16; ++i) {
+        const uint8_t* t = blk + i * 4;
+        out[i] = alpha ? static_cast<uint16_t>((t[3] >= 128 ? 0x8000u : 0u) | ((t[0] >> 3) << 10) | ((t[1] >> 3) << 5) | (t[2] >> 3))
+                       : static_cast<uint16_t>(((t[0] >> 3) << 11) | ((t[1] >> 2) << 5) | (t[2] >> 3));
+    }
+    std::memcpy(blk, out, sizeof out);
+}
+
+// One z slice of BCn blocks (bx x by blocks, tight rows) decoded into w x h texels of bc_decode_format(bc), tight rows; the texels of the
+// edge blocks past w and h are dropped. Vulkan's BC1_RGB reads alpha 1 where the block's 3-colour mode says transparent black.
+void bc_decode_slice(VkFormat bc, const uint8_t* src, uint32_t bx, uint32_t by, uint32_t w, uint32_t h, uint8_t* dst) {
+    const uint32_t tb = bc_decode_bytes(bc), in_bytes = (bc <= VK_FORMAT_BC1_RGBA_SRGB_BLOCK || bc == VK_FORMAT_BC4_UNORM_BLOCK ||
+                                                         bc == VK_FORMAT_BC4_SNORM_BLOCK) ? 8 : 16;
+    const VkFormat df = bc_decode_format(bc);
+    const bool small = df == VK_FORMAT_R5G6B5_UNORM_PACK16 || df == VK_FORMAT_A1R5G5B5_UNORM_PACK16 || df == VK_FORMAT_B10G11R11_UFLOAT_PACK32;
+    const int pitch = static_cast<int>(4 * (small ? (tb == 2 ? 4 : 8) : tb));   // bcdec writes RGBA8 / RGBA16F rows; pack_small narrows them
+    uint8_t blk[4 * 4 * 8];
+    uint16_t rgb16[4 * 4 * 3];
+    for (uint32_t y = 0; y < by; ++y)
+        for (uint32_t x = 0; x < bx; ++x) {
+            const uint8_t* s = src + (static_cast<uint64_t>(y) * bx + x) * in_bytes;
+            switch (bc) {
+                case VK_FORMAT_BC1_RGB_UNORM_BLOCK: case VK_FORMAT_BC1_RGB_SRGB_BLOCK:
+                    bcdec_bc1(s, blk, pitch);
+                    for (int i = 3; i < 64; i += 4) blk[i] = 255;
+                    break;
+                case VK_FORMAT_BC1_RGBA_UNORM_BLOCK: case VK_FORMAT_BC1_RGBA_SRGB_BLOCK: bcdec_bc1(s, blk, pitch); break;
+                case VK_FORMAT_BC2_UNORM_BLOCK: case VK_FORMAT_BC2_SRGB_BLOCK: bcdec_bc2(s, blk, pitch); break;
+                case VK_FORMAT_BC3_UNORM_BLOCK: case VK_FORMAT_BC3_SRGB_BLOCK: bcdec_bc3(s, blk, pitch); break;
+                case VK_FORMAT_BC4_UNORM_BLOCK: bcdec_bc4(s, blk, pitch, 0); break;
+                case VK_FORMAT_BC4_SNORM_BLOCK: bcdec_bc4(s, blk, pitch, 1); break;
+                case VK_FORMAT_BC5_UNORM_BLOCK: bcdec_bc5(s, blk, pitch, 0); break;
+                case VK_FORMAT_BC5_SNORM_BLOCK: bcdec_bc5(s, blk, pitch, 1); break;
+                case VK_FORMAT_BC6H_UFLOAT_BLOCK: case VK_FORMAT_BC6H_SFLOAT_BLOCK: {
+                    bcdec_bc6h_half(s, rgb16, 4 * 3, bc == VK_FORMAT_BC6H_SFLOAT_BLOCK);   // pitch in halves
+                    uint16_t* o = reinterpret_cast<uint16_t*>(blk);
+                    for (int i = 0; i < 16; ++i) o[i * 4] = rgb16[i * 3], o[i * 4 + 1] = rgb16[i * 3 + 1], o[i * 4 + 2] = rgb16[i * 3 + 2], o[i * 4 + 3] = 0x3c00;
+                    break;
+                }
+                default: bcdec_bc7(s, blk, pitch); break;
+            }
+            if (small) pack_small(bc, blk);
+            const uint32_t cw = std::min(4u, w - x * 4), ch = std::min(4u, h - y * 4);
+            for (uint32_t r = 0; r < ch; ++r)
+                std::memcpy(dst + ((static_cast<uint64_t>(y) * 4 + r) * w + x * 4) * tb, blk + r * (small ? 4 * tb : pitch), cw * tb);
+        }
+}
+
 }  // namespace
+
+VkFormat bc_decode_format(VkFormat bc) {
+    switch (bc) {
+        case VK_FORMAT_BC1_RGB_UNORM_BLOCK: return bc_decode_small() ? VK_FORMAT_R5G6B5_UNORM_PACK16 : VK_FORMAT_R8G8B8A8_UNORM;
+        case VK_FORMAT_BC1_RGBA_UNORM_BLOCK: return bc_decode_small() ? VK_FORMAT_A1R5G5B5_UNORM_PACK16 : VK_FORMAT_R8G8B8A8_UNORM;
+        case VK_FORMAT_BC2_UNORM_BLOCK: case VK_FORMAT_BC3_UNORM_BLOCK:
+        case VK_FORMAT_BC7_UNORM_BLOCK: return VK_FORMAT_R8G8B8A8_UNORM;
+        case VK_FORMAT_BC1_RGB_SRGB_BLOCK: case VK_FORMAT_BC1_RGBA_SRGB_BLOCK: case VK_FORMAT_BC2_SRGB_BLOCK: case VK_FORMAT_BC3_SRGB_BLOCK:
+        case VK_FORMAT_BC7_SRGB_BLOCK: return VK_FORMAT_R8G8B8A8_SRGB;
+        case VK_FORMAT_BC4_UNORM_BLOCK: return VK_FORMAT_R8_UNORM;
+        case VK_FORMAT_BC4_SNORM_BLOCK: return VK_FORMAT_R8_SNORM;
+        case VK_FORMAT_BC5_UNORM_BLOCK: return VK_FORMAT_R8G8_UNORM;
+        case VK_FORMAT_BC5_SNORM_BLOCK: return VK_FORMAT_R8G8_SNORM;
+        case VK_FORMAT_BC6H_UFLOAT_BLOCK: return bc_decode_small() ? VK_FORMAT_B10G11R11_UFLOAT_PACK32 : VK_FORMAT_R16G16B16A16_SFLOAT;
+        case VK_FORMAT_BC6H_SFLOAT_BLOCK: return VK_FORMAT_R16G16B16A16_SFLOAT;
+        default: return VK_FORMAT_UNDEFINED;
+    }
+}
 
 AstcQuality astc_quality() {
     std::string v = config_get_str("gfx", "astc_quality", "high");
@@ -633,7 +737,7 @@ bool prepare_texture(const Texture& t, const TexCaps& caps, PreparedTexture& out
             }
         }
     } else if (fmt.bc) {
-        if (!caps.bc) return fail(std::string("BCn format ") + fmt.name + ", and the GPU does not sample BCn");
+        if (!caps.bc) mode = Mode::BcDecode;   // the GPU does not sample BCn: decoded to bc_decode_format
     } else if (fmt.compressed) {
         return fail(std::string("compressed format ") + fmt.name + " is neither BCn nor ASTC");
     }
@@ -649,6 +753,12 @@ bool prepare_texture(const Texture& t, const TexCaps& caps, PreparedTexture& out
             out.block_w = 1;
             out.block_h = 1;
             out.block_bytes = 8;
+            break;
+        case Mode::BcDecode:
+            out.format = bc_decode_format(fmt.vk);
+            out.block_w = 1;
+            out.block_h = 1;
+            out.block_bytes = bc_decode_bytes(fmt.vk);
             break;
         case Mode::Passthrough:
             out.format = fmt.vk;
@@ -721,7 +831,7 @@ bool prepare_texture(const Texture& t, const TexCaps& caps, PreparedTexture& out
         if (mode == Mode::Bc5) return fail("the BC5 cache entry could not be read");
     }
     // (uncompressed mode: the decode to RGBA8 is short and needs no cache, so a background job does it too)
-    if (caps.cache_only && mode != Mode::Passthrough && !uncompressed) {   // background job: a transcode is a long CPU job on data that may not be final; the render thread does it if it is needed
+    if (caps.cache_only && mode != Mode::Passthrough && mode != Mode::BcDecode && !uncompressed) {   // background job: a transcode is a long CPU job on data that may not be final; the render thread does it if it is needed
         out.error = "no cache entry";
         return false;
     }
@@ -751,12 +861,26 @@ bool prepare_texture(const Texture& t, const TexCaps& caps, PreparedTexture& out
         out.transcoded = false;
         return true;
     }
-    if (mode == Mode::Passthrough) {
+    if (mode == Mode::Passthrough || mode == Mode::BcDecode) {
         // button prompt icons and the like: a host hook may replace the pixels of a small single-level BC7 sRGB texture
         if (fmt.vk == VK_FORMAT_BC7_SRGB_BLOCK && L.levels == 1 && L.layers == 1 && geo[0].d == 1 && geo[0].w <= 128 &&
             geo[0].h <= 128 && texture_override_active() && texture_override_apply(t, geo[0].w, geo[0].h, lin))
             NXLOG_I(kTag, "texture %u: content replaced by the host (%ux%u BC7)", t.id, geo[0].w, geo[0].h);
+    }
+    if (mode == Mode::Passthrough) {
         out.data = std::move(lin);
+        return true;
+    }
+    if (mode == Mode::BcDecode) {
+        out.data.assign(static_cast<size_t>(out_total), 0);
+        for (size_t i = 0; i < geo.size(); ++i) {
+            const LevelGeom& g = geo[i];
+            const uint64_t in_slice = g.slice / g.d, out_slice = static_cast<uint64_t>(g.w) * g.h * out.block_bytes;
+            for (uint32_t layer = 0; layer < L.layers; ++layer)
+                for (uint32_t z = 0; z < g.d; ++z)
+                    bc_decode_slice(fmt.vk, lin.data() + g.lin_off + static_cast<uint64_t>(layer) * g.slice + z * in_slice, g.bx, g.by, g.w, g.h,
+                                    out.data.data() + out.level[i].offset + (static_cast<uint64_t>(layer) * g.d + z) * out_slice);
+        }
         return true;
     }
 

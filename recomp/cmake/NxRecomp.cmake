@@ -26,6 +26,11 @@
 # nxrecomp_build_info(<game> <prefix>) reads the game config's module table (recomp/games/<game>/config.py, the same table
 # the player build uses): <prefix>_MODULES = module names in NxModule.index order, and for each module m
 # <prefix>_<m>_FILE (file name in the exefs), _BASE, _INDEX, _SHARDS, _SITES (absolute path of its site list, or empty).
+#
+# NX_GUEST_BASE (set by runtime/cmake/guest_layout.cmake when the target's guest base is not the canonical one; Android
+# sets it): build-info and module-header come from game-build/release_b/guest_layout.py instead, with the module bases moved to that
+# base and _SITES naming moved copies of the site lists in <build>/guest_layout/, so the lifts follow the runtime's layout. The
+# lifter itself is not told: it lifts at the BASE and with the SITES it is given.
 
 set(NXRECOMP_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." CACHE PATH "recomp/ folder")
 # The repository's venv (tools/.venv, recomp/requirements.txt) when it is there; else any Python 3 on the PATH, which is enough for
@@ -51,6 +56,9 @@ file(GLOB NX_LIFTER_SOURCES CONFIGURE_DEPENDS
      "${NXRECOMP_ROOT}/nxrecomp/*.py" "${NXRECOMP_ROOT}/nxrecomp/lift/*.py" "${NXRECOMP_ROOT}/nxrecomp/lift/tier2/*.py"
      "${NXRECOMP_ROOT}/include/nxrecomp/*.h")
 
+include("${CMAKE_CURRENT_LIST_DIR}/../../runtime/cmake/guest_layout.cmake")   # NX_GUEST_BASE, when the target sets a guest base
+set(_nx_guest_layout_py "${CMAKE_CURRENT_LIST_DIR}/../../game-build/release_b/guest_layout.py")
+
 # one `build-info` run per game and configure: its JSON text, kept in the global property NXRECOMP_INFO_<game>
 function(_nxrecomp_info game out)
   get_property(json GLOBAL PROPERTY NXRECOMP_INFO_${game})
@@ -62,8 +70,16 @@ function(_nxrecomp_info game out)
     if(NOT _nx_arch)
       set(_nx_arch "${CMAKE_HOST_SYSTEM_PROCESSOR}")
     endif()
-    execute_process(COMMAND "${NX_PYTHON}" -m nxrecomp build-info --game ${game} --arch "${_nx_arch}" WORKING_DIRECTORY "${NXRECOMP_ROOT}"
-                    OUTPUT_VARIABLE json RESULT_VARIABLE rc ERROR_VARIABLE err)
+    if(DEFINED NX_GUEST_BASE AND NOT game STREQUAL "generic")
+      execute_process(COMMAND "${NX_PYTHON}" "${_nx_guest_layout_py}" build-info --game ${game} --arch "${_nx_arch}"
+                              --guest-base ${NX_GUEST_BASE} --out-dir "${CMAKE_BINARY_DIR}/guest_layout"
+                      WORKING_DIRECTORY "${NXRECOMP_ROOT}" OUTPUT_VARIABLE json RESULT_VARIABLE rc ERROR_VARIABLE err)
+      file(GLOB _nx_sites "${NXRECOMP_ROOT}/games/${game}/*.sites")   # the moved copies are written at configure time
+      set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_nx_guest_layout_py}" ${_nx_sites})
+    else()
+      execute_process(COMMAND "${NX_PYTHON}" -m nxrecomp build-info --game ${game} --arch "${_nx_arch}" WORKING_DIRECTORY "${NXRECOMP_ROOT}"
+                      OUTPUT_VARIABLE json RESULT_VARIABLE rc ERROR_VARIABLE err)
+    endif()
     if(NOT rc EQUAL 0)
       message(FATAL_ERROR "nxrecomp build-info --game ${game} failed (${NX_PYTHON}): ${err}")
     endif()
@@ -102,7 +118,7 @@ function(nxrecomp_build_info game prefix)
     foreach(k FILE BASE INDEX SHARDS SITES)
       string(TOLOWER ${k} key)
       string(JSON v GET "${json}" modules ${i} ${key})
-      if(k STREQUAL "SITES" AND NOT v STREQUAL "")
+      if(k STREQUAL "SITES" AND NOT v STREQUAL "" AND NOT IS_ABSOLUTE "${v}")   # absolute: a moved copy (NX_GUEST_BASE)
         get_filename_component(v "${NXRECOMP_ROOT}/games/${game}/${v}" ABSOLUTE)
       endif()
       set(${prefix}_${m}_${k} "${v}" PARENT_SCOPE)
@@ -115,8 +131,13 @@ endfunction()
 # X-macro) at configure time; the file only changes when the module table does. The player build writes the same text.
 function(nxrecomp_module_header game file)
   _nxrecomp_info(${game} json)      # registers the configure dependencies on the config
-  execute_process(COMMAND "${NX_PYTHON}" -m nxrecomp module-header --game ${game} --out "${file}" WORKING_DIRECTORY "${NXRECOMP_ROOT}"
-                  RESULT_VARIABLE rc ERROR_VARIABLE err)
+  if(DEFINED NX_GUEST_BASE)
+    execute_process(COMMAND "${NX_PYTHON}" "${_nx_guest_layout_py}" module-header --game ${game} --guest-base ${NX_GUEST_BASE}
+                            --out "${file}" WORKING_DIRECTORY "${NXRECOMP_ROOT}" RESULT_VARIABLE rc ERROR_VARIABLE err)
+  else()
+    execute_process(COMMAND "${NX_PYTHON}" -m nxrecomp module-header --game ${game} --out "${file}" WORKING_DIRECTORY "${NXRECOMP_ROOT}"
+                    RESULT_VARIABLE rc ERROR_VARIABLE err)
+  endif()
   if(NOT rc EQUAL 0)
     message(FATAL_ERROR "nxrecomp module-header --game ${game} failed (${NX_PYTHON}): ${err}")
   endif()
@@ -153,6 +174,9 @@ function(nxrecomp_add_module target)
     list(APPEND extra --index ${A_INDEX})
   endif()
   if(A_PATCHES)
+    if(DEFINED NX_GUEST_BASE)
+      message(FATAL_ERROR "nxrecomp_add_module(${target}): a PATCHES list is not moved to the guest base ${NX_GUEST_BASE}")
+    endif()
     list(APPEND extra --patches ${A_PATCHES})
   endif()
   if(A_SITES)

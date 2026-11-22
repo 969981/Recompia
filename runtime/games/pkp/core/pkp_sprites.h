@@ -43,7 +43,7 @@ inline uint64_t texture_of(uint64_t root) {
                 if (gfx::guest_texture_info(reinterpret_cast<const void*>(node + off), &ti) && ti.bc7) return node + off;
             }
             const uint64_t p = guest::rd<uint64_t>(node + off);
-            if (p >= 0x7000000000ull && p < 0x8000000000ull && (p & 7) == 0 && todo.size() < 512) todo.push_back(p);
+            if (p >= mem::kGuestBase && p < mem::kLayoutEnd && (p & 7) == 0 && todo.size() < 512) todo.push_back(p);
         }
     }
     return 0;

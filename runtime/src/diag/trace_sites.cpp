@@ -13,6 +13,7 @@
 #include "nxrt/config.h"
 #include "nxrt/hooks.h"
 #include "nxrt/log.h"
+#include "nxrt/memory.h"
 
 namespace nxrt {
 
@@ -48,9 +49,9 @@ int trace_site(::Ctx* c, uint64_t addr, void* user) {
     const unsigned hit = ++*n;
     // [x0], the first word x0 points at (a vtable when x0 is an object), when x0 looks like a guest address
     const uint64_t x0 = c->x[0];
-    const uint64_t m0 = (x0 >= 0x7000000000ull && x0 < 0x8000000000ull && (x0 & 7) == 0) ? *reinterpret_cast<const uint64_t*>(x0) : 0;
+    const uint64_t m0 = (x0 >= mem::kGuestBase && x0 < mem::kLayoutEnd && (x0 & 7) == 0) ? *reinterpret_cast<const uint64_t*>(x0) : 0;
     auto peek = [](uint64_t a) -> uint64_t {
-        return (a >= 0x7000000000ull && a < 0x8000000000ull && (a & 7) == 0) ? *reinterpret_cast<const uint64_t*>(a) : 0;
+        return (a >= mem::kGuestBase && a < mem::kLayoutEnd && (a & 7) == 0) ? *reinterpret_cast<const uint64_t*>(a) : 0;
     };
     const uint64_t x0_38 = peek(c->x[0] + 0x38);
     const uint64_t x20a = peek(c->x[20]), x20b = peek(c->x[20] + 8), x20c = peek(c->x[20] + 16);

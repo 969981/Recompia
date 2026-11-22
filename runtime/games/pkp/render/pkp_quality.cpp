@@ -37,6 +37,9 @@
 #include <vector>
 
 #include "nxrt/gfx_tuning.h"
+#include "nxrt/host_device.h"
+#include "nxrt/platform_facts.h"
+#include "nxrt/extras.h"
 #include "nxrt/hooks.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
@@ -84,7 +87,7 @@ const Preset* find_preset(const std::string& n) {
 }
 
 struct State {
-    uint64_t base = 0x7100000000ull;
+    uint64_t base = mem::kMainBase;
     bool probe = false;
     float lod_scale = 1.0f;
     bool ini_lod_set = false;
@@ -372,6 +375,17 @@ void install(const FeatureInstall& in) {
         t.ufs_scale.store(static_cast<float>(fog));
         t.ufs_hash.store(0x7c8c05da24a1f5a2ull);
         if (fog != 1.0) NXLOG_I(kTag, "quality: fog strength x%.2f", fog);
+        // A phone (facts::kPhone), [pkp] exposure_scaled (default on there): the exposure histogram (cs 62619a57, 8x8 threads x 4 texels, bins every pixel of the
+        // HDR scene with shared then global atomics; its resolve, cs 7dbc445a, takes percentiles of the bins, c5[3].x/.y = 0.2/0.8) runs
+        // over the scaled scene, not over the full layout's texel fetches of a smaller image. c5[2].z/.w hold the
+        // size the histogram bounds-checks with. At render_scale 1 the scaled scene is the full one and nothing changes; the key stays as an
+        // escape hatch.
+        if (facts::kPhone && settings::get_bool(settings::Key::ExposureScaled)) {
+            t.csr_block.store(5);
+            t.csr_mask.store((1u << 10) | (1u << 11));
+            t.csr_hash.store(0x62619a57fc0feb43ull);
+            NXLOG_I(kTag, "quality: exposure histogram dispatched over the scaled scene ([pkp] exposure_scaled)");
+        }
     }
     in.hooks.add_mid(base + kCamCommitEnd, &hook_cam_commit);
     s.probe = settings::get_bool(settings::Key::QualityProbe);
@@ -395,6 +409,12 @@ void remove() { st().installed = false; }   // the registry has removed the hook
 
 void settings_changed(const play::Settings&) { apply(); }
 
+// [pkp] scene_upscaler (a phone's Upscaler row, live): handed to the back end every frame (one relaxed store). Phones only: elsewhere
+// [gfx] scene_upscale stays in charge.
+void frame(bool, double, play::GameFrame*) {
+    if (host_is_phone()) extras::set_scene_upscale_live(static_cast<int>(settings::get_int(settings::Key::SceneUpscaler)));
+}
+
 void status_text(char* buf, size_t n) {
     const State& s = st();
     const int k = std::snprintf(buf, n, " cam_commits=%llu", static_cast<unsigned long long>(s.commits.load()));
@@ -410,6 +430,7 @@ const Feature kQualityFeature = {
     .name = "quality",
     .install = &install,
     .remove = &remove,
+    .frame = facts::kPhone ? &frame : nullptr,
     .settings_changed = &settings_changed,
     .status_text = &status_text,
 };

@@ -16,6 +16,8 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+
+#include "nxrt/platform_facts.h"
 #include <thread>
 #include <vector>
 
@@ -298,8 +300,11 @@ class AudioProcessor {
         }
 
         while (timeNow < _lastTime + increment) {
-            // C# _event.WaitOne(1): a 1 ms wait on an event that is never set.
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            // C# _event.WaitOne(1): a 1 ms wait on an event that is never set. A phone (facts::kPhone) sleeps for the time left in one go
+            // instead (up to 5 wake-ups per audio frame, about 1000 a second, kept a core out of its idle states); the loop still re-checks
+            // the clock.
+            if constexpr (nxrt::facts::kPhone) std::this_thread::sleep_for(std::chrono::nanoseconds(_lastTime + increment - timeNow));
+            else std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
             timeNow = ElapsedNanoseconds();
         }

@@ -44,6 +44,8 @@ enum class Key : uint8_t {
     // graphics (pkp_quality.cpp, pkp_taa.cpp)
     QualityPreset,
     FogStrength,
+    ExposureScaled,
+    SceneUpscaler,
     LodDistance,
     QualityProbe,
     GameTaa,

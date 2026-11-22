@@ -2,7 +2,9 @@
 // Upscaler hooks of the replay: temporal upscaling (camera block, jitter, the tone-map draw), SMAA at the tone map and the scene upscaler at the
 // game's scene stretch draw.
 #include "nvn_replay_internal.h"
+#include "extras/fsr1_spatial.h"
 #include "extras/smaa_scene.h"
+#include "extras/sgsr_spatial.h"
 
 #include "nxrt/game_render.h"
 
@@ -206,7 +208,10 @@ void tonemap_for_draw(const ProgLayout& pl) {
 // image sized so that its own lookup at uv * fraction lands on it. The input is display-referred colour in [0,1] (8-bit sRGB, read linear).
 void scene_stretch_for_draw(const ProgLayout& pl) {
     g_su.clear();
-    if (!g_su.stretch_armed || !extras::scene_upscale_wanted() || S.ncolor == 0 || !S.color_tex[0]) return;
+    // [gfx] scene_upscale (sgsr / bicubic, live through scene_upscale_watch) also serves this stretch: under the game's dynamic resolution
+    // (a scene percent below 100) the scene part is enlarged here, not at the composite (scene_sharpen_for_draw)
+    extras::SgsrSpatial* cheap = extras::scene_cheap_upscaler(&device());
+    if (!g_su.stretch_armed || (!extras::scene_upscale_wanted() && !cheap) || S.ncolor == 0 || !S.color_tex[0]) return;
     Texture* target = S.color_tex[0].get();
     if (!tex_gpu(target)) return;
     const VkExtent3D te = tex_image_extent(target, 0);    // image sizes: with a render scale the upscaler works on the real pixels
@@ -222,7 +227,7 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
         g_su.stretch_armed = false;
         float fx = 1.0f, fy = 1.0f;
         extras::scene_fraction(&fx, &fy);
-        if (extras::upscale_mode() == extras::UpscaleMode::Nearest) {
+        if (!cheap && extras::upscale_mode() == extras::UpscaleMode::Nearest) {
             const bool smaller = se.width < te.width || se.height < te.height;
             // a scene_scale below 100 always puts the scene in the top-left of full-size targets, published fraction or not
             if (!smaller && fx >= 1.0f && fy >= 1.0f && extras::upscale_scene_scale() >= 100) return;   // a 1:1 copy
@@ -247,7 +252,7 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
             return;
         }
         if (part.width >= te.width && part.height >= te.height) return;
-        extras::SpatialUpscaler* su = extras::scene_upscaler(&device(), part, out);
+        extras::SpatialUpscaler* su = cheap ? static_cast<extras::SpatialUpscaler*>(cheap) : extras::scene_upscaler(&device(), part, out);
         if (!su) return;
         end_pass();                                                           // compute work cannot run inside a render pass
         tex_ensure_current(r.tex, *F);
@@ -265,6 +270,67 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
             told = true;
             NXLOG_I(kTag, "scene upscale: %s on the scene stretch %s, %ux%u -> %ux%u", extras::upscale_mode() == extras::UpscaleMode::Nis ? "NIS" : "FSR 1",
                     S.stage[kFragment]->hash.c_str(), part.width, part.height, out.width, out.height);
+        }
+        return;
+    }
+}
+
+// [gfx] scene_sharpen at the game's draw that enlarges the scene into the window texture (SceneStretch::into_window): its one 2D colour
+// input, when smaller than the target, is enlarged by a bilinear blit to the target's size and sharpened with RCAS, and the draw reads that
+// (it samples by normalized coordinates, so a draw into a corner of the target is served too). The input is display-referred (after the
+// tone map). Key off, or an input not smaller: the draw is left as the game made it.
+void scene_sharpen_for_draw(const ProgLayout& pl) {
+    g_su.clear();
+    extras::SgsrSpatial* cheap = extras::scene_cheap_upscaler(&device());   // [gfx] scene_upscale = sgsr / bicubic: one pass instead
+    if (!cheap && extras::scene_sharpen() <= 0.0f) return;
+    Texture* target = S.color_tex[0].get();
+    if (!tex_gpu(target)) return;
+    const VkExtent3D te = tex_image_extent(target, 0);
+    for (const BindingDesc& d : pl.bindings) {
+        if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
+        const DescriptorBinding& b = d.shader->refl.bindings[d.index];
+        if (b.nvn.source != NvnSource::SamplerBinding && b.nvn.source != NvnSource::HandleInUniform) continue;
+        if (view_type_for(b) != VK_IMAGE_VIEW_TYPE_2D || b.image.depth) continue;
+        TexResolved r = resolve_texture(d);
+        if (!r.tex || !tex_gpu(r.tex) || tex_is_depth(r.tex)) continue;
+        const VkExtent3D se = tex_image_extent(r.tex, 0);
+        if (se.width >= te.width || se.height >= te.height) return;      // not enlarged (ui_native off, or a render scale of 1)
+        if (cheap) {
+            end_pass();                                                   // compute work cannot run inside a render pass
+            tex_ensure_current(r.tex, *F);
+            tex_transition(r.tex, *F, tex_sampled_layout(r.tex));
+            VkImageView src = tex_sampled_view(r.tex, make_request(b, r));
+            if (!src) return;
+            const VkExtent2D in{se.width, se.height}, out{te.width, te.height};
+            VkImageView v = cheap->upscale(F->cb, src, in, in, out, false, 1.0f, 0.0f);
+            shadow_invalidate();
+            if (!v) return;
+            g_su.tex = r.tex;
+            g_su.view = v;
+            static bool told_cheap = false;
+            if (!told_cheap) {
+                told_cheap = true;
+                NXLOG_I(kTag, "scene upscale: %s, %ux%u -> %ux%u at %s ([gfx] scene_upscale)", extras::scene_upscale_name(), in.width, in.height, out.width,
+                        out.height, S.stage[kFragment]->hash.c_str());
+            }
+            return;
+        }
+        extras::Fsr1Spatial* sh = extras::scene_sharpener(&device());
+        if (!sh) return;
+        end_pass();                                                       // a blit and compute work cannot run inside a render pass
+        tex_ensure_current(r.tex, *F);
+        tex_transition(r.tex, *F, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        const VkExtent2D in{se.width, se.height}, out{te.width, te.height};
+        VkImageView v = sh->sharpen_enlarged(F->cb, tex_image(r.tex), in, out, false, 1.0f, extras::scene_sharpen());
+        shadow_invalidate();
+        if (!v) return;
+        g_su.tex = r.tex;
+        g_su.view = v;
+        static bool told = false;
+        if (!told) {
+            told = true;
+            NXLOG_I(kTag, "scene sharpen: %ux%u -> %ux%u, bilinear then RCAS (sharpness %.2f) at %s", in.width, in.height, out.width, out.height,
+                    extras::scene_sharpen(), S.stage[kFragment]->hash.c_str());
         }
         return;
     }

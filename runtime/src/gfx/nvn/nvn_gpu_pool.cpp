@@ -33,6 +33,7 @@
 #include "nvn_thread.h"
 #include "nvn_mirror_cap.h"
 #include "nvn_gpu_pool_internal.h"
+#include "../../os/os_android_ahb.h"
 
 namespace nxrt::nvn::be {
 
@@ -224,6 +225,14 @@ void import_recovered(const PoolGpu* g, PoolChunk& c, uint16_t fails, uint32_t s
     c.fails = 0;
 }
 
+// Every use a pool's bytes have on the GPU (the buffer over an import).
+VkBufferUsageFlags pool_buffer_usage() {
+    return VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+           VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT |
+           (device().features().transform_feedback ? VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_BUFFER_BIT_EXT : 0u);
+}
+
 // Imports pool bytes [off, off + size) of g into c, the first time or as a retry (c failed and holds nothing). False (c.failed) when it
 // cannot; the first failure is logged as an error with the pages, the retries by import_failed.
 bool import_range(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const char* what, size_t index, size_t count) {
@@ -286,10 +295,7 @@ bool import_range(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const c
     ebi.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT;
     VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, &ebi};
     bci.size = size;
-    bci.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
-                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT |
-                (device().features().transform_feedback ? VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_BUFFER_BIT_EXT : 0u);
+    bci.usage = pool_buffer_usage();
     bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     r = vkCreateBuffer(dev.device(), &bci, nullptr, &c.buffer);
     if (r == VK_SUCCESS) vk_gauge_buffers().add(1);
@@ -318,6 +324,95 @@ bool import_range(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size, const c
     return true;
 }
 
+// [nvn] pool_ahb = auto (default) | off. On a device that imports AHardwareBuffers (features().ahb_import: Android drivers; Adreno
+// and Mali), a pool_copy cell is moved onto an AHardwareBuffer at its own address (os_android_ahb.h) and imported, instead
+// of getting a shadow: the CPU and the GPU share its pages as with a host-pointer import, so it needs no copies and no landings, and its
+// bytes are not held twice (guest pages plus shadow). Spans stay shadows (a span can cross two buffers); a cell that cannot be moved or
+// imported gets its shadow as before. Dropping the chunk (idle, pool gone) moves the bytes back onto private memory.
+bool ahb_on_once() {
+    static const bool on = [] {
+        const std::string v = config_get_str("nvn", "pool_ahb", "auto");
+        const bool can = device().features().ahb_import;
+        const bool r = can && v != "off" && v != "0" && v != "false";
+        if (can)   // logged only where it can apply (desktop logs stay as they were)
+            NXLOG_I(kTag, "pool_ahb %s (%s)", r ? "on: cells are moved onto AHardwareBuffers and imported, not copied" : "off", v.c_str());
+        return r;
+    }();
+    return on;
+}
+// [nvn] pool_ahb_idle (default 5400 presents, about 3 minutes at 30 fps): presents without a bind before a cell on an AHardwareBuffer is dropped.
+uint32_t ahb_idle() {
+    static const uint32_t n = static_cast<uint32_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_ahb_idle", 5400), 0, 1 << 30));
+    return n;
+}
+std::atomic<int64_t> g_ahb_live{0};
+std::atomic<uint64_t> g_ahb_moves{0}, g_ahb_failed{0}, g_ahb_move_us{0};
+struct AhbGauges {
+    AhbGauges() {
+        nxrt::gauge_register("nvn.pool.ahb.live_mb", [] { return g_ahb_live.load(std::memory_order_relaxed) >> 20; });
+        nxrt::gauge_register("nvn.pool.ahb.moves", [] { return static_cast<int64_t>(g_ahb_moves.load(std::memory_order_relaxed)); });
+        nxrt::gauge_register("nvn.pool.ahb.failed", [] { return static_cast<int64_t>(g_ahb_failed.load(std::memory_order_relaxed)); });
+        nxrt::gauge_register("nvn.pool.ahb.move_ms", [] { return static_cast<int64_t>(g_ahb_move_us.load(std::memory_order_relaxed) / 1000); });
+    }
+    ~AhbGauges() {
+        for (const char* n : {"nvn.pool.ahb.live_mb", "nvn.pool.ahb.moves", "nvn.pool.ahb.failed", "nvn.pool.ahb.move_ms"}) nxrt::gauge_unregister(n);
+    }
+} g_ahb_gauges;
+
+// Moves pool bytes [off, off + size) of g between private memory and an AHardwareBuffer (back) or the other way (unback). Armed pages
+// of the range are released first and none is armed meanwhile (they count as written); the texture watch's worker waits.
+os::ahb::Backing* ahb_move(PoolGpu* g, uint64_t off, uint64_t size, os::ahb::Backing* unback) {
+    const uint64_t addr = reinterpret_cast<uint64_t>(g->base) + off;
+    const auto t0 = std::chrono::steady_clock::now();
+    os::ahb::Backing* b = nullptr;
+    {
+        std::lock_guard<std::mutex> ilk(tex_arm_import_mutex());
+        mem::ww::OsWriteScope scope(reinterpret_cast<const void*>(addr), size);
+        if (unback) os::ahb::unback(unback);
+        else b = os::ahb::back(addr, size);
+    }
+    g_ahb_move_us.fetch_add(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count()),
+                            std::memory_order_relaxed);
+    g_ahb_moves.fetch_add(1, std::memory_order_relaxed);
+    return b;
+}
+
+bool import_ahb(PoolGpu* g, PoolChunk& c, uint64_t off, uint64_t size) {
+    if (!ahb_on_once() || g->viewed || size > os::ahb::kMaxBytes) return false;
+    os::ahb::Backing* b = ahb_move(g, off, size, nullptr);
+    if (!b) {
+        g_ahb_failed.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
+    uint64_t buf = 0, mem = 0;
+    if (const int r = os::ahb::import(b, device().device(), reinterpret_cast<void*>(vkGetDeviceProcAddr), pool_buffer_usage(), &buf, &mem)) {
+        static bool logged = false;
+        if (!logged) {
+            logged = true;
+            NXLOG_W(kTag, "pool_ahb: importing a moved cell failed (%d): it gets a shadow (logged once; gauge nvn.pool.ahb.failed)", r);
+        }
+        ahb_move(g, off, size, b);
+        g_ahb_failed.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
+    c.buffer = reinterpret_cast<VkBuffer>(buf);
+    c.mem = reinterpret_cast<VkDeviceMemory>(mem);
+    c.ahb = b;
+    c.view = nullptr;
+    c.off = off;
+    c.size = size;
+    c.tried = true;
+    c.failed = false;
+    vk_gauge_buffers().add(1);
+    vk_gauge_memory_allocs().add(1);
+    vk_gauge_memory_bytes().add(static_cast<int64_t>(size));
+    g_ahb_live.fetch_add(static_cast<int64_t>(size), std::memory_order_relaxed);
+    counters().pools_imported.fetch_add(1);
+    NXLOG_D(kTag, "pool %p: cell at offset 0x%llx (%llu KiB) moved onto an AHardwareBuffer and imported", static_cast<void*>(g->base),
+            static_cast<unsigned long long>(off), static_cast<unsigned long long>(size >> 10));
+    return true;
+}
+
 void destroy_chunk(PoolChunk& c) {
     gfx::Device& dev = device();
     if (c.buffer) buffer_views_forget(c.buffer);
@@ -333,6 +428,10 @@ void destroy_chunk(PoolChunk& c) {
         vk_gauge_memory_bytes().sub(static_cast<int64_t>(c.size));   // the size the allocation was made with
     }
     if (c.view) mem::heap_private_view_unmap(c.view);
+    if (c.ahb) {     // the GPU is done with it (the callers drop completed chunks only): the bytes go back onto private memory
+        ahb_move(c.owner, c.off, c.size, c.ahb);
+        g_ahb_live.fetch_sub(static_cast<int64_t>(c.size), std::memory_order_relaxed);
+    }
     c = PoolChunk{};
 }
 
@@ -462,7 +561,9 @@ bool lazy_import_cells(PoolGpu* g, PoolChunk& x, uint64_t xo, uint64_t xs) {
     const uint16_t fails = x.fails;
     const uint32_t since = x.fail_since;
     const size_t c0 = static_cast<size_t>(xo / g->stride);
-    bool ok = g->copy && pcopy_alloc(g, x, xo, xs, "copy cell", true);
+    bool ok = g->copy && import_ahb(g, x, xo, xs);
+    if (ok) x.owner = g;
+    if (!ok) ok = g->copy && pcopy_alloc(g, x, xo, xs, "copy cell", true);
     if (ok && retry) import_recovered(g, x, fails, since, "copy cell", c0, g->cell_ext.size());
     if (!ok && g->copy && !device().features().external_memory_host) {
         // No import to fall back to (and no vkGetMemoryHostPointerPropertiesEXT to call, #589): the cell fails and is tried again as a shadow.
@@ -483,6 +584,76 @@ bool lazy_import_cells(PoolGpu* g, PoolChunk& x, uint64_t xo, uint64_t xs) {
     }
     g_lz_live_bytes.fetch_add(static_cast<int64_t>(xs), std::memory_order_relaxed);   // live cells, imported or shadows
     return true;
+}
+
+// [nvn] pool_ahb: a range that runs from one AHB cell import into another got a shadow span, a second copy of bytes the two imports
+// also hold; GPU writes through one were not seen through the other (a target written on alternate frames read stale data). So such a range is queued here, and at the start of the next submission (ahb_merge_pending, before anything of it is recorded)
+// the imports and shadow spans over those cells are retired once the GPU has run them, and one AHB import over all their cells replaces
+// them: every later bind of those bytes resolves to that one import. The shadow serves the submissions until then. Render thread.
+struct AhbMerge {
+    PoolGpu* g;
+    size_t c0, c1;
+};
+std::vector<AhbMerge> g_ahb_merges;
+std::atomic<uint64_t> g_ahb_merged{0};
+
+void ahb_merge_request(PoolGpu* g, size_t c0, size_t c1) {
+    for (const AhbMerge& m : g_ahb_merges)
+        if (m.g == g && m.c0 <= c0 && c1 <= m.c1) return;
+    g_ahb_merges.push_back({g, c0, c1});
+}
+
+PoolChunk* ahb_merge(PoolGpu* g, size_t c0, size_t c1) {   // with g_live_mu held, g live; null when it cannot be done now
+    const uint64_t cell = g->stride;
+    size_t u0 = c0, u1 = c1;
+    for (size_t k = c0; k <= c1; ++k) {   // the union of the imports the range touches
+        const int32_t e = g->cell_ext[k];
+        if (e < 0) continue;
+        const PoolChunk& x = g->ext[static_cast<size_t>(e)];
+        if (!x.ahb || x.failed || !x.buffer) return nullptr;    // only AHB cell imports are merged
+        u0 = std::min<size_t>(u0, static_cast<size_t>(x.off / cell));
+        u1 = std::max<size_t>(u1, static_cast<size_t>((x.off + x.size - 1) / cell));
+    }
+    const uint64_t uo = u0 * cell, us = std::min<uint64_t>((u1 + 1) * cell, g->size) - uo;
+    if (us > os::ahb::kMaxBytes) return nullptr;
+    // the GPU must have run every submission that used them (none of the one being recorded may: it is the start of it)
+    const uint64_t cur = current_serial();
+    uint64_t need = 0;
+    const auto over = [&](const PoolChunk& x) { return x.buffer && x.off < uo + us && uo < x.off + x.size; };
+    for (size_t k = u0; k <= u1; ++k)
+        if (const int32_t e = g->cell_ext[k]; e >= 0) need = std::max(need, g->ext[static_cast<size_t>(e)].used_serial);
+    for (const PoolChunk& sp : g->spans)
+        if (over(sp)) need = std::max(need, sp.used_serial);
+    if (need >= cur) return nullptr;
+    if (need && !wait_serial_run(need)) return nullptr;       // also lands the shadows' GPU writes into guest memory
+    for (PoolChunk& sp : g->spans)
+        if (over(sp)) {
+            if (pcopy_busy(sp)) return nullptr;
+            pool_drop_span(g, sp);           // copy pools keep the empty slot (land records point into the deque)
+        }
+    for (size_t k = u0; k <= u1; ++k)
+        if (const int32_t e = g->cell_ext[k]; e >= 0) pool_drop_ext(g, static_cast<size_t>(e));   // its bytes go back to private memory
+    int32_t idx;
+    if (!g->ext_free.empty()) { idx = g->ext_free.back(); g->ext_free.pop_back(); }
+    else { idx = static_cast<int32_t>(g->ext.size()); g->ext.emplace_back(); }
+    PoolChunk& x = g->ext[static_cast<size_t>(idx)];
+    const bool ok = lazy_import_cells(g, x, uo, us);
+    for (size_t k = u0; k <= u1; ++k) g->cell_ext[k] = idx;
+    if (ok) {
+        g_ahb_merged.fetch_add(1, std::memory_order_relaxed);
+        NXLOG_I(kTag, "pool %p: cells %zu..%zu (%llu KiB at 0x%llx) are now one AHardwareBuffer import, so a range across them needs no shadow",
+                static_cast<void*>(g->base), u0, u1, static_cast<unsigned long long>(us >> 10), static_cast<unsigned long long>(uo));
+    }
+    return ok ? &x : nullptr;
+}
+
+void ahb_merge_pending() {
+    if (g_ahb_merges.empty()) return;
+    std::vector<AhbMerge> todo;
+    todo.swap(g_ahb_merges);
+    std::lock_guard<std::mutex> lk(g_live_mu);
+    for (const AhbMerge& m : todo)   // one that cannot be done now (in use, too large, not AHB) is asked again by the next range across it
+        if (g_live.count(m.g)) ahb_merge(m.g, m.c0, m.c1);
 }
 
 // [nvn] pool_lazy: the import of a lazy pool holding bytes [off, off + size) (clipped to the pool), imported now when no import holds the
@@ -514,6 +685,7 @@ PoolChunk* lazy_chunk(PoolGpu* g, uint64_t off, uint64_t size) {
             c = &x;
         }
     }
+    if (!c && g->copy && ahb_on_once() && !g->viewed) ahb_merge_request(g, c0, c1);   // the shadow below serves until the merge
     if (!c && g->copy) {        // [nvn] pool_copy: a shadow span (pcopy_span counts it); an import span below only when it cannot be made
         bool made = false;
         c = pcopy_span(g, off, end - off, &made);
@@ -601,6 +773,8 @@ void make_dummy() {
 }
 
 }  // namespace
+
+bool pool_ahb_on() { return ahb_on_once(); }
 
 void prefetch_pool(MemoryPool* p) {
     static const bool enabled = config_get_bool("nvn", "pool_prefetch", true);   // [nvn] pool_prefetch = false: import on first use only
@@ -834,6 +1008,7 @@ void oom_drop_idle(uint32_t now) {
 // (pcopy_busy). One log line per drop (both modes). Any mode: the out-of-memory sweep first (oom_drop_idle).
 void lazy_drop_idle() {
     const uint32_t now = presents_now();
+    ahb_merge_pending();
     oom_drop_idle(now);
     const bool copy = pool_copy_on();
     if (!lazy_on() && !copy) return;
@@ -844,8 +1019,11 @@ void lazy_drop_idle() {
     if (idle) {
         const uint64_t done = poll_completed();
         const uint64_t cur = current_serial();
+        // A cell on an AHardwareBuffer waits longer ([nvn] pool_ahb_idle): dropping it frees no memory (its bytes move back onto private
+        // pages, still resident) and the next bind pays the move again (1922: 254 idle drops in 9 min, a move each ~13 ms).
         const auto idle_now = [&](const PoolChunk& c) {
-            return c.buffer && !c.failed && now - c.used_at > idle && c.used_serial <= done && c.used_serial < cur && !(c.is_shadow && pcopy_busy(c));
+            return c.buffer && !c.failed && now - c.used_at > (c.ahb ? std::max(idle, ahb_idle()) : idle) && c.used_serial <= done && c.used_serial < cur &&
+                   !(c.is_shadow && pcopy_busy(c));
         };
         const auto log_drop = [&](const PoolGpu* g, const PoolChunk& c, const char* what) {
             NXLOG_I(kTag, "pool %p: %s %s at offset 0x%llx (%llu KiB) dropped, unused for %u presents", static_cast<const void*>(g->base),

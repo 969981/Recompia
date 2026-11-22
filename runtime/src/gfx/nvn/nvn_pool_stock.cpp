@@ -4,7 +4,7 @@
 // spent up to 500 ms of one frame in pool.copy.alloc while the game streamed a new area in), and a shadow dropped by the idle rule or
 // by the cap was destroyed and made again at its next bind.
 //
-// [nvn] pool_copy_spare_mb (default 128; 0: every shadow is made at its first bind and destroyed at its drop, as before):
+// [nvn] pool_copy_spare_mb (default 128, 0 with [nvn] pool_ahb on; 0: every shadow is made at its first bind and destroyed at its drop, as before):
 //  * reuse: the buffer of a dropped shadow is kept as a spare (up to twice that many MiB) and given to the next shadow of the same size.
 //    What it held does not matter: a shadow starts with no page copied, and every page a bind reads is copied first.
 //  * ahead of use: the nvn-pool-stock thread makes cell-sized spares until that many MiB are ready, whenever the stock is below it and
@@ -46,8 +46,10 @@ struct Stock {
 Stock g_stock;
 std::atomic<uint64_t> g_made_here{0}, g_made_here_bytes{0}, g_made_here_ns{0}, g_made_ahead{0}, g_reused{0}, g_spare_now{0};
 
+// Default 128; 0 when cells are AHB-backed ([nvn] pool_ahb): then only spans are shadows, the stock would mostly sit unused in GPU memory
+// (measured on a phone: 128 MiB of GPU memory freed, no new hitches).
 uint64_t spare_target() {
-    static const uint64_t t = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_spare_mb", 128), 0, 1 << 20)) << 20;
+    static const uint64_t t = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_spare_mb", pool_ahb_on() ? 0 : 128), 0, 1 << 20)) << 20;
     return t;
 }
 

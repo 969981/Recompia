@@ -104,6 +104,8 @@ Settings settings() {
     return g_settings;
 }
 
+void set_scene_scale_live(int pct) { g_scene_scale.store(std::clamp(pct, 25, 100)); }
+
 void set_settings(const Settings& in) {
     Settings s = in;
     s.upscale.mode = upscale_mode_enabled(s.upscale.mode);
@@ -173,8 +175,11 @@ int upscale_scene_scale() {
         const int pct = quality_percent(upscale_quality());
         if (pct > 0) return pct;
     }
-    return g_scene_scale.load(std::memory_order_relaxed);
+    const int w = scene_scale_watch(), p = w > 0 ? w : g_scene_scale.load(std::memory_order_relaxed), a = scene_scale_auto();
+    return a > 0 ? std::min(a, p) : p;
 }
+
+int upscale_scene_scale_player() { return g_scene_scale.load(std::memory_order_relaxed); }
 
 void scene_fraction_set(float fx, float fy) {
     g_scene_fx.store(fx > 0.0f && fx < 1.0f ? fx : 1.0f, std::memory_order_relaxed);

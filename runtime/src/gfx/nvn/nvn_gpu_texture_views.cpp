@@ -253,10 +253,14 @@ VkImageView tex_sampled_view(Texture* t, const ViewRequest& req) {
     if (!g) return VK_NULL_HANDLE;
     const bool is3d = g->type == VK_IMAGE_TYPE_3D;
     const uint32_t total_layers = is3d ? g->base.depth : g->layers;   // 3D images: the slices are the layers of 2D views
-    const uint32_t bl = req.base_level;
-    if (bl >= g->levels) return bad_view(*t, "base level out of range");
-    const uint32_t nl = req.level_count ? req.level_count : g->levels - bl;
-    if (nl == 0 || bl + nl > g->levels) return bad_view(*t, "level range out of range");
+    // [gfx] texture_cap: guest levels map to image level - level_skip; a range starting in the dropped levels starts at image level 0
+    const uint32_t gl = g->levels + g->level_skip;
+    const uint32_t gbl = req.base_level;
+    if (gbl >= gl) return bad_view(*t, "base level out of range");
+    const uint32_t gnl = req.level_count ? req.level_count : gl - gbl;
+    if (gnl == 0 || gbl + gnl > gl) return bad_view(*t, "level range out of range");
+    const uint32_t bl = gbl > g->level_skip ? gbl - g->level_skip : 0;
+    const uint32_t nl = std::max(1u, gbl + gnl > g->level_skip ? gbl + gnl - g->level_skip - bl : 1u);
     const uint32_t bly = req.base_layer;
     uint32_t nly = 1;
     switch (req.type) {
@@ -583,12 +587,14 @@ VkBufferView tex_buffer_view(Texture* t, const TextureViewInfo* view, int compon
     BufRef br = resolve_buffer(addr, size);
     if (!br.ok) return VK_NULL_HANDLE;
     const VkDeviceSize align = std::max<VkDeviceSize>(1, lim.minTexelBufferOffsetAlignment);
-    if (br.offset % align) return VK_NULL_HANDLE;
     const VkDeviceSize range = std::min<VkDeviceSize>(size, br.avail) / fi->bytes * fi->bytes;
     if (!range) return VK_NULL_HANDLE;
     if (gpu_address) *gpu_address = addr;
     if (bytes) *bytes = range;
     if (format) *format = fmt;
+    // The texels start where the view cannot (an offset below minTexelBufferOffsetAlignment, 64 on Adreno): null, with the outputs filled so the
+    // caller can bind a copy instead.
+    if (br.offset % align) return VK_NULL_HANDLE;
     return make_buffer_view(br.buffer, br.offset, range, fmt);
 }
 

@@ -37,8 +37,9 @@ static int selftest() {
         uint64_t size;
         const char* name;
     };
-    const ImageBase image_bases[] = {{nxrt::mem::kMainBase, 0x3d20000ull, "main"}, {0x7500000000ull, 0xff0000ull, "sdk"},
-                                     {0x7600000000ull, 0x140000ull, "subsdk0"}, {0x7700000000ull, 0x20000ull, "rtld"}};
+    const ImageBase image_bases[] = {{nxrt::mem::kMainBase, 0x3d20000ull, "main"}, {nxrt::mem::kSdkBase, 0xff0000ull, "sdk"},
+                                     {nxrt::mem::kSdkBase + 0x100000000ull, 0x140000ull, "subsdk0"},
+                                     {nxrt::mem::kSdkBase + 0x200000000ull, 0x20000ull, "rtld"}};
     bool images = true;
     for (const ImageBase& im : image_bases) {
         const bool r = nxrt::mem::reserve_fixed(im.base, im.size, im.name) && nxrt::mem::commit(im.base, im.size);

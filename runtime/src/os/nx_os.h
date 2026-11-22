@@ -475,6 +475,7 @@ SIZE_T VirtualQuery(LPCVOID addr, MEMORY_BASIC_INFORMATION* mbi, SIZE_T len);
 SIZE_T VirtualQueryEx(HANDLE proc, LPCVOID addr, MEMORY_BASIC_INFORMATION* mbi, SIZE_T len);
 // macOS: [start, end) of the executable's __GUEST segment (cmake/guest_segment.py, 0x7000000000 + 72 GiB, slid by dyld).
 // False when the binary has none (a dylib, a unit test). The guest layout must fit inside it: see src/mem/memory.cpp.
+// Android: the whole guest layout (nxrt/memory.h), reserved PROT_NONE by the first question. Linux: none.
 bool nxos_guest_reservation(uint64_t* start, uint64_t* end);
 
 // Gives this thread a signal stack (64 KiB), so a handler can run when the thread's own stack is exhausted. Without it a
@@ -1137,6 +1138,11 @@ HRESULT CoCreateInstance(REFCLSID clsid, void* outer, DWORD clsctx, REFIID iid, 
 
 std::string nxos_utf8(const char* s);
 std::string nxos_utf8(const wchar_t* s);
+
+// The folder a program keeps its per-user data in, without a trailing separator: $HOME/Library/Application Support on macOS and
+// Linux (".", not "", when HOME is unset); on Android the working directory, which is the game folder the runtime was started in
+// (--game), because an app's private storage is out of the player's reach. The services' save folder default builds on it.
+std::string nxos_app_data_dir();
 
 NX_OS_INLINE HANDLE CreateFileW(LPCWSTR p, DWORD a, DWORD sh, void* sa, DWORD d, DWORD f, HANDLE t) {
     (void)t;

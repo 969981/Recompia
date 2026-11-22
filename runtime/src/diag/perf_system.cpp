@@ -15,6 +15,7 @@
 #include <intrin.h>   // __cpuid (MSVC; compat/intrin.h on the POSIX hosts)
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -305,6 +306,16 @@ bool link_devtree(const perf::GpuFacts& g, Link* l) {
 std::string mib(uint64_t bytes) { return std::to_string(bytes >> 20) + " MiB"; }
 
 }  // namespace
+
+bool perf_gpu_load(GpuLoad* out) {
+    static const std::string dir = host_file("/sys/class/kgsl/kgsl-3d0/");
+    const std::string busy = first_line(dir + "gpu_busy_percentage");     // "82 %"
+    if (busy.empty() || !std::isdigit(static_cast<unsigned char>(busy[0]))) return false;
+    out->busy = std::clamp(std::atof(busy.c_str()) / 100.0, 0.0, 1.0);
+    out->mhz = std::atoi(first_line(dir + "clock_mhz").c_str());
+    out->max_mhz = std::atoi(first_line(dir + "max_clock_mhz").c_str());
+    return true;
+}
 
 std::string perf_pcie_link(const perf::GpuFacts& g) {
     if (!g.pci_valid) return "unknown (the driver gives no PCI address)";

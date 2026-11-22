@@ -81,6 +81,8 @@ inline constexpr Spec kSpecs[] = {
     unset_by_default(s(QualityPreset, "quality_preset", "switch2", "switch2 high ultra steamdeck legion_go_s laptop desktop",
                        "When set, the graphics preset (wins over the F1 page's).")),
     d(FogStrength, "fog_strength", 1.0, 0.0, 1.5, "Multiplier on the height fog's amount."),
+    b(ExposureScaled, "exposure_scaled", true, "The exposure histogram measures the scene at the size it is rendered (off: the full 1080p layout, slower, same brightness)."),
+    live(i(SceneUpscaler, "scene_upscaler", 0, 0, 2, "On a phone, the upscaler of the 3D picture: 0 off, 1 SGSR, 2 bicubic (with [gfx] ui_native the menus stay sharp).")),
     d(LodDistance, "lod_distance", 1.0, 0.25, 8.0, "When set, multiplier on the distance where placed objects switch to their low-detail model."),
     b(QualityProbe, "quality_probe", false, "Log what the quality hooks see (diagnostics)."),
     i(GameTaa, "game_taa", 0, 0, 2, "Experimental: 1 turns on the engine's camera TAA jitter, 2 also its TemporalAA3 pass switch (0: the game's)."),

@@ -11,20 +11,35 @@
 
 namespace nxrt::mem {
 
-// ---- address-space layout (documented constants; every value is above what a Windows process with HIGHENTROPYVA off uses) ----
-constexpr uint64_t kMainBase = 0x7100000000ull;     // main module image (the game): its lifted address, identity mapped
-constexpr uint64_t kRemoteBase = 0x7200000000ull;   // Switch 2 remote region (svcGetInfo 29/30): reserved address space
+// ---- address-space layout: fixed offsets from one guest base ----------------------------------------------------------------
+// The canonical layout: every document, site list, config value and comment in this repository writes guest addresses as if the
+// layout started here (main at 0x7100000000), and every value is above what a Windows process with HIGHENTROPYVA off uses. A target
+// whose user address space cannot hold 0x7000000000..0x8000000000 builds with another base (runtime/cmake/guest_layout.cmake, the
+// only place one is chosen, reaches this file as NXRT_GUEST_BASE); the regions keep their offsets. Android does (0x1000000000).
+constexpr uint64_t kCanonicalBase = 0x7000000000ull;
+#ifdef NXRT_GUEST_BASE
+constexpr uint64_t kGuestBase = NXRT_GUEST_BASE;
+#else
+constexpr uint64_t kGuestBase = kCanonicalBase;
+#endif
+// What moves a canonical address written in code to this build's layout (`0x7500000000ull + kGuestSlide`): 0 at the canonical
+// base, so such an expression folds to the literal itself. Modular (unsigned) arithmetic, so a base below canonical works too.
+constexpr uint64_t kGuestSlide = kGuestBase - kCanonicalBase;
+constexpr uint64_t kLayoutSize = 0x1000000000ull;               // 64 GiB: every region below lies in [kGuestBase, kLayoutEnd)
+constexpr uint64_t kLayoutEnd = kGuestBase + kLayoutSize;
+constexpr uint64_t kMainBase = kGuestBase + 0x100000000ull;     // main module image (the game): its lifted address, identity mapped
+constexpr uint64_t kRemoteBase = kGuestBase + 0x200000000ull;   // Switch 2 remote region (svcGetInfo 29/30): reserved address space
 constexpr uint64_t kRemoteSize = 0x100000000ull;   // 4 GiB
-constexpr uint64_t kHleBase = 0x7F00000000ull;      // placeholder addresses for host functions (never mapped): see dispatch.h
+constexpr uint64_t kHleBase = kGuestBase + 0xF00000000ull;      // placeholder addresses for host functions (never mapped): see dispatch.h
 constexpr uint64_t kHleSize = 0x1000000ull;         // 16 bytes per thunk
-constexpr uint64_t kSdkBase = 0x7500000000ull;      // sdk / subsdk modules sit at their own bases from here on
-constexpr uint64_t kHeapBase = 0x7800000000ull;     // primary view of the heap section (svcSetHeapSize / nn::os memory heap)
+constexpr uint64_t kSdkBase = kGuestBase + 0x500000000ull;      // sdk / subsdk modules sit at their own bases from here on
+constexpr uint64_t kHeapBase = kGuestBase + 0x800000000ull;     // primary view of the heap section (svcSetHeapSize / nn::os memory heap)
 constexpr uint64_t kHeapMax = 0x300000000ull;       // 12 GiB for the heap view (Switch 2 applications use 8+ GiB)
-constexpr uint64_t kAliasBase = 0x7300000000ull;    // views of heap pages made on request (pools, shared memory, MapMemory)
+constexpr uint64_t kAliasBase = kGuestBase + 0x300000000ull;    // views of heap pages made on request (pools, shared memory, MapMemory)
 constexpr uint64_t kAliasSize = 0x200000000ull;     // 8 GiB, between the remote region and the sdk slot
-constexpr uint64_t kStackBase = 0x7C00000000ull;    // guest thread stacks handed out by the runtime
+constexpr uint64_t kStackBase = kGuestBase + 0xC00000000ull;    // guest thread stacks handed out by the runtime
 constexpr uint64_t kStackSize = 0x100000000ull;
-constexpr uint64_t kKernelBase = 0x7E00000000ull;   // TLS regions, main-thread stack, kernel-owned memory
+constexpr uint64_t kKernelBase = kGuestBase + 0xE00000000ull;   // TLS regions, main-thread stack, kernel-owned memory
 constexpr uint64_t kKernelSize = 0x100000000ull;
 constexpr uint64_t kPage = 0x1000;
 constexpr uint64_t kAllocGranularity = 0x10000;     // views of a section start at multiples of 64 KiB
@@ -33,8 +48,12 @@ constexpr uint64_t kAllocGranularity = 0x10000;     // views of a section start 
 // above all. It must be memory the host can actually hand out at an exact address, which rules out the low 512 GiB on
 // macOS: the kernel reserves 0xfc0000000-0x7000000000 as a 385 GiB PROT_NONE guard in every process, and the executable
 // itself sits at 4-4.5 GiB. The slot below the main module is inside the guest segment and free of both.
-constexpr uint64_t kAslrBase = 0x7000000000ull;
+constexpr uint64_t kAslrBase = kGuestBase;
 constexpr uint64_t kAslrSize = 0x100000000ull;      // 4 GiB, kAslrBase..kMainBase
+
+static_assert(kGuestBase % 0x100000000ull == 0, "the layout starts on a 4 GiB boundary");
+static_assert(kLayoutEnd <= (1ull << 39), "the guest address space is 39 bits (svcGetInfo AddressSpaceSize)");
+static_assert(kKernelBase + kKernelSize <= kHleBase && kHleBase + kHleSize <= kLayoutEnd, "every region lies inside the layout");
 
 enum class Prot { None, R, RW, RX, RWX };
 

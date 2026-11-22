@@ -62,6 +62,10 @@ library, pkp.exe) is flushed to the disk before the step that makes it trusted (
 rename and the size but not the data, and an object read as zeros past that point failed the link on every Set up again.
 Zig's own cache lasts one run, and an object whose end reads as zeros (an older release's, or a disk that dropped the flush)
 is compiled again (whole_object()).
+Targets: the host's by default (above). --target android-arm64 builds the Android game library instead: libpkpgame.so (the
+SDK's stub with SDL_main + the module libraries, linked against libpkp_rt.so) in place of the executable, with clang++ and llvm-ar
+from --ndk (default $ANDROID_NDK_HOME) or given one by one (--cxx, --ar, --sysroot), so the same script can run where there is no
+NDK layout (use_target()). The flags and the compiler are in the stamps and the cache keys, so the targets' objects never mix.
 Output for the launcher, one per line on stdout:  @progress <phase> <done> <total> <text>  /  @error <text>
 Exit codes: 0 done, 1 error, 2 cancelled.
 """
@@ -119,6 +123,17 @@ sys.path.insert(0, RECOMP)
 from nxrecomp import compile_flags, modheader, modplan   # noqa: E402
 from nxrecomp.config import load_game, reg_locals_mode   # noqa: E402
 GAME = load_game('pkp')
+# A kit whose runtime is built for another guest base than the canonical one has sdk/guest_base.txt (written by the runtime build,
+# runtime/cmake/guest_layout.cmake): the module table and the site lists are then moved there (guest_layout.py, next to this script).
+# Without the file nothing here changes: guest_layout.py is not even loaded.
+GUEST_SLIDE = 0
+if os.path.isfile(os.path.join(SDK, 'guest_base.txt')):
+    import importlib.util
+    _spec = importlib.util.spec_from_file_location('guest_layout', os.path.join(HERE, 'guest_layout.py'))
+    guest_layout = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(guest_layout)
+    GUEST_SLIDE = guest_layout.slide(GAME, guest_layout.read_base(os.path.join(SDK, 'guest_base.txt')))
+    GAME = guest_layout.placed(GAME, GUEST_SLIDE)
 # name, NSO file, guest base, NxModule.index, translation units
 MODULES = [(m.name, m.source, m.base, i, m.shards) for i, m in enumerate(GAME.modules)]
 # site lists per module, as paths under RECOMP (main's main.sites)
@@ -168,6 +183,47 @@ KEY_SCHEME = 2
 # ObjCache: the lifter headers a unit includes, '#include <nxrecomp/cxx.h>' (the generated ones are quoted: _header_view)
 INCLUDE_RE = re.compile(r'^[ \t]*#[ \t]*include[ \t]*<([^>\n]+)>', re.M)
 EXE = 'pkp' if (DARWIN or LINUX) else 'pkp.exe'    # the game executable the build links and --check looks for
+ARCHIVER = [ZIG, 'ar']                  # archive(), except on macOS (Apple's ar)
+TARGET = None                           # None: the host's own build; else a --target (use_target())
+TARGETS = ('android-arm64',)
+
+
+def use_target(target, ndk=None, cxx=None, ar=None, sysroot=None):
+    """Re-binds the platform globals above for a --target (only main() calls it, before anything reads them). android-arm64:
+    libpkpgame.so for SDL to dlopen, linked against libpkp_rt.so, with clang++ and llvm-ar (an NDK's, or cxx/ar given directly);
+    the SDK gives the Android entry (pkp_stub_android.cpp, SDL_main) and the export list besides pkp_stub.cpp. sysroot goes on the
+    compile command, so it is part of the compiler in the stamps.
+    The flags are the Linux AArch64 table's (compile_flags.ZIG_LINUX_ARM64) with clang's own Android triple in place of Zig's
+    -target (Zig has no bionic; API 30 is the app's minimum, keep the two equal) and -fPIC (the objects go into a shared library).
+    They are built here rather than added to compile_flags.py, so the lifter files every player's build stamp hashes stay as they are."""
+    global TARGET, COMPILER, CXXFLAGS, ARCHIVER, RUNTIME_LIB, EXE, SDK_FILES
+    if target not in TARGETS:
+        raise Fail('Unknown target %s (known: %s)' % (target, ', '.join(TARGETS)))
+    if ndk and not (cxx and ar):
+        import glob
+        bins = sorted(glob.glob(os.path.join(ndk, 'toolchains', 'llvm', 'prebuilt', '*', 'bin')))
+        if not bins:
+            raise Fail('%s is not an Android NDK (no toolchains/llvm/prebuilt/*/bin)' % ndk)
+        exe = '.exe' if os.name == 'nt' else ''
+        cxx = cxx or os.path.join(bins[0], 'clang++' + exe)
+        ar = ar or os.path.join(bins[0], 'llvm-ar' + exe)
+    if not (cxx and ar):
+        raise Fail('--target %s needs --ndk (or $ANDROID_NDK_HOME), or --cxx and --ar' % target)
+    flags = list(compile_flags.ZIG_LINUX_ARM64)
+    i = flags.index('-target')
+    flags[i:i + 2] = ['--target=aarch64-linux-android30']
+    TARGET = target
+    COMPILER = [cxx] + (['--sysroot=' + sysroot] if sysroot else [])
+    # recomp/native (outside every desktop stamp): the forced include and the post-lift rewrite of the Android build (native FP and
+    # NEON through the host's own instructions, FCMP conditions from the operands). ARMv8.2 LSE atomics inline: every phone that runs
+    # the game has them.
+    CXXFLAGS = flags + ['-fPIC', '-march=armv8.2-a', '-mno-outline-atomics', '-include', os.path.join(RECOMP, 'native', 'nx_native.h')]
+    ARCHIVER = [ar]
+    RUNTIME_LIB = 'libpkp_rt.so'
+    EXE = 'libpkpgame.so'
+    SDK_FILES = ['pkp_stub.cpp', 'pkp_stub_android.cpp', 'pkpgame_android.ver', 'pkp_rt_api.h']
+
+
 # ObjCache: a one-line function declaration in a generated header ('void f_7100001000(Ctx *__restrict c);') and a C identifier
 DECL_RE = re.compile(r'void\s+([A-Za-z_]\w*)\s*\([^;{}]*\)\s*;\s*$')
 NAME_RE = re.compile(r'[A-Za-z_]\w*')
@@ -320,7 +376,9 @@ def runtime_abi():
 
 def tool_stamp():
     """The part of the build stamp this package decides: a release that changes any of it rebuilds pkp.exe."""
-    return {'lifter': tree_hash(RECOMP, LIFTER), 'sites': tree_hash(RECOMP, sorted(SITES.values())), 'sdk': tree_hash(SDK, SDK_FILES),
+    # with a guest base, guest_layout.py makes the lifter's inputs, so it counts as part of the lifter
+    lifter = tree_hash(RECOMP, LIFTER) + (' guest_layout ' + sha256(guest_layout.__file__) if GUEST_SLIDE else '')
+    return {'lifter': lifter, 'sites': tree_hash(RECOMP, sorted(SITES.values())), 'sdk': tree_hash(SDK, SDK_FILES),
             'runtime': runtime_abi(), 'cxxflags': CXXFLAGS, 'locals': LOCALS,
             'identity': IDENTITY if DARWIN else 0,
             'modules': [list(m) for m in MODULES],
@@ -351,7 +409,8 @@ def module_stamp(name, nso, want, tools, compiler, site_text):
             'lifter': tools['lifter'], 'include': tree_hash(RECOMP, ['include']), 'cxxflags': tools['cxxflags'],
             'locals': tools['locals'], 'modules': tools['modules'],
             'sites': tree_hash(RECOMP, [SITES[name]]) if name in SITES else '',
-            'mod_sites': hashlib.sha256(site_text.encode('utf-8')).hexdigest() if site_text else ''}
+            'mod_sites': hashlib.sha256(site_text.encode('utf-8')).hexdigest() if site_text else '',
+            **({'native': tree_hash(RECOMP, ['native'])} if TARGET else {})}
 
 
 def libs_current(lib, stamp):
@@ -560,6 +619,15 @@ class Runner:
         return rc, '\n'.join(tail)
 
 
+def game_sites(name, gen):
+    """The game's own site list of module `name` as the lift reads it: the file under RECOMP, or with a guest base (GUEST_SLIDE) its
+    copy moved there, in gen/guest-layout/."""
+    path = os.path.join(RECOMP, *SITES[name].split('/'))
+    if not GUEST_SLIDE:
+        return path
+    return guest_layout.move_sites(path, os.path.join(gen, 'guest-layout', name + '.sites'), GUEST_SLIDE)
+
+
 def mod_sites(plan, exefs, gen):
     """The mods' hook points as site lists, in gen/mod-hooks/: <module>.sites (the sites to lift with besides the game's own) and
     MOD_BUILT (the points built in). Kept for a resumed build (the record is written last); returns {module: site list path}."""
@@ -570,7 +638,7 @@ def mod_sites(plan, exefs, gen):
         progress('lift', 0, len(MODULES), "Checking the mods' hook points")
         new, built, refused = {}, [], []
         if plan is not None:
-            base = {n: [os.path.join(RECOMP, *p.split('/'))] for n, p in SITES.items()}
+            base = {n: [game_sites(n, gen)] for n in SITES}
             new, built, refused = modplan.plan_sites(plan, GAME, exefs, base, log=lambda t: print('mod hooks: ' + t, flush=True))
         for line, text, reason in refused:
             print('mod hooks: line %d refused (%s): %s' % (line, text.replace('\t', ' '), reason), flush=True)
@@ -610,7 +678,7 @@ def lift(runner, exefs, gen, jobs, extra_sites, skip=()):
         args = ['lift', os.path.join(exefs, nso), out, '--name', name, '--base', hex(base), '--shards', str(shards),
                 '--jobs', str(jobs), '--game', 'pkp', '--index', str(index), '--locals', LOCALS, '--progress']
         if name in SITES:
-            args += ['--sites', os.path.join(RECOMP, *SITES[name].split('/'))]
+            args += ['--sites', game_sites(name, gen)]
         if name in extra_sites:
             args += ['--sites', extra_sites[name]]
         cmd = [sys.executable, '-I', os.path.abspath(__file__), '--lift-one', json.dumps(args)]
@@ -625,6 +693,10 @@ def lift(runner, exefs, gen, jobs, extra_sites, skip=()):
         rc, tail = runner.run(cmd, cwd=RECOMP, on_line=on_line)
         if rc != 0:
             raise Fail('Translating %s failed (exit %d):\n%s' % (name, rc, tail))
+        if TARGET:                           # Android: vector registers in locals, FCMP readers from operands (recomp/native)
+            rc, tail = runner.run([sys.executable, '-I', os.path.join(RECOMP, 'native', 'postlift.py'), out], cwd=RECOMP)
+            if rc != 0:
+                raise Fail('Rewriting %s failed (exit %d):\n%s' % (name, rc, tail))
         for d, _, files in os.walk(out):     # the marker makes the sources trusted (flush())
             for n in files:
                 flush(os.path.join(d, n))
@@ -840,12 +912,17 @@ def make_cache(folder, cap_mb, compiler, env):
     if cap_mb <= 0:
         return None
     try:
-        return ObjCache(folder, cap_mb << 20, compiler, ' '.join(CXXFLAGS), IncludeView(env, os.path.dirname(folder)))
+        flags = ' '.join(CXXFLAGS)
+        # Android: the flags name the forced include (recomp/native/nx_native.h) by path only; its content and the headers it pulls in
+        # go into the key too, so a changed nx_native*.h never reuses an object. Desktop keys are unchanged (no forced include there).
+        if TARGET:
+            flags += ' native=' + tree_hash(RECOMP, ['native'])
+        return ObjCache(folder, cap_mb << 20, compiler, flags, IncludeView(env, os.path.dirname(folder)))
     except OSError:
         return None
 
 
-def compile_all(runner, gen, obj, jobs, env, cache=None, skip=()):
+def compile_all(runner, gen, obj, jobs, env, cache=None, skip=(), mem_per_job=1 << 30):
     units = []
     for name, _, _, _, shards in MODULES:
         if name in skip:
@@ -896,7 +973,7 @@ def compile_all(runner, gen, obj, jobs, env, cache=None, skip=()):
     # which gave a PC with 4 GB free two jobs however many cores it had. A unit that still fails is compiled again below.
     avail = free_memory()
     if avail:
-        jobs = max(1, min(jobs, avail // (1 << 30)))
+        jobs = max(1, min(jobs, avail // mem_per_job))   # mem_per_job (--mem-per-job-mb): a phone sets its own
     failed = []
     with ThreadPoolExecutor(max_workers=jobs) as ex:
         pending = {ex.submit(one, t): t for t in todo}
@@ -965,7 +1042,7 @@ def archive(runner, obj, lib, stamp, env, record, mod_stamps, skip=()):
             # characters (an accented user name) failed the archive step.
             with open(rsp, 'w', encoding='utf-8') as f:
                 f.write('\n'.join('"%s"' % p.replace('\\', '/') for p in objs))
-            rc, tail = runner.run([ZIG, 'ar', 'rcs', a, '@' + rsp], env=env)
+            rc, tail = runner.run(ARCHIVER + ['rcs', a, '@' + rsp], env=env)
         if rc != 0:
             raise Fail('Archiving %s failed (exit %d):\n%s' % (name, rc, tail))
         flush(a)                          # the stamps below make it trusted
@@ -1006,10 +1083,24 @@ def link(runner, lib, out, env):
     """Links the executable of the build `out` (a Layout) from the libraries in lib, with the files it needs beside it.
     Returns (the executable, every file written in out.dest as a path relative to it, the executable first)."""
     libs = [os.path.join(lib, 'pkp_%s.a' % m[0]) for m in MODULES]
-    exe = 'pkp' if (DARWIN or LINUX) else 'pkp.exe'
+    exe = EXE
     tmp = os.path.join(lib, exe)
     modheader.write(GAME.modules, os.path.join(lib, 'gen', 'nx_modules.gen.h'))     # the module list pkp_stub.cpp includes
-    if DARWIN:
+    if TARGET:
+        # Android: a shared library SDL dlopens from app storage and calls SDL_main in (pkp_stub_android.cpp, which runs pkp_stub.cpp's
+        # main, renamed, on a thread with the desktop main stack). The version script (pkpgame_android.ver, also the developer
+        # build's) exports only SDL_main and pkp_rt_api: otherwise the lifted functions become dynamic symbols (a huge .dynsym,
+        # calls through the PLT, a slow dlopen). 16 KiB pages (Android 15 devices may use them); --no-undefined: what libpkp_rt.so
+        # and libc do not define fails here, not at dlopen on the phone.
+        stubs = [os.path.join(SDK, f) for f in SDK_FILES if f.endswith('.cpp')]
+        cmd = list(COMPILER) + CXXFLAGS + ['-Dmain=pkp_stub_main', '-I', SDK, '-I', os.path.join(lib, 'gen')] + stubs + libs + [
+            os.path.join(SDK, RUNTIME_LIB), '-shared', '-o', tmp, '-Wl,-soname,' + exe,
+            '-Wl,--version-script,' + os.path.join(SDK, 'pkpgame_android.ver'), '-Wl,-z,max-page-size=16384', '-Wl,--no-undefined',
+            '-Wl,--strip-debug', '-Wl,--build-id=sha1', '-Wl,-z,noexecstack', '-Wl,-z,relro', '-Wl,-z,now']
+        rc, tail = runner.run(cmd, env=env, cwd=SDK)
+        if rc != 0:
+            raise Fail('Linking %s failed (exit %d):\n%s' % (exe, rc, tail))
+    elif DARWIN:
         # Apple clang, the runtime dylib next to the exe (@rpath), and the guest segment in the Mach-O header afterwards.
         # __info_plist is the executable's own identity (write_identity): Metal's shader cache is keyed on it.
         cmd = list(CLANGXX) + CXXFLAGS + ['-I', SDK, '-I', os.path.join(lib, 'gen'), os.path.join(SDK, 'pkp_stub.cpp')] + libs + [
@@ -1051,7 +1142,7 @@ def link(runner, lib, out, env):
         os.makedirs(os.path.dirname(os.path.join(out.dest, rel)), exist_ok=True)
         replace_file(src, os.path.join(out.dest, rel))
         written.append(rel)
-    if DARWIN or LINUX:
+    if (DARWIN or LINUX) and not TARGET:      # Android: the runtime and the assets are in the APK and the data folder
         # The exe loads the runtime from its own folder (-rpath @executable_path / $ORIGIN), as pkp.exe finds pkp_rt.dll beside it.
         beside(os.path.join(SDK, RUNTIME_LIB), RUNTIME_LIB)
         if DARWIN:
@@ -1270,8 +1361,8 @@ def build(a, out, cancel_file):
     if DARWIN:
         if subprocess.run(['xcrun', '--find', 'clang++'], capture_output=True).returncode != 0:
             raise Fail('Apple clang was not found: run "xcode-select --install" and press Set up again.')
-    elif not os.path.isfile(ZIG):
-        raise Fail('The bundled compiler is missing (%s). Extract the release zip again.' % ZIG)
+    elif not os.path.isfile(COMPILER[0]):
+        raise Fail('The bundled compiler is missing (%s). Extract the release zip again.' % COMPILER[0])
     want = verify(a.exefs)
     tools = tool_stamp()
     plan = modplan.read_plan(os.path.join(out.game, MOD_PLAN))
@@ -1327,7 +1418,8 @@ def build(a, out, cancel_file):
         lift(runner, a.exefs, gen, a.jobs, extra, skip)
         times['lift'] = round(time.time() - t, 1)
         t = time.time()
-        compile_all(runner, gen, obj, a.jobs, env, make_cache(os.path.join(out.build, 'objcache'), a.cache_mb, compiler, env), skip)
+        compile_all(runner, gen, obj, a.jobs, env, make_cache(os.path.join(out.build, 'objcache'), a.cache_mb, compiler, env), skip,
+                    a.mem_per_job_mb << 20)
         times['compile'] = round(time.time() - t, 1)
     t = time.time()
     progress('link', 0, 1, 'Linking %s' % EXE)
@@ -1405,11 +1497,22 @@ def main():
     ap.add_argument('--prepare', action='store_true', help='build into <game>/build/next, leaving the installed build alone')
     ap.add_argument('--adopt', action='store_true', help='move a finished <game>/build/next into place')
     ap.add_argument('--revert', action='store_true', help='put back the build the last --adopt replaced')
+    ap.add_argument('--mem-per-job-mb', type=int, default=1024, help='memory a compile job is given (jobs = free memory / this)')
+    ap.add_argument('--target', choices=TARGETS, help='build for this target instead of the host (default: the host)')
+    ap.add_argument('--ndk', default=os.environ.get('ANDROID_NDK_HOME'), help='with --target android-arm64: the NDK')
+    ap.add_argument('--cxx', help='with --target: the clang++ to use (instead of the NDK\'s)')
+    ap.add_argument('--ar', help='with --target: the llvm-ar to use (instead of the NDK\'s)')
+    ap.add_argument('--sysroot', help='with --target: the Android sysroot to give clang++')
     ap.add_argument('--lift-one', help=argparse.SUPPRESS)
     a = ap.parse_args()
     if a.lift_one:                       # child process: one lifter run (keeps the lifter's own pool out of this process)
         from nxrecomp.__main__ import main as nx_main
         return nx_main(json.loads(a.lift_one)) or 0
+    if a.target:
+        try:
+            use_target(a.target, a.ndk, a.cxx, a.ar, a.sysroot)
+        except Fail as e:
+            ap.error(str(e))
     if not a.game:
         ap.error('--game is required')
     game = os.path.abspath(a.game)

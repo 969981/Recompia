@@ -93,6 +93,10 @@ void diag_frame_tick();                // call once per presented frame (or any 
 void diag_frame_tick_nolisten();       // the same without calling the frame listener (the test tooling's own boundary)
 void diag_set_frame_listener(void (*fn)());   // called by diag_frame_tick after counting (test tooling's frame source "tick"); null removes it
 uint64_t diag_frame_count();
+// The OS has stopped the app (on = true; Android: sent to the background, SDL's pump then blocks the game's main thread) or let it go on
+// (false). While stopped the watchdog does not count, and the one frame interval across the stop is not a hitch. Desktop never calls it.
+void diag_set_suspended(bool on);
+uint64_t diag_suspend_count();         // how many times diag_set_suspended(true) was called
 // Extra sections of the freeze dump and of the crash report: each function returns text (it must never block: the process may be frozen
 // or crashing; take locks with try_lock and say "(busy)"). Registered once at start-up. in_crash_report = false keeps a section out of the
 // crash report (one it already has, like the frame times).

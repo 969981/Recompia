@@ -409,6 +409,7 @@ const SettingDef kTable[] = {
     {ROW("pad", "alt_orbit", Retired)},
     {ROW("upscale", "xess_dll", Retired)}, {ROW("upscale", "frame_generation", Retired)},
     {ROW("display", "view_distance", Retired)},   // #249: the view distance is the console's
+    {ROW("fps", "thermal", Retired)},   // the heat and load lines are part of [fps] detail 2 (Full) on a phone
 };
 
 #undef ROW

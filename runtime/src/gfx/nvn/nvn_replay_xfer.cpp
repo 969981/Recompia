@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Clears and transfers of the replay: colour/depth/texture clears, buffer-texture and texture copies, downsample, GPU-ordered memory writes.
 #include "nvn_replay_internal.h"
+#include "nxrt/platform_facts.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -35,6 +36,7 @@ void do_clear_color(const P_ClearColor& p) {
     if (p.mask == 0) return;
     if (!ensure_pass()) return;
     if (!P.color_fmt[p.target]) return;
+    ++(P.draws ? P.clears_mid : P.clears_first);
     if (p.mask != 0xf) {
         // vkCmdClearAttachments ignores the colour write mask: a masked clear is a draw with that mask
         if (!g_mask_ready) { g_mask_ok = g_mask.init(device()); g_mask_ready = true; }
@@ -70,7 +72,14 @@ void do_clear_depth_stencil(const P_ClearDepthStencil& p) {
     if (p.depth_mask) ca.aspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
     if (p.stencil_mask && P.has_stencil) ca.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
     if (!ca.aspectMask) return;
-    if (p.stencil_mask && p.stencil_mask != 0xff && P.has_stencil && !P.depth_ro) {
+    ++(P.draws ? P.clears_mid : P.clears_first);
+    if (ca.aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) P.dclears++;
+    // The stencil is 8 bits: a mask with all of them set (a full mask, 0xffffffff) is a full clear, not a masked one. Drawn as a masked
+    // clear it was a full-screen depth and stencil draw in a pass of its own (about 0.1 ms each on a phone, five a frame) instead of a
+    // vkCmdClearAttachments. Phones only (facts::kPhone); desktop keeps the comparison it had.
+    const bool masked = facts::kPhone ? ((p.stencil_mask & 0xffu) != 0 && (p.stencil_mask & 0xffu) != 0xffu)
+                                      : (p.stencil_mask && p.stencil_mask != 0xff);
+    if (masked && P.has_stencil && !P.depth_ro) {
         // vkCmdClearAttachments has no stencil write mask: a masked stencil clear is a draw with that write mask (depth goes along)
         if (!g_mask_ready) { g_mask_ok = g_mask.init(device()); g_mask_ready = true; }
         const VkClearRect cr = full_rect();

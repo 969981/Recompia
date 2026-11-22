@@ -80,6 +80,7 @@ void present_on_render_thread(Window* w, int index, bool again) {
     { NXFT("present.tex"); if (!tex_gpu(t)) return; }
     replay_note_presented(t);   // the draws into it after the picture are the game's 2D (nxrt/ui_layer.h)
     extras::pace_note_present();
+    if (!again) extras::scene_auto_tick(extras::upscale_scene_scale_player());   // [upscale] scene_auto
     // [nvn] one_submit: batch flushes the worker has not started yet ride in this present's submission instead of a kernel submission of
     // their own; whatever is still taken when this function ends without submitting goes back to the worker
     present_take_parked();
