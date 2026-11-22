@@ -15,8 +15,11 @@ object DeviceFacts {
                 .sumOf { it.split(Regex("\\s+"))[1].toLong() }
         }.getOrDefault(0L)
         val turnip = GpuDriver.isAdreno() && (GpuDriver.hasIncluded(ctx) || runCatching { GpuDriver.current() }.getOrNull() != null)
+        // the screen the app runs on, landscape (the game is landscape only): a foldable's inner or cover screen, whichever is open now
+        val b = runCatching { ctx.getSystemService(android.view.WindowManager::class.java).maximumWindowMetrics.bounds }.getOrNull()
         return PhoneDefaults.Facts(kb * 1024, glRenderer(), turnip,
-            ctx.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_SENSOR_HINGE_ANGLE), ctx.cacheDir.absolutePath)
+            ctx.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_SENSOR_HINGE_ANGLE), ctx.cacheDir.absolutePath,
+            b?.let { maxOf(it.width(), it.height()) } ?: 0, b?.let { minOf(it.width(), it.height()) } ?: 0)
     }
 
     /** GL_RENDERER from a 1x1 pbuffer context ("Adreno (TM) 750", "Mali-G710"); "" when EGL fails. */

@@ -212,7 +212,7 @@ private fun QuickSettings() {
     var values by remember { mutableStateOf(runCatching { SettingsModel.read(groups) }.getOrDefault(emptyMap())) }
     val overlay = remember { org.recompia.pkp.overlay.OverlayPrefs.of(ctx) }
     var touch by remember { mutableStateOf(org.recompia.pkp.overlay.OverlayPrefs.enabled(overlay)) }
-    val scale = groups.flatMap { it.rows }.firstOrNull { it.id == "render_scale" } as? SettingsModel.Choice
+    val scale = groups.flatMap { it.rows }.firstOrNull { it.id == SettingsModel.RESOLUTION } as? SettingsModel.Choice
     GlassCard(Modifier.fillMaxWidth(), strong = false, padding = 12.dp) {
         SectionTitle(stringResource(R.string.ui_quick_settings))
         if (scale != null && values.isNotEmpty()) { val v = values[scale.id] ?: scale.def
@@ -230,8 +230,11 @@ fun optionText(o: SettingsModel.Option) = if (o.label != 0) stringResource(o.lab
 @Composable
 fun choiceOptions(c: SettingsModel.Choice, current: String): List<Pair<String, String>> {
     val base = c.options.map { it.value to optionText(it) }
-    return if (current.isBlank() || base.any { it.first.equals(current, true) }) base
-    else base + (current to (if (c.key == "render_scale" && current.toIntOrNull() != null) "$current%" else current))
+    if (current.isBlank() || base.any { it.first.equals(current, true) }) return base
+    // a percent between the steps ([pkp] resolution worked out from older keys) takes its place in the order, so the stepper moves from it
+    val n = current.toIntOrNull()
+    if (c.id == SettingsModel.RESOLUTION && n != null) return (base + (current to "$current%")).sortedBy { it.first.toIntOrNull() ?: 0 }
+    return base + (current to current)
 }
 
 @Composable

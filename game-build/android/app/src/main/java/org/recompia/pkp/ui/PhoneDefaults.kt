@@ -14,6 +14,8 @@ object PhoneDefaults {
         val turnip: Boolean,           // the Turnip driver is active or included (the wizard installs it on Adreno)
         val foldable: Boolean,         // PackageManager.FEATURE_SENSOR_HINGE_ANGLE (a foldable cools worse than a slab)
         val cacheDir: String,          // the app's cache folder: the file-backed heap lives there
+        val screenW: Int = 0,          // the screen in pixels, landscape (WindowManager maximumWindowMetrics); 0 = unknown
+        val screenH: Int = 0,
     )
 
     /** The whole classification, in one place. Memory tier from RAM; performance class from the GPU family. */
@@ -31,18 +33,31 @@ object PhoneDefaults {
     fun foldClass(f: Facts) = f.turnip && (adreno(f) ?: 0) in TURNIP_740_PLUS
     /** An Adreno 740+ the bundled Turnip does not list: cautious defaults, and Home says the GPU is untested. */
     fun untestedGpu(f: Facts) = (adreno(f) ?: 0) >= 740 && (adreno(f) ?: 0) !in TURNIP_740_PLUS
-    /** controls.ini [display] render_scale (the maximum), [upscale] scene_scale (percent of it), [display] fps_limit. */
-    fun performance(f: Facts): Triple<String, String, String> = when {
-        // Maximum 70, SGSR, cap 30 for the top class (a lower cap is a player's choice); the live Resolution (scene_scale, percent of 70) by step:
+    /** pkp.ini [pkp] resolution (percent of the screen per side) and controls.ini [display] fps_limit for a fresh install. */
+    fun performance(f: Facts): Pair<String, String> = when {
+        // the same pixels as the earlier defaults (Maximum resolution x Resolution of a 1920 x 1080 game image), as a share of the screen
+        // on the phone each class was set for: a foldable's near-square inner screen shows 1920 of the game's width on more pixels, a slab 1:1
         // unmeasured: estimate from GPU generation and cooling
-        foldClass(f) && (adreno(f) ?: 0) >= 830 -> Triple("70", "86", "30")     // Adreno 830+ (8 Elite and later): real 60 %
+        foldClass(f) && (adreno(f) ?: 0) >= 830 -> "55" to "30"     // Adreno 830+ (8 Elite and later): 60 % of 1080p
         // unmeasured: estimate from GPU generation and cooling
-        foldClass(f) && !f.foldable -> Triple("70", "71", "30")                  // Adreno 740 to 829, not foldable: real 50 %
-        foldClass(f) -> Triple("70", "57", "30")            // Adreno 740 to 829, foldable: real 40 % (measured: holds 30 on a hot Fold 6; 60 % does not)
-        // cautious class: real 40 %; on a Mali GPU (Tensor) real 50 % with SGSR costs no more than real 40 % (CPU-bound: measured cooled
-        // on a Pixel 7a), so Mali takes real 50 %
-        mali(f) -> Triple("50", "100", "30")
-        else -> Triple("50", "80", "30")
+        foldClass(f) && !f.foldable -> "50" to "30"                  // Adreno 740 to 829, not foldable: 50 % of 1080p
+        foldClass(f) -> "35" to "30"           // Adreno 740 to 829, foldable: 40 % of 1080p (measured: holds 30 on a hot Snapdragon 8 Gen 3 phone; 60 % does not)
+        // cautious class: 40 % of 1080p; on a Mali GPU (Tensor) 50 % with SGSR costs no more (CPU-bound: measured cooled on a Tensor G2 (Mali-G710))
+        mali(f) -> "50" to "30"
+        else -> "40" to "30"
+    }
+
+    /** [pkp] resolution from an ini of an earlier build: [display] render_scale (percent of the game's targets, auto = 100) x [upscale]
+     *  scene_scale (percent of that), as a share of the screen, so the picture keeps its pixels. The game's targets are the 16:9 frame
+     *  widened or heightened to the screen's shape (1080 high on a wider screen, 1920 wide on a taller one); the runtime works it out the
+     *  same way when it finds no value (pkp_render_size.cpp phone_res_install). Null: no earlier value. */
+    fun migratedResolution(controls: Ini, f: Facts): String? {
+        val rs = controls.get("display", "render_scale")?.trim()
+        val ss = controls.get("upscale", "scene_scale")?.trim()
+        if (rs.isNullOrEmpty() && ss.isNullOrEmpty()) return null
+        val perScreen = if (f.screenW > 0 && f.screenH > 0) maxOf(1920.0 / f.screenW, 1080.0 / f.screenH) else 1.0
+        val pct = (rs?.toIntOrNull() ?: 100) * (ss?.toIntOrNull() ?: 100) / 100.0 * perScreen
+        return Math.round(pct).toInt().coerceIn(15, 100).toString()
     }
 
     /** [root]: the data root (absolute). Returns whether controls.ini changed (pkp.ini is always saved by the caller). */
@@ -57,10 +72,11 @@ object PhoneDefaults {
         missing("nvn", "shader_preload_mb", if (lowMemory(f)) "0" else "256")
         // pool_copy_mb = 768 saved no memory and stuttered more: the value this app wrote before goes, the runtime's default applies
         if (ini.get("nvn", "pool_copy_mb")?.trim() == "768") ini.remove("nvn", "pool_copy_mb")
-        // [gfx] present_scale is not written (runtime default 100): at 67 the picture was squeezed after a rotation. A 67 an
-        // earlier build wrote stays: it cannot be told from a player's own choice in Settings.
-        // checked by eye on a phone: HUD and text at the screen's resolution, read-only depth kept, no frame grid
-        missing("gfx", "ui_native", "1")
+        // [gfx] present_scale is internal (no row since the one resolution): 75 on the Low memory profile, else the runtime's 100. The
+        // values the removed row offered go back to that (a 50 would also cap the resolution at half the screen); another number stays
+        // (a tester's).
+        if (ini.get("gfx", "present_scale")?.trim() in setOf("83", "67", "50")) { if (lowMemory(f)) ini.set("gfx", "present_scale", "75") else ini.remove("gfx", "present_scale") }
+        // checked by eye on a phone: read-only depth kept, no frame grid (the HUD at the screen's resolution is always on: the runtime's)
         missing("nvn", "depth_ro_keep", "1")
         missing("latency", "grid", "false")
         missing("nvn", "compute_shadows", "false")   // checked by eye on a phone: about 1.5 ms of GPU time and 21 MB of copies less per frame
@@ -89,20 +105,23 @@ object PhoneDefaults {
         for ((k, v) in listOf("window_mode" to "borderless")) {
             if (controls.get("display", k).isNullOrBlank()) { controls.set("display", k, v); changed = true }
         }
-        // upscaler off on phones (FSR 1 measured at 9.4 ms per frame on a large phone screen). No migration of an existing
-        // fsr1: this app never wrote it, so it is a player's (or a tester's) choice and stays. The scene sharpen is the runtime's.
-        if (controls.get("upscale", "mode").isNullOrBlank()) { controls.set("upscale", "mode", "off"); changed = true }
-        val (maxRes, scene, cap) = performance(f)
-        for ((s, k, v) in listOf(Triple("display", "render_scale", maxRes), Triple("upscale", "scene_scale", scene), Triple("display", "fps_limit", cap))) {
-            if (controls.get(s, k).isNullOrBlank()) { controls.set(s, k, v); changed = true }
+        // [upscale] mode off on phones: FSR 1 is no longer offered there (9.4 ms per frame on a large phone screen); an fsr1 of an
+        // earlier build becomes SGSR, the phone's upscaler. The scene sharpen is the runtime's.
+        val mode = controls.get("upscale", "mode")?.trim()
+        if (mode.isNullOrEmpty() || mode.equals("fsr1", true)) {
+            controls.set("upscale", "mode", "off"); changed = true
+            if (mode.equals("fsr1", true)) ini.set("pkp", "scene_upscaler", "1")
         }
+        val (res, cap) = performance(f)
+        missing("pkp", "resolution", migratedResolution(controls, f) ?: res)
+        if (controls.get("display", "fps_limit").isNullOrBlank()) { controls.set("display", "fps_limit", cap); changed = true }
         return changed
     }
 
     /** A fresh install writes every key; an existing ini keeps the player's values and only gains what is missing. */
     private const val GIB = 1L shl 30
-    val FOLD = Facts(19 * GIB, "Adreno (TM) 750", true, true, "/data/user/0/org.recompia.pkp/cache")
-    val PIXEL7A = Facts(11 * GIB, "Mali-G710", false, false, "/data/user/0/org.recompia.pkp/cache")
+    val FOLD = Facts(19 * GIB, "Adreno (TM) 750", true, true, "/data/user/0/org.recompia.pkp/cache", 2160, 1856)
+    val PIXEL7A = Facts(11 * GIB, "Mali-G710", false, false, "/data/user/0/org.recompia.pkp/cache", 2400, 1080)
     val OTHER = Facts(16 * GIB, "Adreno (TM) 650", true, false, "/data/user/0/org.recompia.pkp/cache")
     val ELITE = Facts(16 * GIB, "Adreno (TM) 830", true, false, "/data/user/0/org.recompia.pkp/cache")
 
@@ -110,27 +129,31 @@ object PhoneDefaults {
     fun selfCheck() {
         fun fresh(f: Facts): Pair<Ini, Ini> = (Ini.parse("") to Ini.parse("")).also { (i, c) -> check(apply(i, c, "/sdcard/Recompia", f)) }
         val (fi, fc) = fresh(FOLD)
-        check(fc.get("display", "render_scale") == "70" && fc.get("upscale", "scene_scale") == "57" && fc.get("display", "fps_limit") == "30") { fc.text() }
+        check(fi.get("pkp", "resolution") == "35" && fc.get("display", "fps_limit") == "30" && fc.get("display", "render_scale") == null) { fi.text() + fc.text() }
         check(fi.get("memory", "heap_section") == null && fi.get("nvn", "shader_preload_mb") == "256" && fi.get("pkp", "scene_upscaler") == "1")
-        check(fi.get("gfx", "ui_native") == "1" && fi.get("nvn", "depth_ro_keep") == "1" && fi.get("latency", "grid") == "false" &&
+        check(fi.get("gfx", "ui_native") == null && fi.get("nvn", "depth_ro_keep") == "1" && fi.get("latency", "grid") == "false" &&
             fi.get("nvn", "compute_shadows") == "false" && fi.get("memory", "heap_gb") == "9" && fi.get("gfx", "present_scale") == null)
         check(fc.get("upscale", "mode") == "off" && fc.get("upscale", "scene_auto") == null && fi.get("upscale", "scene_auto") == null)
         val (pi, pc) = fresh(PIXEL7A)
-        check(pc.get("display", "render_scale") == "50" && pc.get("upscale", "scene_scale") == "100" && pc.get("display", "fps_limit") == "30") { pc.text() }
+        check(pi.get("pkp", "resolution") == "50" && pc.get("display", "fps_limit") == "30") { pi.text() + pc.text() }
         check(pi.get("memory", "heap_section") == "1" && pi.get("memory", "section_dir") == PIXEL7A.cacheDir && pi.get("nvn", "shader_preload_mb") == "0" &&
             pi.get("nvn", "pool_ahb") == "off" && pi.get("gfx", "present_scale") == "75" && pi.get("pkp", "menu_in_game") == "0") { pi.text() }
-        val (_, oc) = fresh(OTHER)
-        check(oc.get("display", "render_scale") == "50" && oc.get("display", "fps_limit") == "30") { oc.text() }
+        val (oi, oc) = fresh(OTHER)
+        check(oi.get("pkp", "resolution") == "40" && oc.get("display", "fps_limit") == "30") { oi.text() + oc.text() }
         check(!foldClass(FOLD.copy(turnip = false)) && foldClass(FOLD) && foldClass(ELITE) && !foldClass(OTHER) && lowMemory(PIXEL7A) && !lowMemory(FOLD))
         check(untestedGpu(ELITE.copy(gpu = "Adreno (TM) 850")) && !foldClass(ELITE.copy(gpu = "Adreno (TM) 850")) && !untestedGpu(FOLD))
-        check(performance(ELITE).second == "86" && performance(FOLD.copy(foldable = false)).second == "71" && performance(FOLD).second == "57" &&
-            performance(ELITE).first == "70" && performance(OTHER).third == "30" && performance(PIXEL7A).third == "30")
+        check(performance(ELITE).first == "55" && performance(FOLD.copy(foldable = false)).first == "50" && performance(FOLD).first == "35" &&
+            performance(OTHER).second == "30" && performance(PIXEL7A).second == "30")
+        // an earlier build's keys keep their pixels: a foldable's near-square inner screen at Maximum 70 and Resolution 100 is 62 % of the screen
+        check(migratedResolution(Ini.parse("[display]\nrender_scale = 70\n[upscale]\nscene_scale = 100\n"), FOLD) == "62")
+        check(migratedResolution(Ini.parse("[display]\nrender_scale = 70\n[upscale]\nscene_scale = 57\n"), FOLD.copy(screenW = 2376, screenH = 968)) == "45")
+        check(migratedResolution(Ini.parse("[display]\nrender_scale = auto\n"), PIXEL7A) == "100" && migratedResolution(Ini.parse(""), FOLD) == null)
         val old = Ini.parse("[gfx]\r\nui_native = 0\r\npresent_scale = 83\r\n[latency]\r\ngrid = true\r\n[nvn]\r\npool_copy_mb = 768\r\ncompute_shadows = true\r\n[memory]\r\nheap_gb = 8\r\n")
-        val oldControls = Ini.parse("[display]\nwindow_mode = windowed\nfps_limit = 60\n[upscale]\nmode = fsr1\n")
-        check(apply(old, oldControls, "/sdcard/Recompia", PIXEL7A))   // only missing keys are added
+        val oldControls = Ini.parse("[display]\nwindow_mode = windowed\nfps_limit = 60\nrender_scale = 50\n[upscale]\nmode = fsr1\nscene_scale = 80\n")
+        check(apply(old, oldControls, "/sdcard/Recompia", PIXEL7A))   // missing keys are added, retired choices converted
         check(oldControls.get("display", "fps_limit") == "60" && oldControls.get("display", "window_mode") == "windowed" &&
-            oldControls.get("display", "render_scale") == "50" && oldControls.get("upscale", "mode") == "fsr1") { oldControls.text() }
-        check(old.get("gfx", "ui_native") == "0" && old.get("latency", "grid") == "true" && old.get("gfx", "present_scale") == "83") { old.text() }
+            oldControls.get("upscale", "mode") == "off" && old.get("pkp", "scene_upscaler") == "1" && old.get("pkp", "resolution") == "40") { oldControls.text() + old.text() }
+        check(old.get("gfx", "ui_native") == "0" && old.get("latency", "grid") == "true" && old.get("gfx", "present_scale") == "75") { old.text() }
         check(old.get("nvn", "compute_shadows") == "true" && old.get("nvn", "pool_copy_mb") == null && old.get("memory", "heap_gb") == "9") { old.text() }
         check(old.text().contains("\r\n") && !old.text().replace("\r\n", "").contains("\n")) { "line endings" }
     }
