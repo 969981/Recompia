@@ -479,7 +479,21 @@ void barrier_op(uint32_t bits) {
     if (!g_bar.tracked || g_bar.pass_unsafe || !diag::ab("barrier_bits", cfg)) return end_pass_full_barrier();
     if (P.open) {
         if ((bits & ~(kOrderBits | kTexBits)) != 0) return end_pass_full_barrier();
-        if ((bits & kTexBits) == 0) return;                       // ordering only: keep the pass
+        static nxrt::GaugeCounter kept("nvn.cnt.barrier_pass_kept");   // game barriers that left the pass open (breaks avoided)
+        if ((bits & kTexBits) == 0) {                             // ordering only: keep the pass
+            kept.add(1);
+            return;
+        }
+        // [nvn] barrier_tex_keep (default on: measured, full barriers 70 -> 57 a frame, picture correct; A/B name "tex_keep"): texture invalidation inside a pass whose draws wrote only
+        // their attachments keeps the pass too. What a later draw could read of this pass's writes is its attachments, and a draw that
+        // samples one takes the existing paths whatever the barrier: a colour attachment goes through the feedback copy or loop
+        // (feedback_prepare, is_color_feedback), the depth attachment makes the draw's pass read-only (samples_depth_target), and both
+        // checks run whenever the draw's bindings change (and on every draw while a feedback draw was seen).
+        static const bool tex_keep_cfg = config_get_bool("nvn", "barrier_tex_keep", true);
+        if (diag::ab("tex_keep", tex_keep_cfg)) {
+            kept.add(1);
+            return;
+        }
         end_pass(true);
         return;
     }
