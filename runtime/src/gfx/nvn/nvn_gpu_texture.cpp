@@ -25,6 +25,7 @@ Texture::~Texture() {
 }
 
 namespace gpu {
+void (*g_tex_touch_hook)(Frame& f, TexGpu* g) = nullptr;
 
 namespace tex {
 std::atomic<uint64_t> g_live_images{0};
@@ -391,6 +392,7 @@ static float attachment_scale(const Texture& t) {
 // ---- barriers and copies ----------------------------------------------------------------------------------------------------
 void move_layout(Frame& f, TexGpu& g, VkImageLayout to, int write_level) {
     if (g.layout == to) return;
+    if (g_tex_touch_hook) g_tex_touch_hook(f, &g);
     if (!read_only_layout(to)) bump_gen(g, write_level);
     // A 3D image created with 2D_ARRAY_COMPATIBLE: without maintenance9 the layer range of a barrier means all depth slices.
     const uint32_t layer_count = g.type == VK_IMAGE_TYPE_3D ? VK_REMAINING_ARRAY_LAYERS : g.layers;
@@ -578,6 +580,7 @@ float tex_scale_wanted(Texture* t) {
 // and its views are destroyed after the frames that use them.
 bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     TexGpu* g = tex_or_null(t);
+    if (g && g_tex_touch_hook) g_tex_touch_hook(f, g);
     if (!g || g->scale == to) return false;
     if (to != 1.0f && (g->scale_blocked || g->transcoded || is_block_format(g->format))) return false;
     Shape s = shape_of(*t);
@@ -717,6 +720,7 @@ bool tex_has_feedback_loop(Texture* t) {
 // feedback loop images on older chips), so it is not given to every render target at creation. Same shape, format, scale and flags; every
 // level and layer is copied over.
 bool tex_enable_feedback_loop(Texture* t, Frame& f) {
+    if (g_tex_touch_hook && t && t->gpu) g_tex_touch_hook(f, t->gpu);
     TexGpu* g = tex_or_null(t);
     if (!g) return false;
     if (g->usage & VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT) return true;

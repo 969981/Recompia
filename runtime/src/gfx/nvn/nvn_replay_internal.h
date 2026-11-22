@@ -178,7 +178,21 @@ struct Pass {
     uint16_t clears_first = 0;  // [prof] pass_stats: ClearColor / ClearDepthStencil before the pass's first draw, and after it
     uint16_t clears_mid = 0;
     uint16_t dclears = 0;       // ... of them, depth clears through vkCmdClearAttachments (Turnip: LRZ off until a LOAD_OP_CLEAR)
+    // [nvn] clear_fold: the pass is open but vkCmdBeginRendering is not recorded yet (deferred), so full-area clears before the first
+    // draw become LOAD_OP_CLEAR of the begin (pass_fold_clear_*). pass_flush() records the begin; end_pass() of a pass never begun
+    // records nothing unless a clear was folded into it ([nvn] clear_carry: not even then, the clear waits for the next pass).
+    bool deferred = false;
+    bool folded = false;
+    VkRenderingAttachmentInfo att_c[8] = {};
+    VkRenderingAttachmentInfo att_d = {}, att_s = {};
+    VkRenderingInfo ri = {};
 };
+bool clear_fold_on();
+void pass_flush();                                                   // records a deferred vkCmdBeginRendering (no-op otherwise)
+bool pass_fold_clear_color(uint32_t slot, const VkClearColorValue& v, const VkClearRect& r);
+bool pass_fold_clear_ds(VkImageAspectFlags aspect, const VkClearDepthStencilValue& v, const VkClearRect& r);
+bool ensure_pass_for_clear();                                        // ensure_pass for a clear: a deferred begin stays deferred
+void pending_clears_flush_all();                                     // [nvn] clear_carry: every carried clear recorded now (submission end)
 // [prof] pass_stats: per-frame inventory of the render passes (how they begin, clears, empty passes, feedback loops, discards).
 // 0 off (default), 1 one summary line per 300 presents, 2 also every pass of one frame in that window. Render thread only.
 int pass_stats_level();

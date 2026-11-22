@@ -289,6 +289,9 @@ struct ViewRequest {
 // Creates the VkImage if needed and returns it (null when the format cannot be created: logged once; callers then bind
 // the dummy). Does not upload.
 TexGpu* tex_gpu(Texture* t);
+// [nvn] clear_carry (nvn_replay_pass.cpp): called before an image with a carried clear changes layout or is remade, so the clear is recorded
+// first. Null while nothing is carried (one pointer test per layout change).
+extern void (*g_tex_touch_hook)(Frame& f, TexGpu* g);
 // tex_gpu for a texture about to be a render target: an image made now gets the resolution scale when the texture qualifies ([gfx]
 // render_scale). tex_gpu_scaled makes the image at a given scale (a copy of a scaled target). Both return the existing image if there is one.
 TexGpu* tex_gpu_attachment(Texture* t);
