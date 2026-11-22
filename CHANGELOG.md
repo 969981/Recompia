@@ -4,6 +4,9 @@
 
 **Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's cleaning count, co-op's shared rules for every player, storage box tabs and the logs; saves and shaders are kept, no shader is translated again).
 
+### Android
+- Added Recompia for Android (arm64 phones and tablets, Android 11 or later, Vulkan 1.3): one APK that builds the game on the phone from your own dump, with touch controls or a controller. The APK is on the release page next to the PC packages
+
 ### Game
 - Fixed **Save** in the pause menu not reacting to its controller button or a mouse click (it answered only for a moment after the menu opened)
 - Mouse mode: the game's pointer is drawn where the mouse really is at render sizes other than 1920x1080 (it drifted away from the mouse at 1440p and above) (#806)
