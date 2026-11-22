@@ -757,6 +757,10 @@ midhook 0x71007e693c
 #   Seamless co-op, a story follow on a member (pkp_coop_follow.cpp): the contents' "follow this player" attach 0x71002a1ed4
 #   (&npc actor id, flag; only caller 0x7100117b18, command 0xdac mode 3): on a member it is made on the authority instead
 entryhook 0x71002a1ed4
+#   Seamless co-op, a member's party leave on the authority (pkp_coop_follow.cpp): the host's RequestPartyNPC handler 0x71005519bc
+#   (x0 the message; only caller the receive entry 0x7100547980, whose w21 is the sender's member index), whose leave arm takes
+#   the creature from whoever leads it: refused when the asker is not its leader
+entryhook 0x71005519bc
 #   Seamless co-op, a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp): in script callback slot 195
 #   0x71004ae68c, the `bl 0x77ecb0` after its store of the talk record's +0x10 outside Cloud Island (w23 = the chara)
 midhook 0x71004ae7e8

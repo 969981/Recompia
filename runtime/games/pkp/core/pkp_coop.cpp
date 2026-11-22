@@ -194,6 +194,8 @@ enum class Site : uintptr_t {
     // ---- a story follow on a member (pkp_coop_follow.cpp) ----
     StoryFollow,      // a story content's "follow this player" attach (0x2a1ed4, local only): on a member it does not run and the
                       // authority makes it for its own copy of the creature, so no member takes the host's follow away
+    PartyRequest,     // the host's RequestPartyNPC handler: a member's leave of a creature another player leads is refused, so a
+                      // teammate's leave only ever takes its own follower
     // ---- a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp) ----
     TalkRecArmed,     // script callback 195's set of the talk record's +0x10: a member's is set in the authority's record too
     // ---- the Star Piece swap in a member's talk (pkp_coop_talk.cpp) ----
@@ -350,6 +352,7 @@ constexpr CoopSite kSites[] = {
     {{0x7e693c, 0x36001ac0u, false}, Site::DepositConfirm},  // tbz w0, #0, 0x7e6c94 (w0 = 0xa94bbc's confirm flag, x19 the gimmick)
     // a story follow on a member (pkp_coop_follow.cpp)
     {{0x2a1ed4, 0xf0018f09u, true}, Site::StoryFollow},      // adrp x9, 0x3484000 (x0 = &the creature's actor id, w1 the flag)
+    {{0x5519bc, kPacibsp, true}, Site::PartyRequest},        // x0 = the message, w21 = the sender's member index (0x547980)
     // a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp)
     {{0x4ae7e8, 0x940b4132u, false}, Site::TalkRecArmed},    // bl 0x77ecb0 (after strb w9, [x8, #0x10] off Cloud Island; w23 = chara)
     // the Star Piece swap in a member's talk (pkp_coop_talk.cpp)
@@ -464,6 +467,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::DepositStore: return coop::deposit::on_store(c);
         case Site::DepositConfirm: return coop::deposit::on_confirm(c);
         case Site::StoryFollow: return coop::follow::on_story_follow(c);
+        case Site::PartyRequest: return coop::follow::on_party_request(c);
         case Site::TalkRecArmed: return coop::talkrec::on_armed(c);
         case Site::TalkSwapParent: return coop::talk::on_swap_parent(c);
         case Site::ContentsNotice: return coop::feed::on_notice(c);

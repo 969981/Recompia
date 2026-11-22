@@ -52,7 +52,8 @@
 //   pkp_coop_doors.cpp    the session's doors in the menus: the PC's Link Play screen makes no session call, the pause menu never
 //                         sends a teammate home or rejects one; Save and Quit stays
 //   pkp_coop_title.cpp    a co-op start goes past the title screen on its own, with no "did not disconnect correctly" message
-//   pkp_coop_follow.cpp   a story content's "follow this player" on a member made on the authority, for the authority's creature
+//   pkp_coop_follow.cpp   a story content's "follow this player" on a member made on the authority, for the authority's creature;
+//                         a member's party leave takes no other player's follower
 //   pkp_coop_savecopy.cpp the one shared save: the authority's save points copied to every member's co-op folder, stamped
 //                         (pkp_coop_saveset.cpp: the folder's files on disk)
 //   pkp_coop_drop.cpp     a dropped player is waited for: the group holds while it comes back through the normal join
@@ -775,6 +776,9 @@ namespace follow {
 // On a member in the session the game's local-only attach does not run (returns 1) and the creature is sent to the authority; 0
 // elsewhere.
 int on_story_follow(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0x5519bc, the host's RequestPartyNPC handler. On the authority in the session a member's leave
+// of a creature another player leads is refused as handled (x0 = 0, returns 1); 0 elsewhere (the game's handler runs).
+int on_party_request(::Ctx* c);
 // The message (pkp_coop_link.cpp): a member's story follow, made on the authority at a safe moment unless the creature follows a
 // player there already.
 void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);

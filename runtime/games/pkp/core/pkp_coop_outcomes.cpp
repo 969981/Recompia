@@ -11,7 +11,8 @@
 //                               0x633150 on a visitor: RequestChallengeProgress {goal id, amount}; the authority's handler
 //                               0x54fbc0 adds it with 0x54fd60, no area test there).
 //   #8  0x617d98(&h, 7)         row +0x5d == 7: ends the escort (a member's run sends RequestPartyNPC; the authority's own run is
-//                               the owner). Not replayed: the member's run already moved the party, a repeat changes nothing.
+//                               the owner). Not replayed: the member's run moves the party when the creature follows that member;
+//                               one that follows another player stays with it (the authority refuses that leave, pkp_coop_follow.cpp).
 //   #9  0x6191e8(&h, +0x40, f)  row +0x5d == 0x14: the creature moves in (guarded by 0x616dbc: a no-op once it lives in a matching
 //                               house). On a member: its mirror only.
 //   #10 0x11752c(+0x2a)         row +0x2a in 1..0x1f4: clears the pop flags of the placed objects tied to +0x2a, unless 0x117320
