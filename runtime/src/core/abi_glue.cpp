@@ -16,6 +16,7 @@
 #include "nxrt/memory.h"
 #include "nxrt/module.h"
 #include "nxrt/nxmodule.h"
+#include "nxrt/platform_facts.h"
 #include "nxrt/svc.h"
 #include "../diag/hle_census.h"
 
@@ -40,7 +41,9 @@ void host_import(Ctx* c, uint32_t import_id) {
         snprintf(what, sizeof what, "host_import with an unknown import id (module %u, symbol %u)", NX_IMPORT_MODULE(import_id), NX_IMPORT_SYM(import_id));
         nxrt::trap(what, import_id);
     }
-    nxrt::detail::count_import();
+    // Phones count the non-leaf imports only (below): the count is a statistic, and each count is a thread_local access, which in the
+    // dlopened Android library is a call of the TLSDESC resolver (leaf calls: about a million a second outdoors).
+    if constexpr (!nxrt::facts::kPhone) nxrt::detail::count_import();
     if (nxrt::HleFn leaf = nxrt::hle_leaf_fn(target)) {   // strlen and friends: tens of millions of calls in a boot, no bookkeeping
         if (nxrt::diag::census::on()) [[unlikely]] {   // [diag] hle_census: a leaf thunk is counted here (it never reaches dispatch_call)
             nxrt::diag::census::Scope scope(nxrt::diag::census::key(nxrt::diag::census::kHle, static_cast<uint32_t>((target - nxrt::mem::kHleBase) / 16)));
@@ -51,6 +54,7 @@ void host_import(Ctx* c, uint32_t import_id) {
     }
     // Only the id is stored: resolving the name here cost a module lookup on every non-leaf import call (thousands a frame), and
     // only a freeze or crash report ever reads it (diag/watchdog.cpp, which resolves it then).
+    if constexpr (nxrt::facts::kPhone) nxrt::detail::count_import();
     const uint32_t saved_id = c->import_id;
     const uint64_t saved_from = c->import_from;
     c->import_id = import_id;
