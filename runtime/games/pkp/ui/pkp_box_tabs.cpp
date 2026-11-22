@@ -35,6 +35,7 @@ constexpr HookSite kSites[] = {
     {0x776540, 0xd503237fu, true},  // cabinet allocator (type, x, y, z)
     {0xfeee78, 0xd503237fu, true},  // bag / container screen frame (screen)
     {0xff6f80, 0xd503237fu, true},  // bulk transfer after the Store All / Retrieve All dialog (screen, from kind, to kind, matching)
+    {0xfee7d4, 0xd503237fu, true},  // the container grid's rebuild (screen, keep cursor)
 };
 constexpr uint64_t kScreenVtable = 0x333ba70;
 constexpr uint64_t kPanelOf = 0xfed634, kRefresh = 0xff12e8, kPlayerOf = 0xa6fd58;
@@ -89,6 +90,12 @@ struct OpenBox {
     Tabs tabs;                              // the pages / tabs at open or at the last switch
     int frames = 0;                         // screen frames since the open
     int dots = 0, lit = -1;                 // the page dots as last set (0: the game's own)
+    // A big box crossing into another tab through the game's own page change: the id switches when that change rebuilds the grid
+    // (hook_rebuild), after its slide has painted the outgoing cells from the old tab.
+    bool crossing = false;
+    uint16_t crossing_id = 0;
+    uint8_t crossing_page = 0;
+    Tabs crossing_tabs;
 };
 struct State {
     uint64_t base = 0;
@@ -342,6 +349,7 @@ int hook_screen_frame(::Ctx* c, uint64_t, void*) {
 
     box.last_frame = now;
     ++box.frames;
+    box.crossing = false;   // a crossing the game did not carry out (its page change runs within the frame that asked for it)
     // The dots once the panel's own open setup is done (it sets them for its native pages), again a little later in case the setup
     // ran late, and whenever the shown page changes (a big box's native page change lights its own dot).
     if (box.active && box.tabs.count > 1 && box.frames >= 2)
@@ -416,8 +424,12 @@ int hook_page_request(::Ctx* c, uint64_t, void*) {
         c->x[0] = 0;
         return 1;
     }
-    set_tab_id(box, panel, tabs.ids[target]);
-    box.tabs = tabs;
+    // The ids switch when the page change rebuilds the grid (hook_rebuild). Its slide first repaints the cells it slides out from the
+    // shown id and the old page's slot list; switched any earlier, those cells showed the new tab's other end (mostly empty).
+    box.crossing = true;
+    box.crossing_id = tabs.ids[target];
+    box.crossing_page = static_cast<uint8_t>(direction > 0 ? 0 : last_page);
+    box.crossing_tabs = tabs;
     // A press: the game's own wrap at the end (last page -> first, first -> last) now runs on the new id, with its slide and sound, and
     // its page change repaints the grid. A held repeat does not wrap: the page is set here and the dispatcher sees the change.
     if (c->x[2] & 1) return 0;
@@ -451,6 +463,20 @@ int hook_transfer(::Ctx* c, uint64_t, void*) {
     c->x[0] = box_store::sweep(c, g.base, {.screen = screen, .panel = panel, .ids = tabs.ids.data(), .count = tabs.count, .shown = shown,
                                            .source = source, .target = target, .matching = (c->x[3] & 1) != 0, .log = g.log});
     return 1;
+}
+
+// The page change's grid rebuild (0xff939c -> 0xfee7d4(screen, 1)) after a tab crossing was requested: the new id and its page, then
+// the game's own rebuild and repaint from them.
+int hook_rebuild(::Ctx* c, uint64_t, void*) {
+    OpenBox& box = g.box;
+    if (!box.crossing || c->x[0] != box.screen || (c->x[1] & 1) == 0) return 0;
+    box.crossing = false;
+    const uint64_t panel = ready_panel(c, box);
+    if (!panel || !is_screen(box.screen) || box_type(box.screen) != box.type) return 0;
+    set_tab_id(box, panel, box.crossing_id);
+    box.tabs = box.crossing_tabs;
+    if (rd<uint8_t>(panel + kPanelPage) != box.crossing_page) call(c, g.base + kSetPanelPage, panel, box.crossing_page);
+    return 0;
 }
 
 int hook_match_open_box(::Ctx* c, uint64_t, void*) {
@@ -503,6 +529,7 @@ void frame(bool, double, play::GameFrame*) {
     hooks->add_entry(g.base + kSites[2].site, &hook_allocate_box);
     hooks->add_entry(g.base + kSites[3].site, &hook_screen_frame);
     hooks->add_entry(g.base + kSites[4].site, &hook_transfer);
+    hooks->add_entry(g.base + kSites[5].site, &hook_rebuild);
     NXLOG_I(kTag, "storage box tabs: on, up to %d pages per standard box and %d tabs per big box, offline only",
             g.max_pages, g.max_big_tabs);
 }
