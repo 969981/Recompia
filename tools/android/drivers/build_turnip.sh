@@ -6,7 +6,7 @@
 # env:   MESA_VERSION (default below), MESA_SHA256 (checked when set; the default version's hash is built in), JOBS (default 6),
 #        ANDROID_NDK_HOME (NDK r28c or newer), API (default 30: the app's minSdk),
 #        ASSET_DIR (optional: also copy the zip as turnip.zip + NOTICE.txt there, e.g. the app's assets/gpu_drivers/)
-# needs on the host: curl, tar, python3 with meson, ninja, mako and pyyaml (pip), flex, bison, patchelf, zip
+# needs on the host: curl, tar, python3 with meson, ninja, mako and pyyaml (pip), flex, bison, patchelf, zip, glslangValidator (glslang-tools)
 #
 # The options follow the community build scripts (e.g. github.com/ilhan-athn7/freedreno_turnip-CI turnip_builder.sh) minus LTO:
 # -Dplatforms=android -Dandroid-stub=true (link against stubs of the platform libraries, no AOSP tree needed),
@@ -26,7 +26,7 @@ jobs=${JOBS:-6}
 api=${API:-30}
 : "${ANDROID_NDK_HOME:?set ANDROID_NDK_HOME (NDK r28c)}"
 tc="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-for t in meson ninja flex bison patchelf zip curl; do command -v "$t" >/dev/null || { echo "missing host tool: $t" >&2; exit 1; }; done
+for t in meson ninja flex bison patchelf zip curl glslangValidator; do command -v "$t" >/dev/null || { echo "missing host tool: $t" >&2; exit 1; }; done
 python3 -c 'import mako, yaml' 2>/dev/null || { echo "python3 needs mako and pyyaml (pip install mako pyyaml)" >&2; exit 1; }
 
 src="$out/mesa-$ver"

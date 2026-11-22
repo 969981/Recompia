@@ -1432,8 +1432,8 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends ninja-build pkg-config flex bison patchelf zip unzip binutils
-          python3 -m pip install --upgrade "cmake>=3.28" pillow meson mako pyyaml
+          sudo apt-get install -y -q --no-install-recommends ninja-build pkg-config flex bison patchelf zip unzip binutils glslang-tools
+          python3 -m pip install --upgrade "cmake>=3.28" pillow meson mako pyyaml packaging
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$ANDROID_NDK_VERSION" > /dev/null
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
