@@ -210,6 +210,12 @@ constexpr uint8_t kChallengeDone = 3;
 constexpr uint64_t kChallengeMirrorSize = 0x12;
 constexpr uint64_t kMirrorState = 0xc;           // u8 this player's view (the PC's list 0x645f20 offers a claim at 3)
 constexpr uint64_t kMirrorHostState = 0xd;       // u8 the host's own state, as its goal update 0x6355c0 last sent it (@0x635964)
+// CM + kChallengeAreas + area * kChallengeAreaSize, area 0..31: the per-area entry the refresh 0x62f62c clears (0x140 bytes) and
+// 0x62f7e0 then fills, on the host only (it returns at once on a visitor). +0 / +4 s16 pairs (first, count) into the area's challenge
+// lists, +8 u8 the area is open (the host's current area, or its visited bit; all of 1..31 on Cloud Island), which the area gate
+// 0x630fb0 reads for area 1..kChallengeAreaMax on the host (shop and challenge UI). modding-docs coop-v2/SHOP-CATALOG-RE.md
+constexpr uint64_t kChallengeAreas = 0x17dd6, kChallengeAreaSize = 10, kChallengeAreaOpen = 8;
+constexpr uint32_t kChallengeAreaMax = 31;
 constexpr uint64_t kChallengeList = 0x18114;     // CM +: u16 ids of the listed challenges (the PC's; the kind 7 raise needs the id here)
 constexpr uint64_t kChallengeListCount = 0x18600;   // CM +: s16 how many
 constexpr int16_t kChallengeListMax = 0x276;

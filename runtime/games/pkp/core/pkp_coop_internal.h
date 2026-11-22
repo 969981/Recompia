@@ -582,6 +582,7 @@ bool scenes(Entries& out);         // pkp_coop_events.cpp: played scene id -> 1
 bool area_levels(Entries& out);    // pkp_coop_digest.cpp: stage -> the level the game reads here
 bool gates(Entries& out);          // pkp_coop_digest.cpp: gate id -> the byte the gate getter reads here (non-zero)
 bool trainer_level(Entries& out);  // pkp_coop_digest.cpp: 0 -> m_trainerLevel
+bool open_areas(Entries& out);     // pkp_coop_records.cpp: area 1..31 -> the open byte the area gate reads here (non-zero)
 // The authority sends its digest every few seconds; a member compares (once a frame, in a session).
 void tick(::Ctx* c, bool in_game);
 void on_digest_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);

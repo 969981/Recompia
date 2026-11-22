@@ -60,8 +60,9 @@
 //   BagRestore  +2 u8[16] member key, +18 u8 1 when the authority has a record for it (0: none, the rest is 0), +19 u64 sequence,
 //               +27 kBagRecordSlots x 16 bytes   (the authority's answer to a member's first BagRecord of a session, or to one older than
 //               its own copy; a member ignores one for another member's key)
-//   StoryRecord +2 u8 record (1 effect commands, 2 town flags, 3 town targets, 4 stage flags, 5 hint groups, 6 the materials drop;
-//               another is skipped),
+//   StoryRecord +2 u8 record (1 effect commands, 2 town flags, 3 town targets, 4 stage flags, 5 hint groups, 6 the materials drop,
+//               7 the campaign history, 8 the cleaning count, 9 the open areas (31 bytes: area 1..31's open byte of the challenge
+//               manager); another is skipped),
 //               +3 u8 the authority's area (stage), +4 u16 length n (the record's size; another is skipped), n bytes: the record as the
 //               authority's save holds it   (when it changed, and all of them on a join and every so often; pkp_coop_records.cpp)
 //   FriendAsk   +2 u8 kind, +3 u16 the creature's actor handle (kind 1; 0 for 2), +5 u32 its chara (< 0x41a), +9 s16 amount (kind 1,

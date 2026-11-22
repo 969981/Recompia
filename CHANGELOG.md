@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's cleaning count, co-op's shared rules for every player, storage box tabs and the logs; saves and shaders are kept, no shader is translated again).
+**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's cleaning count, co-op's shared rules for every player, co-op's opened areas, storage box tabs and the logs; saves and shaders are kept, no shader is translated again).
 
 ### Android
 - Added Recompia for Android (arm64 phones and tablets, Android 11 or later, Vulkan 1.3): one APK that builds the game on the phone from your own dump, with touch controls or a controller. The APK is on the release page next to the PC packages
@@ -14,6 +14,7 @@
 - Storage box tabs: paging from one tab of a big storage box into the next no longer shows an empty or wrong page for a moment before the new tab's items appear
 
 ### Co-op
+- A teammate's shop and challenge lists now follow the areas the host has opened, as the host's do. Before, a teammate's shop listed hundreds of rows from areas nobody had opened yet (every plush, for one), and the challenge lists showed those areas' challenges too
 - A teammate using the PC now counts for the story as the host's use does: the story steps that wait for someone to use the PC (the professor's walk over to it, for one) now move on when a teammate uses it, as long as the host is in the same area
 - A character with nothing new to say in the story now gives its ordinary talk in co-op, as it does in single player, instead of "Looks like they want to meet" the host
 - Saves where the professor's scene after using the PC never played are fixed: the next time someone uses the PC, the scene plays and the story goes on. Before, using the PC again did nothing, so that story step and the professor's next talk could never be reached
