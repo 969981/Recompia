@@ -449,6 +449,7 @@ int on_talk_kind(::Ctx* c);    // midhook 0x4c06d8: a member's talk takes the ho
 int on_talk_own(::Ctx* c);     // midhook 0x4c0574: a member is the own player of a creature living in the group's town
 int on_cond_parent(::Ctx* c);   // midhook 0x4d35f8: talk condition 0x52 answers a member as the host
 int on_cond_visitor(::Ctx* c);  // entry 0x4d0620: talk condition 0x25 (IsVisitor) is false for a member
+int on_cond_online(::Ctx* c);   // entry 0x4d04fc: talk condition 0x22 (IsOnline) is false in the session for a character with no parents
 // This process's player holds a character's talk and the talk runs.
 bool talking();
 // The lock key of the character whose u16 actor id is at id (guest), 0 for none; another member holds that character's talk (a

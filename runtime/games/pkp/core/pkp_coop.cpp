@@ -175,6 +175,8 @@ enum class Site : uintptr_t {
     HostUseEnd,       // class 0x326dc98's close: the host's own use is given back, which nothing in the class does
     // ---- the talk conditions inside a member's talk (pkp_coop_talk.cpp) ----
     TalkCondParent,   // talk condition 0x52's role test: a member answers as the host, from the group's record of the creature
+    TalkCondOnline,   // talk condition 0x22 (IsOnline) for a character with no parents: false in a session, so one with no story
+                      // talk gives its ordinary talk, not the "they want to meet <world owner>" stand-in
     TalkCondVisitor,  // talk condition 0x25 (IsVisitor): false for a member, so it gets no visitor-only talk the host would not
     // ---- a gimmick's release on a member's busy request queue, the ownership log (pkp_coop_linkqueue.cpp, pkp_coop_owner.cpp) ----
     ReleaseGate,      // a close's "every request answered" test before its release record: let through, the record is kept instead
@@ -328,6 +330,7 @@ constexpr CoopSite kSites[] = {
     // the talk conditions inside a member's talk (pkp_coop_talk.cpp)
     {{0x4d35f8, 0x52000008u, false}, Site::TalkCondParent},  // eor w8, w0, #1 (w0 = IsHost's answer, in condition 0x52)
     {{0x4d0620, 0x17ed9c29u, true}, Site::TalkCondVisitor},  // b 0x376c4 (condition 0x25, all of it)
+    {{0x4d04fc, 0x17ed40adu, true}, Site::TalkCondOnline},   // b 0x207b0 (condition 0x22, all of it; the journal's site too)
     // a gimmick's release on a member's busy request queue, the ownership log (pkp_coop_linkqueue.cpp, pkp_coop_owner.cpp)
     {{0x7b8b68, 0x36000980u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x7b8c98 (class 0x3268000's close 0x7b8960)
     {{0x82a558, 0x36000920u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x82a67c (class 0x32762f8's close 0x82a460)
@@ -450,6 +453,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::HostUseEnd: return coop::owner::on_host_use_end(c);
         case Site::TalkCondParent: return coop::talk::on_cond_parent(c);
         case Site::TalkCondVisitor: return coop::talk::on_cond_visitor(c);
+        case Site::TalkCondOnline: return coop::talk::on_cond_online(c);
         case Site::ReleaseGate: return coop::linkqueue::on_release_gate(c, addr - st().base);
         case Site::RequestSend: return coop::linkqueue::on_send_request(c);
         case Site::OwnerApply: return coop::owner::on_owner_apply(c);
