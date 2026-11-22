@@ -61,7 +61,6 @@
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
-#include "core/pkp_tables.h"
 
 #include <cstring>
 
@@ -93,10 +92,7 @@ constexpr uint64_t kFriendship = 0x619410;      // (&h)
 constexpr uint64_t kBulbasaur = 0x13a9b0;       // (&h), id 73
 constexpr uint32_t kBulbasaurId = 0x49;
 constexpr uint64_t kStage11 = 0x77ecb0, kOnline = layout::kOnline;   // () -> bit 0: the general entry's select
-// The request row (#1557): the data-table manager's table at 0x1160 (slot 0x22c, the table at +0 while the manager holds fewer),
-// row object +8 -> the row, or the default row *(main + 0x34845e8) when that is 0 (0x6184e8..0x618500).
-constexpr uint64_t kRowTable = 0x1160;
-constexpr uint64_t kDefaultRow = 0x34845e8;
+// The request row (#1557, requests::request_row).
 constexpr uint64_t kRowGoal = 0x2a, kRowKind = 0x40, kRowType = 0x5d;   // u16 pop-flag key, u16 kind, u8 type
 constexpr uint64_t kRowHouse[6] = {0xc, 0x10, 0x14, 0x0, 0x4, 0x8};     // f[0..5] = (u16) row + these (0x618654..0x618674)
 constexpr uint8_t kTypeMoveIn = 0x14, kTypeEntryA = 1, kTypeEntryB = 0x39;
@@ -225,11 +221,8 @@ bool replay(::Ctx* c, uint32_t id) {
     const uint64_t slot = requests::request_slot(id);
     const uint64_t comp = slot ? requests::request_component(c, slot) : 0;
     if (!comp) return false;   // the creature is not bound and loaded here (yet)
-    const uint64_t obj = tables::row_or_first(c, base(), kRowTable, id);
-    if (!obj || !guest::ok(obj + 8, 8)) return false;   // no table or row: the step itself returns before its world part (0x6184e4)
-    uint64_t row = guest::rd<uint64_t>(obj + 8);
-    if (!row) row = guest::rd<uint64_t>(base() + kDefaultRow);
-    if (!guest::ok(row, kRowType + 1)) return false;
+    const uint64_t row = requests::request_row(c, id);   // none: the step itself returns before its world part (0x6184e4)
+    if (!row || !guest::ok(row, kRowType + 1)) return false;
     const uint8_t type = guest::rd<uint8_t>(row + kRowType);
     const uint16_t goal = guest::rd<uint16_t>(row + kRowGoal), kind = guest::rd<uint16_t>(row + kRowKind);
     const uint16_t level = friend_level(comp);

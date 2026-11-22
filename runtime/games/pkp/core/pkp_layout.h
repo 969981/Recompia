@@ -38,7 +38,12 @@ constexpr uint64_t kInputMgr = 0x3561718;        // the input manager
 constexpr uint64_t kTables = 0x35618f0;          // the data-table manager (the sprite sheet lookups read it too)
 constexpr uint64_t kUiMgr = 0x35aebf8;           // the UI manager (UI resource manager: holds the loaded sprite sheets and the layout pools)
 constexpr uint64_t kLanguage = 0x36ca680;        // -> u32 language 0..8
-constexpr uint64_t kWorld = 0x34efc98;           // the world ([GOT 0x3483b10] points here); +0x6000030 = chunk map u16[64*64], +0x6000018 = packed cells
+constexpr uint64_t kWorld = 0x34efc98;           // the world ([GOT 0x3483b10] points here)
+// world: -> the chunk map, u16[64*64], the chunk slot of each 32 x 32 column at (x >> 5) + (z >> 5) * 64 (256 or more: none), and
+// -> the cells, kChunkBytes per slot, 3 bytes per cell at (y << 10) | ((z & 31) << 5) | (x & 31), block id = u16 & 0x7ff
+constexpr uint64_t kWorldChunkMap = 0x6000030, kWorldCells = 0x6000018;
+constexpr uint64_t kChunkBytes = 0x60000;
+constexpr uint32_t kChunkSlots = 256, kChunkColumns = 64 * 64;
 constexpr uint64_t kWorldRequests = 0x9218378;   // world: Link Play's request queue, u16 q[0..4] (visitor: q[0] sent, q[1] answers taken,
                                                  // q[4] the strict kind in flight, 0xffff none)
 

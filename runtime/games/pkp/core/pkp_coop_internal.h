@@ -17,6 +17,8 @@
 //   pkp_coop_notice.cpp   lines in the game's own message log: what another member's event unlocked or moved on here, by name
 //   pkp_coop_curtain.cpp  the cover over the picture while a member joins or leaves (the PC, transfer, landing and warp)
 //   pkp_coop_requests.cpp the creature requests a member took on or finished, listed in every member's requests app
+//   pkp_coop_mud.cpp      the cleaning request of a save that cleaned all the sludge before co-op counted it: the count raised by
+//                         what is no longer in the stage
 //   pkp_coop_outcomes.cpp what a finished request adds to the world (town goal, friendship), applied once for the group
 //   pkp_coop_recipes.cpp  the crafting recipes any member knows, learned by every member
 //   pkp_coop_unlocks.cpp  the moves and emotes any member learned, the areas visited, buildings built and area gates opened, unlocked
@@ -181,11 +183,22 @@ void reset();
 // slot and loaded here (0: none), and the request lists.
 uint64_t request_slot(uint32_t id);
 uint64_t request_component(::Ctx* c, uint64_t slot);
+// The state byte of request id in this save (1..5; 0: no save), and its row (#1557) as the checker and the completion read it (0: no
+// table or row).
+uint8_t request_state(uint32_t id);
+uint64_t request_row(::Ctx* c, uint32_t id);
 bool story_request(uint32_t id);   // also a story step: one completion closes it for the group
 bool own_request(uint32_t id);     // bound to one player: never shared
 // The authority: node origin handed request id in; it is closed here at the next safe moment, and the close is shared.
 void close(uint32_t id, uint8_t origin);
 }  // namespace requests
+
+namespace mud {
+// The authority, in the cleaning request's stage while that request is taken: scans the stage for the sludge left over a few seconds
+// of frames, twice, and raises the cleaning count by what was removed before it counted (once a frame, after the requests).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace mud
 
 namespace outcomes {
 // The hook sites (pkp_coop.cpp), in the completion step 0x618304.

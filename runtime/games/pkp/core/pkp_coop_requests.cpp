@@ -88,7 +88,8 @@
 // cleaning happened in is the authority's; a member keeps the game's skip (a second count of the same cleaning) and takes the
 // authority's count as story record 8 (pkp_coop_records.cpp). A member's cleaning reaches the host as a world change, which the host
 // applies through 0x137e20 (0x54a2a4 in the ChangeBlock apply 0x549d8c); whether that apply passes the old cell's sludge to the
-// writer is not settled, so a member logs each cleaning its gate skipped (throttled) to show it against the host's count.
+// writer is not settled, so a member logs each cleaning its gate skipped (throttled) to show it against the host's count. A save
+// that cleaned everything while nothing counted is repaired by pkp_coop_mud.cpp.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
@@ -148,6 +149,11 @@ constexpr uint8_t kEventIds[] = {8,   9,   12,  15,  17,  28,  34,  35,  40,  42
                                  84,  107, 108, 110, 114, 115, 116, 121, 129, 131, 133, 134, 140, 145, 146, 147,
                                  150, 151, 154, 156, 157, 166, 171, 173, 174, 175, 176, 177, 178, 179, 180};
 constexpr uint32_t kIdMax = layout::kUniqueRequestCount;   // ids 1..200
+// The request row (#1557): the data-table manager's table at 0x1160 (slot 0x22c, the table at +0 while the manager holds fewer),
+// row object +8 -> the row, or the default row *(main + 0x34845e8) when that is 0 (the checker 0x613ce4..0x613d58 and the completion
+// 0x6184e8..0x618500 read it so).
+constexpr uint64_t kRowTable = 0x1160;
+constexpr uint64_t kDefaultRow = 0x34845e8;
 constexpr int kCleanOnlineReg = 0;                         // the cleaning count's gate: w0, IsOnline's answer
 constexpr double kCleanLogGap = 10.0;                      // a member's skipped-cleaning line, at most once per this many seconds
 constexpr uint8_t kWaiting = 1, kOffered = 2, kTaken = 3, kFulfilled = 4, kDone = 5;
@@ -538,6 +544,16 @@ uint64_t request_slot(uint32_t id) {
     return mu && id >= 1 && id <= kIdMax ? mu + id * kSlotSize : 0;
 }
 uint64_t request_component(::Ctx* c, uint64_t slot) { return component(c, slot); }
+uint8_t request_state(uint32_t id) {
+    const uint64_t recs = records();
+    return recs && id >= 1 && id <= kIdMax ? state_of(recs, id) : 0;
+}
+uint64_t request_row(::Ctx* c, uint32_t id) {
+    const uint64_t obj = tables::row_or_first(c, base(), kRowTable, id);
+    if (!obj || !guest::ok(obj + 8, 8)) return 0;
+    const uint64_t row = guest::rd<uint64_t>(obj + 8);
+    return row ? row : guest::rd<uint64_t>(base() + kDefaultRow);
+}
 bool story_request(uint32_t id) { return listed(kStoryIds, id); }
 bool own_request(uint32_t id) { return listed(kOwnIds, id); }
 
