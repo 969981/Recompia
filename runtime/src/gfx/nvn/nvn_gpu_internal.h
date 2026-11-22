@@ -17,6 +17,8 @@
 
 #include <volk.h>
 
+#include "nxrt/platform_facts.h"
+#include "nxrt/ab_switch.h"
 #include "nxrt/gfx.h"
 #include "nvn_present_pass.h"
 
@@ -122,6 +124,45 @@ void image_barrier(VkCommandBuffer cb, VkImage image, VkImageLayout from, VkImag
                    uint32_t base_level, uint32_t level_count, uint32_t base_layer, uint32_t layer_count);
 // All commands before, all commands after, all memory (used after passes, dispatches, copies and fills).
 void memory_barrier(VkCommandBuffer cb);
+// Phones (A/B name "barrier_batch", default on): between barrier_batch_begin(cb) and barrier_batch_end(), image_barrier / memory_barrier
+// on that command buffer are collected and recorded as ONE vkCmdPipelineBarrier2 (the union of their dependencies; each barrier command is
+// a sync point of its own on a tiler). Render thread only; other command buffers are not affected. Templates: a build without the fact has none.
+struct BarrierBatch {
+    std::atomic<VkCommandBuffer> cb{VK_NULL_HANDLE}; bool on(VkCommandBuffer c) const { return cb.load(std::memory_order_relaxed) == c; }
+    bool mem = false;
+    std::vector<VkImageMemoryBarrier2> img;
+};
+template <bool kOn = facts::kPhone>
+BarrierBatch& barrier_batch() {
+    static BarrierBatch b;
+    return b;
+}
+template <bool kOn = facts::kPhone>
+bool barrier_batch_begin(VkCommandBuffer cb) {
+    if (!diag::ab("barrier_batch", true)) return false;
+    BarrierBatch& b = barrier_batch();
+    b.mem = false;
+    b.img.clear();
+    b.cb.store(cb, std::memory_order_relaxed);
+    return true;
+}
+template <bool kOn = facts::kPhone>
+void barrier_batch_end() {
+    BarrierBatch& b = barrier_batch();
+    const VkCommandBuffer cb = b.cb.exchange(VK_NULL_HANDLE, std::memory_order_relaxed);
+    if (!cb || (!b.mem && b.img.empty())) return;
+    VkMemoryBarrier2 m = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    m.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    m.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    m.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    m.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+    VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.memoryBarrierCount = b.mem ? 1 : 0;
+    di.pMemoryBarriers = &m;
+    di.imageMemoryBarrierCount = static_cast<uint32_t>(b.img.size());
+    di.pImageMemoryBarriers = b.img.data();
+    vkCmdPipelineBarrier2(cb, &di);
+}
 // [nvn] pass_barriers = tracked (S38): image_barrier derives its stage and access masks from the two layouts instead of all commands and
 // all memory. Set by the replay for each submission; any thread may record image barriers, so it is an atomic.
 void set_narrow_barriers(bool on);

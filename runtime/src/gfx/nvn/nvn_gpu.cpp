@@ -908,15 +908,15 @@ void image_barrier(VkCommandBuffer cb, VkImage image, VkImageLayout from, VkImag
     b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     b.image = image;
     b.subresourceRange = {aspect, base_level, level_count, base_layer, layer_count};
-    VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    di.imageMemoryBarrierCount = 1;
+    if constexpr (facts::kPhone) { if (barrier_batch().on(cb)) { barrier_batch().img.push_back(b); return; } }
+    VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO}; di.imageMemoryBarrierCount = 1;
     di.pImageMemoryBarriers = &b;
     ft::split_count(ft::kCntCmdBarrier);
     vkCmdPipelineBarrier2(cb, &di);
 }
 
 void memory_barrier(VkCommandBuffer cb) {
-    g_gauge_barriers_mem.add(1);
+    g_gauge_barriers_mem.add(1); if constexpr (facts::kPhone) { if (barrier_batch().cb.load(std::memory_order_relaxed) == cb) { barrier_batch().mem = true; return; } }   // collected
     VkMemoryBarrier2 b = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
     b.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     b.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
