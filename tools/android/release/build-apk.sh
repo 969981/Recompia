@@ -84,7 +84,11 @@ cp -p "$repo/game-build/src/pkp_stub.cpp" "$repo/game-build/src/pkp_stub_android
 cp -p "$(one guest_base.txt)" "$sdk/"
 
 step "on-device build kit"
-A_OUT=$D/a_out bash "$repo/tools/android/ondevice/package.sh"
+# package.sh refuses a kit that names this machine's home folder. HOME is given as a folder under $D for that check: python.org's
+# own Android build was made under /home/runner, which is also a CI runner's home, and $D (checked as the stage path) is where
+# everything of this build lives.
+mkdir -p "$D/home"
+HOME=$D/home A_OUT=$D/a_out bash "$repo/tools/android/ondevice/package.sh"
 
 step "Turnip"
 MESA_OUT=$D/turnip
