@@ -118,12 +118,12 @@ int hook_copy_params(::Ctx* c, uint64_t, void*) {
     // the level and the size the manager holds then agree, as when the game's own dynamic resolution picks them. Writing a size between levels
     // with the top level left in place drew some passes at the wrong scale (a floating band of sky on the cliff, a grid on the ground at 50 %).
     // The game's table starts at 50 % (level 0); level 0 itself (exactly half the targets) still drew the sky band and the ground rectangles
-    // on desktop, level 1 (51.7 %) and above did not, so the lowest level used is 1. ponytail: cause of the level-0 case not found; lift the
-    // floor once it is.
+    // on desktop, level 1 (51.7 %) and above did not, so the lowest level used is 1. The cause (fix_rect, below: the game's height-derived
+    // rect missed at levels whose height loses a row, level 0 among them) is handled on phones, which use level 0 too.
     // Phones only (facts::kPhone): elsewhere the percent the player chose is the size, as before (a 33 % or 50 % upscaler preset keeps its
     // pixel count), with the top level left in place.
     const bool by_level = facts::kPhone && pct < 100;
-    const int lvl = !by_level ? kFullLevel : std::clamp(static_cast<int>(std::lround((pct * kTableW / 100.0 - 960.0) / 32.0)), 1, kFullLevel - 1);
+    const int lvl = !by_level ? kFullLevel : std::clamp(static_cast<int>(std::lround((pct * kTableW / 100.0 - 960.0) / 32.0)), 0, kFullLevel - 1);
     for (int i = 0; i < views; ++i) {
         const uint64_t v = mgr + i * kViewStride;
         const uint32_t mw = rd<uint32_t>(v + kMaxW), mh = rd<uint32_t>(v + kMaxH);
@@ -211,7 +211,12 @@ void fix_rect(::Ctx* c, uint64_t rect, uint64_t ctx = 0) {
     const double kx = g_vp_kx.load(std::memory_order_relaxed), ky = g_vp_ky.load(std::memory_order_relaxed);
     if ((kx >= 1.0 && ky >= 1.0) || !g_frac_vp_on.load(std::memory_order_relaxed)) return;
     const int32_t nw = static_cast<int32_t>(std::lround(tw * kx)), nh = static_cast<int32_t>(std::lround(th * ky));
-    if ((r[0] == nw && r[1] == nh) || !matches(kx, ky)) return;
+    // Phones also accept the height fraction on both sides (matches(ky, ky)): the game derives some scene viewports' width from the
+    // height fraction (ky x 1920, cut to whole pixels: 1342 at level 12 on 1920-wide near-square targets, where the part is 1344 wide). On targets
+    // whose level heights lose a row to the even rounding (every fourth level at that height, level 0 included) that width misses the kx
+    // one by 2 px, past the tolerance: the pass kept its 1080-frame rect (1342x755, the water pass traced on the desktop) and
+    // drew a shrunken copy of the scene over the picture, with dashed edges along the geometry.
+    if ((r[0] == nw && r[1] == nh) || !(matches(kx, ky) || (facts::kPhone && matches(ky, ky)))) return;
     if (g_frac_vp_fixes.fetch_add(1, std::memory_order_relaxed) == 0)
         NXLOG_I(kTag, "scene viewport: %dx%d (%.3f x %.3f of the 1920x1080 frame) made %dx%d of the %dx%d target", r[0], r[1], kx, ky, nw, nh, tw, th);
     r[0] = nw;
