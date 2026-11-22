@@ -396,15 +396,27 @@ void pcopy_ring_flush(VkCommandBuffer cb, uint64_t serial) {
         }
     }
     if (copies.empty()) return;
-    VkMemoryBarrier before = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    before.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
-    before.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &before, 0, nullptr, 0, nullptr);
+    // Only what can write a shadow buffer is waited for: shader stores (any shader stage), copies / fills / query results (transfer) and
+    // transform feedback; the copies block nothing but later copies, and the host read waits for them alone. No graphics or compute work of
+    // a later submission waits on these barriers.
+    const bool xfb = device().features().transform_feedback;
+    VkMemoryBarrier2 mb[2] = {{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2}, {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2}};
+    mb[0].srcStageMask = VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT | (xfb ? VK_PIPELINE_STAGE_2_TRANSFORM_FEEDBACK_BIT_EXT : 0);
+    mb[0].srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | (xfb ? VK_ACCESS_2_TRANSFORM_FEEDBACK_WRITE_BIT_EXT : 0);
+    mb[0].dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    mb[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    mb[1].srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    mb[1].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    mb[1].dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+    mb[1].dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+    VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.memoryBarrierCount = 1;
+    di.pMemoryBarriers = &mb[0];
+    vkCmdPipelineBarrier2(cb, &di);
     for (const Copy& k : copies) vkCmdCopyBuffer(cb, k.src, g_ring.buf.buffer, 1, &k.region);
-    VkMemoryBarrier after = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    after.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    after.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &after, 0, nullptr, 0, nullptr);
+    di.pMemoryBarriers = &mb[1];
+    vkCmdPipelineBarrier2(cb, &di);
     static std::atomic<uint64_t> n_copies{0}, n_bytes{0};
     uint64_t b = 0;
     for (const Copy& k : copies) b += k.region.size;

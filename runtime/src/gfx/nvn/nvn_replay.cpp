@@ -492,7 +492,7 @@ static void run_list(const CmdList& list, int depth) {
                 }
                 break;
             }
-            case Op::Barrier: end_pass(); memory_barrier(F->cb); break;
+            case Op::Barrier: if constexpr (facts::kPhone) end_pass_full_barrier(); else { end_pass(); memory_barrier(F->cb); } break;
             case Op::FenceSync: {
                 const auto& p = r.payload<P_Sync>();
                 if (p.sync) { p.sync->serial.store(F->serial); p.sync->armed.store(true); }

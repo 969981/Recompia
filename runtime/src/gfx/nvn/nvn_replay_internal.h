@@ -21,6 +21,8 @@
 #include <unordered_set>
 
 #include "nxrt/config.h"
+#include "nxrt/ab_switch.h"
+#include "nxrt/platform_facts.h"
 #include "nxrt/frame_limiter.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/gauge.h"
@@ -443,6 +445,17 @@ inline void gstamp(const char* label) {
     if (gpass_on()) gpass_stamp(*F, label, 0);
 }
 void end_pass(bool to_pass = false);
+// Phones (A/B name "barrier_dedupe", default on): end_pass() and then a full memory barrier, without the second barrier when end_pass already
+// ended with one (it does whenever it closes a pass or flushes pending pass writes): two full barriers back to back are one.
+template <bool kOn = facts::kPhone>
+void end_pass_full_barrier() {
+    if (diag::ab("barrier_dedupe", true) && (P.open || !g_bar.pending.empty())) {
+        end_pass();
+        return;
+    }
+    end_pass();
+    memory_barrier(F->cb);
+}
 void prepare_texel_buffers(const ProgLayout& pl);   // draws: GPU copies of uniform texel buffers at offsets the GPU cannot view (nvn_replay_bind.cpp)
 float attach_targets(bool fix);
 bool ensure_pass(bool depth_ro = false, uint8_t fbl = 0);
