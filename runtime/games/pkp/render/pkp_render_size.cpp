@@ -133,6 +133,10 @@ int hook_copy_params(::Ctx* c, uint64_t, void*) {
         const uint32_t sh = pct >= 100 ? mh : !by_level ? scene_side(mh, pct)
                                                         : static_cast<uint32_t>(static_cast<uint64_t>(mh) * level_size(lvl, false) / std::max(1, H)) & ~1u;
         if (dyn) {
+            // a phone (where the Dynamic Resolution row sits under Resolution): a cap below the game's own pick writes the cap's level
+            // with it, as without dynamic resolution (a size between levels drew the floating band and the ground grid, above)
+            if constexpr (facts::kPhone)
+                if (pct < 100 && (rd<uint32_t>(v + kCurW) > sw || rd<uint32_t>(v + kCurH) > sh)) wr<uint8_t>(v + kLvlCur, static_cast<uint8_t>(lvl));
             wr<uint32_t>(v + kCurW, std::min(rd<uint32_t>(v + kCurW), sw));
             wr<uint32_t>(v + kCurH, std::min(rd<uint32_t>(v + kCurH), sh));
             continue;

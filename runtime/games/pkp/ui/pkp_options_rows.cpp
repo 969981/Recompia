@@ -184,7 +184,7 @@ const Row kSound[] = {
 // Window rows only where the window system has a choice of modes (a phone has one: nxrt/platform.h window_modes).
 bool several_window_modes() { const int m = platform::window_modes(); return (m & (m - 1)) != 0; }
 
-const Row kDisplay[] = {
+constexpr Row kDisplay[] = {
     when(choice("Window Mode", "Windowed, borderless fullscreen or exclusive fullscreen.", {"Windowed", "Borderless", "Fullscreen"}, 3,
            [](const S& s) { return key_index(kWindowKeys, 3, s.display.window_mode); }, [](S& s, int v) { s.display.window_mode = kWindowKeys[v]; }), several_window_modes),
     when(dynamic("Monitor", "The display the window moves to. Fullscreen modes use this display.", monitor_text, monitor_max, ROW_INT(display.monitor)), several_window_modes),
@@ -211,6 +211,9 @@ const Row kDisplay[] = {
          nxrt::host_is_phone),
     when(live_row(dynamic("Resolution", "The 3D picture's resolution, from the maximum down; menus and text stay sharp. Changes at once.", res_text, res_max, res_get, res_set)),
          nxrt::host_is_phone),
+    // a phone's Dynamic Resolution sits with its other resolution rows (the Graphics tab's copy is left out there)
+    when(choice("Dynamic Resolution", "Let the game lower the resolution below the one above when the GPU falls behind.", kOffOn, 2,
+                ROW_BOOL(display.dynamic_resolution)), nxrt::host_is_phone),
     when(choice("Upscaler", "Sharpens the enlarged 3D picture: SGSR (Snapdragon Game Super Resolution) or bicubic, menus stay sharp; FSR 1 the whole picture (costs more).",
                 {"Off", "SGSR", "Bicubic", "FSR 1"}, 4, phone_upscaler_get, phone_upscaler_set), nxrt::host_is_phone),
 };
@@ -239,7 +242,7 @@ const Row kGraphics[] = {
     dynamic("Quality Preset", "Sets the texture options together.", preset_text, preset_max,
             [](const S& s) { int n = 0; const play::QualityPresetInfo* q = play::quality_presets(&n); for (int i = 0; i < n; ++i) if (s.display.quality_preset == q[i].id) return i; return n - 1; },
             [](S& s, int v) { int n = 0; const play::QualityPresetInfo* q = play::quality_presets(&n); const play::GamePlay* gp = play::game_play(); if (v < n - 1 && gp && gp->quality_preset) gp->quality_preset(q[v].id, s); }),
-    choice("Dynamic Resolution", "Let the game lower its resolution when the GPU falls behind.", kOffOn, 2, ROW_BOOL(display.dynamic_resolution)),
+    when(choice("Dynamic Resolution", "Let the game lower its resolution when the GPU falls behind.", kOffOn, 2, ROW_BOOL(display.dynamic_resolution)), not_phone),
     names("Texture Filtering", "Sharper textures at an angle.", kAnisoNames, 5,
           [](const S& s) { return index_of(kAniso, 5, s.display.anisotropy, 0); },
           [](S& s, int v) { s.display.anisotropy = kAniso[v]; play::quality_preset_edited(s.display, play::QualityField::Anisotropy); }),
@@ -381,7 +384,19 @@ constexpr Row kInventory[] = {
 
 }  // namespace
 
-constinit const RowList kSoundRows = rows_of(kSound), kDisplayRows = rows_of(kDisplay), kPerformanceRows = rows_of(kPerformance),
+// Display holds more rows than a tab's slots, split by machine: a phone leaves out the not_phone rows, any other machine the phone rows.
+template <size_t N>
+constexpr size_t most_shown(const Row (&r)[N]) {
+    size_t phone = 0, other = 0;
+    for (const Row& x : r) {
+        phone += x.shown != &not_phone;
+        other += x.shown != &nxrt::host_is_phone;
+    }
+    return std::max(phone, other);
+}
+static_assert(most_shown(kDisplay) <= static_cast<size_t>(kDirtySlot), "no machine shows more Display rows than a tab has slots");
+
+constinit const RowList kSoundRows = rows_of(kSound), kDisplayRows{kDisplay, static_cast<int>(std::size(kDisplay))}, kPerformanceRows = rows_of(kPerformance),
                         kGraphicsRows = rows_of(kGraphics), kPictureRows = rows_of(kPicture), kMouseRows = rows_of(kMouse),
                         kControllerRows = rows_of(kController), kGameplayRows = rows_of(kGameplay),
                         kInventoryRows = rows_of(kInventory);
