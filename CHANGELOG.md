@@ -2,10 +2,13 @@
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's cleaning count, co-op's shared rules for every player and the logs; saves and shaders are kept, no shader is translated again).
+**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's cleaning count, co-op's shared rules for every player, storage box tabs and the logs; saves and shaders are kept, no shader is translated again).
 
 ### Game
+- Fixed **Save** in the pause menu not reacting to its controller button or a mouse click (it answered only for a moment after the menu opened)
 - Mouse mode: the game's pointer is drawn where the mouse really is at render sizes other than 1920x1080 (it drifted away from the mouse at 1440p and above) (#806)
+- Storage box tabs: (+) Store All fills the box's other tabs too. When the shown tab is full, it carries on into the next tabs in order (as L / R page through them) until the bag is empty or every tab is full, for both choices of the dialog. Before, it said the box was full, and you had to page to an empty tab first
+- Storage box tabs: paging from one tab of a big storage box into the next no longer shows an empty or wrong page for a moment before the new tab's items appear
 
 ### Co-op
 - Teammates see the same story talks as the host: each character's next story talk, the professor's included, and the objective that goes with it. A story talk a teammate plays now moves the story on for the whole group
