@@ -37,7 +37,7 @@
   <a href="https://discord.recompia.com">Discord</a>
 </p>
 
-<!-- i18n-bar:start -->
+<!-- i18n-bar:start
 <p align="center">
   <b>English</b> ·
   <a href="docs/i18n/README.zh-CN.md">简体中文</a> ·
@@ -47,26 +47,10 @@
   <a href="docs/i18n/README.pt-BR.md">Português (Brasil)</a> ·
   <a href="docs/i18n/README.pt-PT.md">Português (Portugal)</a>
 </p>
-<!-- i18n-bar:end -->
+ i18n-bar:end -->
 
 > [!IMPORTANT]
 > **No game files are included.** You need your own extracted copy of this cozy life-simulation and sandbox builder with fantastical creatures (title ID 0400A3A01EE4C000, version **2.0.1a**). This project provides no game files, keys or dumping tools. See [LEGAL.md](LEGAL.md).
-
-> [!NOTE]
-> **Built with AI, supervised by humans.** This project is developed primarily with AI, with Dittobyte developers as the supervisors. Note on Josh - They say they have a handful of years of development experience, so it's not all slop. Every commit is reviewed, verified and tested by before it lands.
-
-## Screenshots
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/assets/screenshots/title-screen.svg" alt="Title screen"><br><sub>Title screen</sub></td>
-    <td width="50%"><img src="docs/assets/screenshots/island-gameplay.svg" alt="Island gameplay"><br><sub>Building your island</sub></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/assets/screenshots/aspect-ratios.svg" alt="New Aspect Ratios"><br><sub>Play on New Aspect Ratios</sub></td>
-    <td width="50%"><img src="docs/assets/screenshots/link-play.svg" alt="Link Play (screenshot placeholder)"><br><sub>Link Play with a friend</sub></td>
-  </tr>
-</table>
 
 ## Features
 

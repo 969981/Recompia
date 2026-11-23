@@ -38,7 +38,12 @@ constexpr uint64_t kInputMgr = 0x3561718;        // the input manager
 constexpr uint64_t kTables = 0x35618f0;          // the data-table manager (the sprite sheet lookups read it too)
 constexpr uint64_t kUiMgr = 0x35aebf8;           // the UI manager (UI resource manager: holds the loaded sprite sheets and the layout pools)
 constexpr uint64_t kLanguage = 0x36ca680;        // -> u32 language 0..8
-constexpr uint64_t kWorld = 0x34efc98;           // the world ([GOT 0x3483b10] points here); +0x6000030 = chunk map u16[64*64], +0x6000018 = packed cells
+constexpr uint64_t kWorld = 0x34efc98;           // the world ([GOT 0x3483b10] points here)
+// world: -> the chunk map, u16[64*64], the chunk slot of each 32 x 32 column at (x >> 5) + (z >> 5) * 64 (256 or more: none), and
+// -> the cells, kChunkBytes per slot, 3 bytes per cell at (y << 10) | ((z & 31) << 5) | (x & 31), block id = u16 & 0x7ff
+constexpr uint64_t kWorldChunkMap = 0x6000030, kWorldCells = 0x6000018;
+constexpr uint64_t kChunkBytes = 0x60000;
+constexpr uint32_t kChunkSlots = 256, kChunkColumns = 64 * 64;
 constexpr uint64_t kWorldRequests = 0x9218378;   // world: Link Play's request queue, u16 q[0..4] (visitor: q[0] sent, q[1] answers taken,
                                                  // q[4] the strict kind in flight, 0xffff none)
 
@@ -189,6 +194,13 @@ constexpr uint64_t kRecipeSize = 6;              // record: +2 u16 the learn ord
 constexpr uint64_t kRecipeFlags = 4;
 constexpr uint8_t kRecipeKnown = 0x02;
 constexpr uint32_t kRecipeMax = 0x5db;          // the learn 0x2e7240 takes id < 0x5dc; its callers test id - 1 <= 0x5da
+// ---- m_itemHistory: save root + item id, one byte per item (0..0x11f7; modding-docs coop-v2/HAIRSTYLES-RE.md) ----
+// Bit 0 obtained (0x2e51d8 on a pickup, 0x2f6700 / 0x2f5f20 for a learned hairstyle / look); bit 1 the first obtain's mark and bit 6
+// (0x2e51d8), bit 4 tested with bit 0 (`& 0x11`) by the known tests 0x2f6580 / 0x2f5da0. A learned hairstyle is bit 0 of its hidden
+// hair item (item kind 20, items kHairItemFirst..+kHairItemCount-1), a learned look (outfit) of its look item (kind 19).
+constexpr uint64_t kSaveItemHistory = 0x6d6179;
+constexpr uint32_t kHairItemFirst = 2460, kHairItemCount = 13;
+constexpr uint32_t kLookItemFirst = 2400, kLookItemCount = 25;
 // ---- area gates (modding-docs coop-v2/AREA-GATE-RE.md) ----
 // Save root + id: m_gateHistory, bit 0 per gate id 0..kGateCount-1 (opened; the door's second press enters). Setter 0x5c059c refuses
 // whenever a Link Play session is open; getter 0x5c0504 reads kSaveGateMirror + id on a visitor (0x376c4), which no game code fills.
@@ -210,6 +222,12 @@ constexpr uint8_t kChallengeDone = 3;
 constexpr uint64_t kChallengeMirrorSize = 0x12;
 constexpr uint64_t kMirrorState = 0xc;           // u8 this player's view (the PC's list 0x645f20 offers a claim at 3)
 constexpr uint64_t kMirrorHostState = 0xd;       // u8 the host's own state, as its goal update 0x6355c0 last sent it (@0x635964)
+// CM + kChallengeAreas + area * kChallengeAreaSize, area 0..31: the per-area entry the refresh 0x62f62c clears (0x140 bytes) and
+// 0x62f7e0 then fills, on the host only (it returns at once on a visitor). +0 / +4 s16 pairs (first, count) into the area's challenge
+// lists, +8 u8 the area is open (the host's current area, or its visited bit; all of 1..31 on Cloud Island), which the area gate
+// 0x630fb0 reads for area 1..kChallengeAreaMax on the host (shop and challenge UI). modding-docs coop-v2/SHOP-CATALOG-RE.md
+constexpr uint64_t kChallengeAreas = 0x17dd6, kChallengeAreaSize = 10, kChallengeAreaOpen = 8;
+constexpr uint32_t kChallengeAreaMax = 31;
 constexpr uint64_t kChallengeList = 0x18114;     // CM +: u16 ids of the listed challenges (the PC's; the kind 7 raise needs the id here)
 constexpr uint64_t kChallengeListCount = 0x18600;   // CM +: s16 how many
 constexpr int16_t kChallengeListMax = 0x276;

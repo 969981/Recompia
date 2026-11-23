@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Game layer: seamless co-op's story follows (pkp_coop_internal.h): a story content that makes a creature follow "this player" runs,
+// Game layer: seamless co-op's followers (pkp_coop_internal.h): a member's party leave takes no other player's follower, and a story content that makes a creature follow "this player" runs,
 // on a member, on the authority instead, as the authority's own content does it. RE: modding-docs coop-v2/quests/QUEST-SCRIPT-RE.md
 // (contents actions), coop-v2/P0-RE.md (RequestPartyNPC on a member); the fire starter creature is #7099 records 0x20d / 0x23b.
 //
@@ -26,11 +26,24 @@
 //   leaves the creature with no leader (0x659280 returns silently when the player cannot lead) is made again every 2 s, up to 8 times
 //   and inside the ask's 60 s window. The leader is always the authority's own player: 0x6599c0 attaches only to a local player
 //   (vt+0x1e0), and a member's player on the authority is not one. RE: coop-v2/role-census/build/a14-follow.md.
+// A member's party leave (RequestPartyNPC +0x38 = 0, sent by 0x659588 on a visitor instead of a local detach: from an AI state
+// change 0x2b5e08 at 0x2b5f64, the player action 0x2df220 at 0x2df510, the escort end 0x617d98, ...) carries the creature (+0x36)
+// and the leader as the member sees it (+0x34), not who asks. The host's handler 0x5519bc (0x551a7c..0x551b38) reads the
+// creature's leader in its own world and detaches it from that player, so a teammate's routine leave took a creature that followed
+// the host or another teammate (story followers that stopped following). The rule: a leave only ever takes a creature from the
+// player who asked.
+//   0x5519bc (entry hook), on the authority in the session: called only by the receive entry 0x547980 (slot 16, return 0x547ab8),
+//   whose w21 is the sender's KTGL member id - 1 (0x5479fc), the game's member index (SESSION-RE). The asker's player is the
+//   session player character (player manager +0x30..+0x48) whose member index (u8 +0x5a38, vt+0x4a8 0x66725c) is that; the
+//   leader's is the one whose actor id (+0x27fe) leads the creature (leader_here). Both found and different: refused, as handled
+//   (returns 0, so it is not sent again) and logged. Anything that cannot be told apart (no leader here, an asker or a leader that
+//   is no session player) is the game's own: the handler runs.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 
 #include <cstddef>
+#include <unordered_map>
 #include <vector>
 
 #include "nxrt/log.h"
@@ -51,6 +64,13 @@ constexpr uint64_t kLeaderOf = 0x410;       // actor vt + : its leader's object,
 constexpr uint64_t kPartyBlock = 0x35e0;    // leader object + : its party block; +0x10 u16 the leader's actor id
 constexpr uint64_t kPartyLeaderId = 0x10;
 constexpr uint16_t kDataIdMax = 0x3ff;
+constexpr uint64_t kPartyCall = 0x547ab8;   // the receive entry's return from a handler (blr at 0x547ab4)
+constexpr int kSenderReg = 21;              // there: w21 = the sender's member index
+constexpr uint64_t kMsgNpc = 0x36, kMsgJoin = 0x38, kMsgHome = 0x3a;   // RequestPartyNPC + : u16 creature, u8 join, u8 home-navi
+constexpr uint64_t kNetIndex = 0x5a38;      // player character + : u8 its member index
+constexpr uint64_t kPlayerSlots = 4;        // player manager + kManagerPlayer + 8 * i: the session's player characters
+constexpr uint32_t kIndexMax = 0xff;
+constexpr double kRefusedLineGap = 30.0;
 constexpr double kDrop = 60.0;              // an ask the authority found no safe moment for
 constexpr double kRetry = 2.0;              // an attach that left the creature with no leader is made again after this long
 constexpr uint8_t kTries = 8;
@@ -66,9 +86,17 @@ struct Ask {
     double retry_at = 0;   // not before this time
 };
 
+struct Refused {
+    uint32_t repeats = 0;   // refusals not logged since the last line
+    double line_at = 0.0;
+};
+
 struct State {
     std::vector<Ask> outgoing;   // a member's asks not sent yet
     std::vector<Ask> incoming;   // the authority's received asks not made yet
+    // The authority's refused leaves by (asker, creature, leader): a member's game sends the same leave again at each AI state change
+    // of the creature, so a repeat is counted and logged with the next line of its key (at most every kRefusedLineGap).
+    std::unordered_map<uint64_t, Refused> refused;
 };
 State& st() {
     static State s;
@@ -95,6 +123,27 @@ uint16_t leader_here(::Ctx* c, uint64_t npc) {
     if (!guest::ok(leader + kPartyBlock + kPartyLeaderId, 2)) return 0;
     const uint16_t id = guest::rd<uint16_t>(leader + kPartyBlock + kPartyLeaderId);
     return valid_id(id) ? id : 0;
+}
+
+// The session's player characters here: the actor id of the one with member index `index` (0: none), and the member index of the
+// one with actor id `actor` (-1: none).
+struct Players {
+    uint16_t of_index = 0;
+    int index_of = -1;
+};
+Players players(uint32_t index, uint16_t actor) {
+    Players p;
+    const uint64_t pm = guest::rd<uint64_t>(base() + layout::kPlayerManager);
+    if (!guest::ok(pm + layout::kManagerPlayer, kPlayerSlots * 8)) return p;
+    for (uint64_t i = 0; i < kPlayerSlots; ++i) {
+        const uint64_t ch = guest::rd<uint64_t>(pm + layout::kManagerPlayer + i * 8);
+        if (!guest::ok(ch + kActorId, 2) || !guest::ok(ch + kNetIndex, 1)) continue;
+        const uint16_t id = guest::rd<uint16_t>(ch + kActorId);
+        const uint8_t net = guest::rd<uint8_t>(ch + kNetIndex);
+        if (net == index && valid_id(id)) p.of_index = id;
+        if (id == actor) p.index_of = net;
+    }
+    return p;
 }
 
 void send() {
@@ -177,6 +226,40 @@ int on_story_follow(::Ctx* c) {
     NXLOG_I(kTag, "Co-op follow: the story asked character %u (actor 0x%x) to follow this player; left to the authority", data,
             guest::rd<uint16_t>(npc));
     return 1;   // the game's local-only attach and its leave request do not run
+}
+
+int on_party_request(::Ctx* c) {
+    if (!link::in_session() || !link::is_authority() || c->x[30] != base() + kPartyCall) return 0;
+    const uint64_t msg = c->x[0];
+    if (!guest::ok(msg + kMsgNpc, kMsgHome - kMsgNpc + 1)) return 0;
+    if (guest::rd<uint8_t>(msg + kMsgHome) || guest::rd<uint8_t>(msg + kMsgJoin)) return 0;   // a home-navi or a join: the game's
+    const uint64_t npc = msg + kMsgNpc;
+    const uint16_t leader = leader_here(c, npc);
+    if (!leader) return 0;   // it follows nobody here: the handler's own leader test returns
+    const uint32_t asker = static_cast<uint32_t>(c->x[kSenderReg]);
+    const Players p = players(asker, leader);
+    const uint16_t data = static_cast<uint16_t>(guest::call(c, base() + kDataIdOf, npc));
+    if (asker > kIndexMax || !p.of_index || p.index_of < 0) {
+        NXLOG_I(kTag, "Co-op follow: member %u's party leave of character %u (actor 0x%x, led by player 0x%x): %s; the game's own leave "
+                "runs", asker, data, guest::rd<uint16_t>(npc), leader,
+                asker > kIndexMax || !p.of_index ? "the asker's player is not here" : "its leader is no player here");
+        return 0;
+    }
+    if (p.of_index == leader) return 0;   // the asker's own follower: the game's leave
+    c->x[0] = 0;   // handled: the sender does not send it again
+    const uint16_t actor = guest::rd<uint16_t>(npc);
+    Refused& r = st().refused[uint64_t{asker} << 32 | uint64_t{actor} << 16 | leader];
+    const double now = qpc::seconds();
+    if (r.line_at != 0.0 && now - r.line_at < kRefusedLineGap) {
+        ++r.repeats;
+        return 1;
+    }
+    NXLOG_I(kTag, "Co-op follow: member %u (player 0x%x) asked to take character %u (actor 0x%x) out of the party of member %d (player "
+            "0x%x); refused, a leave only takes a creature from the player who asked (%u more refused since the last line)", asker,
+            p.of_index, data, actor, p.index_of, leader, r.repeats);
+    r.repeats = 0;
+    r.line_at = now;
+    return 1;
 }
 
 void on_ask_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {

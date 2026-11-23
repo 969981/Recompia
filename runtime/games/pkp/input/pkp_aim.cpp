@@ -205,11 +205,11 @@ bool solid_cell(int x, int y, int z) {
     if (x < 0 || x > 2047 || z < 0 || z > 2047 || y < 0 || y > 127) return false;
     const uint64_t world = rd<uint64_t>(g.base + kWorld);
     if (!world) return false;
-    const uint64_t map = rd<uint64_t>(world + 0x6000030), cells = rd<uint64_t>(world + 0x6000018);
+    const uint64_t map = rd<uint64_t>(world + layout::kWorldChunkMap), cells = rd<uint64_t>(world + layout::kWorldCells);
     if (!map || !cells) return false;
     const uint16_t chunk = rd<uint16_t>(map + static_cast<uint64_t>((x >> 5) + (z >> 5) * 64) * 2);
-    if (chunk >= 256) return false;
-    const uint16_t id = rd<uint16_t>(cells + chunk * 0x60000ull + static_cast<uint64_t>((x & 31) | ((z & 31) << 5) | (y << 10)) * 3) & 0x7ff;
+    if (chunk >= layout::kChunkSlots) return false;
+    const uint16_t id = rd<uint16_t>(cells + chunk * layout::kChunkBytes +static_cast<uint64_t>((x & 31) | ((z & 31) << 5) | (y << 10)) * 3) & 0x7ff;
     return id != 0 && (rd<uint16_t>(g.base + kCollisionMeta + 2ull * id) & 1);
 }
 

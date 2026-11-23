@@ -1,8 +1,23 @@
 # Changelog
 
-## Unreleased
+## 0.17.0 (build U: Urchin)
 
-**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's cleaning count, co-op's shared rules for every player, storage box tabs and the logs; saves and shaders are kept, no shader is translated again).
+**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's cleaning count, co-op's followers, co-op's shared rules for every player, co-op's opened areas, storage box tabs and the logs; saves and shaders are kept, no shader is translated again).
+
+### Highlights
+- **Seamless co-op is out of the Open Alpha and part of this release:** play one story in one world over the internet, each player with their own character, bag and coins. Open **Co-op** in the launcher. It needs its own save that starts from the beginning
+- Co-op story stops fixed, on existing saves too: the professor who had nothing to say, and the cleaning request that could never be finished
+- **Recompia for Android:** one APK for arm64 phones and tablets that builds the game on the device from your own dump
+- Storage box tabs: Store All now fills every tab
+
+### Known issues
+- Co-op: every player of a group needs this version. Open Alpha builds cannot join it. If your launcher is on the Experimental channel for the Open Alpha, switch it back to Stable to get this version; your co-op saves are kept
+- Co-op: on a Dream Island a teammate can be sent back home right after arriving
+- Co-op: asking a creature to move into a house, and confirming a finished house, still work for the host only: let the host do those
+- Co-op: a teammate's use of the PC counts for the story only while the host is in the same area
+
+### Android
+- Added Recompia for Android (arm64 phones and tablets, Android 11 or later, Vulkan 1.3): one APK that builds the game on the phone from your own dump, with touch controls or a controller. The APK is on the release page next to the PC packages
 
 ### Game
 - Fixed **Save** in the pause menu not reacting to its controller button or a mouse click (it answered only for a moment after the menu opened)
@@ -11,11 +26,18 @@
 - Storage box tabs: paging from one tab of a big storage box into the next no longer shows an empty or wrong page for a moment before the new tab's items appear
 
 ### Co-op
+- A hairstyle or a look (outfit) one player learns is now learned for the whole group, including players who join later. Each player still wears their own look
+- A teammate's shop and challenge lists now follow the areas the host has opened, as the host's do. Before, a teammate's shop listed hundreds of rows from areas nobody had opened yet (every plush, for one), and the challenge lists showed those areas' challenges too
+- A teammate using the PC now counts for the story as the host's use does: the story steps that wait for someone to use the PC (the professor's walk over to it, for one) now move on when a teammate uses it, as long as the host is in the same area
+- A character with nothing new to say in the story now gives its ordinary talk in co-op, as it does in single player, instead of "Looks like they want to meet" the host
+- Saves where the professor's scene after using the PC never played are fixed: the next time someone uses the PC, the scene plays and the story goes on. Before, using the PC again did nothing, so that story step and the professor's next talk could never be reached
 - Teammates see the same story talks as the host: each character's next story talk, the professor's included, and the objective that goes with it. A story talk a teammate plays now moves the story on for the whole group
 - A story scene is no longer lost when a teammate is talking to one of its characters, or is far away in a scene of their own with them: in the opening, watering the thirsty water creature while a teammate talks to the professor left it thirsty for good. The scene now waits while the teammate is really talking to or playing a scene with that character, and starts a few seconds after they are done, or within seconds when they are not busy with it
 - A teammate who meets the creature that comes to a new habitat goes straight on into its talk that asks to move in, as the host does. Before, that talk was dropped and the teammate had to press twice more to talk to it
 - A tip that waits for an action (a pop-up that stays until you did something) now closes for everyone once any player has done it, and a tip one player has seen counts as seen for all
 - Cleaning sludge in co-op counts toward a creature's cleaning request (the water creature that asks for the sludge to be cleaned): the host's world keeps the group's count, and teammates see it. Before, no cleaning done in co-op ever counted, so the request could never be finished
+- Saves where the group had already cleaned all the sludge before cleaning counted in co-op can finish that request now: about a minute after the host is on the island with the request taken, the sludge that is already gone counts, so nobody has to find sludge that is no longer there
+- A creature that follows one player no longer stops following when a teammate ends a talk or does something near it: a teammate's game can only send away a creature that follows that teammate. Before, story followers that walked with the host or another teammate could stop following and wander off
 - The Habitat Dex shows a teammate's habitat hints too: the creature silhouettes on a habitat's page that one player unlocked are there for everyone
 - Something a teammate was using when they left the session (the lighthouse, for one) can be used again by everyone else. Before, it said "Someone else is using this right now." until the world was loaded again
 - The Shop on the PC menu is no longer greyed out for teammates who join the host

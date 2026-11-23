@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Game layer: seamless co-op's shared-state digests (pkp_coop_internal.h digest, the State* messages in pkp_coop_wire.h). Logging only:
 // nothing here changes the game. What the shared parts promise is that every member ends with the authority's quest states, abilities,
-// the dex, habitats, recipes, unlock lists and played scenes (and, logged the same way, the area levels and gates the game reads). When one member does not (a dex entry that reached 3 players of 4),
+// the dex, habitats, recipes, unlock lists and played scenes (and, logged the same way, the area levels, gates and open areas the game reads). When one member does not (a dex entry that reached 3 players of 4),
 // each part's own lines say what it applied, but not that the result differs. So:
 //   - the authority sends every member a digest of each domain (a hash of its set entries and their count) every kDigestEvery seconds;
 //   - a member compares its own. One differing digest can be a change still on its way, so only a domain that differs in two digests
@@ -35,7 +35,7 @@ struct Domain {
 constexpr Domain kDomains[] = {
     {1, "quests", &quest_states}, {2, "abilities", &abilities}, {3, "dex", &dex},         {4, "habitats", &habitats},
     {5, "recipes", &recipes},     {6, "unlocks", &unlocks},     {7, "scenes", &scenes},       {8, "area levels", &area_levels},
-    {9, "gates", &gates},         {10, "trainer level", &trainer_level},
+    {9, "gates", &gates},         {10, "trainer level", &trainer_level}, {11, "open areas", &open_areas},
 };
 constexpr size_t kCount = sizeof kDomains / sizeof kDomains[0];
 

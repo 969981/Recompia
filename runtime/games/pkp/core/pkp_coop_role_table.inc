@@ -143,3 +143,9 @@ PKP_ROLE_ROW(0xe86520, IsVisitor, 0x360000a0u, "shop", "a row is listed without 
 // host; a visitor reads its copy of the host's shop instead (manager + entry * 0x20 + 0x5480, bits 0..12), empty on a member. Read
 // by the buy screen's count (0xe88568) and the purchase log's names and categories (pkp_coop_purchases.cpp).
 PKP_ROLE_ROW(0x63e450, IsVisitor, 0x360001c0u, "shop", "a row's item is the table's, as on the host")
+// ---- the area-open gate, after the open-areas record (pkp_coop_records.cpp record 9, the same build) ----
+// 0x630fb0(CM, area), is the area open (the shop's rows 0xe86494 / 0xe87424 / 0xe85960 and the challenge lists 0xe52e8c / 0xe53500 /
+// 0xe560e0): `bl IsVisitor` at 0x630fc8, then `sub w9, w20, #1` here; w0 is moved to w8 for the `tbnz` that returns a visitor
+// "open" for every area 1..31, and ANDed into that answer. The host's arm reads CM + area * 10 + 0x17dde, which the record keeps the
+// authority's on a member.
+PKP_ROLE_ROW(0x630fcc, IsVisitor, 0x51000689u, "area open", "shop rows and challenges only from the areas the host has opened")

@@ -175,6 +175,8 @@ enum class Site : uintptr_t {
     HostUseEnd,       // class 0x326dc98's close: the host's own use is given back, which nothing in the class does
     // ---- the talk conditions inside a member's talk (pkp_coop_talk.cpp) ----
     TalkCondParent,   // talk condition 0x52's role test: a member answers as the host, from the group's record of the creature
+    TalkCondOnline,   // talk condition 0x22 (IsOnline) for a character with no parents: false in a session, so one with no story
+                      // talk gives its ordinary talk, not the "they want to meet <world owner>" stand-in
     TalkCondVisitor,  // talk condition 0x25 (IsVisitor): false for a member, so it gets no visitor-only talk the host would not
     // ---- a gimmick's release on a member's busy request queue, the ownership log (pkp_coop_linkqueue.cpp, pkp_coop_owner.cpp) ----
     ReleaseGate,      // a close's "every request answered" test before its release record: let through, the record is kept instead
@@ -192,13 +194,16 @@ enum class Site : uintptr_t {
     // ---- a story follow on a member (pkp_coop_follow.cpp) ----
     StoryFollow,      // a story content's "follow this player" attach (0x2a1ed4, local only): on a member it does not run and the
                       // authority makes it for its own copy of the creature, so no member takes the host's follow away
+    PartyRequest,     // the host's RequestPartyNPC handler: a member's leave of a creature another player leads is refused, so a
+                      // teammate's leave only ever takes its own follower
     // ---- a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp) ----
     TalkRecArmed,     // script callback 195's set of the talk record's +0x10: a member's is set in the authority's record too
     // ---- the Star Piece swap in a member's talk (pkp_coop_talk.cpp) ----
     TalkSwapParent,   // script callback slot 119's parent term: a member's is the group's record of the creature, as for the host
-    // ---- an event's end on a member (pkp_coop_feed.cpp) ----
-    EventEnded,       // the contents notifier, called by the three "event ended" notifiers: a member's is posted on the authority too,
-                      // so content records waiting on a scene a member played run for the group
+    // ---- an event's end, an object's use on a member (pkp_coop_feed.cpp) ----
+    ContentsNotice,   // the contents notifier, called by the three "event ended" notifiers and the two "object used" ones: a member's
+                      // is posted on the authority too, so content records waiting on a scene a member played or an object a member
+                      // used (the PC) run for the group
     // ---- a content's scene refused by a character another player holds (pkp_coop_contents.cpp) ----
     SceneTake,        // the event setup's "every character is ready" test: a remembered scene refused long enough starts anyway
     SceneStart,       // the event start's IsMine of one character: the same scene takes a character another player holds
@@ -327,6 +332,7 @@ constexpr CoopSite kSites[] = {
     // the talk conditions inside a member's talk (pkp_coop_talk.cpp)
     {{0x4d35f8, 0x52000008u, false}, Site::TalkCondParent},  // eor w8, w0, #1 (w0 = IsHost's answer, in condition 0x52)
     {{0x4d0620, 0x17ed9c29u, true}, Site::TalkCondVisitor},  // b 0x376c4 (condition 0x25, all of it)
+    {{0x4d04fc, 0x17ed40adu, true}, Site::TalkCondOnline},   // b 0x207b0 (condition 0x22, all of it; the journal's site too)
     // a gimmick's release on a member's busy request queue, the ownership log (pkp_coop_linkqueue.cpp, pkp_coop_owner.cpp)
     {{0x7b8b68, 0x36000980u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x7b8c98 (class 0x3268000's close 0x7b8960)
     {{0x82a558, 0x36000920u, false}, Site::ReleaseGate},     // tbz w0, #0, 0x82a67c (class 0x32762f8's close 0x82a460)
@@ -346,12 +352,13 @@ constexpr CoopSite kSites[] = {
     {{0x7e693c, 0x36001ac0u, false}, Site::DepositConfirm},  // tbz w0, #0, 0x7e6c94 (w0 = 0xa94bbc's confirm flag, x19 the gimmick)
     // a story follow on a member (pkp_coop_follow.cpp)
     {{0x2a1ed4, 0xf0018f09u, true}, Site::StoryFollow},      // adrp x9, 0x3484000 (x0 = &the creature's actor id, w1 the flag)
+    {{0x5519bc, kPacibsp, true}, Site::PartyRequest},        // x0 = the message, w21 = the sender's member index (0x547980)
     // a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp)
     {{0x4ae7e8, 0x940b4132u, false}, Site::TalkRecArmed},    // bl 0x77ecb0 (after strb w9, [x8, #0x10] off Cloud Island; w23 = chara)
     // the Star Piece swap in a member's talk (pkp_coop_talk.cpp)
     {{0x4a1adc, 0x2a0802d8u, false}, Site::TalkSwapParent},  // orr w24, w22, w8 (w8 = the parent term, w24 = the data id, in 0x4a17fc)
     // an event's end on a member (pkp_coop_feed.cpp): the journal's entry site of the contents notifier, shared
-    {{0x1353a0, kPacibsp, true}, Site::EventEnded},
+    {{0x1353a0, kPacibsp, true}, Site::ContentsNotice},
     {{0x4774e8, 0x3600013cu, false}, Site::SceneTake},       // tbz w28, #0, 0x47750c (w28 = all characters ready, x19 = the runner)
     {{0x47bfe4, 0x0a000318u, false}, Site::SceneStart},      // and w24, w24, w0 (w0 = IsMine, x20 = &actor id, x19 = the runner)
 };
@@ -449,6 +456,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::HostUseEnd: return coop::owner::on_host_use_end(c);
         case Site::TalkCondParent: return coop::talk::on_cond_parent(c);
         case Site::TalkCondVisitor: return coop::talk::on_cond_visitor(c);
+        case Site::TalkCondOnline: return coop::talk::on_cond_online(c);
         case Site::ReleaseGate: return coop::linkqueue::on_release_gate(c, addr - st().base);
         case Site::RequestSend: return coop::linkqueue::on_send_request(c);
         case Site::OwnerApply: return coop::owner::on_owner_apply(c);
@@ -459,9 +467,10 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::DepositStore: return coop::deposit::on_store(c);
         case Site::DepositConfirm: return coop::deposit::on_confirm(c);
         case Site::StoryFollow: return coop::follow::on_story_follow(c);
+        case Site::PartyRequest: return coop::follow::on_party_request(c);
         case Site::TalkRecArmed: return coop::talkrec::on_armed(c);
         case Site::TalkSwapParent: return coop::talk::on_swap_parent(c);
-        case Site::EventEnded: return coop::feed::on_event_ended(c);
+        case Site::ContentsNotice: return coop::feed::on_notice(c);
         case Site::SceneTake: return coop::contents::on_scene_take(c);
         case Site::SceneStart: return coop::contents::on_scene_start(c);
         // a dropped player is waited for (pkp_coop_drop.cpp)
@@ -550,6 +559,7 @@ void game_frame(::Ctx* c) {
     coop::story::tick(c);
     coop::quests::tick(c);
     coop::requests::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::mud::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::outcomes::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::recipes::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::events::tick(c, s.in_game.load(std::memory_order_relaxed));
@@ -604,6 +614,7 @@ void remove() {   // the registry has removed the hooks
     coop::story::reset();
     coop::quests::reset();
     coop::requests::reset();
+    coop::mud::reset();
     coop::outcomes::reset();
     coop::recipes::reset();
     coop::events::reset();

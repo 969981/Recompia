@@ -50,6 +50,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop_pclock.cpp"
         "${_pkp}/core/pkp_coop_money.cpp"
         "${_pkp}/core/pkp_coop_requests.cpp"
+        "${_pkp}/core/pkp_coop_mud.cpp"
         "${_pkp}/core/pkp_coop_session.cpp"
         "${_pkp}/core/pkp_coop_story.cpp"
         "${_pkp}/core/pkp_coop_quests.cpp"

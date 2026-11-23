@@ -17,6 +17,8 @@
 //   pkp_coop_notice.cpp   lines in the game's own message log: what another member's event unlocked or moved on here, by name
 //   pkp_coop_curtain.cpp  the cover over the picture while a member joins or leaves (the PC, transfer, landing and warp)
 //   pkp_coop_requests.cpp the creature requests a member took on or finished, listed in every member's requests app
+//   pkp_coop_mud.cpp      the cleaning request of a save that cleaned all the sludge before co-op counted it: the count raised by
+//                         what is no longer in the stage
 //   pkp_coop_outcomes.cpp what a finished request adds to the world (town goal, friendship), applied once for the group
 //   pkp_coop_recipes.cpp  the crafting recipes any member knows, learned by every member
 //   pkp_coop_unlocks.cpp  the moves and emotes any member learned, the areas visited, buildings built and area gates opened, unlocked
@@ -50,7 +52,8 @@
 //   pkp_coop_doors.cpp    the session's doors in the menus: the PC's Link Play screen makes no session call, the pause menu never
 //                         sends a teammate home or rejects one; Save and Quit stays
 //   pkp_coop_title.cpp    a co-op start goes past the title screen on its own, with no "did not disconnect correctly" message
-//   pkp_coop_follow.cpp   a story content's "follow this player" on a member made on the authority, for the authority's creature
+//   pkp_coop_follow.cpp   a story content's "follow this player" on a member made on the authority, for the authority's creature;
+//                         a member's party leave takes no other player's follower
 //   pkp_coop_savecopy.cpp the one shared save: the authority's save points copied to every member's co-op folder, stamped
 //                         (pkp_coop_saveset.cpp: the folder's files on disk)
 //   pkp_coop_drop.cpp     a dropped player is waited for: the group holds while it comes back through the normal join
@@ -181,11 +184,22 @@ void reset();
 // slot and loaded here (0: none), and the request lists.
 uint64_t request_slot(uint32_t id);
 uint64_t request_component(::Ctx* c, uint64_t slot);
+// The state byte of request id in this save (1..5; 0: no save), and its row (#1557) as the checker and the completion read it (0: no
+// table or row).
+uint8_t request_state(uint32_t id);
+uint64_t request_row(::Ctx* c, uint32_t id);
 bool story_request(uint32_t id);   // also a story step: one completion closes it for the group
 bool own_request(uint32_t id);     // bound to one player: never shared
 // The authority: node origin handed request id in; it is closed here at the next safe moment, and the close is shared.
 void close(uint32_t id, uint8_t origin);
 }  // namespace requests
+
+namespace mud {
+// The authority, in the cleaning request's stage while that request is taken: scans the stage for the sludge left over a few seconds
+// of frames, twice, and raises the cleaning count by what was removed before it counted (once a frame, after the requests).
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace mud
 
 namespace outcomes {
 // The hook sites (pkp_coop.cpp), in the completion step 0x618304.
@@ -424,6 +438,9 @@ int on_scene_start(::Ctx* c);
 // Asks the game again for a remembered scene at a safe moment until it plays (once a frame); on the authority, gives a quest a
 // scene it was waiting on that an older save lost.
 void tick(::Ctx* c, bool in_game);
+// The authority's contents got an "object used" notice (0x135d80: object kind, use category), its own player's or a member's
+// (pkp_coop_feed.cpp): a lost scene whose record waited on that use is looked at once, after the game's own records had their chance.
+void on_object_used(uint16_t object, uint16_t use);
 void reset();
 }  // namespace contents
 
@@ -449,6 +466,7 @@ int on_talk_kind(::Ctx* c);    // midhook 0x4c06d8: a member's talk takes the ho
 int on_talk_own(::Ctx* c);     // midhook 0x4c0574: a member is the own player of a creature living in the group's town
 int on_cond_parent(::Ctx* c);   // midhook 0x4d35f8: talk condition 0x52 answers a member as the host
 int on_cond_visitor(::Ctx* c);  // entry 0x4d0620: talk condition 0x25 (IsVisitor) is false for a member
+int on_cond_online(::Ctx* c);   // entry 0x4d04fc: talk condition 0x22 (IsOnline) is false in the session for a character with no parents
 // This process's player holds a character's talk and the talk runs.
 bool talking();
 // The lock key of the character whose u16 actor id is at id (guest), 0 for none; another member holds that character's talk (a
@@ -578,6 +596,7 @@ bool scenes(Entries& out);         // pkp_coop_events.cpp: played scene id -> 1
 bool area_levels(Entries& out);    // pkp_coop_digest.cpp: stage -> the level the game reads here
 bool gates(Entries& out);          // pkp_coop_digest.cpp: gate id -> the byte the gate getter reads here (non-zero)
 bool trainer_level(Entries& out);  // pkp_coop_digest.cpp: 0 -> m_trainerLevel
+bool open_areas(Entries& out);     // pkp_coop_records.cpp: area 1..31 -> the open byte the area gate reads here (non-zero)
 // The authority sends its digest every few seconds; a member compares (once a frame, in a session).
 void tick(::Ctx* c, bool in_game);
 void on_digest_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
@@ -658,10 +677,11 @@ int on_talked_to(::Ctx* c);
 // The hook site (pkp_coop.cpp): entry 0x136548, the "fed" notice of a field feed (from 0x597820 only). On a member in the session the
 // feed is queued for the authority, which makes the creature eat it there; the game's own code runs everywhere (returns 0).
 int on_fed(::Ctx* c);
-// The hook site (pkp_coop.cpp): entry 0x1353a0, the contents notifier, from one of the three "event ended" notifiers (0x1356b8,
-// 0x135720, 0x135788). On a member in the session the event's end is queued for the authority; the authority remembers its own
-// posts, so a member's of the same event is not posted twice. The game's own code runs everywhere (returns 0).
-int on_event_ended(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0x1353a0, the contents notifier. From one of the three "event ended" notifiers (0x1356b8,
+// 0x135720, 0x135788): on a member in the session the event's end is queued for the authority; the authority remembers its own
+// posts, so a member's of the same event is not posted twice. From one of the two "object used" notifiers (0x135d80, 0x135cf4): on a
+// member in the session the notice is queued for the authority. The game's own code runs everywhere (returns 0).
+int on_notice(::Ctx* c);
 // The message (pkp_coop_link.cpp): a member's creature event, posted on the authority at a safe moment.
 void on_event_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // Sends a member's events and posts the authority's received ones (once a frame, after the channel's handlers).
@@ -756,6 +776,9 @@ namespace follow {
 // On a member in the session the game's local-only attach does not run (returns 1) and the creature is sent to the authority; 0
 // elsewhere.
 int on_story_follow(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0x5519bc, the host's RequestPartyNPC handler. On the authority in the session a member's leave
+// of a creature another player leads is refused as handled (x0 = 0, returns 1); 0 elsewhere (the game's handler runs).
+int on_party_request(::Ctx* c);
 // The message (pkp_coop_link.cpp): a member's story follow, made on the authority at a safe moment unless the creature follows a
 // player there already.
 void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
