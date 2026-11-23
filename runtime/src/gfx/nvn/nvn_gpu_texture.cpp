@@ -6,6 +6,7 @@
 // level. Layouts are tracked per image (all levels and layers share one layout). Samplers are cached by their NVN state.
 // Readback (download_texture) copies a render target back and tiles it into the game's storage.
 #include "nvn_gpu_texture_internal.h"
+#include <cstring>
 #include <bit>
 #include <unordered_set>
 
@@ -362,14 +363,19 @@ static bool ui_native_desktop_on(float fit) {
 // Desktop: the window textures follow the window, fitted inside it with their aspect (a 1920x1080 frame is 3840x2160 on a 4K screen,
 // 1280x720 in a 1280x720 window), so the present copies them 1:1 with the nearest sampler. Remeasured when the swapchain changes size
 // (a resized window, Alt+Enter); a minimized window (extent 0) keeps the last scale.
+// Per texture (two divisions): a window texture whose own size changes (handheld vs docked targets, two window textures of different
+// sizes) gets its own fit. Render thread only (attach_targets), like g_ui_depth.
 static float ui_native_desktop_scale(const Texture& t) {
-    static VkExtent2D seen{};
-    static float sc = 0.0f;
+    static std::unordered_set<uint64_t> told;   // (swapchain, texture size) pairs already logged
+    static VkExtent2D last{};   // the last non-zero swapchain extent: a minimized window (extent 0) keeps it
     gfx::Renderer* r = renderer();
-    const VkExtent2D e = r ? r->extent() : VkExtent2D{};
-    if (e.width && e.height && (e.width != seen.width || e.height != seen.height)) {
-        seen = e;
-        sc = std::min(static_cast<float>(e.width) / static_cast<float>(t.b.width), static_cast<float>(e.height) / static_cast<float>(t.b.height));
+    const VkExtent2D cur = r ? r->extent() : VkExtent2D{};
+    if (cur.width && cur.height) last = cur;
+    const VkExtent2D e = last;
+    if (!e.width || !e.height || t.b.width <= 0 || t.b.height <= 0) return 0.0f;
+    const float sc = std::min(static_cast<float>(e.width) / static_cast<float>(t.b.width), static_cast<float>(e.height) / static_cast<float>(t.b.height));
+    const uint64_t key = (uint64_t{e.width} << 48) ^ (uint64_t{e.height} << 32) ^ (static_cast<uint64_t>(t.b.width) << 16) ^ static_cast<uint64_t>(t.b.height);
+    if (told.insert(key).second) {
         NXLOG_I(kTag, "ui_native: window textures (%dx%d) fit the swapchain %ux%u at scale %.3f (used when [gfx] ui_native is on for it)", t.b.width,
                 t.b.height, e.width, e.height, sc);
     }
@@ -678,8 +684,10 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     bump_gen(*g, -1);
     g->scale = to;
     // a shadow map goes back to 1 by choice and can be scaled again; so does a desktop window texture or its 2D depth ([gfx] ui_native
-    // switched off live, a window the size of the targets), which grows again with the window
-    if (to == 1.0f && !is_shadow_map(*t) && (facts::kPhone || (!t->is_display && !tex::g_ui_depth.count(t->id)))) g->scale_blocked = true;
+    // switched off live, a window the size of the targets), which grows again with the window. Storage use stays blocked for every
+    // texture (imageStore coordinates are not scaled: rescaling it each pass would remake it twice a frame).
+    const bool storage = why && std::strstr(why, "storage") != nullptr;
+    if (to == 1.0f && !is_shadow_map(*t) && (facts::kPhone || storage || (!t->is_display && !tex::g_ui_depth.count(t->id)))) g->scale_blocked = true;
     return true;
 }
 
