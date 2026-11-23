@@ -38,8 +38,9 @@
 //   TipClosed   +2 u16 tip id (1..0x1f3): the waiting tip was closed on the origin
 //   HabitatHints +2 u16 count n, then n times: u16 creature id (1..0x3ff), u8[64] its habitat-hint bitmap on the origin   (pkp_coop_hints.cpp)
 //   UnlockKnown +2 u8 list, +3 u16 count n, then n times: u8 entry id the origin's player has   (pkp_coop_unlocks.cpp)
-//               lists: 1 moves (id 1..0x3c), 2 emotes (1..0x64), 3 areas visited (stage 1..5), 4 buildings built (0..0x7f);
-//               a list this build does not know is skipped
+//               lists: 1 moves (id 1..0x3c), 2 emotes (1..0x64), 3 areas visited (stage 1..5), 4 buildings built (0..0x7f),
+//               5 area gates opened (0..0x1f), 6 hairstyles learned (0..12: hair items 2460..2472), 7 looks learned (0..24: look
+//               items 2400..2424); a list this build does not know is skipped
 //   AbilityCleared +2 u16 count n, then n u8 ability ids (1..0xf9) a step took away on the origin (pkp_coop_story.cpp): every
 //               receiver clears them and never gives them back in this co-op run
 //   AreaMusic   +2 u8 the authority's area (stage), +3 u8 that area's quest music there (m_contentsBGM; 0: none), +4 u8 the play flag
@@ -60,8 +61,9 @@
 //   BagRestore  +2 u8[16] member key, +18 u8 1 when the authority has a record for it (0: none, the rest is 0), +19 u64 sequence,
 //               +27 kBagRecordSlots x 16 bytes   (the authority's answer to a member's first BagRecord of a session, or to one older than
 //               its own copy; a member ignores one for another member's key)
-//   StoryRecord +2 u8 record (1 effect commands, 2 town flags, 3 town targets, 4 stage flags, 5 hint groups, 6 the materials drop;
-//               another is skipped),
+//   StoryRecord +2 u8 record (1 effect commands, 2 town flags, 3 town targets, 4 stage flags, 5 hint groups, 6 the materials drop,
+//               7 the campaign history, 8 the cleaning count, 9 the open areas (31 bytes: area 1..31's open byte of the challenge
+//               manager); another is skipped),
 //               +3 u8 the authority's area (stage), +4 u16 length n (the record's size; another is skipped), n bytes: the record as the
 //               authority's save holds it   (when it changed, and all of them on a join and every so often; pkp_coop_records.cpp)
 //   FriendAsk   +2 u8 kind, +3 u16 the creature's actor handle (kind 1; 0 for 2), +5 u32 its chara (< 0x41a), +9 s16 amount (kind 1,
@@ -70,12 +72,12 @@
 //               pkp_coop_friendship.cpp)
 //   FriendState +2 u16 count n, then n times: u16 chara (< 0x41a), u16 friendship points (+0x2c), u16 meter (+0x2e), u8 the bytes
 //               +0x175, +0x177, +0x17a, +0x17d   (the authority's friend records that changed, or all set ones to a member that joins)
-//   CreatureEvent +2 u8 event kind (1: talked to, 29: fed), +3 u8 the origin's stage, +4 u16 the creature's data id (1..0x3ff), +6 u16
-//               the kind's argument (kind 1: 0; kind 29: bits 0..12 the item, bit 15 the feed's flag)   (pkp_coop_feed.cpp: a
-//               member's player did it; the authority makes it again for its own creature; a kind it does not post is dropped)
-//   CreatureEvent +2 u8 event kind (1: talked to), +3 u8 the origin's stage, +4 u16 the creature's data id (1..0x3ff), +6 u16 the
-//               kind's argument (kind 1: 0)   (pkp_coop_feed.cpp: a member's player did it; the authority posts it to its contents;
-//               a kind the authority does not post is dropped)
+//   CreatureEvent +2 u8 event kind (1: talked to, 29: fed, 2: event ended, 14: object used), +3 u8 the origin's stage, +4 u16 the
+//               kind's value (kinds 1 / 29: the creature's data id, 1..0x3ff; kind 2: the ended scene / id / n; kind 14: the object
+//               kind, 1..0xfff), +6 u16 the kind's argument (kind 1: 0; kind 29: bits 0..12 the item, bit 15 the feed's flag; kind 2:
+//               the notifier's field, 0..2; kind 14: bits 0..8 the use category (1..0x1ff), bits 12..13 the mode (0: the 0x135d80
+//               notice, 1..3: the 0x135cf4 one))   (pkp_coop_feed.cpp: a member's player did it; the authority makes it again for
+//               its own creature or posts it to its contents; a kind it does not post is dropped, so a new kind changes no layout)
 //   NewcomerAsk +2 u16 the creature's actor handle, +4 u16 its chara (< 0x41a), +6 u8 the origin's stage   (a member's first talk
 //               with a creature no player had befriended; the authority makes the host's befriend for it; pkp_coop_newcomer.cpp)
 //   DepositAsk  +2 u8[16] the asker's member key, +18 u64 ask id (the same on every resend), +26 u32 the drop's cell (x | y << 16),

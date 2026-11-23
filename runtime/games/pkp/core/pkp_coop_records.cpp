@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Game layer: seamless co-op's story records (pkp_coop_internal.h). The authority's story records reach every member's own save.
 //
-// Eight records of the save (pkp_layout.h; modding-docs coop-v2/role-census/followup/STORY-RECORDS.md sections 1-2, QUEST-EFFECTS-RE C3)
-// hold story state that the game writes only where co-op lets the story's world part run, the authority:
+// Eight records of the save and one of the challenge manager (pkp_layout.h; modding-docs coop-v2/role-census/followup/STORY-RECORDS.md
+// sections 1-2, QUEST-EFFECTS-RE C3, coop-v2/SHOP-CATALOG-RE.md) hold world state that the game writes only where co-op lets the
+// story's world part run, the authority:
 //   1 m_effectCommandSaveData (STGDAT, R+0x972ba8, 0x1e4 bytes): the quest effects 0x13 0x17 0x1b 0x1c 0x1d 0x21 0x2a 0x2e 0x31 0x32
 //     0x33 (world kinds: on_quest_effect skips them on a member), the wild pop runtime (+0xb8 timer, +0xc1 popped: 0x1b44e0 / 0x1b8540
 //     / 0x1ba440 return on a visitor), the Ver2 clear on a home set (0x13a608, returns on a visitor), the real timers' tick (+0x1c4,
@@ -21,6 +22,16 @@
 //   8 the cleaning count (R+0x4a4401, u8): the sludge cleanings unique request type 0x2c tests (0x6142d0; Lapras's request 128 asks
 //     for 80). Its writers 0x6520e0 / 0x652880 count only on the authority in a session (pkp_coop_requests.cpp on_clean_count), so
 //     the group's count is the authority's.
+//   9 the open areas (challenge manager CM + 0x17dd6 + area * 10, +8 u8, areas 1..31): which areas the shop rows and challenges may
+//     come from. The area gate 0x630fb0 reads the byte on the host and answers "open" for every area on a visitor, so a member listed
+//     the rows of areas the host never opened (hundreds of extra shop rows); a member now takes the host's branch there (role row
+//     0x630fcc) and reads its own copy of the host's bytes. Only the area refresh 0x62f62c writes them: it clears the whole entry
+//     array and its 0x62f7e0 refills the bytes from the current area and the visited bits, on the host only (0x62f7e0 returns at once
+//     on a visitor), so a member's bytes are zero after each of its area loads, and the copy is written again as for any record. Every
+//     area move of the group is the host's own (pkp_coop_travel.cpp), so the authority's refresh sees every area the group opens. Only
+//     the open byte of each 10-byte entry is copied: its other fields index this process's own challenge lists, which only the
+//     host-only path (0x62ffa0, 0x630240) builds, and none of the gate's callers reads them. The bytes hold the host's current area,
+//     so the record is taken only in the authority's area.
 // Nothing carries any of them, so a member's copy never was the group's: the host's town register, an NPC's specialty-work flag, the
 // stage-2 start's clear of chara 0x5d's +0xc (0xb4b60 clears it only on a visitor), request 73's slot clear (0x13a9b0) stayed apart.
 // Every field is copied: each is save data the game keeps per save, none a pointer or a handle of this process (the record's own
@@ -83,28 +94,38 @@ namespace {
 
 constexpr const char* kTag = "pkp";
 
+enum class Base : uint8_t { Save, Challenges };   // the save root (layout::kSaveRoot), the challenge manager (layout::kChallengeManager)
+
 struct Record {
     uint8_t id;          // the wire's record id
     const char* name;
-    uint64_t at;         // save root +
-    size_t size;
+    Base base;
+    uint64_t at;         // base + : the record's first byte
+    size_t size;         // bytes copied
     bool per_area;       // taken only in the authority's area
+    uint64_t stride = 1; // byte i is at base + at + i * stride
 };
+constexpr uint64_t kOpenAreasAt =
+    layout::kChallengeAreas + layout::kChallengeAreaSize + layout::kChallengeAreaOpen;   // area 1's open byte
 constexpr Record kRecords[] = {
-    {1, "effect commands", layout::kSaveEffectCommands, layout::kEffectCommandsBytes, true},
-    {2, "town flags", layout::kSaveTownFlags, layout::kTownRecordBytes, false},
-    {3, "town targets", layout::kSaveTownTargets, layout::kTownRecordBytes, false},
-    {4, "stage flags", layout::kSaveStageFlags, layout::kStageFlagsBytes, false},
-    {5, "hint groups", layout::kSaveHintGroups, layout::kHintGroupsBytes, false},
-    {6, "materials drop", layout::kSaveDrop, layout::kDropRecordBytes, false},
-    {7, "campaign history", layout::kSaveCampaignHistory, layout::kCampaignHistoryBytes, false},
-    {8, "cleaning count", layout::kSaveCleanCount, 1, false},
+    {1, "effect commands", Base::Save, layout::kSaveEffectCommands, layout::kEffectCommandsBytes, true},
+    {2, "town flags", Base::Save, layout::kSaveTownFlags, layout::kTownRecordBytes, false},
+    {3, "town targets", Base::Save, layout::kSaveTownTargets, layout::kTownRecordBytes, false},
+    {4, "stage flags", Base::Save, layout::kSaveStageFlags, layout::kStageFlagsBytes, false},
+    {5, "hint groups", Base::Save, layout::kSaveHintGroups, layout::kHintGroupsBytes, false},
+    {6, "materials drop", Base::Save, layout::kSaveDrop, layout::kDropRecordBytes, false},
+    {7, "campaign history", Base::Save, layout::kSaveCampaignHistory, layout::kCampaignHistoryBytes, false},
+    {8, "cleaning count", Base::Save, layout::kSaveCleanCount, 1, false},
+    {9, "open areas", Base::Challenges, kOpenAreasAt, layout::kChallengeAreaMax, true, layout::kChallengeAreaSize},
 };
 constexpr size_t kCount = sizeof kRecords / sizeof kRecords[0];
 constexpr size_t kMaxBytes = layout::kTownRecordBytes;
 static_assert(layout::kEffectCommandsBytes <= kMaxBytes && layout::kStageFlagsBytes <= kMaxBytes && layout::kHintGroupsBytes <= kMaxBytes &&
-                  layout::kDropRecordBytes <= kMaxBytes && layout::kCampaignHistoryBytes <= kMaxBytes,
+                  layout::kDropRecordBytes <= kMaxBytes && layout::kCampaignHistoryBytes <= kMaxBytes &&
+                  layout::kChallengeAreaMax <= kMaxBytes,
               "every record fits a copy");
+constexpr const Record& kOpenAreas = kRecords[8];
+static_assert(kOpenAreas.id == 9 && kOpenAreas.base == Base::Challenges);
 
 constexpr double kSendEvery = 5.0;   // the authority's look for changes: the story digest's period (pkp_coop_story.cpp)
 constexpr double kAllEvery = 30.0;   // every record again
@@ -130,6 +151,12 @@ struct Check {
     std::array<bool, kMaxBytes> open{};     // own and not found yet
 };
 
+std::array<double, kCount> never() {
+    std::array<double, kCount> a;
+    a.fill(-1e9);
+    return a;
+}
+
 struct State {
     // The authority.
     Copy sent[kCount];                 // what was sent last, per record
@@ -139,26 +166,35 @@ struct State {
     // A member.
     Copy theirs[kCount];               // the authority's latest copy
     Copy written[kCount];              // what this save held right after the last write or check (the own-writes baseline)
-    double logged_at[kCount] = {-1e9, -1e9, -1e9, -1e9, -1e9, -1e9, -1e9, -1e9};
+    std::array<double, kCount> logged_at = never();
     unsigned unlogged[kCount] = {};    // writes since the last line
     Check checks[kCount];
 };
-static_assert(kCount == 8, "logged_at has one start value per record");
 State& st() {
     static State s;
     return s;
 }
-
-uint64_t save_root() { return guest::rd<uint64_t>(base() + layout::kSaveRoot); }
 
 uint8_t area_stage() {
     const uint64_t gm = guest::rd<uint64_t>(base() + layout::kGameState);
     return guest::ok(gm, layout::kStateStage + 1) ? guest::rd<uint8_t>(gm + layout::kStateStage) : 0;
 }
 
-// The record's bytes in this save, or 0 when the save is not there.
-uint64_t record_at(uint64_t root, const Record& rec) {
-    return root && guest::ok(root + rec.at, rec.size) ? root + rec.at : 0;
+// The record's first byte here, or 0 when its save or manager is not there.
+uint64_t record_at(const Record& rec) {
+    const uint64_t b = guest::rd<uint64_t>(base() + (rec.base == Base::Save ? layout::kSaveRoot : layout::kChallengeManager));
+    return b && guest::ok(b + rec.at, (rec.size - 1) * rec.stride + 1) ? b + rec.at : 0;
+}
+// The record's bytes at `at` (record_at), into out / from in.
+void read_record(const Record& rec, uint64_t at, uint8_t* out) {
+    if (rec.stride == 1) std::memcpy(out, reinterpret_cast<const void*>(at), rec.size);
+    else
+        for (size_t i = 0; i < rec.size; ++i) out[i] = guest::rd<uint8_t>(at + i * rec.stride);
+}
+void write_record(const Record& rec, uint64_t at, const uint8_t* in) {
+    if (rec.stride == 1) std::memcpy(reinterpret_cast<void*>(at), in, rec.size);
+    else
+        for (size_t i = 0; i < rec.size; ++i) guest::wr<uint8_t>(at + i * rec.stride, in[i]);
 }
 
 size_t differing(const uint8_t* a, const uint8_t* b, size_t n) {
@@ -214,14 +250,14 @@ void send(bool in_game) {
     const double now = qpc::seconds();
     if (now - s.sent_at < kSendEvery) return;
     s.sent_at = now;
-    const uint64_t root = save_root();
-    if (!root) return;
     const bool all = s.send_all || now - s.all_at >= kAllEvery;
     for (size_t i = 0; i < kCount; ++i) {
         const Record& rec = kRecords[i];
-        const uint64_t at = record_at(root, rec);
+        const uint64_t at = record_at(rec);
         if (!at || (rec.per_area && s.settled_stage != stage)) continue;   // sent once settled: its stage then differs from the last
-        const uint8_t* now_bytes = reinterpret_cast<const uint8_t*>(at);
+        std::array<uint8_t, kMaxBytes> bytes;
+        read_record(rec, at, bytes.data());
+        const uint8_t* now_bytes = bytes.data();
         Copy& last = s.sent[i];
         const bool changed = !last.have || (rec.per_area && last.stage != stage) || std::memcmp(last.bytes.data(), now_bytes, rec.size);
         if (!all && !changed) continue;
@@ -251,14 +287,15 @@ bool member_safe(bool in_game) {
 void take(bool in_game) {
     State& s = st();
     if (!member_safe(in_game)) return;
-    const uint64_t root = save_root();
     const uint8_t stage = area_stage();
     for (size_t i = 0; i < kCount; ++i) {
         const Record& rec = kRecords[i];
         const Copy& t = s.theirs[i];
-        const uint64_t at = record_at(root, rec);
+        const uint64_t at = record_at(rec);
         if (!t.have || !at || (rec.per_area && t.stage != stage)) continue;
-        uint8_t* here = reinterpret_cast<uint8_t*>(at);
+        std::array<uint8_t, kMaxBytes> bytes;
+        read_record(rec, at, bytes.data());
+        const uint8_t* here = bytes.data();
         Copy& w = s.written[i];
         const bool baseline = w.have && (!rec.per_area || w.stage == stage);
         if (std::memcmp(here, t.bytes.data(), rec.size)) {
@@ -289,7 +326,7 @@ void take(bool in_game) {
                 k.seq = t.seq;
                 k.since = now;
             }
-            std::memcpy(here, t.bytes.data(), rec.size);
+            write_record(rec, at, t.bytes.data());
         }
         if (!baseline || w.seq != t.seq) w = t;   // the save holds the authority's copy now
     }
@@ -343,3 +380,17 @@ void on_member_joined() { st().send_all = true; }
 void reset() { st() = State{}; }
 
 }  // namespace nxrt::games::pkp::coop::records
+
+// The digests' reader (pkp_coop_digest.cpp): the open areas as the area gate's host branch reads them here, area -> byte (non-zero).
+namespace nxrt::games::pkp::coop::digest {
+
+bool open_areas(Entries& out) {
+    const coop::records::Record& rec = coop::records::kOpenAreas;
+    const uint64_t at = coop::records::record_at(rec);
+    if (!at) return false;
+    for (uint32_t i = 0; i < rec.size; ++i)
+        if (const uint8_t b = guest::rd<uint8_t>(at + i * rec.stride)) out.push_back({i + 1, b});
+    return true;
+}
+
+}  // namespace nxrt::games::pkp::coop::digest

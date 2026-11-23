@@ -31,8 +31,10 @@ struct CoopLaunch {
 // drops messages. 2: the authority alone moves the quests on and a member asks it (pkp_coop_quests.cpp, QuestFlagAsk); a build
 // before it sends no entry. 3: every member's bag is kept as a record of ours and written into the bag the game selects
 // (pkp_coop_bags.cpp, BagRecord / BagRestore); a build where the game's own join hand-back still owns a member's bag would undo
-// that, and an authority without the records would never answer a member's. The launcher knows the "Recompia co-op rules" prefix.
-inline constexpr const char* kCoopRules = "Recompia co-op rules 4";
+// that, and an authority without the records would never answer a member's. 5: a member reads the area-open gate through the host's
+// branch (pkp_coop_role_table.inc 0x630fcc), from the bytes the authority's open-areas record sends (pkp_coop_records.cpp record 9);
+// under an authority that sends no such record every area would read closed. The launcher knows the "Recompia co-op rules" prefix.
+inline constexpr const char* kCoopRules = "Recompia co-op rules 5";
 
 // Pure: the launch's co-op facts from the settings' text. False when a value is missing or malformed, with the reason in *why.
 bool coop_launch_parse(const std::string& role, const std::string& group, const std::string& member, CoopLaunch* out, const char** why);

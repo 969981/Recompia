@@ -62,9 +62,22 @@
 //   the field) is queued and sent as kind 1's. The authority remembers each kind 2 posted in its scheduler (kRecent), and posts a
 //   member's with the game's own notifier at the same safe moment, unless the same one was posted there in the last kRecent seconds
 //   (an event every process played: the authority's own end came first).
+// Kind 14, "object used" (RE: modding-docs coop-v2/TANGROWTH-SOFTLOCK-RE.md section A): a player's use of a gimmick or object posts
+// it through two notifiers, each writing u16 b (the object kind) at SC+0x11aad4 and u16 a (its use category) at +0x11aad6 before
+// 0x1353a0 and clearing the block after: 0x135d80(SC, a 1..0x1ff, b 1..0xfff) to list SC+0xb6530 (condition 0x51e, return 0x135ddc),
+// and 0x135cf4(SC, a, b, mode 1..3) to list SC+0xb2328 with the mode at +0x11aad8 (condition 0x514, return 0x135d64). The use's
+// poster 0x765b54 calls both (its answer is 0x135d80's); 0x74b3d0 calls 0x135cf4 alone with mode 3. Neither has a visitor test,
+// but they run only on the presser's process, so a member's PC press reached its own idle scheduler alone: the story's records that
+// wait on "the PC was used" (content 131 record 5, content 125 record 5: the professor's walk to the PC) never ran for it.
+//   0x1353a0 (entry hook, as for kind 2), called from one of the two: on a member the notice (kind 14, stage, b, a | mode << 12,
+//   mode 0 for 0x135d80) is queued and sent as kind 1's. On the authority it is posted with the same notifier at the same safe
+//   moment; one notice is one post, so a press is posted there as often as it was on the member. The authority's own notices are
+//   never sent, so nothing comes back to it. Every 0x135d80 notice on the authority (its player's, or a member's posted there) is
+//   also handed to the contents scenes (pkp_coop_contents.cpp), whose lost-scene rows include a press a lost record waited on.
 // The wire carries any creature event kind (wire::Type::CreatureEvent); a kind this build does not post is dropped by the authority.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
+#include "core/pkp_journal.h"
 #include "core/pkp_layout.h"
 #include "core/pkp_tables.h"
 
@@ -116,6 +129,16 @@ constexpr Ender kEnders[] = {
     {0x135788, 0x1357d0, 0x16, 1, 5, "n"},
 };
 constexpr size_t kEnderCount = sizeof kEnders / sizeof kEnders[0];
+// The two "object used" notifiers (kind 14): their entry, the return of their 0x1353a0 call, the list they pass to it.
+constexpr uint8_t kUsedKind = 14;
+constexpr uint64_t kUsedNotice = 0x135d80, kUsedNoticeRet = 0x135ddc, kUsedNoticeList = 0xb6530;   // (SC, a, b)
+constexpr uint64_t kUsedMode = 0x135cf4, kUsedModeRet = 0x135d64, kUsedModeList = 0xb2328;         // (SC, a, b, mode)
+constexpr uint64_t kUsedObject = 0x11aad4;   // SC + : u16 b, the object kind (1..0xfff)
+constexpr uint64_t kUsedUse = 0x11aad6;      // SC + : u16 a, its use category (1..0x1ff)
+constexpr uint64_t kUsedHow = 0x11aad8;      // SC + : u32 the mode (1..3; 0x135cf4 only)
+constexpr uint16_t kObjectMax = 0xfff, kUseMax = 0x1ff;
+constexpr uint8_t kModeMax = 3;
+constexpr unsigned kModeShift = 12;          // the event's arg: a | mode << 12 (mode 0: 0x135d80's notice)
 constexpr double kRecent = 30.0;            // the authority: the same kind 2 posted there this recently makes a member's a repeat
 constexpr size_t kPostedMax = 32;
 constexpr double kSendWait = 30.0;          // a member's event is sent at the latest this long after the talk started
@@ -125,13 +148,15 @@ constexpr size_t kQueue = 16;
 struct Event {
     uint8_t kind;
     uint8_t stage;
-    uint16_t data;   // the creature's data id
-    uint16_t arg;    // kind 1: 0; kind 29: the item, kFedFlag for 0x333be0's w2
+    uint16_t data;   // the creature's data id; kind 2: the ended value; kind 14: the object kind b
+    uint16_t arg;    // kind 1: 0; kind 29: the item, kFedFlag for 0x333be0's w2; kind 2: the field; kind 14: a | mode << kModeShift
     double at;
     uint8_t origin;  // the authority: the member's node
 };
 
 const char* what(uint8_t kind) { return kind == kFedKind ? "feed of" : kind == kEndedKind ? "end of" : "talk to"; }
+uint16_t use_of(uint16_t arg) { return arg & ((1u << kModeShift) - 1); }
+uint8_t mode_of(uint16_t arg) { return static_cast<uint8_t>(arg >> kModeShift); }
 
 // The authority: a kind 2 posted in its scheduler (its own or a member's), for the repeat test.
 struct Posted {
@@ -181,6 +206,11 @@ void send() {
             break;   // kept for the next frame
         if (e.kind == kEndedKind)
             NXLOG_I(kTag, "Co-op feed: end of %s %u (stage %u), sent to the authority", kEnders[e.arg].name, e.data, e.stage);
+        else if (e.kind == kUsedKind)
+            journal::Rec(journal::Area::Interact, "object use relay")
+                .in("object=%u use=%u mode=%u stage=%u", e.data, use_of(e.arg), mode_of(e.arg), e.stage)
+                .out("sent to the authority")
+                .expect("the authority posts it to its contents");
         else
             NXLOG_I(kTag, "Co-op feed: %s character %u (stage %u, arg 0x%x), sent to the authority", what(e.kind), e.data, e.stage, e.arg);
         ++sent;
@@ -209,10 +239,20 @@ bool posted_recently(uint16_t arg, uint16_t value) {
 bool post(::Ctx* c, const Event& e) {
     const uint64_t gm = game_state();
     const uint64_t sched = guest::ok(gm, kScheduler + 8) ? guest::rd<uint64_t>(gm + kScheduler) : 0;
-    if (sched && e.kind == kEndedKind) {   // no character: the event's own notifier (on_event_ended remembers the post)
+    if (sched && e.kind == kEndedKind) {   // no character: the event's own notifier (on_notice remembers the post)
         const Ender& n = kEnders[e.arg];
         guest::call(c, base() + n.entry, sched, e.data);
         NXLOG_I(kTag, "Co-op feed: node %u's end of %s %u posted to the contents here", e.origin, n.name, e.data);
+        return true;
+    }
+    if (sched && e.kind == kUsedKind) {   // no character either: the notifier the member's process called
+        const uint8_t mode = mode_of(e.arg);
+        const uint64_t ran = mode ? guest::call(c, base() + kUsedMode, sched, use_of(e.arg), e.data, mode)
+                                  : guest::call(c, base() + kUsedNotice, sched, use_of(e.arg), e.data);
+        journal::Rec rec(journal::Area::Interact, "object use relay");
+        rec.in("node=%u object=%u use=%u mode=%u", e.origin, e.data, use_of(e.arg), mode);
+        if (mode) rec.out("posted here (0x135cf4)");
+        else rec.out("posted here (0x135d80), a record took it: %s", (ran & 1) ? "yes" : "no");
         return true;
     }
     const uint64_t pm = guest::rd<uint64_t>(base() + layout::kPlayerManager);
@@ -243,9 +283,14 @@ void apply(::Ctx* c, bool in_game) {
     for (size_t i = 0; i < s.incoming.size();) {
         const Event& e = s.incoming[i];
         if (e.stage != here || now - e.at >= kDrop) {
-            NXLOG_I(kTag, "Co-op feed: node %u's %s %s %u dropped (%s)", e.origin, what(e.kind),
-                    e.kind == kEndedKind ? kEnders[e.arg].name : "character", e.data,
-                    e.stage != here ? "another stage here" : "no safe moment");
+            const char* why = e.stage != here ? "another stage here" : "no safe moment";
+            if (e.kind == kUsedKind)
+                journal::Rec(journal::Area::Interact, "object use relay")
+                    .in("node=%u object=%u use=%u mode=%u stage=%u", e.origin, e.data, use_of(e.arg), mode_of(e.arg), e.stage)
+                    .refused("dropped: %s", why);
+            else
+                NXLOG_I(kTag, "Co-op feed: node %u's %s %s %u dropped (%s)", e.origin, what(e.kind),
+                        e.kind == kEndedKind ? kEnders[e.arg].name : "character", e.data, why);
             s.incoming.erase(s.incoming.begin() + static_cast<std::ptrdiff_t>(i));
             continue;
         }
@@ -283,12 +328,41 @@ int on_fed(::Ctx* c) {
     return 0;   // the game's own code runs on and returns at its visitor test
 }
 
-int on_event_ended(::Ctx* c) {
+namespace {
+
+// Kind 14 at 0x1353a0's entry, from one of its two notifiers: a member queues it for the authority.
+void on_used(uint64_t sc, uint64_t list, uint64_t ret) {
+    uint8_t mode = 0;
+    if (ret == base() + kUsedModeRet && list == sc + kUsedModeList) {
+        uint32_t m = 0;
+        if (!guest::read(sc + kUsedHow, m) || m - 1 >= kModeMax) return;
+        mode = static_cast<uint8_t>(m);
+    } else if (ret != base() + kUsedNoticeRet || list != sc + kUsedNoticeList) {
+        return;
+    }
+    uint16_t object = 0, use = 0;
+    if (!guest::read(sc + kUsedObject, object) || !guest::read(sc + kUsedUse, use)) return;
+    if (static_cast<uint16_t>(object - 1) >= kObjectMax || static_cast<uint16_t>(use - 1) >= kUseMax) return;   // the notifiers' bounds
+    if (link::is_authority()) {
+        if (!mode) contents::on_object_used(object, use);   // its own press or a member's posted here: a lost scene may wait on it
+    } else if (quests::member_rules()) {
+        queue(kUsedKind, object, static_cast<uint16_t>(use | mode << kModeShift));
+    }
+}
+
+}  // namespace
+
+int on_notice(::Ctx* c) {
     State& s = st();
     if (!link::in_session()) return 0;
     const uint64_t sc = c->x[0];
     uint32_t kind = 0;
-    if (c->x[1] != sc + kEndedList || !guest::read(sc + kNotice, kind) || kind != kEndedKind) return 0;
+    if (!guest::read(sc + kNotice, kind)) return 0;
+    if (kind == kUsedKind) {
+        on_used(sc, c->x[1], c->x[30]);
+        return 0;   // the game's own notice runs here as well
+    }
+    if (c->x[1] != sc + kEndedList || kind != kEndedKind) return 0;
     for (size_t i = 0; i < kEnderCount; ++i) {
         const Ender& n = kEnders[i];
         if (c->x[30] != base() + n.ret || !guest::ok(sc + kNotice + n.field, n.size)) continue;
@@ -315,6 +389,13 @@ void on_event_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
     if (!r.ok()) return;
     if (kind == kEndedKind) {
         if (arg >= kEnderCount || static_cast<uint16_t>(data - 1) >= kEnders[arg].max || s.incoming.size() >= kQueue) return;
+        s.incoming.push_back(Event{kind, at, data, arg, qpc::seconds(), origin});
+        return;
+    }
+    if (kind == kUsedKind) {
+        if (static_cast<uint16_t>(data - 1) >= kObjectMax || static_cast<uint16_t>(use_of(arg) - 1) >= kUseMax ||
+            mode_of(arg) > kModeMax || s.incoming.size() >= kQueue)
+            return;
         s.incoming.push_back(Event{kind, at, data, arg, qpc::seconds(), origin});
         return;
     }

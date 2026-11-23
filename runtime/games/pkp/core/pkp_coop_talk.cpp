@@ -96,6 +96,19 @@
 //                                     0x284ef4 term that follows compares the copy's parents with the member's own id (false off
 //                                     Cloud Island, where only the host writes parents). The IsHost answer at 0x4a1b70 that picks
 //                                     line 438 is a role row (pkp_coop_role_table.inc)
+// Condition 0x22 (0x4d04fc, `b IsOnline 0x207b0`, reached only through the table) is the stand-in line's: #1093 row 7 (conditions
+// +6 0x4f own creature, +7 0x24 no parents, +8 0x22 online) gives event 3682, "they want to meet <world owner>", to anyone online
+// whose character has no story talk set; offline the row is out and the character gives its ordinary talk. The selector stage
+// 0x4c7260 evaluates a #1093 row's three condition bytes +6 / +7 / +8 through the table ([GOT 0x34853b8] = 0x34c2958), and row 7
+// is the only #1093 row with 0x22. Its other users are #960 rows (0x4c8ba0, the last stage, and 0x4ba5c0): row 35 (0x25 IsVisitor,
+// 0x24, 0x22, species 0x46 / 0x95) and row 34 (talk script 182: 0x4f own creature, 0x50 its talk component +0x29c0 byte +0x10 bit 0
+// clear, 0x27 not its parent (0x284ef4 false), 0x22), whose script is not read. Condition 0x24 (0x4d0594) is "no parents":
+// 0x285100(comp) false, comp = the resident part (actor vt+0x410) + 0x2ca0 of 0x281360([main+0x3561928], x1 &actor id), else the
+// stand-in 0x3567db0. So offline is answered only for a character with no parents: rows 7 and 35 are out as offline, and row 34
+// for such a character changes nothing online played, since row 7 (0x4f, 0x24, 0x22) passes wherever row 34 does and 0x4c7260
+// claims the talk before 0x4c8ba0 runs. A character with parents (the town's residents) keeps every row as the game has it.
+//   0x4d04fc (entry hook)             in the session, off Cloud Island, for a character with no parents (0x24's own test on the
+//                                     condition's x1): answers 0 (as offline), so it gives its ordinary talk instead of the stand-in
 // The refusal's line goes to the game's message log through notice::line (pkp_coop_notice.cpp), on the talker's slot; the slot of
 // this player's own talk starts is handed to the notices.
 #include "core/pkp_coop_internal.h"
@@ -144,6 +157,9 @@ constexpr uint32_t kCharaOfData = 4;            // a creature's friend record in
 constexpr uint64_t kParents = 0x8;              // friend record: 16 bytes, m_ParentsUserID
 constexpr uint64_t kNullUser = 0x3566a38;       // main + : the 16-byte null user id 0x285100 compares parents with
 constexpr uint64_t kSwapDataReg = 24, kSwapParentReg = 8;   // at 0x4a1adc (talk 0x1b3's answer, slot 119), see the header
+constexpr uint64_t kCondActors = 0x3561928;    // main + : -> the actor manager the talk conditions pass to 0x281360
+constexpr uint64_t kCondComp = 0x2ca0;         // resident part + : the component conditions 0x24 / 0x27 / 0x4f read
+constexpr double kOnlineLogEvery = 60.0;   // the selector probes every frame: one line, then one a minute with the count
 
 constexpr double kLease = 5.0;        // a grant not used for a talk by then is given back
 constexpr double kAskAgain = 2.0;     // a press on the same character asks again after this long without an answer
@@ -165,6 +181,8 @@ struct State {
     uint32_t asked = 0;                              // a member's TalkAsk in flight
     double asked_at = 0.0;
     bool chained = false;                            // the talk start running now came from inside an event (w3 = 0)
+    double online_logged = -kOnlineLogEvery;         // condition 0x22's offline answer: its last journal line, and the answers since
+    uint32_t online_since = 0;
 };
 State& st() {
     static State s;
@@ -379,6 +397,37 @@ int on_cond_visitor(::Ctx* c) {
     if (!quests::member_rules() || (guest::call(c, base() + kCloudIsland, 0) & 1)) return 0;
     c->x[0] = 0;
     return 1;
+}
+
+int on_cond_online(::Ctx* c) {
+    if (!link::in_session() || (guest::call(c, base() + kCloudIsland, 0) & 1)) return 0;
+    // Condition 0x24's own reading of the character (0x4d0594): a character with parents keeps the game's answer.
+    const uint64_t id = c->x[1];
+    const uint64_t actors = guest::rd<uint64_t>(base() + kCondActors);
+    const uint64_t actor = actors && guest::ok(id, 2) ? guest::call(c, base() + kActorOf, actors, id) : 0;
+    uint64_t comp = base() + kNoComponent;
+    if (actor && guest::ok(actor, 8) && guest::ok(guest::rd<uint64_t>(actor) + kResident, 8)) {
+        const uint64_t vt = guest::rd<uint64_t>(actor);
+        if (guest::call(c, guest::rd<uint64_t>(vt + kIsResident), actor) & 1) {
+            const uint64_t part = guest::call(c, guest::rd<uint64_t>(vt + kResident), actor);
+            if (part) comp = part + kCondComp;
+        }
+    }
+    if (guest::call(c, base() + kHasParents, comp) & 1) return 0;
+    State& s = st();
+    ++s.online_since;
+    const double now = qpc::seconds();
+    if (now - s.online_logged >= kOnlineLogEvery) {
+        journal::Rec(journal::Area::Talk, "condition")
+            .in("cond=0x22 (online) actor=0x%04x, no parents", guest::ok(id, 2) ? guest::rd<uint16_t>(id) : 0u)
+            .out("0")
+            .expect("0 in a co-op session, as offline: no stand-in line 3682")
+            .note("x%u since the last line", s.online_since);
+        s.online_logged = now;
+        s.online_since = 0;
+    }
+    c->x[0] = 0;
+    return 1;   // the condition is `b IsOnline`: x0 is all it returns
 }
 
 int on_talk_end(::Ctx* c) {
