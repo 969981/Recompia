@@ -3,10 +3,14 @@
 // panel use that ID for transactions and painting. Teardown and removal retain the physical ID. The allocator skips unplaced
 // slices with items, so reusing a physical ID recovers its tabs. A switch while an item is held carries it over (pkp_box_tabs_carry.h).
 // The pages show as the game's own page dots under the grid, one per page of the whole box (a standard box also gets the big box's
-// frame pose for them and its L / R icons); the panel's own page count and page stay native. (+) Store All fills the other tabs too
-// once the shown one is full (pkp_box_tabs_store.h).
+// frame pose for them and its L / R icons); the panel's own page count and page stay native. The bag's and the box's actions work on
+// the whole box: (+) Store All / Retrieve All go over every tab (pkp_box_tabs_store.h), a stack added to a full tab goes on into the next
+// ones (pkp_box_tabs_move.h), and the game's sort sorts all tabs as one (pkp_box_tabs_sort.h).
 #include "ui/pkp_box_tabs.h"
 #include "ui/pkp_box_tabs_carry.h"
+#include "ui/pkp_box_tabs_move.h"
+#include "ui/pkp_box_tabs_sort.h"
+#include "ui/pkp_box_tabs_storage.h"
 #include "ui/pkp_box_tabs_store.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_items.h"
@@ -20,7 +24,6 @@
 #include <cstdio>
 #include <utility>
 
-#include "nxrt/input_source.h"
 #include "nxrt/log.h"
 #include "nxrt/notices.h"
 
@@ -36,10 +39,16 @@ constexpr HookSite kSites[] = {
     {0xfeee78, 0xd503237fu, true},  // bag / container screen frame (screen)
     {0xff6f80, 0xd503237fu, true},  // bulk transfer after the Store All / Retrieve All dialog (screen, from kind, to kind, matching)
     {0xfee7d4, 0xd503237fu, true},  // the container grid's rebuild (screen, keep cursor)
+    {0xe70fb4, 0xd503237fu, true},  // how many of an item a container holds (player, kind, item*, type, id, exact)
+    {0xff2bf0, 0xd503237fu, true},  // the selected stack to the other side: Add, Add Stack, half, amount (screen, amount, 0 all / half)
+    {0xe70130, 0xd503237fu, true},  // the game's sort of one panel (player, kind, type, id)
+    {0xfef30c, 0xd503237fu, true},  // the panel L / R page now (screen)
 };
 constexpr uint64_t kScreenVtable = 0x333ba70;
 constexpr uint64_t kPanelOf = 0xfed634, kRefresh = 0xff12e8, kPlayerOf = 0xa6fd58;
 constexpr uint64_t kSetPanelPage = 0xfe5310, kRebuildGrid = 0xfee7d4;
+constexpr uint64_t kPagedPanel = 0xfef30c;   // (screen) -> the kind of the panel L / R page: the cursor's, else the other one, kNoPanel
+constexpr uint64_t kRoutePages = 0xff0c9c;   // (screen, 0, 0): gives L / R to the paged panel's selector and takes them from the other
 constexpr uint64_t kSelectorOf = 0xa86c5c, kPageCallback = 0xff19bc;
 // The page dots (carousel, 20 dots, one layout state per count) and the L / R icons of the container frame:
 constexpr uint64_t kWidgetOf = 0xa6f92c;     // (panel + 0x48, element id, u16* class) -> widget
@@ -60,24 +69,26 @@ constexpr uint64_t kPanelType = 0xc1, kPanelId = 0xd4, kPanelPageCount = 0xd8;
 constexpr uint64_t kSelectorCallback = 0x18, kSelectorScreen = 0x20, kSelectorAction = 0x94, kSelectorPage = 0x98, kSelectorPrevious = 0x9c;
 constexpr uint16_t kActionPrevious = 0x10, kActionNext = 0x11;   // the selector's L / R actions
 constexpr uint8_t kBoxType = 1, kBigBoxType = 2, kBoxPanel = 1, kBrowsing = 1, kPageSlide = 5, kDialog = 6;
+constexpr uint8_t kNoPanel = 0xff;
 constexpr uint8_t kBagKind = 0, kHandyBagKind = 4;   // the transfer's kinds: main bag, handy bag, the open container (kBoxPanel)
-constexpr uint64_t kFlags = 0x1a0;
+constexpr uint64_t kCursorKind = 0x169, kStatus = 0x170, kFlags = 0x1a0;
+constexpr uint64_t kMoveStack = 0xff2bf0, kSelectedCell = 0xff14c0, kCellSlot = 0xc2;
+constexpr uint64_t kItemAt = 0xe6d930;      // (player, kind, slot, type, id) -> the live slot record, 0 when empty
+constexpr uint32_t kHalf = 1u << 0;         // +0x1a0: the stack's half is asked for
 constexpr uint32_t kOwnsCopies = 1u << 5;   // +0x1a0: the screen holds temp copies (an item held)
 constexpr uint64_t kStateBefore = 0x164;   // screen: the state a page change's slide (state 5) returns to
 constexpr uint32_t kBoxSelector = 2;
-constexpr int kMaxPages = 12, kMaxBigTabs = 6;   // fixed for good: they set where every tab's items live (available_tabs)
 constexpr auto kReopenGap = std::chrono::milliseconds(300);
 
 using guest::call;
 using guest::ok;
 using guest::rd;
 using guest::wr;
+using box_tabs::BoxStorage;
+using box_tabs::Tabs;
+using box_tabs::kMaxBigTabs;
+using box_tabs::kMaxPages;
 
-struct Tabs {
-    std::array<uint16_t, kMaxPages> ids{};
-    int count = 1;
-    int taken = 0;   // requested units whose ID is unavailable
-};
 struct OpenBox {
     uint64_t screen = 0;
     std::chrono::steady_clock::time_point last_frame{};
@@ -86,7 +97,6 @@ struct OpenBox {
     bool active = false;
     bool restore_physical = false;
     int pending = 0;
-    uint64_t prev_buttons = ~uint64_t{0};   // L / R as last seen (all set at open: a button held from before does not count)
     Tabs tabs;                              // the pages / tabs at open or at the last switch
     int frames = 0;                         // screen frames since the open
     int dots = 0, lit = -1;                 // the page dots as last set (0: the game's own)
@@ -102,44 +112,14 @@ struct State {
     HookSet* pending_hooks = nullptr;   // play mode installs before main is mapped
     int max_pages = 0, max_big_tabs = 0;
     bool log = false;
+    bool moving = false;               // hook_move_stack is running the game's own move
+    bool paging = false;               // hook_paged_panel is asking the game's own choice
     OpenBox box;                       // game thread
 };
 State g;
 
 bool supported_type(uint8_t type) {
     return type == kBoxType || type == kBigBoxType;
-}
-
-struct BoxStorage {
-    uint64_t records, store;
-    uint32_t first_record, count, slots;
-
-    uint64_t record(uint32_t id) const {
-        const uint32_t index = first_record + id;
-        // Native indices outside the cabinet pool use record zero, but the item slice uses the logical ID.
-        return records + (index < layout::kCabinetRecordCount ? index : 0) * layout::kCabinetRecordSize;
-    }
-
-    bool slice_has_items(uint32_t id) const {
-        const uint64_t first = store + uint64_t{id} * slots * items::kSlotSize;
-        for (uint32_t slot = 0; slot < slots; ++slot) {
-            if (items::id_of(rd<uint32_t>(first + slot * items::kSlotSize + items::kSlotPayload))) return true;
-        }
-        return false;
-    }
-};
-
-BoxStorage box_storage(uint8_t type) {
-    const uint64_t root = rd<uint64_t>(g.base + layout::kSaveRoot);
-    if (!root) return {};
-    const uint64_t offset = type * sizeof(uint16_t);
-    const uint32_t first_record = rd<uint16_t>(g.base + layout::kCabinetBases + offset);
-    const uint32_t count = rd<uint16_t>(g.base + layout::kCabinetCounts + offset);
-    const uint32_t slots = rd<uint16_t>(g.base + layout::kContainerSlotCounts + offset);
-    const uint32_t first_slot = rd<uint16_t>(g.base + layout::kContainerSlotBases + offset);
-    const uint64_t store = root + layout::kStageContainerStore + first_slot * items::kSlotSize;
-    if (!count || !slots || !ok(store, uint64_t{count} * slots * items::kSlotSize)) return {};
-    return {root + layout::kCabinetRecords, store, first_record, count, slots};
 }
 
 bool is_screen(uint64_t screen) {
@@ -159,7 +139,7 @@ bool showing_tab(uint64_t screen, uint16_t id) {
 
 Tabs available_tabs(const OpenBox& box) {
     Tabs tabs{{box.physical}};
-    const BoxStorage storage = box_storage(box.type);
+    const BoxStorage storage = box_tabs::box_storage(g.base, box.type);
     if (box.physical >= storage.count) return tabs;
 
     const int max_units = box.type == kBigBoxType ? kMaxBigTabs : kMaxPages;
@@ -350,24 +330,13 @@ int hook_screen_frame(::Ctx* c, uint64_t, void*) {
     box.last_frame = now;
     ++box.frames;
     box.crossing = false;   // a crossing the game did not carry out (its page change runs within the frame that asked for it)
+    // The open gave L / R to the bag, before the box was known to have pages (hook_paged_panel).
+    if (box.frames == 2 && box.type == kBoxType && box.active && box.tabs.count > 1 && rd<uint32_t>(screen + kState) == kBrowsing)
+        call(c, g.base + kRoutePages, screen, 0, 0);
     // The dots once the panel's own open setup is done (it sets them for its native pages), again a little later in case the setup
     // ran late, and whenever the shown page changes (a big box's native page change lights its own dot).
     if (box.active && box.tabs.count > 1 && box.frames >= 2)
         if (const uint64_t panel = ready_panel(c, box)) show_dots(c, box, panel, box.frames == 2 || box.frames == 15);
-    if (box.type == kBoxType && box.active) {
-        // A one-page box's page selector takes no input (0xe980c0 is never asked), so L / R are read here, from the pad state the game
-        // reads too (keyboard and pad bindings included).
-        uint64_t buttons = 0;
-        if (auto src = hid::input_source()) {
-            hid::InputSnapshot snap;
-            src->poll(snap);
-            buttons = (snap.npad[0].buttons | snap.npad[hid::kNpadSlotHandheld].buttons) & (hid::btn(hid::kBtnL) | hid::btn(hid::kBtnR));
-        }
-        const uint64_t pressed = buttons & ~box.prev_buttons;
-        box.prev_buttons = buttons;
-        if (pressed & hid::btn(hid::kBtnR)) box.pending = 1;
-        else if (pressed & hid::btn(hid::kBtnL)) box.pending = -1;
-    }
     const int direction = std::exchange(box.pending, 0);
     if (!tab_shown && !direction) return 0;
     const bool online = call(c, g.base + layout::kIsOnline, 0) & 1;
@@ -399,7 +368,14 @@ int hook_page_request(::Ctx* c, uint64_t, void*) {
     // Both page lists use the same callback. Only list 2 belongs to the container.
     if (container_selector(c, box.screen) != selector) return 0;
     const int direction = request == 2 ? -1 : 1;
-    if (box.type != kBigBoxType) return 0;   // a one-page box's selector never asks (standard boxes: L / R in the frame hook)
+    if (box.type == kBoxType) {
+        // One native page per tab: the frame hook switches. A press wraps at the ends, a held repeat stops there.
+        const Tabs tabs = available_tabs(box);
+        const int target = adjacent_tab(tabs, box.shown, direction, (c->x[2] & 1) != 0);
+        if (target >= 0 && tabs.ids[target] != box.shown) box.pending = direction;
+        c->x[0] = 0;
+        return 1;
+    }
 
     if (box.restore_physical || rd<uint16_t>(box.screen + kPhysicalPayload) != box.physical ||
         rd<uint16_t>(box.screen + kId) != box.shown || !ok(selector, kSelectorPage + sizeof(uint32_t)))
@@ -412,8 +388,8 @@ int hook_page_request(::Ctx* c, uint64_t, void*) {
     if (rd<uint32_t>(selector + kSelectorPage) != (direction > 0 ? last_page : 0)) return 0;
     if (call(c, g.base + layout::kIsOnline, 0) & 1) return 0;
 
-    // Whichever panel the cursor or the menu pointer is on: L / R page the container either way, so they cross into the next tab
-    // either way (a check of the active panel let the game wrap back to page 1 while the pointer was over the bag).
+    // No check of the panel the cursor or the menu pointer is on: the game gave L / R to the container (hook_paged_panel), from the bag
+    // too when the bag has one page (a check let the game wrap back to page 1 while the pointer was over the bag).
     const Tabs tabs = available_tabs(box);
     const int target = adjacent_tab(tabs, box.shown, direction, (c->x[2] & 1) != 0);
     if (target < 0 || tabs.ids[target] == box.shown) return 0;
@@ -438,30 +414,135 @@ int hook_page_request(::Ctx* c, uint64_t, void*) {
     return 1;
 }
 
-// Store All (from the main or the handy bag into the box, either choice of the dialog): every tab in turn, the shown one first. Retrieve
-// All and anything else runs as the game has it.
+// The open box's screen in a state its actions may work on every tab: offline, no temp copies (no item held), the ids as tracked.
+// The player it belongs to, or -1.
+int live_player(::Ctx* c, uint64_t screen) {
+    const OpenBox& box = g.box;
+    if (!box.active || !screen || screen != box.screen || !is_screen(screen) || box_type(screen) != box.type ||
+        (rd<uint32_t>(screen + kFlags) & kOwnsCopies) || rd<uint16_t>(screen + kPhysicalPayload) != box.physical ||
+        rd<uint16_t>(screen + kId) != box.shown)
+        return -1;
+    const auto player = static_cast<uint8_t>(call(c, g.base + kPlayerOf, screen + kPlayerHelper));
+    if (player > 1 || rd<uint8_t>(g.base + layout::kItemTempFlag + player) != 0) return -1;
+    return (call(c, g.base + layout::kIsOnline, 0) & 1) ? -1 : player;
+}
+
+bool bag_kind(uint8_t kind) {
+    return kind == kBagKind || kind == kHandyBagKind;
+}
+
+// Store All and Retrieve All, either choice of the dialog: every tab in turn, the shown one first.
 int hook_transfer(::Ctx* c, uint64_t, void*) {
     if (box_store::running()) return 0;
     const uint64_t screen = c->x[0];
     const auto source = static_cast<uint8_t>(c->x[1]), target = static_cast<uint8_t>(c->x[2]);
     OpenBox& box = g.box;
-    if ((source != kBagKind && source != kHandyBagKind) || target != kBoxPanel || !box.active || screen != box.screen ||
-        !is_screen(screen) || box_type(screen) != box.type || rd<uint8_t>(screen + kState) != kDialog ||
-        rd<uint8_t>(screen + kStateBefore) != kBrowsing || (rd<uint32_t>(screen + kFlags) & kOwnsCopies) ||
-        rd<uint16_t>(screen + kPhysicalPayload) != box.physical || rd<uint16_t>(screen + kId) != box.shown)
+    const bool store = bag_kind(source) && target == kBoxPanel;
+    if ((!store && !(source == kBoxPanel && target == kBagKind)) || live_player(c, screen) < 0 ||
+        rd<uint8_t>(screen + kState) != kDialog || rd<uint8_t>(screen + kStateBefore) != kBrowsing)
         return 0;
-    const auto player = static_cast<uint8_t>(call(c, g.base + kPlayerOf, screen + kPlayerHelper));
-    if (player == 0xff || rd<uint8_t>(g.base + layout::kItemTempFlag + player) != 0) return 0;
-    if (call(c, g.base + layout::kIsOnline, 0) & 1) return 0;
     const uint64_t panel = ready_panel(c, box);
     if (!panel) return 0;
     const Tabs tabs = available_tabs(box);
-    int shown = 0;
-    while (shown < tabs.count && tabs.ids[shown] != box.shown) ++shown;
-    if (tabs.count < 2 || shown == tabs.count) return 0;
+    const int shown = tabs.index_of(box.shown);
+    if (tabs.count < 2 || shown < 0) return 0;
+    const BoxStorage storage = box_tabs::box_storage(g.base, box.type);
     box.tabs = tabs;
-    c->x[0] = box_store::sweep(c, g.base, {.screen = screen, .panel = panel, .ids = tabs.ids.data(), .count = tabs.count, .shown = shown,
-                                           .source = source, .target = target, .matching = (c->x[3] & 1) != 0, .log = g.log});
+    c->x[0] = box_store::sweep(c, g.base, {.screen = screen, .panel = panel, .storage = &storage, .tabs = &tabs, .shown = shown,
+                                           .source = source, .target = target, .store = store, .matching = (c->x[3] & 1) != 0,
+                                           .log = g.log});
+    return 1;
+}
+
+// Add / Add Stack / half / an amount, from the bag: the game fills the shown tab and turns to the page it filled. A tab that takes none
+// of it gives way to the first one that does (one that holds the item before an empty slot), and what does not fit goes on into the next
+// tabs. Out of the box the game's own move is enough.
+int hook_move_stack(::Ctx* c, uint64_t, void*) {
+    if (g.moving) return 0;
+    const uint64_t screen = c->x[0];
+    OpenBox& box = g.box;
+    const int player = live_player(c, screen);
+    if (player < 0 || rd<uint8_t>(screen + kState) != kBrowsing) return 0;
+    const auto amount = static_cast<uint32_t>(c->x[1]);
+    const uint8_t kind = rd<uint8_t>(screen + kCursorKind);
+    if (!bag_kind(kind)) return 0;
+    const uint64_t cell = call(c, g.base + kSelectedCell, screen);
+    if (!ok(cell, 0xc8)) return 0;
+    box_move::Stack stack{.player = static_cast<uint8_t>(player), .kind = kind, .slot = rd<uint16_t>(cell + kCellSlot), .type = box.type};
+    stack.item = call(c, g.base + kItemAt, stack.player, kind, stack.slot, box.type, box.shown);
+    if (!ok(stack.item, items::kSlotSize)) return 0;
+    const uint64_t payload = rd<uint64_t>(stack.item + items::kSlotPayload);
+    stack.packed = static_cast<uint32_t>(payload) & 0x7fffffff;
+    const uint32_t count = items::count_of(payload);
+    if (!items::id_of(payload) || !count) return 0;
+    stack.max_stack = static_cast<uint16_t>(call(c, g.base + layout::kMaxStack, 0));
+    const uint32_t half = (rd<uint32_t>(screen + kFlags) & kHalf) ? std::max(1u, count >> 1) : count;
+    const uint32_t want = amount ? std::min(amount, count) : half;
+
+    const Tabs tabs = available_tabs(box);
+    int shown = tabs.index_of(box.shown);
+    const BoxStorage storage = box_tabs::box_storage(g.base, box.type);
+    if (tabs.count < 2 || shown < 0 || !storage.count) return 0;
+    const auto room = [&](int i) { return storage.room(tabs.ids[i], stack.packed, stack.max_stack); };
+    if (!room(shown).total) {
+        int target = -1;
+        for (int n = 1; n < tabs.count; ++n) {
+            const int i = (shown + n) % tabs.count;
+            const BoxStorage::Room r = room(i);
+            if (r.merge) { target = i; break; }
+            if (r.total && target < 0) target = i;
+        }
+        if (target < 0 || !switch_in_frame(c, box, tabs.ids[target], target > shown ? 1 : -1)) return 0;
+        box.tabs = tabs;
+        shown = target;
+    }
+    if (room(shown).total >= want) return 0;
+
+    g.moving = true;
+    uint64_t result = call(c, g.base + kMoveStack, screen, amount);
+    g.moving = false;
+    const uint32_t went = count - std::min(count, box_move::left(stack));
+    if (went && went < want) {
+        const uint32_t more = box_move::spread(c, g.base, stack, want - went, storage, tabs, shown);
+        if (g.log) NXLOG_I(kTag, "storage box tabs: %u of %u into container %u, %u into other tabs", went, want, box.shown, more);
+        if (went + more >= want) {
+            wr<uint32_t>(screen + kStatus, 1);   // all of it went: no "could not be stored"
+            result = 1;
+        }
+        if (more) call(c, g.base + kRefresh, screen);
+    }
+    c->x[0] = result;
+    return 1;
+}
+
+// The sort (X held, or a click on its prompt) with the cursor on the box: all its tabs as one.
+int hook_sort(::Ctx* c, uint64_t, void*) {
+    OpenBox& box = g.box;
+    if (static_cast<uint8_t>(c->x[1]) != kBoxPanel || static_cast<uint8_t>(c->x[2]) != box.type ||
+        static_cast<uint16_t>(c->x[3]) != box.shown || live_player(c, box.screen) < 0 || rd<uint8_t>(box.screen + kState) != kBrowsing)
+        return 0;
+    const Tabs tabs = available_tabs(box);
+    const BoxStorage storage = box_tabs::box_storage(g.base, box.type);
+    if (tabs.count < 2 || !storage.count || !box_sort::sort(c, g.base, storage, tabs)) return 0;
+    if (g.log) NXLOG_I(kTag, "storage box tabs: sorted box %u over %d tabs", box.physical, tabs.count);
+    return 1;
+}
+
+// Which panel L / R page: the game takes the panel the cursor is on if that one has pages, else the other one. A standard box has one
+// page there, so the bag got L / R with the cursor on the box too. With tabs the box counts as a panel with pages, as a big box does.
+int hook_paged_panel(::Ctx* c, uint64_t, void*) {
+    if (g.paging) return 0;
+    const uint64_t screen = c->x[0];
+    const OpenBox& box = g.box;
+    if (!box.active || box.type != kBoxType || box.tabs.count < 2 || screen != box.screen || !is_screen(screen) ||
+        box_type(screen) != box.type || rd<uint16_t>(screen + kPhysicalPayload) != box.physical)
+        return 0;
+    if (call(c, g.base + layout::kIsOnline, 0) & 1) return 0;
+    g.paging = true;
+    uint64_t kind = call(c, g.base + kPagedPanel, screen) & 0xff;
+    g.paging = false;
+    if (rd<uint8_t>(screen + kCursorKind) == kBoxPanel || kind == kNoPanel) kind = kBoxPanel;
+    c->x[0] = kind;
     return 1;
 }
 
@@ -492,7 +573,7 @@ int hook_match_open_box(::Ctx* c, uint64_t, void*) {
 }
 
 bool allocate_box(::Ctx* c, uint8_t type) {
-    const BoxStorage storage = box_storage(type);
+    const BoxStorage storage = box_tabs::box_storage(g.base, type);
     for (uint32_t id = 0; id < storage.count; ++id) {
         const uint64_t record = storage.record(id);
         if (!ok(record, layout::kCabinetRecordSize)) return false;
@@ -510,7 +591,7 @@ bool allocate_box(::Ctx* c, uint8_t type) {
 
 int hook_allocate_box(::Ctx* c, uint64_t, void*) {
     const auto type = static_cast<uint8_t>(c->x[0]);
-    if (!supported_type(type) || !box_storage(type).count) return 0;   // no readable save: the game's own allocator
+    if (!supported_type(type) || !box_tabs::box_storage(g.base, type).count) return 0;   // no readable save: the game's own allocator
     c->x[0] = allocate_box(c, type);
     return 1;
 }
@@ -530,6 +611,10 @@ void frame(bool, double, play::GameFrame*) {
     hooks->add_entry(g.base + kSites[3].site, &hook_screen_frame);
     hooks->add_entry(g.base + kSites[4].site, &hook_transfer);
     hooks->add_entry(g.base + kSites[5].site, &hook_rebuild);
+    hooks->add_entry(g.base + kSites[6].site, &box_store::hook_count_matching);
+    hooks->add_entry(g.base + kSites[7].site, &hook_move_stack);
+    hooks->add_entry(g.base + kSites[8].site, &hook_sort);
+    hooks->add_entry(g.base + kSites[9].site, &hook_paged_panel);
     NXLOG_I(kTag, "storage box tabs: on, up to %d pages per standard box and %d tabs per big box, offline only",
             g.max_pages, g.max_big_tabs);
 }
