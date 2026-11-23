@@ -174,7 +174,10 @@ void begin(VkCommandBuffer cb, uint32_t i) {
         s.gp_labels.clear();
         pass_stamp(cb, i, "(start)", 0);
     }
-    if (t->qpool) {
+    bool stamp = t->qpool != VK_NULL_HANDLE;
+    // a phone stamps for the game's dynamic resolution only while it is on (or for the trace and the report)
+    if constexpr (facts::kPhone) stamp = stamp && (t->trace_exec || t->report_exec || gfx::tuning().res_dynamic.load(std::memory_order_relaxed));
+    if (stamp) {
         vkCmdResetQueryPool(cb, t->qpool, i * 2, 2);
         vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, t->qpool, i * 2);
         s.timed = true;
