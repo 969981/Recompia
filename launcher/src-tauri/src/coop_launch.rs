@@ -39,7 +39,7 @@ use crate::settings::CONTROLS_INI;
 /// The switch variables of co-op mode: a singleplayer start never has them. The settings a co-op start also sets (NXRT_NET_*, NXRT_ACCOUNT_*,
 /// NXRT_FS_SAVE_DIR) are ordinary runtime overrides a player may use on their own, so they are left alone.
 const COOP_ONLY: [&str; 5] = ["NXRT_PKP_COOP", "NXRT_PKP_COOP_ROLE", "NXRT_PKP_COOP_GROUP", "NXRT_PKP_COOP_MEMBER", "NXRT_PKP_COOP_MEMBERS"];
-const SPLIT_ONLY: [&str; 5] = ["NXRT_SPLIT_WINDOW", "NXRT_SPLIT_COUNT", "NXRT_SPLIT_LAYOUT", "NXRT_SPLIT_PAD", "NXRT_SPLIT_MUTE"];
+const SPLIT_ONLY: [&str; 6] = ["NXRT_SPLIT_WINDOW", "NXRT_SPLIT_COUNT", "NXRT_SPLIT_LAYOUT", "NXRT_SPLIT_DISPLAYS", "NXRT_SPLIT_PAD", "NXRT_SPLIT_MUTE"];
 const RELAY_ONLY: &[&str] = &["NXRT_NET_RELAY", "NXRT_NET_PRIVATE_ROOM"];
 /// Separate from a normal Link Play host (47600) and a relay (47610).
 const SPLIT_PORT: u16 = 47620;
@@ -70,6 +70,9 @@ pub struct Group {
 pub struct SplitOptions {
     /// Side by side for two windows; the first takes the left half for three.
     pub side: bool,
+    /// The display of each window, in window order (`[split] displays`, numbered as the game's Monitor setting); windows on one display
+    /// share it. Empty: every window is on one screen. A window without a usable choice gets the display of its number.
+    pub screens: Vec<u8>,
     /// What each window plays with, in window order: 0 the keyboard and mouse only, k the k-th controller connected
     /// (`[split] pad`). A window without a usable choice gets the first controller no window plays (window_pads).
     pub pads: Vec<u8>,
@@ -124,6 +127,7 @@ pub fn build_split(p: &Profile, root: &Path, singleplayer_save_dir: &Path, opt: 
     }
     let choice = coop_save::host_of(root, p);
     let layout = if opt.side && count < 4 { "side" } else { "stacked" };
+    let screens = window_screens(count, &opt.screens).iter().map(u8::to_string).collect::<Vec<_>>().join(",");
     let pads = window_pads(count, &opt.pads);
     let mut windows = p.members.iter().zip(&dirs).enumerate().map(|(i, (member, dir))| {
         let window = i + 1;
@@ -144,6 +148,7 @@ pub fn build_split(p: &Profile, root: &Path, singleplayer_save_dir: &Path, opt: 
             ("NXRT_SPLIT_WINDOW", window.to_string()),
             ("NXRT_SPLIT_COUNT", count.to_string()),
             ("NXRT_SPLIT_LAYOUT", layout.into()),
+            ("NXRT_SPLIT_DISPLAYS", screens.clone()),
             ("NXRT_SPLIT_PAD", pads[i].to_string()),
             ("NXRT_SPLIT_MUTE", (window > 1 && !opt.sound).to_string()),
         ]);
@@ -179,6 +184,16 @@ fn window_pads(count: usize, wanted: &[u8]) -> Vec<u8> {
         }
     }
     out.into_iter().map(|p| p.unwrap_or(0)).collect()
+}
+
+/// The displays of `count` windows, none when the player chose none (one screen for all). The page makes the same choice
+/// (src/coop-model.js windowScreens).
+fn window_screens(count: usize, wanted: &[u8]) -> Vec<u8> {
+    if wanted.is_empty() {
+        return Vec::new();
+    }
+    let max = coop::MAX_MEMBERS as u8;
+    (0..count).map(|i| wanted.get(i).copied().filter(|s| (1..=max).contains(s)).unwrap_or(i as u8 + 1)).collect()
 }
 
 fn window_folder(window: usize) -> String {
@@ -363,6 +378,7 @@ mod tests {
                 ("NXRT_SPLIT_WINDOW", &(i + 1).to_string()),
                 ("NXRT_SPLIT_COUNT", "2"),
                 ("NXRT_SPLIT_LAYOUT", "stacked"),
+                ("NXRT_SPLIT_DISPLAYS", ""),
                 ("NXRT_SPLIT_PAD", &(i + 1).to_string()),
                 ("NXRT_SPLIT_MUTE", if i == 0 { "false" } else { "true" }),
             ] {
@@ -425,6 +441,20 @@ mod tests {
         assert_eq!(window_pads(2, &[2, 2]), vec![2, 1], "a controller twice: the later window gets a free one");
         assert_eq!(window_pads(2, &[0, 0, 3]), vec![0, 1], "one keyboard; a choice for a missing window is dropped");
         assert_eq!(window_pads(2, &[9, 7]), vec![1, 2], "out of range is replaced");
+    }
+
+    #[test]
+    fn every_window_gets_the_same_list_of_screens() {
+        assert_eq!(window_screens(3, &[]), Vec::<u8>::new(), "one screen for all");
+        assert_eq!(window_screens(3, &[2]), vec![2, 2, 3], "a window without a choice has the screen of its number");
+        assert_eq!(window_screens(2, &[0, 9, 1]), vec![1, 2], "out of range is replaced, a choice for a missing window is dropped");
+        let (p, root, sp) = split_setup(3);
+        coop_save::ensure_split_folders(&root, &p).unwrap();
+        let opts = serde_json::from_str(r#"{"screens":[1,2,2]}"#).unwrap();
+        let (group, _) = build_split(&p, &root, &sp, &opts).unwrap();
+        for launch in std::iter::once(&group.first).chain(&group.others) {
+            assert_eq!(launch.get("NXRT_SPLIT_DISPLAYS"), Some("1,2,2"));
+        }
     }
 
     #[test]

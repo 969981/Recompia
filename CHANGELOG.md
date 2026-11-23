@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+**Update:** press **Update** in the launcher. **Set up again** is not needed (saves and shaders are kept, no shader is translated again).
+
+### Launcher
+- Split screen: **Own screens** puts each player on a monitor of their own, filling it. Pick the monitor per player on the save's card; players on the same monitor share it (#890)
+
 ## 0.17.0 (build U: Urchin)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's cleaning count, co-op's followers, co-op's shared rules for every player, co-op's opened areas, storage box tabs and the logs; saves and shaders are kept, no shader is translated again).
