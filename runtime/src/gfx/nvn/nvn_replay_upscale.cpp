@@ -39,6 +39,15 @@ bool tsr_jitter(uint32_t* words, size_t n_words) {
     return extras::temporal_jitter_block(words, n_words, w, h, g_tsr_frame);
 }
 
+// The temporal pass ran in the frame before (temporal_run gave a result): only then is the camera jittered (tsr_cam_copy), so a frame
+// that is shown without the pass (no camera found, the stretch never came, the mode just switched on) is never a raw jittered frame.
+static bool g_tsr_live = false;
+bool tsr_cam_copy(uint64_t addr, uint32_t* words) {
+    if (!g_tsr_live || g_tsr.bytes > kTsrMaxWords * 4 || !gw_settled_fast(addr, g_tsr.bytes) || out_overlaps(addr, g_tsr.bytes)) return false;
+    std::memcpy(words, host_ptr(addr), g_tsr.bytes);
+    return tsr_jitter(words, g_tsr.bytes / 4);
+}
+
 // Scene upscaler (S14, #571, src/gfx/extras/hdr_nvn.h): before the game's scene stretch draw, FSR 1 / NIS enlarge the scene part of its
 // input to the target's size and the draw samples that instead, or Nearest gives the input the nearest sampler (scene_stretch_for_draw).
 // The override lives until the next draw.
@@ -49,10 +58,12 @@ void temporal_gbuffer_note() {
     if (S.ncolor < g_tsr.colors || !S.depth_tex || !S.stage[g_tsr.stage] || extras::temporal_camera_ready()) return;
     const GState::Bind& u = S.ubo[g_tsr.stage][g_tsr.slot];
     if (!u.addr || u.size < g_tsr.bytes) return;
-    uint32_t w[256];                                                      // at most 1 KiB (temporal_camera_block checks the block's length)
+    // guest memory holds the block only when no GPU write is in flight over it (the draw then binds the GPU's copy, unjittered)
+    if (!gw_settled_fast(u.addr, g_tsr.bytes) || out_overlaps(u.addr, g_tsr.bytes)) return;
+    uint32_t w[kTsrMaxWords];
     const size_t n = static_cast<size_t>(g_tsr.bytes / 4);
     std::memcpy(w, host_ptr(u.addr), n * 4);
-    tsr_jitter(w, n);                                                     // the camera as the draw sees it (the bound copy is jittered the same way)
+    if (g_tsr_live) tsr_jitter(w, n);                                     // the camera as the draw sees it (tsr_cam_copy jitters the bound copy alike)
     extras::temporal_note_gbuffer(w, n);
     if (extras::temporal_camera_ready()) g_tsr_depth = S.depth_tex;
 }
@@ -84,6 +95,7 @@ static bool scene_part(VkExtent2D scene, VkExtent2D out, VkExtent2D* part, VkExt
 // tone map (the tone-map draw), else display-referred colour (a scene enlargement after it). Null: nothing recorded.
 static VkImageView temporal_run(Texture* tex, VkImageView src, VkExtent2D render, VkExtent2D out, VkExtent2D out_tex, bool hdr) {
     g_tsr_deferred = false;
+    g_tsr_live = false;
     Texture* depth = g_tsr_depth.get();
     static bool told_depth = false;
     if (!extras::temporal_camera_ready()) {                              // counts the frames without a camera (warns after 120)
@@ -107,6 +119,7 @@ static VkImageView temporal_run(Texture* tex, VkImageView src, VkExtent2D render
     if (!dv) return VK_NULL_HANDLE;
     VkImageView v = extras::temporal_evaluate(&device(), F->cb, src, dv, tex_sampled_layout(depth), render, out, S.depth_mode == NVN_DEPTH_MODE_NEAR_IS_MINUS_W,
                                               out_tex, hdr);
+    g_tsr_live = v != VK_NULL_HANDLE;
     g_cmd.dirty = kAllDirty;                                                  // the passes bind their own compute state
     shadow_invalidate();
     return v;
@@ -223,7 +236,10 @@ void tonemap_for_draw(const ProgLayout& pl) {
     if (S.ncolor == 0 || !S.color_tex[0]) return;
     if (extras::temporal_wanted()) {
         ++g_tsr_frame;                                                    // one tone-map draw per frame: the next frame's jitter phase
-        if (g_tsr_deferred) extras::temporal_drop_camera();               // last frame's stretch never came: its camera is stale
+        if (g_tsr_deferred) {                                             // last frame's stretch never came: its camera is stale
+            extras::temporal_drop_camera();
+            g_tsr_live = false;
+        }
         if (temporal_deferred()) {
             g_tsr_deferred = true;                                        // the scene stretch runs it
             return;
@@ -231,6 +247,7 @@ void tonemap_for_draw(const ProgLayout& pl) {
         temporal_for_draw(pl);
         return;
     }
+    g_tsr_live = false;
     const extras::AaMode aa = extras::aa_mode();
     // SMAA runs when the scene is shown at its own size (an upscaled scene part keeps its upscaler; SMAA does not read a part of an image)
     if (aa != extras::AaMode::Off && (!extras::scene_upscale_wanted() || extras::upscale_scene_scale() >= 100)) {
