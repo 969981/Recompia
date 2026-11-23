@@ -60,10 +60,20 @@ class GameActivity : SDLActivity() {
         }
         hideSystemBars()
         if (!mBrokenLibraries) {
+            loading = LoadingScreen(this)
             TouchOverlay.attach(this)
             org.recompia.pkp.ui.GameSession.started(this)
             sessionStarted = true
         }
+    }
+
+    private var loading: LoadingScreen? = null
+
+    /** The runtime's start-up phases (runtime/src/os/os_app_phase.h), on the UI thread. */
+    override fun onUnhandledMessage(command: Int, param: Any?): Boolean {
+        if (command != LoadingScreen.COMMAND) return false
+        loading?.phase(param as? Int ?: 0)
+        return true
     }
 
     /** 16 hex digits, nonzero, made once from the OS random source and kept in the app's private files (never shared or logged). */

@@ -466,6 +466,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     { RpScope rp_(kRpPass); pass_ok = ensure_pass(want_ro, g_copies.fbl_want); }
     if (!pass_ok) { log_once(kOnceDrawNoTarget, "draw without a usable render target skipped"); return false; }
     if (ui_skip_draw(vs)) return false;   // after the pass is begun, so its clears and loads still happen (nxrt/ui_layer.h)
+    if (!g_drew_2d) note_first_2d();   // the first picture (note_frame_for_loading)
     if (g_cmd.prog_writes || g_xfb.active) g_bar.pass_unsafe = true;
     const VkPrimitiveTopology topo = vk_topology(mode);
     if ((g_cmd.dirty & kPipe) || topo != g_cmd.pipe_topo || !g_cmd.pipe || g_pipe_fbl != (P.fbl != 0)) {

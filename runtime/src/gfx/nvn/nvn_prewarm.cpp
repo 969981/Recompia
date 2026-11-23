@@ -33,6 +33,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "../../os/os_app_phase.h"
 #include "nxrt/config.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/gauge.h"
@@ -379,6 +380,7 @@ void prewarm_init() {
             g_workers.back().start("nvn-prewarm", 16, worker_main);
         }
         g_saver.start("nvn-prewarm-save", 16, saver_main);
+        nxrt::os::app::phase(nxrt::os::app::kShaders);
         NXLOG_I(kTag, "prewarm: %zu recorded pipelines (+%zu compute%s) from %s, %zu worker threads; %s", g_recs.size(), g_cs_recs.size(),
                 compute_prewarm_on() ? ", first in line" : ", not built: [nvn] compute_prewarm is false", g_path.c_str(), g_workers.size(),
                 boot ? "all queued from boot, in the order they were first used" : "each queued when the game sets one of its shaders ([nvn] prewarm_boot is false)");

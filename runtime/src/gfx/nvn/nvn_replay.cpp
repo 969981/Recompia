@@ -7,6 +7,7 @@
 // negative-height viewport, a memory barrier after every pass, textures sampled by a draw are made current before the pass,
 // handles never dropped by count, deferred bind arrays read at record time.
 #include "nvn_replay_internal.h"
+#include "../../os/os_app_phase.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -606,6 +607,16 @@ void note_frame_for_loading() {
         g_loading = want;
         ft::mark(want ? "pace.loading" : "pace.playing", static_cast<uint32_t>(per));
         NXLOG_I(kTag, "%s (present %llu, %llu draws)", want ? "loading" : "playing", static_cast<unsigned long long>(p),
+                static_cast<unsigned long long>(per));
+    }
+    // the app's loading screen (os_app_phase.h) goes with the first present after a blended draw into a presented texture
+    // (note_first_2d): a game's boot frames that only run opaque full-screen passes (black, tens of seconds on a phone) keep it
+    static bool first = true, picture = false;
+    if (first) { first = false; nxrt::os::app::phase(nxrt::os::app::kFirstPresent); }
+    if (!picture && replay::g_drew_2d) {
+        picture = true;
+        nxrt::os::app::phase(nxrt::os::app::kPicture);
+        NXLOG_I(kTag, "first picture: 2D drawn over the presented texture (present %llu, %llu draws)", static_cast<unsigned long long>(p),
                 static_cast<unsigned long long>(per));
     }
     if (!full && per >= 16) {
