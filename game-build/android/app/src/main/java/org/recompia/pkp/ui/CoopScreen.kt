@@ -122,6 +122,7 @@ fun CoopScreen(canPlay: Boolean, onBack: () -> Unit, load: () -> List<Coop.Profi
     var open by remember { mutableStateOf<String?>(null) }
     var short by remember { mutableStateOf<String?>(null) }
     var shortening by remember { mutableStateOf(false) }
+    var inviteReq by remember { mutableStateOf(0) }
     var adding by remember { mutableStateOf<String?>(null) }
     var addName by remember { mutableStateOf("") }
     var addError by remember { mutableStateOf<String?>(null) }
@@ -140,10 +141,11 @@ fun CoopScreen(canPlay: Boolean, onBack: () -> Unit, load: () -> List<Coop.Profi
 
     fun refresh() { saves = load() }
     fun showInvite(p: Coop.Profile) {
+        val req = ++inviteReq   // only the latest request's code is shown (an older one may lack a player added since)
         open = p.id; short = null; shortening = true
         scope.launch {
             val code = withContext(Dispatchers.IO) { Coop.shorten(p) }
-            if (open == p.id) { short = code; shortening = false }
+            if (req == inviteReq) { short = code; shortening = false }
         }
     }
     fun add(p: Coop.Profile) {
