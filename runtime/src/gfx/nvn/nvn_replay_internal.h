@@ -306,6 +306,7 @@ struct CmdState {   // owner: nvn_replay_draw.cpp (begin_draw); the other ops se
     bool prog_writes = false;        // the bound program has storage buffer or storage image bindings
     int8_t fs_tonemap = -1;          // the bound fragment shader is the tone-map shader (extras::hdr_is_tonemap); -1: not asked since kPipe
     int8_t fs_stretch = -1;          // extras::is_scene_stretch of the bound fragment shader (1 scene stretch, 2 into the window texture); -1: not asked
+    int8_t fs_square = -1;           // the bound fragment shader is the game's square quad shader (game::Render::square_quad_fs); -1: not asked
     DynShadow dsh;                   // bind_coalesce: the dynamic state, vertex and index buffers last sent in this command buffer
     VbShadow vbsh[16];
     IbShadow ibsh;
@@ -396,6 +397,12 @@ extern nxrt::GaugeCounter g_gauge_pipeline_binds;
 // After ensure_pass: true while the 2D is hidden and this draw is part of it (vertex inputs, colour target 0 a presented texture). One
 // relaxed atomic load while nothing is hidden.
 bool ui_skip_draw(const ShaderInfo* vs);
+// ---- a square image the game stretched with the screen (nvn_replay_square.cpp, game::Render::square_quad_fs) --------------------------------
+// After begin_draw of an indexed draw: when the bound fragment shader is the game's square quad shader, sets this draw's viewport so the
+// quad is square on screen and returns true (the caller restores the game's viewport for the next draw).
+bool square_quad_viewport(const P_DrawElements& p);
+// The Vulkan viewport of a game viewport (x, y, w, h in the game's units) for viewport i: the render scale and the window origin applied.
+VkViewport vk_viewport_of(float x, float y, float w, float h, uint32_t i);
 void ui_shutdown();   // replay_shutdown: the presented textures are let go
 // ---- frame trace and debug aids (nvn_replay_trace.cpp) ---------------------------------------------------------------------------
 // Their state is private to the trace module. The draw and dispatch paths test one flag per site (both false in play) and call in.

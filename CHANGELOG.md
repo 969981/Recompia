@@ -15,6 +15,9 @@
 - Storage box tabs: (+) on the box takes items out of every tab, for both choices. Before, it only emptied the shown tab
 - Storage box tabs: with a standard storage box open, L and R turn only the pages of the side the cursor is on (#895). Before, they turned the box's and the bag's pages together once the bag had more than one page. A bag with one page still leaves L and R to the box
 
+### Graphics
+- The iris wipes that close and open the picture around the player stay round on screens that are not 16:9: on a phone's near-square screen they were stretched upright, on a long one squashed
+
 ## 0.17.0 (build U: Urchin)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's cleaning count, co-op's followers, co-op's shared rules for every player, co-op's opened areas, storage box tabs and the logs; saves and shaders are kept, no shader is translated again).
