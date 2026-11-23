@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// SDL3 platform layer: a window at a place the caller chooses (platform.h: display_work_area, place_window, window_rect,
-// set_window_focusable). Split screen keeps its windows this way (src/gfx/play/play_split.cpp). The window is platform.cpp's, reached
+// SDL3 platform layer: a window at a place the caller chooses (platform.h: display_work_area, display_bounds, place_window,
+// window_rect, set_window_focusable). Split screen keeps its windows this way (src/gfx/play/play_split.cpp). The window is platform.cpp's, reached
 // through native_window(); same thread as everything else in the platform layer.
 #include "nxrt/platform.h"
 
@@ -15,25 +15,33 @@ constexpr const char* kTag = "platform";
 
 SDL_Window* window() { return static_cast<SDL_Window*>(native_window()); }
 
-}  // namespace
-
-bool display_work_area(int number, Rect* out) {
-    if (!out) return false;
+// The display of that number (0: the primary one), 0 for a bad number.
+SDL_DisplayID display_id(int number) {
+    if (number == 0) return SDL_GetPrimaryDisplay();
     SDL_DisplayID id = 0;
-    if (number == 0) {
-        id = SDL_GetPrimaryDisplay();
-    } else if (number >= 1) {
-        int n = 0;
-        if (SDL_DisplayID* ids = SDL_GetDisplays(&n)) {   // the system's order, as display_count and display_name number them
-            if (number <= n) id = ids[number - 1];
-            SDL_free(ids);
-        }
+    int n = 0;
+    if (SDL_DisplayID* ids = SDL_GetDisplays(&n)) {   // the system's order, as display_count and display_name number them
+        if (number >= 1 && number <= n) id = ids[number - 1];
+        SDL_free(ids);
     }
+    return id;
+}
+
+// One of SDL's rectangles of a display (SDL_GetDisplayBounds, SDL_GetDisplayUsableBounds).
+bool display_rect(int number, bool (*get)(SDL_DisplayID, SDL_Rect*), Rect* out) {
+    if (!out) return false;
+    const SDL_DisplayID id = display_id(number);
     SDL_Rect r{};
-    if (!id || !SDL_GetDisplayUsableBounds(id, &r) || r.w <= 0 || r.h <= 0) return false;
+    if (!id || !get(id, &r) || r.w <= 0 || r.h <= 0) return false;
     *out = {r.x, r.y, r.w, r.h};
     return true;
 }
+
+}  // namespace
+
+bool display_work_area(int number, Rect* out) { return display_rect(number, &SDL_GetDisplayUsableBounds, out); }
+
+bool display_bounds(int number, Rect* out) { return display_rect(number, &SDL_GetDisplayBounds, out); }
 
 bool place_window(const Rect& r) {
     SDL_Window* w = window();

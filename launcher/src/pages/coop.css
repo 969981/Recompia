@@ -55,7 +55,9 @@
 .coop-split-opts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-5); }
 .coop-split-opt { display: flex; align-items: center; gap: var(--space-3); }
 .coop-split-pads { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-2) var(--space-4); }
+.coop-split-player { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .coop-split-pad { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.coop-split-player select { width: 100%; }
 .coop-split-who { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--color-text-2); font-size: var(--text-sm); font-weight: var(--weight-medium); }
 .coop-split-who .icon { flex: none; width: 14px; height: 14px; }
 .coop-split-note { max-width: 70ch; color: var(--color-text-2); font-size: var(--text-xs); }

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+**Update:** press **Update** in the launcher. **Set up again** is not needed (saves and shaders are kept, no shader is translated again).
+
+### Launcher
+- Split screen: **Own screens** puts each player on a monitor of their own, filling it. Pick the monitor per player on the save's card; players on the same monitor share it (#890)
 **Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for storage box tabs; saves and shaders are kept, no shader is translated again).
 
 ### Game

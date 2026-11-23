@@ -34,6 +34,19 @@ export function windowPads(n, wanted = []) {
   return out.map((p, i) => p ?? (out[i] = [1, 2, 3, MAX_PADS].find((k) => !out.includes(k))));
 }
 
+/** The most screens the windows can be put on: one per window. */
+export const MAX_SCREENS = MAX_PLAYERS;
+const screenOk = (s) => Number.isInteger(s) && s >= 1 && s <= MAX_SCREENS;
+
+/** The screen of each of `n` windows when the players have their own (coop_launch.rs SplitOptions screens), numbered as the game's
+ *  Monitor setting. A window without a usable choice has the screen of its number; two windows may be on one screen and share it. */
+export function windowScreens(n, wanted = []) {
+  return Array.from({ length: n }, (_, i) => (screenOk(wanted[i]) ? wanted[i] : i + 1));
+}
+
+/** Window `i` is now on `screen`; the other windows stay. */
+export const chooseScreen = (n, screens, i, screen) => windowScreens(n, screens).map((s, k) => (k === i ? screen : s));
+
 /** Window `i` now plays with `pad`: a window that had it takes window i's old one, so no two windows share a controller. */
 export function choosePad(n, pads, i, pad) {
   const now = windowPads(n, pads);
