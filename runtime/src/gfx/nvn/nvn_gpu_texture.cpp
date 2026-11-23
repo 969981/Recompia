@@ -357,7 +357,9 @@ static float ui_native_scale_impl(const Texture& t) {
         // A phone: the swapchain's size exactly, above the game's size too (wider than the 1920-wide targets on a foldable's near-square inner screen): the
         // scene upscaler then enlarges the 3D picture in one step to the screen, the 2D is drawn at the screen's resolution and the present
         // copies it 1:1. The render scale never goes above it there (the game layer's resolution ceiling is at most the screen).
-        if constexpr (facts::kPhone) sc = std::max(static_cast<float>(e.width) / static_cast<float>(t.b.width), rs);
+        // On both sides: 16:9 targets on a wider screen (a forced aspect) fit its height, never taller than the swapchain.
+        if constexpr (facts::kPhone)
+            sc = std::max(std::min(static_cast<float>(e.width) / static_cast<float>(t.b.width), static_cast<float>(e.height) / static_cast<float>(std::max(1, t.b.height))), rs);
         else sc = std::clamp(static_cast<float>(e.width) / static_cast<float>(t.b.width), rs, 1.0f);
         NXLOG_I(kTag, "ui_native: window textures (%dx%d) at scale %.3f (swapchain %ux%u, render scale %.3f): the 2D at the screen's resolution", t.b.width,
                 t.b.height, sc, e.width, e.height, rs);
