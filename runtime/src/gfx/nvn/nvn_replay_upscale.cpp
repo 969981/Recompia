@@ -314,7 +314,7 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
         if (tsr) {   // the temporal pass: the scene (part), straight to this target's size (temporal_deferred)
             VkExtent2D part{se.width, se.height}, out_tex{};
             const VkExtent2D out{te.width, te.height};
-            scene_part(part, out, &part, &out_tex);
+            scene_part(part, out, &part, &out_tex, r.tex);   // the part this frame drew (the published fraction can be the next frame's)
             if (part.width >= out.width && part.height >= out.height) {      // a 1:1 copy: a later stretch may still enlarge the scene
                 g_su.stretch_armed = true;
                 return;
