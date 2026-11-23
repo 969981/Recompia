@@ -456,6 +456,7 @@ The game's own keys, in the `[pkp]` section of the game ini (`pkp.ini`; `nxrt.in
 | `pkp` | `resolution` | `0` | `0` to `100` (clamped into it) | `NXRT_PKP_RESOLUTION` | On a phone, the 3D picture's resolution in percent of the screen per side, 15 to 100 (0: worked out once from [display] render_scale and [upscale] scene_scale, the keys before it). |
 | `pkp` | `dynamic_resolution_mode` | `gpu` | `gpu` `thermal` | `NXRT_PKP_DYNAMIC_RESOLUTION_MODE` | On a phone with Dynamic Resolution: gpu follows the GPU's time per frame; thermal also caps the resolution by the phone's thermal headroom (dynamic_resolution_headroom, same section), so the GPU can run at lower clocks before the phone throttles. |
 | `pkp` | `dynamic_resolution_headroom` | `0.85` | `0.5` to `0.95` (clamped into it) | `NXRT_PKP_DYNAMIC_RESOLUTION_HEADROOM` | With dynamic_resolution_mode = thermal: the thermal headroom to hold (1.0 = the severe throttling status; about 0.033 per degree C); the device's light-throttling threshold minus 0.03 when lower. |
+| `pkp` | `dynamic_resolution_state` |  | text | `NXRT_PKP_DYNAMIC_RESOLUTION_STATE` | Written by a phone's Dynamic Resolution: what it learned (the settled percent, its floor, the thermal cap) for one screen, mode, Resolution, upscaler and frame cap, so the next start begins there. Cleared by deleting it. |
 
 Retired keys, read and ignored without a warning (the next save leaves them out): `[pkp]` `link_story_coop`.
 

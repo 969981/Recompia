@@ -82,6 +82,7 @@ enum class Key : uint8_t {
     Resolution,
     DynamicResolutionMode,
     DynamicResolutionHeadroom,
+    DynamicResolutionState,
     Count
 };
 

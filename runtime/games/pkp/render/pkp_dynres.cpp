@@ -5,7 +5,7 @@
 // size (its level and the scene fraction agree, SGSR enlarges the scene part in one step), from the GPU's own time per frame
 // (gfx::Tuning::gpu_frame_us, the back end's timestamps):
 //   target   90 % of the frame budget (the frame cap, else the screen's refresh rate);
-//   lower    when the average GPU time stays above the target for 8 frames: in proportion (GPU time taken to follow the pixels, so the
+//   lower    when the average GPU time stays above the target for 30 frames (a second at 30 fps): in proportion (GPU time taken to follow the pixels, so the
 //            side scales with the square root), at least one 5 % step, to the 5 % grid, never below the learned floor;
 //   judge    every step down, 15 frames after it settled: its elasticity is the GPU time it saved against what the pixels it dropped
 //            would save in proportion. Under a third (or more than a quarter of the pixels for under a tenth of the time since the
@@ -15,7 +15,10 @@
 //            all while the target is out of reach and the last two probes failed (on the Tensor G2 a 25 -> 20 probe came back every
 //            50 s: a blip a minute). A probe that pays clears the floor; a new Resolution or turning it on again starts afresh;
 //   raise    one step at a time when the next step is predicted to fit under 95 % of the target for 60 frames in a row (the time per
-//            pixel now, scaled by the last measured elasticity): about 2 s at 30 fps;
+//            pixel now, scaled by the last measured elasticity): about 2 s at 30 fps; never within 30 s of a step down;
+//   learn    what it settled at (the percent, the floor, the thermal cap) is saved at most once a minute in [pkp]
+//            dynamic_resolution_state for this screen, mode, Resolution, upscaler and frame cap, and the next start begins there instead
+//            of searching again (another screen or setting starts afresh);
 //   settle   20 frames after each change before the next decision, with the average started again at the new size;
 //   bounds   kPhoneResMin (15 % of the screen) up to the player's Resolution.
 // Every decision is logged with the numbers it was made from (elasticity included), and the state every 300 frames.
@@ -24,12 +27,14 @@
 // headroom (nxrt/thermal.h, 1 Hz, now and 10 s ahead) that sets a cap the loop above never exceeds, so the GPU keeps slack and its
 // governor settles at a lower clock before the phone throttles:
 //   target   H* = [pkp] dynamic_resolution_headroom (0.85), or the device's LIGHT threshold minus 0.03 when lower;
-//   cap      every 2 polls: down when the forecast is over H* + 0.02 (5 % of the screen per 0.05 of headroom, at most 5 % per 2 s);
-//            up 1 % per 4 s only when now and the forecast are both under H* - 0.05, 10 s after the last decrease, below the
+//   cap      every 2 polls: down when the forecast is over H* + 0.03, in proportion to the error past that (0.6 % per 0.01, at least
+//            0.25, at most 5 % per 2 s; half as fast while the forecast is flat or falling), not below 60 % of the player's Resolution
+//            unless the status is severe, and not below a level where 5 % of thermal steps saved under 10 % of the GPU time over 30 s (for
+//            10 min); up 1 % per 4 s only when now and the forecast are both under H* - 0.03, 10 s after the last decrease, below the
 //            moderate status and while the loop above is not already lower than the cap; severe (or headroom 1.0): 15 % at once;
 //            critical: the lowest resolution;
 //   guard    the loop above with deadline thresholds: one step down after 2 frames over 98 % of the budget or the average over 92 % for
-//            8 frames (each after the last step's verdict, so at least 35 frames apart); one step up after 2 s under 75 % when the next step is predicted under 85 %; nothing in between, which leaves
+//            30 frames (each after the last step's verdict, so at least 35 frames apart); one step up after 2 s under 75 % when the next step is predicted under 85 %; nothing in between, which leaves
 //            the governor room to lower the clock. Changes per minute are logged.
 // No headroom on the device: the guard alone (the cap stays at the player's Resolution). Not implemented: lowering the frame cap at the
 // lowest resolution.
@@ -58,7 +63,7 @@ std::atomic<int> g_dyn_fps_cap{30};
 namespace {
 
 constexpr int kStep = 5;
-constexpr int kLowerAfter = 8, kRaiseAfter = 60, kSettle = 20, kJudge = 15, kStateEvery = 300;
+constexpr int kLowerAfter = 30, kRaiseAfter = 60, kSettle = 20, kJudge = 15, kStateEvery = 300;
 constexpr int kProbeFirst = 1800, kProbeMax = 18000;   // frames before a probe below a floor (60 s, doubling, at most 10 min at 30 fps)
 constexpr double kMinElasticity = 1.0 / 3.0;
 
@@ -86,6 +91,13 @@ struct Dyn {
     std::chrono::steady_clock::time_point last_down{}, last_up{}, minute{};
     int changes = 0;               // resolution changes since `minute`
     bool told_headroom = false;
+    std::chrono::steady_clock::time_point last_drop{}, saved{};   // the loop's last step down; the last save of what it learned
+    std::string sig;               // what the learned state belongs to (screen, mode, Resolution, upscaler, frame cap)
+    std::string stored;            // the state as last written
+    double gpu_long = 0.0;         // GPU ms per frame, slow average (0.02 a frame): what the thermal steps are judged by
+    double tref_cap = 0.0, tref_ms = 0.0;   // the thermal cap and slow GPU time when the current run of thermal steps down began
+    std::chrono::steady_clock::time_point tref_t{}, tfloor_until{};
+    int tfloor = 0;                // a thermal cap its steps were found not to help below (until tfloor_until)
 };
 Dyn g_dyn;   // the game thread's (hook_copy_params)
 
@@ -97,6 +109,7 @@ double budget_ms() {
 
 void change(Dyn& d, int to, const char* why, double target) {
     ++d.changes;
+    if (to < d.pct) d.last_drop = std::chrono::steady_clock::now();
     NXLOG_I(kTag, "dynamic resolution: %d -> %d %% of the screen (%s: GPU %.1f ms a frame on average, target %.1f ms)", d.pct, to, why, d.avg, target);
     d.pct = to;
     d.avg = 0.0;
@@ -175,24 +188,84 @@ void thermal_tick(Dyn& d, int cap, int lowest) {
         d.tcap -= 15.0;
         why = "headroom at the severe status";
     }
+    // the thermal loop alone never takes the cap below 60 % of the player's Resolution (nor below a level its own steps were found not to
+    // help at), unless the status is severe: on a Snapdragon 8 Gen 3 phone only "warm" (headroom 0.79 against a target of 0.80) the noisy forecast drove the
+    // cap down to 15 % and nothing raised it again
+    const bool severe = h.status >= 3 || h.now >= 1.0f;
+    const int no_gain = now < d.tfloor_until ? d.tfloor : 0;
+    const double floor_t = severe ? lowest : std::max({static_cast<double>(lowest), std::ceil(0.6 * cap), static_cast<double>(no_gain)});
     if (!why && h.polls >= d.polls_acted + 2) {
         d.polls_acted = h.polls;
-        if (h.forecast > target + 0.02) {
-            d.tcap -= std::clamp(100.0 * (h.forecast - target), 0.0, 5.0);
+        if (h.forecast > target + 0.03 && d.tcap > floor_t) {
+            // in proportion to the error past the deadband (0.01 of headroom: 0.6 %), half as fast while the forecast is flat or falling
+            double step = 60.0 * (h.forecast - (target + 0.03));
+            if (h.forecast - h.now < 0.005f) step *= 0.5;
+            d.tcap -= std::clamp(step, 0.25, 5.0);
             why = "the forecast is over the target";
-        } else if (std::max(h.now, h.forecast) < target - 0.05 && now - d.last_down > std::chrono::seconds(10) && now - d.last_up >= std::chrono::seconds(4) &&
+            if (d.tref_cap <= 0.0) { d.tref_cap = before; d.tref_ms = d.gpu_long; d.tref_t = now; }
+        } else if (std::max(h.now, h.forecast) < target - 0.03 && now - d.last_down > std::chrono::seconds(10) && now - d.last_up >= std::chrono::seconds(4) &&
                    h.status < 2 && d.pct >= std::min<int>(cap, static_cast<int>(d.tcap) / kStep * kStep) && d.tcap < cap) {
             d.tcap += 1.0;
             d.last_up = now;
             why = "headroom to spare";
         }
     }
+    // the thermal steps judged like the loop's own: after 5 % or more down and 30 s, a GPU time that fell less than 10 % means the cap is
+    // not what heats the phone (the scene was already under it, or the heat is elsewhere): no lower for 10 min
+    if (d.tref_cap > 0.0 && d.tref_cap - d.tcap >= 5.0 && now - d.tref_t >= std::chrono::seconds(30)) {
+        if (d.tref_ms > 0.0 && d.gpu_long > 0.9 * d.tref_ms) {
+            d.tfloor = static_cast<int>(std::lround(d.tcap));
+            d.tfloor_until = now + std::chrono::minutes(10);
+            NXLOG_I(kTag, "dynamic resolution cap: %.0f -> %.0f %% gained little (GPU %.1f -> %.1f ms a frame): no lower on heat alone for 10 min",
+                    d.tref_cap, d.tcap, d.tref_ms, d.gpu_long);
+        }
+        d.tref_cap = 0.0;
+    }
+    if (!severe && d.tcap < floor_t) d.tcap = floor_t;
     d.tcap = std::clamp(d.tcap, static_cast<double>(lowest), static_cast<double>(cap));
     if (why && static_cast<int>(d.tcap) != static_cast<int>(before)) {
         if (d.tcap < before) d.last_down = now;
         NXLOG_I(kTag, "dynamic resolution cap: %.0f -> %.0f %% (%s: headroom %.3f now, %.3f in 10 s, target %.3f, status %d)", before, d.tcap, why, h.now,
                 h.forecast, target, h.status);
     }
+}
+
+// What the learned state belongs to: a new screen (the other side of a foldable), mode, Resolution, upscaler or frame cap starts learning again.
+std::string signature(bool thermal, int cap) {
+    char b[96];
+    std::snprintf(b, sizeof b, "v1 %dx%d %s cap=%d up=%lld fps=%d", g_ph_win_w.load(std::memory_order_relaxed), g_ph_win_h.load(std::memory_order_relaxed),
+                  thermal ? "thermal" : "gpu", cap, static_cast<long long>(settings::get_int(settings::Key::SceneUpscaler)),
+                  g_dyn_fps_cap.load(std::memory_order_relaxed));
+    return b;
+}
+
+// The learned state of the last session with the same signature: the percent it settled at, its floor and the thermal cap.
+void resume(Dyn& d, int lowest) {
+    const std::string st = settings::get_str(settings::Key::DynamicResolutionState);
+    if (st.size() <= d.sig.size() || st.compare(0, d.sig.size(), d.sig) != 0) return;
+    int pct = 0, floor_pct = 0;
+    double tcap = 0.0;
+    if (std::sscanf(st.c_str() + d.sig.size(), " pct=%d floor=%d tcap=%lf", &pct, &floor_pct, &tcap) != 3) return;
+    d.pct = std::clamp(pct, lowest, d.cap);
+    d.floor_pct = floor_pct > 0 ? std::clamp(floor_pct, lowest, d.cap) : 0;
+    if (tcap > 0.0) d.tcap = std::clamp(tcap, static_cast<double>(lowest), static_cast<double>(d.cap));
+    d.wait = d.backoff;   // a learned floor is not probed at once
+    d.stored = st;
+    NXLOG_I(kTag, "dynamic resolution: resuming what was learned for this screen and settings: %d %% (floor %d, thermal cap %.0f)", d.pct, d.floor_pct,
+            d.tcap);
+}
+
+// Writes the learned state at most once a minute, and only when it changed.
+void save(Dyn& d) {
+    const auto now = std::chrono::steady_clock::now();
+    if (now - d.saved < std::chrono::seconds(60)) return;
+    d.saved = now;
+    char b[160];
+    std::snprintf(b, sizeof b, "%s pct=%d floor=%d tcap=%.0f", d.sig.c_str(), d.pct, d.floor_pct, d.thermal ? d.tcap : 0.0);
+    if (d.stored == b) return;
+    d.stored = b;
+    settings::set_str(settings::Key::DynamicResolutionState, b);
+    NXLOG_I(kTag, "dynamic resolution: learned state saved (%s)", b);
 }
 
 }  // namespace
@@ -217,9 +290,11 @@ int dynres_pct(int cap, bool on) {
         d.thermal = thermal;
         d.seen = seen;
         d.settle = kSettle;
-        d.minute = std::chrono::steady_clock::now();
+        d.minute = d.saved = std::chrono::steady_clock::now();
         NXLOG_I(kTag, "dynamic resolution: %s, %d to %d %% of the screen, %s (budget %.1f ms)", first ? "on" : "restarted", lowest, cap,
                 thermal ? "under a thermal cap, the GPU time as a deadline guard" : "from the GPU's time per frame", budget_ms());
+        d.sig = signature(thermal, cap);
+        resume(d, lowest);
     }
     if (thermal) thermal_tick(d, cap, lowest);
     // the cap of this frame on the 5 % grid; the loop below never goes over it
@@ -231,6 +306,7 @@ int dynres_pct(int cap, bool on) {
         d.changes = 0;
         d.minute = now;
     }
+    if (d.settle == 0 && d.judge == 0) save(d);
     const uint64_t n = tu.gpu_frames.load(std::memory_order_relaxed);
     if (n == d.seen) {
         if (n == 0 && !d.told_none && ++d.samples > 600) {
@@ -243,6 +319,7 @@ int dynres_pct(int cap, bool on) {
     const double budget = budget_ms();
     const double ms = tu.gpu_frame_us.load(std::memory_order_relaxed) / 1000.0;
     d.avg = d.avg > 0.0 ? d.avg + 0.15 * (ms - d.avg) : ms;
+    d.gpu_long = d.gpu_long > 0.0 ? d.gpu_long + 0.02 * (ms - d.gpu_long) : ms;
     const double target = thermal ? 0.92 * budget : 0.9 * budget;
     const bool panic = thermal && ms > 0.98 * budget && d.prev_ms > 0.98 * budget;
     d.prev_ms = ms;
@@ -287,6 +364,7 @@ int dynres_pct(int cap, bool on) {
         d.probing = probe;
         return d.pct;
     }
+    if (std::chrono::steady_clock::now() - d.last_drop < std::chrono::seconds(30)) { d.fits = d.under = 0; return d.pct; }   // no raise within 30 s of a drop
     const int up = std::min(d.lim, (d.pct / kStep + 1) * kStep);
     const double next = d.avg * (1.0 + d.elasticity * (pixels(up, d.pct) - 1.0));
     if (thermal) {   // the guard: 2 s under 75 % of the budget and the next step predicted under 85 %
