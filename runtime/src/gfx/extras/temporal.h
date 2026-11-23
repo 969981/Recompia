@@ -73,6 +73,8 @@ bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint
 // (`out` large, in the top-left of an image of out_tex when that is larger; GENERAL layout, readable by fragment shaders after the recorded
 // barrier) or null (nothing recorded: the draw keeps its own input).
 // hdr: the colour is the scene before the tone map (else display-referred).
+// The image temporal_evaluate last returned a view of (R16G16B16A16_SFLOAT, GENERAL layout); null before the first result.
+VkImage temporal_output_image();
 VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView color, VkImageView depth, VkImageLayout depth_layout, VkExtent2D render,
                               VkExtent2D out, bool depth_neg_one, VkExtent2D out_tex = {}, bool hdr = true);
 // Forgets the camera kept this frame (the draw that was to use it never came), so the next frame's G-buffer gives its own.

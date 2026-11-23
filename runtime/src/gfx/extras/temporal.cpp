@@ -395,6 +395,12 @@ bool temporal_camera_ready() {
     return s.have_cam;
 }
 
+VkImage temporal_output_image() {
+    State& s = st();
+    std::lock_guard<std::mutex> lk(s.mu);
+    return s.output.img.image;
+}
+
 VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView color, VkImageView depth, VkImageLayout depth_layout, VkExtent2D render,
                               VkExtent2D out, bool depth_neg_one, VkExtent2D out_tex, bool hdr) {
     State& s = st();

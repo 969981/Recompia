@@ -108,9 +108,9 @@ void Overlay::Impl::refresh_counter_text(double now_s) {
             const gfx::Tuning& tu = gfx::tuning();
             const int pct = tu.res_pct.load(std::memory_order_relaxed);
             if (pct > 0) {
-                static constexpr const char* kUp[] = {"Off", "SGSR", "Bicubic"};
+                static constexpr const char* kUp[] = {"Off", "SGSR", "Bicubic", "SGSR 2"};
                 const uint32_t sp = tu.res_scene_px.load(std::memory_order_relaxed), op = tu.res_out_px.load(std::memory_order_relaxed);
-                const int up = std::clamp(tu.res_upscaler.load(std::memory_order_relaxed), 0, 2);
+                const int up = std::clamp(tu.res_upscaler.load(std::memory_order_relaxed), 0, 3);
                 char line[96];
                 int k = std::snprintf(line, sizeof line, "Res %d%%", pct);
                 if (sp && op && k > 0 && k < static_cast<int>(sizeof line))
