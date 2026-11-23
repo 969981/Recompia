@@ -49,6 +49,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
@@ -124,6 +125,8 @@ fun CoopScreen(canPlay: Boolean, onBack: () -> Unit, load: () -> List<Coop.Profi
     var adding by remember { mutableStateOf<String?>(null) }
     var addName by remember { mutableStateOf("") }
     var addError by remember { mutableStateOf<String?>(null) }
+    var fresh by remember { mutableStateOf<String?>(null) }   // the save just made: its card takes the focus, the keyboard closes
+    val keyboard = LocalSoftwareKeyboardController.current
     // Join a friend
     var text by remember { mutableStateOf("") }
     var joinError by remember { mutableStateOf<String?>(null) }
@@ -152,7 +155,8 @@ fun CoopScreen(canPlay: Boolean, onBack: () -> Unit, load: () -> List<Coop.Profi
         createError = Coop.create(newName, myName)
         if (createError == null) {
             newName = ""; form = null; refresh()
-            saves.firstOrNull { it.id !in before }?.let { adding = it.id; addName = ""; addError = null }   // next: the friends' names
+            keyboard?.hide()
+            fresh = saves.firstOrNull { it.id !in before }?.id   // next: its card (Play, else Invite code); Add a player is one press away
         }
     }
     val canCreate = newName.isNotBlank() && myName.isNotBlank()
@@ -203,7 +207,7 @@ fun CoopScreen(canPlay: Boolean, onBack: () -> Unit, load: () -> List<Coop.Profi
                     else -> if (hosts) R.string.ui_coop_you_host else R.string.ui_coop_you_visit
                 }), style = MaterialTheme.typography.bodyMedium, color = Rc.text2)
                 // a gamepad walks the card's last part in visual order, whatever the FlowRows wrap to on a narrow screen: DOWN / UP go
-                // Play or Invite code, Copy code, Share, Copy long invite, Remove; LEFT / RIGHT stay in a row (Play, Invite code) or
+                // Play, Invite code, Copy code, Share, Copy long invite, Remove; LEFT / RIGHT stay in a row (Play, Invite code) or
                 // (Copy code, Share, Copy long invite). A disabled target cannot take focus, so it is skipped here (Default: geometric).
                 val playF = remember { FocusRequester() }
                 val inviteF = remember { FocusRequester() }
@@ -218,10 +222,12 @@ fun CoopScreen(canPlay: Boolean, onBack: () -> Unit, load: () -> List<Coop.Profi
                 val belowTop = if (panel) copyF else removeF
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     RcButton(stringResource(R.string.ui_coop_play), { GameLauncher.launchCoop(ctx, p.id, choice) },
-                        Modifier.focusRequester(playF).focusProperties { down = belowTop; left = FocusRequester.Cancel; right = if (creator) inviteF else FocusRequester.Cancel }
-                            .let { if (i == 0) it.initialFocus() else it }, icon = Icons.Rounded.PlayArrow, kind = Kind.PRIMARY, enabled = canPlay)
+                        Modifier.focusRequester(playF).focusProperties { down = if (creator) inviteF else belowTop; left = FocusRequester.Cancel; right = if (creator) inviteF else FocusRequester.Cancel }
+                            .let { if (fresh == p.id) it.initialFocus(fresh) else if (i == 0 && fresh == null) it.initialFocus() else it },
+                        icon = Icons.Rounded.PlayArrow, kind = Kind.PRIMARY, enabled = canPlay)
                     if (creator) RcButton(stringResource(R.string.ui_coop_invite_others), { if (open == p.id) open = null else showInvite(p) },
-                        Modifier.focusRequester(inviteF).focusProperties { down = belowTop; left = if (canPlay) playF else FocusRequester.Cancel; right = FocusRequester.Cancel },
+                        Modifier.focusRequester(inviteF).focusProperties { up = playOrDefault; down = belowTop; left = if (canPlay) playF else FocusRequester.Cancel; right = FocusRequester.Cancel }
+                            .let { if (fresh == p.id && !canPlay) it.initialFocus(fresh) else it },
                         icon = Icons.AutoMirrored.Rounded.Send)
                 }
                 if (open == p.id) {
