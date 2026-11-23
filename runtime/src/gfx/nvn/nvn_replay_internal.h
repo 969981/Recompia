@@ -692,6 +692,11 @@ struct TsrBlock {   // owner: nvn_replay_upscale.cpp
 extern TsrBlock g_tsr;
 void tsr_resolve();
 bool tsr_jitter(uint32_t* words, size_t n_words);
+// Temporal upscaling at a binding of the camera block: true with words = the block at addr, jittered (tsr_jitter), when it is a valid camera
+// that the temporal pass will use: no GPU write in flight over it (a copy of guest memory would be stale: inline uniform updates and
+// compute results reach only the GPU's copy), and the frame before ran the pass (a frame that is not upscaled must not be jittered).
+constexpr size_t kTsrMaxWords = 256;   // 1 KiB (temporal_camera_block checks the block's length)
+bool tsr_cam_copy(uint64_t addr, uint32_t* words);
 void support_for_draw(const ProgLayout& pl, bool compute);
 void bind_sets(const ProgLayout& pl, VkPipelineBindPoint bp);
 void temporal_gbuffer_note();
