@@ -37,7 +37,7 @@
   <a href="https://discord.recompia.com">Discord</a>
 </p>
 
-<!-- i18n-bar:start -->
+<!-- i18n-bar:start
 <p align="center">
   <b>English</b> ·
   <a href="docs/i18n/README.zh-CN.md">简体中文</a> ·
@@ -47,7 +47,7 @@
   <a href="docs/i18n/README.pt-BR.md">Português (Brasil)</a> ·
   <a href="docs/i18n/README.pt-PT.md">Português (Portugal)</a>
 </p>
-<!-- i18n-bar:end -->
+ i18n-bar:end -->
 
 > [!IMPORTANT]
 > **No game files are included.** You need your own extracted copy of this cozy life-simulation and sandbox builder with fantastical creatures (title ID 0400A3A01EE4C000, version **2.0.1a**). This project provides no game files, keys or dumping tools. See [LEGAL.md](LEGAL.md).
