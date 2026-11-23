@@ -697,6 +697,11 @@ bool tsr_jitter(uint32_t* words, size_t n_words);
 // compute results reach only the GPU's copy), and the frame before ran the pass (a frame that is not upscaled must not be jittered).
 constexpr size_t kTsrMaxWords = 256;   // 1 KiB (temporal_camera_block checks the block's length)
 bool tsr_cam_copy(uint64_t addr, uint32_t* words);
+// Temporal upscaling at any other uniform block binding: true when the block holds this frame's unjittered view-projection or its inverse
+// (found once per stage, slot, fragment program and size) and is settled in guest memory; the caller then binds a copy that
+// tsr_other_patch gives the jittered matrices.
+bool tsr_other_wanted(int stage, int slot, uint64_t addr, uint64_t size);
+void tsr_other_patch(uint8_t* words, size_t bytes);
 void support_for_draw(const ProgLayout& pl, bool compute);
 void bind_sets(const ProgLayout& pl, VkPipelineBindPoint bp);
 void temporal_gbuffer_note();

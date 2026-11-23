@@ -336,7 +336,7 @@ double radical_inverse(uint32_t i, uint32_t base) {
 }  // namespace
 
 // The game's own jitter does not reach the G-buffer camera (see temporal.h), so the runtime jitters it: Halton(2, 3), 8 phases at native
-// size and ceil(8 * ratio^2) when upscaling (at most 64), x and y +0.01 to +0.5 px (see below).
+// size and ceil(8 * ratio^2) when upscaling (at most 64), +-0.5 px (see below).
 bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint32_t height, uint64_t frame) {
     static const int mode = static_cast<int>(config_get_int("upscale", "jitter", 1));   // 0 never, 1 when the projection has no jitter of its own
     const game::CameraBlock* cb = temporal_camera_block();
@@ -346,12 +346,13 @@ bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint
     if (std::fabs(c.jit[0]) * width > 0.01 || std::fabs(c.jit[1]) * height > 0.01) return false;   // already jittered (by the game)
     const uint32_t phases = temporal_jitter_phase_count();
     const uint32_t idx = static_cast<uint32_t>(frame % phases) + 1;
-    // The picture's offset is kept in [+0.01, +0.5) px on both axes (FSR convention: +x right, +y down) rather than +-0.5: the game's
-    // terrain-type blend, its distant terrain shading, the placement highlight and some far grass switch to another look when the scene is
-    // moved left by even a few hundredths of a pixel or up by more than about a tenth, so a centred jitter showed that look on every other
-    // frame (Halton base 2, x) and every third (base 3, y) through every temporal upscaler. The upscalers are given the actual offset, so the
-    // one-sided range halves the jitter's spread (0.5 px) and costs no reconstruction.
-    const double jx = (0.02 + 0.98 * radical_inverse(idx, 2)) / width, jy = -(0.02 + 0.98 * radical_inverse(idx, 3)) / height;
+    // +-0.5 px on both axes. Copies of the camera's view-projection and its inverse sit in other blocks; with only the camera
+    // block jittered, some faces switched look with the offset's sign and some fell into shade, so those copies get the same jitter
+    // (nvn_replay_upscale.cpp tsr_other_wanted). [upscale] jitter_range = pos keeps the picture's offset in [+0.01, +0.5) px on both axes
+    // instead (FSR convention: +x right, +y down), the range that hid the switching before the copies were jittered.
+    static const bool one_sided = config_get_str("upscale", "jitter_range", "full") == "pos";
+    const double hx = radical_inverse(idx, 2), hy = radical_inverse(idx, 3);
+    const double jx = (one_sided ? 0.02 + 0.98 * hx : 2.0 * hx - 1.0) / width, jy = (one_sided ? -(0.02 + 0.98 * hy) : 2.0 * hy - 1.0) / height;
     float f[16];
     std::memcpy(f, words + cb->view_proj, sizeof f);
     for (int col = 0; col < 4; ++col) {   // column-major: ndc.x += jx, ndc.y += jy (clip x += jx * w)
@@ -386,6 +387,26 @@ void temporal_note_gbuffer(const uint32_t* words, size_t n_words) {
                 cb->stage, cb->slot, cb->view_proj, cb->view_proj + 15, cb->view, cb->view + 15,
                 c.proj_u.at(0, 0), c.proj_u.at(1, 1), c.p22, c.p23, c.jit[0], c.jit[1], c.pos[0], c.pos[1], c.pos[2]);
     }
+}
+
+bool temporal_frame_matrices(float vpu[16], float ivpu[16], float vpj[16], float ivpj[16]) {
+    State& s = st();
+    std::lock_guard<std::mutex> lk(s.mu);
+    if (!s.have_cam || (s.cam.jit[0] == 0.0 && s.cam.jit[1] == 0.0)) return false;
+    static M4 last_vpj, inv_u, inv_j;   // the inverses of the last camera asked for (a frame asks many times)
+    static bool have = false;
+    if (!have || std::memcmp(last_vpj.m, s.cam.vpj.m, sizeof last_vpj.m) != 0) {
+        if (!inverse(s.cam.vpu, inv_u) || !inverse(s.cam.vpj, inv_j)) return false;
+        last_vpj = s.cam.vpj;
+        have = true;
+    }
+    for (int i = 0; i < 16; ++i) {
+        vpu[i] = static_cast<float>(s.cam.vpu.m[i]);
+        ivpu[i] = static_cast<float>(inv_u.m[i]);
+        vpj[i] = static_cast<float>(s.cam.vpj.m[i]);
+        ivpj[i] = static_cast<float>(inv_j.m[i]);
+    }
+    return true;
 }
 
 void temporal_drop_camera() {

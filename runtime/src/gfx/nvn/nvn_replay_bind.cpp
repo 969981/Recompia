@@ -573,15 +573,17 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                         uint32_t tsr_words[kTsrMaxWords];
                         const bool tsr = d.nvn_stage == g_tsr.stage && idx == g_tsr.slot && bind.size >= g_tsr.bytes && extras::temporal_wanted() && S.depth_tex &&
                                          tsr_cam_copy(bind.addr, tsr_words);
-                        if (ufs == 1.0f && !tsr && uniform_snapshot(bind.addr, bind.size, align, &bi)) break;   // from video memory
+                        const bool tsr_other = !tsr && extras::temporal_wanted() && tsr_other_wanted(d.nvn_stage, idx, bind.addr, bind.size ? bind.size : 65536);
+                        if (ufs == 1.0f && !tsr && !tsr_other && uniform_snapshot(bind.addr, bind.size, align, &bi)) break;   // from video memory
                         BufRef br = resolve_read(bind.addr, bind.size, kReadUniform);
-                        if (br.ok && (ufs != 1.0f || tsr)) {
+                        if (br.ok && (ufs != 1.0f || tsr || tsr_other)) {
                             // the game's scale on some floats of this block (nxrt/gfx_tuning.h): bound from a patched copy in the upload ring
                             const VkDeviceSize n = std::min<VkDeviceSize>({bind.size ? bind.size : 65536, br.avail, 65536});
                             UploadAlloc u = F->upload(n, std::max<VkDeviceSize>(align, 256));
                             if (u) {
                                 std::memcpy(u.ptr, host_ptr(bind.addr), n);
                                 if (tsr && n >= g_tsr.bytes) std::memcpy(u.ptr, tsr_words, g_tsr.bytes);   // temporal upscaling: the jittered camera
+                                if (tsr_other) tsr_other_patch(static_cast<uint8_t*>(u.ptr), static_cast<size_t>(n));   // ... and its copies elsewhere
                                 const uint32_t mask = ufs == 1.0f ? 0u : d.nvn_stage == kCompute ? nxrt::gfx::tuning().csr_mask.load(std::memory_order_relaxed)
                                                                                  : nxrt::gfx::tuning().ufs_mask.load(std::memory_order_relaxed);
                                 for (uint32_t i = 0; i < 32; ++i) {
