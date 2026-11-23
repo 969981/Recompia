@@ -199,8 +199,10 @@ private fun ControllerCard() {
     val overlay = remember { org.recompia.pkp.overlay.OverlayPrefs.of(ctx) }
     var touch by remember { mutableStateOf(org.recompia.pkp.overlay.OverlayPrefs.enabled(overlay)) }
     GlassCard(Modifier.fillMaxWidth(), strong = false, padding = 6.dp) {
-        SwitchRow(if (pads.isEmpty()) stringResource(R.string.ui_touch_controls) else pads.joinToString(", "), touch,
+        // the switch is the touch overlay; the connected pads are its status line (TalkBack reads "Touch controls" as the switch's label)
+        SwitchRow(stringResource(R.string.ui_set_touch), touch,
             { touch = it; overlay.edit().putBoolean(org.recompia.pkp.overlay.OverlayPrefs.ENABLED, it).apply() },
+            sub = if (pads.isEmpty()) stringResource(R.string.ui_no_controller) else pads.joinToString(", "),
             overline = stringResource(R.string.ui_controls_label),
             icon = if (pads.isEmpty()) Icons.Rounded.TouchApp else Icons.Rounded.SportsEsports)
     }
