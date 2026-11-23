@@ -9,7 +9,9 @@
 #include <bit>
 #include <unordered_set>
 
+#include "nxrt/extras.h"
 #include "nxrt/host_device.h"
+#include "nxrt/platform_facts.h"
 #include "nvn_thread.h"   // BigThread: the texture-arming worker gets a stack of its own (the guest code cannot exhaust it)
 
 namespace nxrt::nvn::be {
@@ -339,12 +341,48 @@ static bool is_shadow_map(const Texture& t) {
 }
 
 // [gfx] ui_native: the window textures (the presented picture, where a game draws its 2D after the 3D scene) are rendered at the
-// swapchain's width instead of the render scale: the 2D is drawn at the screen's resolution while the 3D passes keep the low internal
+// swapchain's size instead of the render scale: the 2D is drawn at the screen's resolution while the 3D passes keep the low internal
 // size, and the draw that copies the scene into the window texture enlarges it. 0 when off or not known yet.
 static std::unordered_set<uint32_t> g_ui_depth;   // depth targets of passes on a window texture (render thread): they keep its scale
+
+// Desktop: `auto` (the default) is on while the window is larger than the game's frame (a 4K or 1440p screen with 1080p targets), except
+// while the player's FSR 1 or NIS has only the present to enlarge the 3D picture in (the scene shown at 100%: the game's composite then
+// enlarges the scene into the window texture with its own bilinear tap, and the upscaler the player chose would no longer reach the
+// picture; below 100% the scene stretch runs it into the window texture's size). At the frame's size or smaller it leaves the old path.
+// `1` always on (a smaller window shrinks the window texture too), `0` off. Live: a change rescales the window textures at their next
+// pass (attach_targets).
+static bool ui_native_desktop_on(float fit) {
+    static const std::string v = nxrt::config_get_str("gfx", "ui_native", "auto");
+    static const bool forced = nxrt::config_get_bool("gfx", "ui_native", false);
+    if (v != "auto") return forced;
+    const extras::UpscaleMode m = extras::upscale_mode();
+    return fit > 1.0f && !((m == extras::UpscaleMode::Fsr1 || m == extras::UpscaleMode::Nis) && extras::upscale_scene_scale() >= 100);
+}
+
+// Desktop: the window textures follow the window, fitted inside it with their aspect (a 1920x1080 frame is 3840x2160 on a 4K screen,
+// 1280x720 in a 1280x720 window), so the present copies them 1:1 with the nearest sampler. Remeasured when the swapchain changes size
+// (a resized window, Alt+Enter); a minimized window (extent 0) keeps the last scale.
+static float ui_native_desktop_scale(const Texture& t) {
+    static VkExtent2D seen{};
+    static float sc = 0.0f;
+    gfx::Renderer* r = renderer();
+    const VkExtent2D e = r ? r->extent() : VkExtent2D{};
+    if (e.width && e.height && (e.width != seen.width || e.height != seen.height)) {
+        seen = e;
+        sc = std::min(static_cast<float>(e.width) / static_cast<float>(t.b.width), static_cast<float>(e.height) / static_cast<float>(t.b.height));
+        NXLOG_I(kTag, "ui_native: window textures (%dx%d) fit the swapchain %ux%u at scale %.3f (used when [gfx] ui_native is on for it)", t.b.width,
+                t.b.height, e.width, e.height, sc);
+    }
+    return sc;
+}
+
 static float ui_native_scale_impl(const Texture& t) {
-    // default on for a phone; off elsewhere: there the present then stops upscaling, so a desktop player's chosen upscaler would no
-    // longer reach the final picture (it would override a player's setting)
+    if constexpr (!facts::kPhone) {
+        if (t.b.width <= 0 || (!t.is_display && !g_ui_depth.count(t.id))) return 0.0f;
+        const float sc = ui_native_desktop_scale(t);
+        return sc > 0.0f && ui_native_desktop_on(sc) ? sc : 0.0f;
+    }
+    // a phone: on unless set off, at the screen's width once (clamped to [render scale, 1] of the targets)
     static const bool on = nxrt::config_get_bool("gfx", "ui_native", host_is_phone());
     if (!on || t.b.width <= 0 || (!t.is_display && !g_ui_depth.count(t.id))) return 0.0f;
     static float sc = 0.0f;
