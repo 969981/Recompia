@@ -56,18 +56,23 @@ std::atomic<int> g_ph_ceiling{100}, g_ph_max{100}, g_ph_win_w{0}, g_ph_win_h{0};
 // scale: 50 to 100 ms a frame; as 25 % of screen-scale targets: 19 ms). Under [gfx] present_scale (the low-memory profile's 75, the swapchain's share
 // of the screen) they are made at the player's percent instead, at least 50 % and at most that share, to keep memory (about 140 bytes per
 // pixel of the targets: a 4-megapixel screen is about 560 MiB of them); a higher percent then applies at the next start.
-float phone_res_install(const play::DisplaySettings& d, int window_w, int window_h, int tw, int th) {
+float phone_res_install(const play::DisplaySettings& d, int window_w, int window_h, int tw, int th, int base_w) {
     const int top = static_cast<int>(std::clamp<int64_t>(config_get_int("gfx", "present_scale", 100), 25, 100));
     g_ph_max.store(top);
     g_ph_win_w.store(window_w);
     g_ph_win_h.store(window_h);
     if (settings::get_int(settings::Key::Resolution) <= 0) {
         // [display] render_scale (percent of the game's targets, auto = 100) x [upscale] scene_scale, as a share of the screen: the same
-        // pixels as before (a near-square inner screen at 70 and 100: 62 % of that screen's width)
+        // pixels as before, on the targets' width before they took the screen's (base_w: a near-square inner screen at 70 and 100 is
+        // 1344 of 1920, so 62 % of that screen's width)
         const int rs = d.render_scale > 0 ? d.render_scale : 100, ss = extras::upscale_scene_scale_player();
-        const int pct = std::clamp(static_cast<int>(std::lround(rs * ss / 100.0 * tw / std::max(1, window_w))), kPhoneResMin, 100);
+        const int pct = std::clamp(static_cast<int>(std::lround(rs * ss / 100.0 * base_w / std::max(1, window_w))), kPhoneResMin, 100);
         settings::set_int(settings::Key::Resolution, pct);
         NXLOG_I(kTag, "resolution: %d%% of the screen, from [display] render_scale %d and [upscale] scene_scale %d (the keys before [pkp] resolution)", pct, rs, ss);
+    }
+    if (settings::get_int(settings::Key::SceneUpscaler) == 2) {   // bicubic, no longer offered: the Upscaler row shows it as SGSR
+        settings::set_int(settings::Key::SceneUpscaler, 1);
+        NXLOG_I(kTag, "scene upscaler: bicubic (an earlier build's 2) is now SGSR");
     }
     const double per_pct = static_cast<double>(window_w) / std::max(1, tw) / 100.0;   // render scale per percent of the screen
     const int lowest = static_cast<int>(std::ceil(0.25 / per_pct - 1e-6));
