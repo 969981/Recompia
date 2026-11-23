@@ -30,7 +30,10 @@
 //   cap      every 2 polls: down when the forecast is over H* + 0.03, in proportion to the error past that (0.6 % per 0.01, at least
 //            0.25, at most 5 % per 2 s; half as fast while the forecast is flat or falling), not below 60 % of the player's Resolution
 //            unless the status is severe, and not below a level where 5 % of thermal steps saved under 10 % of the GPU time over 30 s (for
-//            10 min); up 1 % per 4 s only when now and the forecast are both under H* - 0.03, 10 s after the last decrease, below the
+//            10 min), and only while the headroom rises (the forecast 0.01 over now, or now 0.01 over 30 s ago) unless it is 0.08 over
+//            the target; up 1 % per 4 s when now and the forecast are both under H* - 0.03, or when the headroom has not risen for 30 s
+//            and the GPU is under 75 % of its budget (a hot Snapdragon 8 Gen 3 phone held the cap at 15 % for 20 min at 19 of 41.7 ms and a steady headroom
+//            of 0.87); either 10 s after the last decrease, below the
 //            moderate status and while the loop above is not already lower than the cap; severe (or headroom 1.0): 15 % at once;
 //            critical: the lowest resolution;
 //   guard    the loop above with deadline thresholds: one step down after 2 frames over 98 % of the budget or the average over 92 % for
@@ -98,6 +101,8 @@ struct Dyn {
     double tref_cap = 0.0, tref_ms = 0.0;   // the thermal cap and slow GPU time when the current run of thermal steps down began
     std::chrono::steady_clock::time_point tref_t{}, tfloor_until{};
     int tfloor = 0;                // a thermal cap its steps were found not to help below (until tfloor_until)
+    float h_hist[15] = {};         // the headroom at the last 15 slow-loop actions (about 30 s)
+    int h_n = 0;
 };
 Dyn g_dyn;   // the game thread's (hook_copy_params)
 
@@ -194,20 +199,27 @@ void thermal_tick(Dyn& d, int cap, int lowest) {
     const bool severe = h.status >= 3 || h.now >= 1.0f;
     const int no_gain = now < d.tfloor_until ? d.tfloor : 0;
     const double floor_t = severe ? lowest : std::max({static_cast<double>(lowest), std::ceil(0.6 * cap), static_cast<double>(no_gain)});
-    if (!why && h.polls >= d.polls_acted + 2) {
+    // the headroom 30 s ago (one sample per slow-loop action): stable or falling means the cap is not what heats the phone further
+    const bool act = h.polls >= d.polls_acted + 2;
+    if (act) { d.h_hist[d.h_n++ % 15] = h.now; }
+    const float h_30s = d.h_n >= 15 ? d.h_hist[d.h_n % 15] : NAN;
+    const bool rising = h.forecast - h.now > 0.01f || (!std::isnan(h_30s) && h.now - h_30s > 0.01f);
+    const bool slack = d.avg > 0.0 && d.avg < 0.75 * budget_ms();
+    if (!why && act) {
         d.polls_acted = h.polls;
-        if (h.forecast > target + 0.03 && d.tcap > floor_t) {
+        if (h.forecast > target + 0.03 && d.tcap > floor_t && (rising || h.now > target + 0.08)) {
             // in proportion to the error past the deadband (0.01 of headroom: 0.6 %), half as fast while the forecast is flat or falling
             double step = 60.0 * (h.forecast - (target + 0.03));
             if (h.forecast - h.now < 0.005f) step *= 0.5;
             d.tcap -= std::clamp(step, 0.25, 5.0);
             why = "the forecast is over the target";
             if (d.tref_cap <= 0.0) { d.tref_cap = before; d.tref_ms = d.gpu_long; d.tref_t = now; }
-        } else if (std::max(h.now, h.forecast) < target - 0.03 && now - d.last_down > std::chrono::seconds(10) && now - d.last_up >= std::chrono::seconds(4) &&
-                   h.status < 2 && d.pct >= std::min<int>(cap, static_cast<int>(d.tcap) / kStep * kStep) && d.tcap < cap) {
+        } else if ((std::max(h.now, h.forecast) < target - 0.03 || (!rising && slack && !std::isnan(h_30s))) && now - d.last_down > std::chrono::seconds(10) &&
+                   now - d.last_up >= std::chrono::seconds(4) && h.status < 2 && d.pct >= std::min<int>(cap, static_cast<int>(d.tcap) / kStep * kStep) && d.tcap < cap) {
+            // release: headroom to spare, or a stable (not rising for 30 s) headroom with the GPU under 75 % of its budget
             d.tcap += 1.0;
             d.last_up = now;
-            why = "headroom to spare";
+            why = std::max(h.now, h.forecast) < target - 0.03 ? "headroom to spare" : "the headroom is steady and the GPU has slack";
         }
     }
     // the thermal steps judged like the loop's own: after 5 % or more down and 30 s, a GPU time that fell less than 10 % means the cap is
