@@ -69,6 +69,7 @@ bool temporal_camera_ready();   // a camera was kept since the last evaluation
 // and its inverse (column-major). Copies of the view-projection and its inverse sit in other blocks too (other passes of the
 // G-buffer, the lighting); they get the same jitter (nvn_replay_upscale.cpp tsr_other_wanted). False: no jittered camera this frame.
 bool temporal_frame_matrices(float vpu[16], float ivpu[16], float vpj[16], float ivpj[16]);
+float temporal_lod_bias();   // log2(render / output width) in quarter steps while a temporal mode upscales (see temporal.cpp)
 uint32_t temporal_jitter_phase_count();
 bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint32_t height, uint64_t frame);
 // The tone-map draw: colour (view in SHADER_READ_ONLY_OPTIMAL) and depth (depth-aspect view, layout depth_layout) of the scene, the part of
