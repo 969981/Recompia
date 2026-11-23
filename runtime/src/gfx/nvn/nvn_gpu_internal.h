@@ -164,6 +164,14 @@ void barrier_batch_end() {
     di.pImageMemoryBarriers = b.img.data();
     vkCmdPipelineBarrier2(cb, &di);
 }
+// Phones, memory_barrier: true when an open barrier batch on cb collects it; else a full barrier in the replay's command buffer resets the
+// GPU work record (vk_work_track.h).
+template <bool kOn = facts::kPhone>
+bool mem_barrier_phone(VkCommandBuffer cb) {
+    if (barrier_batch().on(cb)) { barrier_batch().mem = true; return true; }
+    if (on_render_thread()) gfx::work_reset_for(cb);
+    return false;
+}
 // [nvn] pass_barriers = tracked (S38): image_barrier derives its stage and access masks from the two layouts instead of all commands and
 // all memory. Set by the replay for each submission; any thread may record image barriers, so it is an atomic.
 void set_narrow_barriers(bool on);

@@ -8,8 +8,9 @@
 //   compute   dispatches
 //   storage   transform feedback (and the replay's storing draws)
 // Commands left unwrapped do not write buffer or image memory (state, binds, push constants, barriers, queries, timestamps, labels).
-// The state starts "everything" (unknown) and is only ever made smaller by a full barrier on the render thread; any thread's recording
-// can only add kinds. Templates: a build without the fact compiles none of it.
+// The state starts "everything" (unknown) and is only ever made smaller by a full barrier the render thread records in the replay's own
+// command buffer (work_cb) while no one-shot submission is in flight; any thread's recording can only add kinds. Other threads record
+// only through Device::submit_once (scene and SMAA uploads, texture view copies, pool copies), which waits for its fence. Templates: a build without the fact compiles none of it.
 #pragma once
 #include <atomic>
 #include <cstdint>
@@ -25,10 +26,40 @@ std::atomic<uint32_t>& work_kinds() {
     static std::atomic<uint32_t> k{kWorkAll};
     return k;
 }
+// Always an atomic or: a test first could skip the mark while the render thread's reset clears the bit, and the work would be lost.
 template <bool kOn = facts::kPhone>
 inline void work_mark(uint32_t kind) {
-    std::atomic<uint32_t>& k = work_kinds();
-    if ((k.load(std::memory_order_relaxed) & kind) != kind) k.fetch_or(kind, std::memory_order_relaxed);
+    work_kinds().fetch_or(kind, std::memory_order_relaxed);
+}
+// The replay's command buffer being recorded (render thread only): only a full barrier in it resets the record. A barrier in any other
+// command buffer (a one-shot submission, the presenter's) does not order the replay's work.
+template <bool kOn = facts::kPhone>
+void*& work_cb() {
+    static void* cb = nullptr;
+    return cb;
+}
+// One-shot submissions in flight (Device::submit_once, any thread). Their command buffers are submitted on their own and may follow the
+// replay's barrier in submission order, so a reset while one is in flight keeps every kind; once its fence was waited for, its work is
+// complete before anything the replay submits later.
+template <bool kOn = facts::kPhone>
+std::atomic<int>& work_inflight() {
+    static std::atomic<int> n{0};
+    return n;
+}
+template <bool kOn = facts::kPhone>
+struct WorkInflight {   // for the life of one submit_once
+    WorkInflight() { if constexpr (kOn) work_inflight().fetch_add(1, std::memory_order_acq_rel); }
+    ~WorkInflight() { if constexpr (kOn) work_inflight().fetch_sub(1, std::memory_order_acq_rel); }
+};
+// Render thread, after a full memory barrier recorded in work_cb().
+template <bool kOn = facts::kPhone>
+inline void work_reset() {
+    work_kinds().store(work_inflight().load(std::memory_order_acquire) > 0 ? kWorkAll : 0u, std::memory_order_relaxed);
+}
+// Render thread, after a full memory barrier recorded in cb: resets only when cb is the replay's (work_cb()).
+template <bool kOn = facts::kPhone>
+inline void work_reset_for(const void* cb) {
+    if (cb == work_cb()) work_reset();
 }
 
 #define NX_WORK_WRAP(fn, kind)                                                                          \

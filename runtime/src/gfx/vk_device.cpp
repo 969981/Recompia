@@ -1315,7 +1315,7 @@ bool Device::replace_surface() {
 // ---- one-shot submit, idle, stats -------------------------------------------------------------------------------------
 bool Device::submit_once(const std::function<void(VkCommandBuffer)>& fn) {
     if (device_lost()) return false;
-    std::lock_guard<std::mutex> lk(impl_->once_mu);
+    std::lock_guard<std::mutex> lk(impl_->once_mu); WorkInflight<> inflight;   // phones: vk_work_track.h
     VkCommandBufferAllocateInfo ai = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     ai.commandPool = impl_->once_pool;
     ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
