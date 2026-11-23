@@ -331,6 +331,10 @@ bool clear_carry_on() {
 // the carried clear as a pass of its own, holding only that attachment (the others of its pass may have changed layout since)
 static void record_clear(VkCommandBuffer cb, const PendingClear& c) {
     ++g_pc_recorded;
+    if (P.open && !P.deferred) {   // never expected: a pass of its own cannot begin inside a begun pass (the callers come between passes)
+        static bool told = false;
+        if (!told) { told = true; NXLOG_E("nvn.passes", "clear carry: a carried clear was recorded while a pass was open (please report)"); }
+    }
     VkRenderingInfo ri = {VK_STRUCTURE_TYPE_RENDERING_INFO};
     ri.renderArea = {{0, 0}, c.extent};
     ri.layerCount = 1;

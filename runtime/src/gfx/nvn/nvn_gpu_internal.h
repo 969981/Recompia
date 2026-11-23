@@ -148,6 +148,9 @@ bool barrier_batch_begin(VkCommandBuffer cb) {
     return true;
 }
 template <bool kOn = facts::kPhone>
+// One vkCmdPipelineBarrier2 for the collected barriers. Merging is exact: the global barrier keeps its all-commands / all-memory scopes,
+// and every image barrier carries its own stage, access and layout masks, which a dependency info applies to each barrier on its own; the
+// only change is that they become one dependency instead of several in a row, which orders nothing less.
 void barrier_batch_end() {
     BarrierBatch& b = barrier_batch();
     const VkCommandBuffer cb = b.cb.exchange(VK_NULL_HANDLE, std::memory_order_relaxed);

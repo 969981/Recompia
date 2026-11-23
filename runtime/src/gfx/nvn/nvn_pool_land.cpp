@@ -405,7 +405,7 @@ void pcopy_ring_flush(VkCommandBuffer cb, uint64_t serial) {
                          VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT | (xfb ? VK_PIPELINE_STAGE_2_TRANSFORM_FEEDBACK_BIT_EXT : 0);
     mb[0].srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | (xfb ? VK_ACCESS_2_TRANSFORM_FEEDBACK_WRITE_BIT_EXT : 0);
     mb[0].dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-    mb[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    mb[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;   // the copies read the shadows and write the ring (WAW with a copy before)
     mb[1].srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     mb[1].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     mb[1].dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;

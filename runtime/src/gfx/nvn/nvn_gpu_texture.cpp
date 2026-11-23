@@ -580,7 +580,7 @@ float tex_scale_wanted(Texture* t) {
 // and its views are destroyed after the frames that use them.
 bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     TexGpu* g = tex_or_null(t);
-    if (g && g_tex_touch_hook) g_tex_touch_hook(f, g);
+    // (the carried-clear hook runs below, once the image is really remade)
     if (!g || g->scale == to) return false;
     if (to != 1.0f && (g->scale_blocked || g->transcoded || is_block_format(g->format))) return false;
     Shape s = shape_of(*t);
@@ -589,6 +589,7 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
         g->scale_blocked = true;
         return false;
     }
+    if (g_tex_touch_hook) g_tex_touch_hook(f, g);   // [nvn] clear_carry: a carried clear of the image goes first
     if (to != 1.0f) {
         s.base.width = scaled_side(s.base.width, to);
         s.base.height = scaled_side(s.base.height, to);
@@ -720,7 +721,6 @@ bool tex_has_feedback_loop(Texture* t) {
 // feedback loop images on older chips), so it is not given to every render target at creation. Same shape, format, scale and flags; every
 // level and layer is copied over.
 bool tex_enable_feedback_loop(Texture* t, Frame& f) {
-    if (g_tex_touch_hook && t && t->gpu) g_tex_touch_hook(f, t->gpu);
     TexGpu* g = tex_or_null(t);
     if (!g) return false;
     if (g->usage & VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT) return true;
@@ -731,6 +731,7 @@ bool tex_enable_feedback_loop(Texture* t, Frame& f) {
     if (!device().features().attachment_feedback_loop || g->sparse || g->depth || s.samples > 1 || g->type != VK_IMAGE_TYPE_2D ||
         !(g->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) || !(g->usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
         return false;
+    if (g_tex_touch_hook) g_tex_touch_hook(f, g);   // [nvn] clear_carry: a carried clear of the image goes first
     const VkImageUsageFlags nu = g->usage | VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT;
     gfx::Image ni;
     std::string err;
