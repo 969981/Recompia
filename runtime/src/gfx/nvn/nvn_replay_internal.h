@@ -700,8 +700,11 @@ void scene_stretch_for_draw(const ProgLayout& pl);
 void scene_sharpen_for_draw(const ProgLayout& pl);   // [gfx] scene_sharpen at the game's draw into the window texture (SceneStretch::into_window)
 // [gfx] edge_guard (phones, nvn_replay_edge.cpp): a pass's viewport 0 (image pixels) as it is set, and after the pass the edge of a scene
 // part repeated past it
-void edge_guard_note(float x, float y, float w, float h);
+void edge_guard_note(float x, float y, float w, float h, const VkRect2D& scissor);
 void edge_guard_after_pass();
+// A phone: the scene part (image pixels) of colour target t (w x h) as the frame being replayed drew it (the last pass into it); false:
+// no such pass seen
+bool frame_scene_part(const Texture* t, uint32_t w, uint32_t h, uint32_t* pw, uint32_t* ph);
 void do_draw_arrays(const P_DrawArrays& p);
 void do_draw_elements(const P_DrawElements& p);
 struct QuadArgs {

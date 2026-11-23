@@ -30,23 +30,50 @@ bool edge_guard_on() {
 
 }  // namespace
 
-void edge_guard_note(float x, float y, float w, float h) {
-    if (x != 0.0f || y != 0.0f) { g_edge.other = true; return; }
-    g_edge.w = std::max(g_edge.w, w);
-    g_edge.h = std::max(g_edge.h, std::fabs(h));
+void edge_guard_note(float x, float y, float w, float h, const VkRect2D& scissor) {
+    if (x != 0.0f || y != 0.0f || scissor.offset.x != 0 || scissor.offset.y != 0) { g_edge.other = true; return; }
+    g_edge.w = std::max(g_edge.w, std::min(w, static_cast<float>(scissor.extent.width)));
+    g_edge.h = std::max(g_edge.h, std::min(std::fabs(h), static_cast<float>(scissor.extent.height)));
+}
+
+// The scene part as this frame drew it, per colour target: the area the last pass into that target covered (its top-left viewport,
+// within its scissor). Under dynamic resolution the scene changes size between frames, and the fraction the game layer publishes belongs
+// to the frame it is building, which can be a frame ahead of the one replayed: one frame per step enlarged the wrong part.
+namespace {
+struct FramePart { Ref<Texture> tex; uint32_t w = 0, h = 0, pw = 0, ph = 0; };   // the reference keeps the texture alive
+FramePart g_parts[8];
+uint32_t g_parts_next = 0;
+}  // namespace
+
+bool frame_scene_part(const Texture* t, uint32_t w, uint32_t h, uint32_t* pw, uint32_t* ph) {
+    for (const FramePart& f : g_parts)
+        if (f.tex && f.w == w && f.h == h && f.pw && shares_image(f.tex.get(), t)) { *pw = f.pw; *ph = f.ph; return true; }
+    return false;
 }
 
 void edge_guard_after_pass() {
     const Edge e = g_edge;
     g_edge = Edge();
+    if (P.draws > 0 && !e.other && e.w > 0.0f && e.h > 0.0f && P.ncolor > 0 && P.color[0].tex) {   // the frame's scene part per target
+        const uint32_t W = P.extent.width, H = P.extent.height;
+        const uint32_t pw = std::min(W, static_cast<uint32_t>(std::lround(e.w))), ph = std::min(H, static_cast<uint32_t>(std::lround(e.h)));
+        FramePart* slot = nullptr;
+        for (FramePart& f : g_parts) if (f.tex.get() == P.color[0].tex) slot = &f;
+        if (!slot) slot = &g_parts[g_parts_next++ % 8];
+        *slot = {Ref<Texture>::share(P.color[0].tex), W, H, pw, ph};
+    }
     if (!edge_guard_on() || P.draws == 0 || e.other || P.ncolor == 0) return;
+    // the published fraction, and the one before it: the frame being replayed can still be one drawn at the previous size
+    static float cur_x = 1.0f, cur_y = 1.0f, prev_x = 1.0f, prev_y = 1.0f;
     float fx = 1.0f, fy = 1.0f;
     extras::scene_fraction(&fx, &fy);
-    if (fx >= 1.0f && fy >= 1.0f) return;
+    if (fx != cur_x || fy != cur_y) { prev_x = cur_x; prev_y = cur_y; cur_x = fx; cur_y = fy; }
+    if (fx >= 1.0f && fy >= 1.0f && prev_x >= 1.0f && prev_y >= 1.0f) return;
     const uint32_t W = P.extent.width, H = P.extent.height;
     const uint32_t vw = static_cast<uint32_t>(std::ceil(e.w - 0.01f)), vh = static_cast<uint32_t>(std::ceil(e.h - 0.01f));
     if (vw < 2 || vh < 2 || vw >= W || vh >= H) return;
-    if (std::fabs(e.w - fx * static_cast<float>(W)) > 2.5f || std::fabs(e.h - fy * static_cast<float>(H)) > 2.5f) return;
+    const auto near = [&](float x, float y) { return std::fabs(e.w - x * static_cast<float>(W)) <= 2.5f && std::fabs(e.h - y * static_cast<float>(H)) <= 2.5f; };
+    if (!near(fx, fy) && !near(prev_x, prev_y)) return;
     static bool told = false;
     if (!told) {
         told = true;

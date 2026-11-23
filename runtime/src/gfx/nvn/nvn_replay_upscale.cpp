@@ -58,9 +58,18 @@ void temporal_gbuffer_note() {
 // The game's scene covers only part of its targets (extras::scene_fraction, the game's [upscale] scene_scale, #116): the part of a scene
 // image of size `scene` that holds it, and the size of the image the draw that reads it then needs, out / fraction, so that its own lookup
 // at uv * fraction lands on the upscaled result in that image's top-left out-sized corner. False: the whole image is the scene.
-static bool scene_part(VkExtent2D scene, VkExtent2D out, VkExtent2D* part, VkExtent2D* out_tex) {
+static bool scene_part(VkExtent2D scene, VkExtent2D out, VkExtent2D* part, VkExtent2D* out_tex, const Texture* scene_tex = nullptr) {
     float fx = 1.0f, fy = 1.0f;
     extras::scene_fraction(&fx, &fy);
+    if constexpr (facts::kPhone) {
+        // the part this frame drew (the published fraction can belong to the next frame: under dynamic resolution one frame per step
+        // enlarged the wrong part)
+        uint32_t pw = 0, ph = 0;
+        if (scene_tex && frame_scene_part(scene_tex, scene.width, scene.height, &pw, &ph)) {
+            fx = pw >= scene.width ? 1.0f : static_cast<float>(pw) / static_cast<float>(scene.width);
+            fy = ph >= scene.height ? 1.0f : static_cast<float>(ph) / static_cast<float>(scene.height);
+        }
+    }
     if (fx >= 1.0f && fy >= 1.0f) return false;
     part->width = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(scene.width * fx)), 1, scene.width);
     part->height = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(scene.height * fy)), 1, scene.height);
@@ -262,7 +271,7 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
         // the scene is either a smaller image or the top-left part of a full-size one (scene_part)
         VkExtent2D part{se.width, se.height}, out_tex{};
         const VkExtent2D out{te.width, te.height};
-        if (!scene_part(part, out, &part, &out_tex) && se.width >= te.width && se.height >= te.height) {
+        if (!scene_part(part, out, &part, &out_tex, r.tex) && se.width >= te.width && se.height >= te.height) {
             if constexpr (facts::kPhone) publish_res(VkExtent2D{se.width, se.height}, out, 0);
             static bool told_whole = false;
             if (!told_whole) {

@@ -96,8 +96,6 @@ static void set_viewports_and_scissors() {
         float x = S.vp[i][0], y = S.vp[i][1], w = S.vp[i][2], h = S.vp[i][3];
         if (!S.nvp) { x = 0; y = 0; w = static_cast<float>(P.extent.width); h = static_cast<float>(P.extent.height); }
         else if (P.scale != 1.0f) { x *= P.scale; y *= P.scale; w *= P.scale; h *= P.scale; }
-        if constexpr (facts::kPhone)
-            if (i == 0) edge_guard_note(x, y, w, h);   // nvn_replay_edge.cpp
         // Upper-left origin: window y is the image row from the top and NDC +y is the top edge of the rectangle (negative height).
         // Lower-left origin (the GL convention): window y 0 is memory row 0 and NDC -y is the first row, so no flip.
         const bool lower_left = S.window_origin == NVN_WINDOW_ORIGIN_MODE_LOWER_LEFT;
@@ -105,6 +103,8 @@ static void set_viewports_and_scissors() {
                            : VkViewport{x, y + h, w, -h, S.dr[i][0], S.dr[i][1]};
         if (i < S.nsc) sc[i] = scissor_rect(S.sc[i]);
         else sc[i] = {{0, 0}, P.extent};
+        if constexpr (facts::kPhone)
+            if (i == 0) edge_guard_note(x, y, w, h, sc[0]);   // nvn_replay_edge.cpp
     }
     if (bind_coalesce_on()) {
         // compare the whole arrays (the unused tail is zero) and the count
