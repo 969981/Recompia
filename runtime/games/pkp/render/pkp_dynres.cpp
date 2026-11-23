@@ -33,7 +33,8 @@
 //            10 min), and only while the headroom rises (the forecast 0.01 over now, or now 0.01 over 30 s ago) unless it is 0.08 over
 //            the target; up 1 % per 4 s when now and the forecast are both under H* - 0.03, or when the headroom has not risen for 30 s
 //            and the GPU is under 75 % of its budget (a hot Snapdragon 8 Gen 3 phone held the cap at 15 % for 20 min at 19 of 41.7 ms and a steady headroom
-//            of 0.87); either 10 s after the last decrease, below the
+//            of 0.87), then only 1 % per 12 s and never to within 3 % of a level that had to drop right after such a climb in the last
+//            5 min (a Snapdragon 8 Gen 3 phone cycled 55 -> 35 -> 55 % every 2.5 to 3 min); either 10 s after the last decrease, below the
 //            moderate status and while the loop above is not already lower than the cap; severe (or headroom 1.0): 15 % at once;
 //            critical: the lowest resolution;
 //   guard    the loop above with deadline thresholds: one step down after 2 frames over 98 % of the budget or the average over 92 % for
@@ -101,6 +102,10 @@ struct Dyn {
     double tref_cap = 0.0, tref_ms = 0.0;   // the thermal cap and slow GPU time when the current run of thermal steps down began
     std::chrono::steady_clock::time_point tref_t{}, tfloor_until{};
     int tfloor = 0;                // a thermal cap its steps were found not to help below (until tfloor_until)
+    int tfloor_now = 0;            // the thermal floor in force (60 % of the Resolution, or that level; the lowest when severe)
+    bool climbed = false;          // the cap rose on a steady headroom since its last drop
+    double unsustainable = 0.0;    // the cap a drop began at right after such a climb (until hold_until)
+    std::chrono::steady_clock::time_point hold_until{};
     float h_hist[15] = {};         // the headroom at the last 15 slow-loop actions (about 30 s)
     int h_n = 0;
 };
@@ -199,6 +204,7 @@ void thermal_tick(Dyn& d, int cap, int lowest) {
     const bool severe = h.status >= 3 || h.now >= 1.0f;
     const int no_gain = now < d.tfloor_until ? d.tfloor : 0;
     const double floor_t = severe ? lowest : std::max({static_cast<double>(lowest), std::ceil(0.6 * cap), static_cast<double>(no_gain)});
+    d.tfloor_now = static_cast<int>(floor_t);
     // the headroom 30 s ago (one sample per slow-loop action): stable or falling means the cap is not what heats the phone further
     const bool act = h.polls >= d.polls_acted + 2;
     if (act) { d.h_hist[d.h_n++ % 15] = h.now; }
@@ -208,18 +214,34 @@ void thermal_tick(Dyn& d, int cap, int lowest) {
     if (!why && act) {
         d.polls_acted = h.polls;
         if (h.forecast > target + 0.03 && d.tcap > floor_t && (rising || h.now > target + 0.08)) {
+            // a drop right after a climb on a steady headroom: the level it climbed to was not sustainable; the climb stops 3 % under it
+            // for 5 min (a Snapdragon 8 Gen 3 phone cycled 55 -> 35 -> 55 % every 2.5 to 3 min at a steady 0.84 to 0.88)
+            if (d.climbed) {
+                d.unsustainable = before;
+                d.hold_until = now + std::chrono::minutes(5);
+                d.climbed = false;
+                NXLOG_I(kTag, "dynamic resolution cap: %.0f %% was not sustainable: the cap climbs no higher than %.0f %% for 5 min", before, before - 3.0);
+            }
             // in proportion to the error past the deadband (0.01 of headroom: 0.6 %), half as fast while the forecast is flat or falling
             double step = 60.0 * (h.forecast - (target + 0.03));
             if (h.forecast - h.now < 0.005f) step *= 0.5;
             d.tcap -= std::clamp(step, 0.25, 5.0);
             why = "the forecast is over the target";
             if (d.tref_cap <= 0.0) { d.tref_cap = before; d.tref_ms = d.gpu_long; d.tref_t = now; }
-        } else if ((std::max(h.now, h.forecast) < target - 0.03 || (!rising && slack && !std::isnan(h_30s))) && now - d.last_down > std::chrono::seconds(10) &&
-                   now - d.last_up >= std::chrono::seconds(4) && h.status < 2 && d.pct >= std::min<int>(cap, static_cast<int>(d.tcap) / kStep * kStep) && d.tcap < cap) {
-            // release: headroom to spare, or a stable (not rising for 30 s) headroom with the GPU under 75 % of its budget
-            d.tcap += 1.0;
-            d.last_up = now;
-            why = std::max(h.now, h.forecast) < target - 0.03 ? "headroom to spare" : "the headroom is steady and the GPU has slack";
+        } else {
+            // release: headroom to spare (1 % per 4 s), or a stable headroom (not rising for 30 s) with the GPU under 75 % of its budget,
+            // which while over the target climbs 1 % per 12 s and not to a level found unsustainable in the last 5 min
+            const bool spare = std::max(h.now, h.forecast) < target - 0.03;
+            const bool steady = !rising && slack && !std::isnan(h_30s);
+            const auto every = spare ? std::chrono::seconds(4) : std::chrono::seconds(12);
+            const double top = now < d.hold_until ? d.unsustainable - 3.0 : static_cast<double>(cap);
+            if ((spare || steady) && now - d.last_down > std::chrono::seconds(10) && now - d.last_up >= every && h.status < 2 &&
+                d.pct >= std::min<int>(cap, d.lim) && d.tcap < cap && d.tcap + 1.0 <= top) {
+                d.tcap += 1.0;
+                d.last_up = now;
+                if (!spare) d.climbed = true;
+                why = spare ? "headroom to spare" : "the headroom is steady and the GPU has slack";
+            }
         }
     }
     // the thermal steps judged like the loop's own: after 5 % or more down and 30 s, a GPU time that fell less than 10 % means the cap is
@@ -310,7 +332,8 @@ int dynres_pct(int cap, bool on) {
     }
     if (thermal) thermal_tick(d, cap, lowest);
     // the cap of this frame on the 5 % grid; the loop below never goes over it
-    d.lim = thermal ? std::max(lowest, std::min(cap, static_cast<int>(d.tcap) / kStep * kStep)) : cap;
+    // the cap of this frame on the 5 % grid, rounded up to the thermal floor (33 % went to 30, under the floor)
+    d.lim = thermal ? std::max(lowest, std::min(cap, std::max(static_cast<int>(d.tcap) / kStep * kStep, (d.tfloor_now + kStep - 1) / kStep * kStep))) : cap;
     tu.res_dr_cap.store(thermal ? d.lim : 0, std::memory_order_relaxed);
     if (d.pct > d.lim) change(d, d.lim, "the thermal cap", 0.9 * budget_ms());
     if (const auto now = std::chrono::steady_clock::now(); now - d.minute >= std::chrono::seconds(60)) {
@@ -340,8 +363,8 @@ int dynres_pct(int cap, bool on) {
     if (++d.samples % kStateEvery == 0) {
         thermal::Headroom h;
         const bool hh = thermal && thermal::headroom(&h);
-        NXLOG_I(kTag, "dynamic resolution: %d %% of the screen (cap %d, floor %d), GPU %.1f ms a frame on average, target %.1f ms, elasticity %.2f%s",
-                d.pct, d.lim, d.floor_pct, d.avg, target, d.elasticity,
+        NXLOG_I(kTag, "dynamic resolution: %d %% of the screen (cap %d, elasticity floor %d, thermal floor %d), GPU %.1f ms a frame on average, target %.1f ms, elasticity %.2f%s",
+                d.pct, d.lim, d.floor_pct, thermal ? d.tfloor_now : 0, d.avg, target, d.elasticity,
                 hh ? (", headroom " + std::to_string(h.now).substr(0, 5) + " now, " + std::to_string(h.forecast).substr(0, 5) + " in 10 s").c_str() : "");
     }
     // a panic still waits for the last step's verdict (settle and judge): stepping on before it chained a probe from 100 to 70 % in 2 s
