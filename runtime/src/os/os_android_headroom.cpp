@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // os_android_headroom.cpp: the thermal headroom poller (nxrt/thermal.h). Android only (the CMake filter on os_android_*.cpp).
-// One detached thread asks AThermal_getThermalHeadroom for now and 10 s ahead once a second. AOSP samples the skin sensor every second
+// One detached thread asks AThermal_getThermalHeadroom for now and 10 s ahead once a second (two calls a second). AOSP samples the skin sensor every second
 // while a client asked within the last 10 s and forecasts by a linear regression over ~30 samples; it stops and forgets them after 10 s
 // without a caller, so the poll never pauses. Older releases and some OEM builds answer NaN to fast callers: a NaN backs the poll off to
-// every 10 s for a minute. A device whose first three answers are all NaN or 0 has no headroom. The status comes from a listener
+// every 10 s for a minute; a forecast of NaN alone takes the headroom now in its place. Answers of NaN or 0 from the start (warm-up, or
+// a device without headroom) back the poll off to every 10 s, never for good. The status comes from a listener
 // (AThermal_registerThermalStatusListener, API 30: a change arrives at once) and is read again on every poll (some devices never
 // report a change); the LIGHT threshold from AThermal_getThermalHeadroomThresholds (API 35), looked up at run time like the headroom
 // (API 31), because the app's floor is API 30.
@@ -16,6 +17,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <mutex>
 #include <string>
@@ -35,7 +37,7 @@ struct ThresholdEntry {   // AThermalHeadroomThreshold (API 35)
 
 std::mutex g_mu;
 Headroom g_last;
-bool g_dead = false;                 // the device answers no headroom
+std::atomic<bool> g_dead{false};     // no headroom API on this device
 std::atomic<int> g_status{-1};
 
 void on_status(void*, AThermalStatus s) {
@@ -71,18 +73,15 @@ void run() {
         const float hf = headroom_fn(mgr, 10);
         const int st = static_cast<int>(AThermal_getCurrentThermalStatus(mgr));
         if (st >= 0) g_status.store(st, std::memory_order_relaxed);
-        const bool number = !std::isnan(h0) && !std::isnan(hf);
+        const bool number = !std::isnan(h0);
         if (polls == 0 && (!number || h0 <= 0.0f)) {
-            if (++empty >= 3) {
-                g_dead = true;
-                NXLOG_I(kTag, "headroom: the device answers none (NaN or 0 three times): no heat-aware control");
-                return;
-            }
+            if (++empty == 3) NXLOG_I(kTag, "headroom: no answer yet (NaN or 0 three times): polling every 10 s until one comes");
+            if (empty >= 3) slow = 1;
         } else if (!number) {
             if (slow == 0) NXLOG_W(kTag, "headroom: NaN: polling every 10 s for a minute");
             slow = 6;
         } else {
-            fc[fc_n++ % 5] = hf;
+            fc[fc_n++ % 5] = std::isnan(hf) ? h0 : hf;
             float s[5];
             const int k = std::min(fc_n, 5);
             std::copy(fc, fc + k, s);
@@ -114,7 +113,7 @@ bool headroom(Headroom* out) {
     std::lock_guard<std::mutex> lk(g_mu);
     *out = g_last;
     out->status = g_status.load(std::memory_order_relaxed);
-    return !g_dead && g_last.polls > 0;
+    return !g_dead.load(std::memory_order_relaxed) && g_last.polls > 0;
 }
 
 }  // namespace nxrt::thermal
