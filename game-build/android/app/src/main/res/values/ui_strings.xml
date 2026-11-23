@@ -276,7 +276,7 @@
     <string name="ui_set_fps_limit_note">Lower caps run cooler and steadier. The cap is rounded to whole refreshes of the screen.</string>
     <string name="ui_heap_file_short">This phone uses about %1$d GB of free storage as extra memory for the game, and there is less free now. The game starts without it and may be less stable: free some space for the best results.</string>
     <string name="ui_heap_file_short_toast">Little free storage: the game runs without its memory file and may be less stable.</string>
-    <string name="ui_defaults_cautious">Defaults are cautious for this phone; raise Maximum Resolution if it runs well.</string>
+    <string name="ui_defaults_cautious">Defaults are cautious for this phone; raise Resolution in Settings if it runs well.</string>
     <string name="ui_gpu_untested">This GPU (%1$s) is not in the included Turnip driver\'s list: untested.</string>
     <string name="ui_step_name_driver">Graphics driver</string>
     <string name="ui_less">Fewer: %1$s</string>
@@ -332,6 +332,10 @@
     <string name="ui_coop_copy">Copy code</string>
     <string name="ui_coop_share_code">Share</string>
     <string name="ui_coop_copy_long">Copy long invite</string>
+    <string name="ui_coop_remove">Remove from this phone</string>
+    <string name="ui_coop_remove_title">Remove %1$s from this phone?</string>
+    <string name="ui_coop_remove_text">This phone\'s copy of the world is deleted for good. The other players (%1$s) keep their own copies.</string>
+    <string name="ui_coop_remove_text_alone">This phone\'s copy of the world is deleted for good.</string>
     <string name="ui_coop_join_title">Join a friend</string>
     <string name="ui_coop_join_detail">Paste the invite code a friend sent you.</string>
     <string name="ui_coop_invite">Invite code: the short code (like K7Q-M2X) or the long one (PKCOOP1.)</string>

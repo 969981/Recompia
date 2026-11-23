@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -45,7 +46,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -125,6 +133,7 @@ fun CoopScreen(canPlay: Boolean, onBack: () -> Unit, load: () -> List<Coop.Profi
     var newName by remember { mutableStateOf("") }
     var myName by remember { mutableStateOf("") }
     var createError by remember { mutableStateOf<String?>(null) }
+    var removing by remember { mutableStateOf<Coop.Profile?>(null) }   // the save the confirm dialog asks about
 
     fun refresh() { saves = load() }
     fun showInvite(p: Coop.Profile) {
@@ -193,11 +202,16 @@ fun CoopScreen(canPlay: Boolean, onBack: () -> Unit, load: () -> List<Coop.Profi
                     "visit" -> R.string.ui_coop_visit_now
                     else -> if (hosts) R.string.ui_coop_you_host else R.string.ui_coop_you_visit
                 }), style = MaterialTheme.typography.bodyMedium, color = Rc.text2)
+                // the invite row in visual order for a gamepad: Invite code leads down to Copy code, LEFT / RIGHT stay in the row
+                val copyF = remember { FocusRequester() }
+                val shareF = remember { FocusRequester() }
+                val longF = remember { FocusRequester() }
+                val panel = open == p.id
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     RcButton(stringResource(R.string.ui_coop_play), { GameLauncher.launchCoop(ctx, p.id, choice) },
-                        if (i == 0) Modifier.initialFocus() else Modifier, icon = Icons.Rounded.PlayArrow, kind = Kind.PRIMARY, enabled = canPlay)
+                        Modifier.focusProperties { if (panel) down = copyF }.let { if (i == 0) it.initialFocus() else it }, icon = Icons.Rounded.PlayArrow, kind = Kind.PRIMARY, enabled = canPlay)
                     if (creator) RcButton(stringResource(R.string.ui_coop_invite_others), { if (open == p.id) open = null else showInvite(p) },
-                        icon = Icons.AutoMirrored.Rounded.Send)
+                        Modifier.focusProperties { if (panel) down = copyF }, icon = Icons.AutoMirrored.Rounded.Send)
                 }
                 if (open == p.id) {
                     val long = remember(p) { Coop.invite(p) }
@@ -214,12 +228,18 @@ fun CoopScreen(canPlay: Boolean, onBack: () -> Unit, load: () -> List<Coop.Profi
                     }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         val send = code ?: long
-                        RcButton(stringResource(R.string.ui_coop_copy), { clip.setText(AnnotatedString(send)) }, Modifier.initialFocus(shortening),
+                        val hasLong = code != null
+                        RcButton(stringResource(R.string.ui_coop_copy), { clip.setText(AnnotatedString(send)) },
+                            Modifier.focusRequester(copyF).focusProperties { left = FocusRequester.Cancel; right = shareF }.initialFocus(shortening),
                             icon = Icons.Rounded.ContentCopy, enabled = !shortening)
-                        RcButton(stringResource(R.string.ui_coop_share_code), { share(ctx, send) }, icon = Icons.Rounded.Share, enabled = !shortening)
-                        if (code != null) RcButton(stringResource(R.string.ui_coop_copy_long), { clip.setText(AnnotatedString(long)) }, kind = Kind.QUIET)
+                        RcButton(stringResource(R.string.ui_coop_share_code), { share(ctx, send) },
+                            Modifier.focusRequester(shareF).focusProperties { left = copyF; right = if (hasLong) longF else FocusRequester.Cancel },
+                            icon = Icons.Rounded.Share, enabled = !shortening)
+                        if (hasLong) RcButton(stringResource(R.string.ui_coop_copy_long), { clip.setText(AnnotatedString(long)) },
+                            Modifier.focusRequester(longF).focusProperties { left = shareF; right = FocusRequester.Cancel }, kind = Kind.QUIET)
                     }
                 }
+                RcButton(stringResource(R.string.ui_coop_remove), { removing = p }, icon = Icons.Rounded.Delete, kind = Kind.QUIET)
             }
         }
     }
@@ -265,14 +285,19 @@ fun CoopScreen(canPlay: Boolean, onBack: () -> Unit, load: () -> List<Coop.Profi
             // the keyboard must not cover Create: a focused field brings the whole card into view once the keyboard has opened
             // (Page pads by WindowInsets.safeDrawing, which includes the IME; the activity is adjustResize)
             val bring = remember { BringIntoViewRequester() }
-            val showCard = Modifier.onFocusChanged { if (it.isFocused) scope.launch { delay(350); bring.bringIntoView() } }
+            var nameFocused by remember { mutableStateOf(false) }
+            var meFocused by remember { mutableStateOf(false) }
+            val typing = nameFocused || meFocused
+            val ime = WindowInsets.ime.getBottom(LocalDensity.current)
+            LaunchedEffect(typing, ime) { if (typing) { delay(80); bring.bringIntoView() } }   // restarts on every keyboard step: the last one wins
+
             GlassCard(Modifier.fillMaxWidth().bringIntoViewRequester(bring), padding = 16.dp) {
                 Text(stringResource(R.string.ui_coop_new_note), style = MaterialTheme.typography.bodySmall, color = Rc.text3)
                 OutlinedTextField(newName, { newName = it; createError = null }, label = { Text(stringResource(R.string.ui_coop_new_name)) }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next), modifier = Modifier.fillMaxWidth().then(showCard).initialFocus())
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next), modifier = Modifier.fillMaxWidth().onFocusChanged { nameFocused = it.isFocused }.initialFocus())
                 OutlinedTextField(myName, { myName = it; createError = null }, label = { Text(stringResource(R.string.ui_coop_my_name)) }, singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { if (canCreate) create() }),
-                    modifier = Modifier.fillMaxWidth().then(showCard))
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { meFocused = it.isFocused })
                 RcButton(stringResource(R.string.ui_coop_create), ::create, icon = Icons.Rounded.Add, kind = Kind.PRIMARY, enabled = canCreate)
                 createError?.let { Banner(it, Rc.warn, Rc.tintWarn, Icons.Rounded.Warning) }
             }
@@ -282,6 +307,36 @@ fun CoopScreen(canPlay: Boolean, onBack: () -> Unit, load: () -> List<Coop.Profi
         if (saves.isEmpty() || how) HowCoopWorks()
         if (saves.isNotEmpty()) RcButton(stringResource(R.string.ui_coop_how), { how = !how },
             icon = if (how) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, kind = Kind.QUIET)
+    }
+
+    // the launcher's "Delete <name> from this PC?": this phone's folder only, no relay call; the other players keep their copies
+    removing?.let { p ->
+        val rest = p.invite.members.filter { it.id != p.me }.joinToString { it.name }
+        var removeError by remember(p) { mutableStateOf<String?>(null) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { removing = null },
+            containerColor = Rc.solidRaised,
+            title = { Text(stringResource(R.string.ui_coop_remove_title, p.name), style = MaterialTheme.typography.headlineSmall) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(if (rest.isNotEmpty()) stringResource(R.string.ui_coop_remove_text, rest) else stringResource(R.string.ui_coop_remove_text_alone),
+                        style = MaterialTheme.typography.bodyLarge, color = Rc.text2)
+                    removeError?.let { Banner(it, Rc.warn, Rc.tintWarn, Icons.Rounded.Warning) }
+                }
+            },
+            confirmButton = {
+                RcButton(stringResource(R.string.ui_coop_remove), {
+                    removeError = Coop.delete(p.id)
+                    if (removeError == null) {
+                        if (open == p.id) open = null
+                        if (adding == p.id) adding = null
+                        startAs = startAs - p.id
+                        removing = null; refresh()
+                    }
+                }, icon = Icons.Rounded.Delete, kind = Kind.DANGER)
+            },
+            dismissButton = { RcButton(stringResource(R.string.ui_cancel), { removing = null }, Modifier.initialFocus(), kind = Kind.QUIET) },
+        )
     }
 }
 

@@ -136,6 +136,18 @@ object Coop {
         return null
     }
 
+    /**
+     * coop.rs delete: removes co-op save `id` from this phone, its folder with this phone's copy of the world (coop.json, the marker,
+     * the saves). Only a folder this module made (this group's marker) is removed; the relay and the other players are not touched.
+     * Returns an error text, or null.
+     */
+    fun delete(id: String): String? {
+        val p = get(id) ?: return "That co-op save does not exist."
+        val dir = folder(p.id)
+        if (markerGroup(dir) != p.id) return "That co-op save does not exist."
+        return if (dir.deleteRecursively()) null else "Cannot delete ${dir.path}."
+    }
+
     fun isCreator(p: Profile) = p.invite.members.firstOrNull()?.id == p.me
 
     /** coop.rs add_member: a player the invite names before they join; creator only, at most 4. Returns an error text, or null. */
