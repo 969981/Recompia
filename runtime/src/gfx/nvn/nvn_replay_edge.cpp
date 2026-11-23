@@ -45,6 +45,11 @@ FramePart g_parts[64];   // a frame draws into some 20 to 40 colour targets: few
 uint32_t g_parts_next = 0;
 }  // namespace
 
+void frame_parts_reset() {   // before the textures and the device go (replay_shutdown)
+    for (FramePart& f : g_parts) f = FramePart();
+    g_parts_next = 0;
+}
+
 bool frame_scene_part(const Texture* t, uint32_t w, uint32_t h, uint32_t* pw, uint32_t* ph) {
     for (const FramePart& f : g_parts)
         if (f.tex && f.w == w && f.h == h && f.pw && shares_image(f.tex.get(), t)) { *pw = f.pw; *ph = f.ph; return true; }

@@ -705,6 +705,7 @@ void edge_guard_after_pass();
 // A phone: the scene part (image pixels) of colour target t (w x h) as the frame being replayed drew it (the last pass into it); false:
 // no such pass seen
 bool frame_scene_part(const Texture* t, uint32_t w, uint32_t h, uint32_t* pw, uint32_t* ph);
+void frame_parts_reset();   // drops the textures frame_scene_part keeps (replay_shutdown)
 void do_draw_arrays(const P_DrawArrays& p);
 void do_draw_elements(const P_DrawElements& p);
 struct QuadArgs {
