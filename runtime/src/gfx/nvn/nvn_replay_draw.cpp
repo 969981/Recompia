@@ -734,7 +734,7 @@ void do_draw_elements(const P_DrawElements& p) {
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), true, static_cast<int>(p.type), &topo)) { counters().draws_skipped.fetch_add(1); return; }
     if (g_trace) trace_indexed(p);
-    const bool squared = square_quad_viewport(p);   // nvn_replay_square.cpp: this draw only
+    if (square_quad_viewport(p)) { g_cmd.dirty |= kDynVp; g_cmd.dsh.nvp = 0; }   // nvn_replay_square.cpp: this draw only; the game's viewport again at the next draw (also after an early return below)
     const uint32_t isz = index_size_bytes(static_cast<int>(p.type));
     const PrimConversion conv = prim_conversion(static_cast<int>(p.mode));
     const uint8_t* src = host_ptr(p.index_address);
@@ -749,7 +749,6 @@ void do_draw_elements(const P_DrawElements& p) {
         bind_index_buffer(F->cb, br.buffer, br.offset, vk_index_type(static_cast<int>(p.type)));
         vkCmdDrawIndexed(F->cb, p.count, std::max<uint32_t>(1, p.instance_count), 0, p.base_vertex, p.base_instance);
     }
-    if (squared) { g_cmd.dirty |= kDynVp; g_cmd.dsh.nvp = 0; }   // the game's viewport again at the next draw
     counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     P.draws++;
     P.verts += static_cast<uint64_t>(p.count) * std::max<uint32_t>(1, p.instance_count);

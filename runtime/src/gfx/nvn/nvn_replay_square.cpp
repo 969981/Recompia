@@ -45,8 +45,10 @@ bool square_quad_viewport(const P_DrawElements& p) {
         else if (isz == 2) { uint16_t t; std::memcpy(&t, ix + i * 2, 2); v = t; }
         else std::memcpy(&v, ix + i * 4, 4);
         float xy[2];
-        std::memcpy(xy, reinterpret_cast<const void*>(vb.addr + static_cast<uint64_t>(static_cast<int64_t>(v) + p.base_vertex) * stride +
-                                                      at.relative_offset), sizeof xy);
+        const int64_t vi = static_cast<int64_t>(v) + p.base_vertex;
+        const uint64_t off = static_cast<uint64_t>(vi) * stride + at.relative_offset;
+        if (vi < 0 || (vb.size && off + sizeof xy > vb.size)) return false;   // an index past the bound vertex buffer: leave the draw as it is
+        std::memcpy(xy, reinterpret_cast<const void*>(vb.addr + off), sizeof xy);
         for (int c = 0; c < 2; ++c) { lo[c] = std::min(lo[c], xy[c]); hi[c] = std::max(hi[c], xy[c]); }
     }
     const float w = hi[0] - lo[0], h = hi[1] - lo[1];
