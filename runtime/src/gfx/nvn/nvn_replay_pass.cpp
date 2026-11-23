@@ -509,6 +509,7 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
         colors[i].imageLayout = cl;
         colors[i].loadOp = fresh ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
         if (!fresh) P.loaded |= static_cast<uint8_t>(1u << i);
+        else P.folded = true;     // [nvn] clear_fold: a new image's clear must happen even if the pass draws nothing
         colors[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         P.color_fmt[i] = tex_attachment_format(t, P.color[i].view_format);
         const VkExtent3D e = tex_image_extent(t, P.color[i].level);
@@ -531,6 +532,7 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
             depth.imageLayout = stencil.imageLayout = dlayout;
             depth.loadOp = stencil.loadOp = (fresh && !depth_ro) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
             P.loaded_d = depth.loadOp == VK_ATTACHMENT_LOAD_OP_LOAD;
+            if (!P.loaded_d) P.folded = true;     // the same for a new depth image
             depth.storeOp = stencil.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
             if constexpr (facts::kPhone)
                 if (depth_ro && ro_store_none()) depth.storeOp = stencil.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
