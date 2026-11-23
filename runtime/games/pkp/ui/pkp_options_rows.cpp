@@ -137,7 +137,6 @@ constexpr const char* kShadowNames[] = {"Game Default", "High (2x)", "Very High 
 constexpr const char* kAstcKeys[] = {"fast", "high", "uncompressed"};
 constexpr const char* kUniformSnapshotKeys[] = {"auto", "on", "off"};
 constexpr const char* kWindowKeys[] = {"windowed", "borderless", "exclusive"};
-constexpr extras::UpscaleMode kUpscalers[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Nearest, extras::UpscaleMode::Sgsr2};
 
 std::vector<std::string> g_devices;   // audio output names, refreshed when the screen opens
 
@@ -180,6 +179,38 @@ const char* device_text(int v, char*, size_t) {
     return v <= 0 || v > static_cast<int>(g_devices.size()) ? "System Default" : g_devices[static_cast<size_t>(v - 1)].c_str();
 }
 int device_max() { return std::clamp(static_cast<int>(g_devices.size()), 1, 250); }
+
+// The desktop Upscaler row's entries, in this order (the stored [upscale] mode values do not depend on it); the temporal ones only where
+// this machine can run them (extras::upscale_mode_available), asked once.
+const std::vector<extras::UpscaleMode>& upscalers() {
+    static const std::vector<extras::UpscaleMode> v = [] {
+        std::vector<extras::UpscaleMode> r;
+        for (extras::UpscaleMode m : {extras::UpscaleMode::Off, extras::UpscaleMode::Nearest, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Fsr3,
+                                      extras::UpscaleMode::Dlss, extras::UpscaleMode::Dlaa, extras::UpscaleMode::Sgsr2})
+            if (extras::upscale_mode_available(m)) r.push_back(m);
+        return r;
+    }();
+    return v;
+}
+int upscaler_max() { return static_cast<int>(upscalers().size()) - 1; }
+const char* upscaler_text(int v, char*, size_t) {
+    switch (upscalers()[static_cast<size_t>(std::clamp(v, 0, upscaler_max()))]) {
+        case extras::UpscaleMode::Nearest: return "Nearest";
+        case extras::UpscaleMode::Fsr1: return "FSR 1";
+        case extras::UpscaleMode::Fsr3: return "FSR 3";
+        case extras::UpscaleMode::Dlss: return "DLSS";
+        case extras::UpscaleMode::Dlaa: return "DLAA";
+        case extras::UpscaleMode::Sgsr2: return "SGSR 2";
+        default: return "Off";
+    }
+}
+int upscaler_get(const S& s) {
+    const auto& v = upscalers();
+    for (size_t i = 0; i < v.size(); ++i)
+        if (v[i] == s.extras.upscale.mode) return static_cast<int>(i);
+    return 0;
+}
+void upscaler_set(S& s, int v) { s.extras.upscale.mode = upscalers()[static_cast<size_t>(std::clamp(v, 0, upscaler_max()))]; }
 
 const Row kSound[] = {
     number("Master Volume", "The volume of everything in the game, on top of the sliders above.", 0, 100, "%.0f%%", 0, 1, ROW_PCT(audio.volume)),
@@ -226,9 +257,8 @@ constexpr Row kDisplay[] = {
 };
 
 const Row kPerformance[] = {
-    when(choice("Upscaler", "How the picture is enlarged from a lower resolution.", {"Off", "FSR 1", "Nearest", "SGSR 2"}, 4,
-           [](const S& s) { for (int i = 0; i < 4; ++i) if (s.extras.upscale.mode == kUpscalers[i]) return i; return 0; },
-           [](S& s, int v) { s.extras.upscale.mode = kUpscalers[v]; }), not_phone),
+    when(dynamic("Upscaler", "How the picture is enlarged from a lower resolution. FSR 3, DLSS and SGSR 2 build a sharper picture from several frames (DLSS and DLAA apply after a restart).",
+                 upscaler_text, upscaler_max, upscaler_get, upscaler_set), not_phone),
     when(number("Sharpness", "How much FSR 1, FSR 3 or SGSR 2 sharpens the picture.", 0, 20, "%.2f", 0, 0.05, ROW_STEP(extras.upscale.sharpness, 0.0, 0.05)), not_phone),
     // a phone's Upscaler and its Sharpness sit here too, at the same place as the desktop's (the Display tab keeps Resolution)
     when(choice("Upscaler", "Sharpens the enlarged 3D picture: SGSR (Snapdragon Game Super Resolution), or SGSR 2, which builds detail over several "
