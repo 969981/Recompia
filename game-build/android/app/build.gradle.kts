@@ -34,6 +34,7 @@ val signingProps: Properties? = signingDir?.let { d -> file("$d/passwords.txt").
 // code as (major*100 + minor)*10^6 + patch*10^4, the scheme of the 0.16 APKs (0.16.0.2 = 16000200), so each release updates them.
 val releaseVersion: List<Int>? = providers.gradleProperty("recompia.versionName").orNull
     ?.let { Regex("""^(\d+)\.(\d+)\.(\d+)$""").find(it) }?.groupValues?.drop(1)?.map { it.toInt() }
+    ?.also { require(it[0] <= 20 && it[1] < 100 && it[2] < 100) { "recompia.versionName $it does not fit the version code (major <= 20, minor and patch < 100)" } }
 
 android {
     namespace = "org.recompia.pkp"
