@@ -536,13 +536,18 @@ inline 0x7100ec69b4
 entryhook 0x7100feee78
 entryhook 0x7100ec54a0
 #   Storage box tabs (pkp_box_tabs.cpp, [pkp] box_tabs): page-selector request, open-container removal lookup, cabinet allocator and the
-#   bulk transfer after the Store All / Retrieve All dialog (Store All fills every tab) and the container grid's rebuild (a tab crossing
-#   switches the id there). The bag / container screen's frame is shared with inventory sort above.
+#   bulk transfer after the Store All / Retrieve All dialog (it goes over every tab), the container grid's rebuild (a tab crossing switches
+#   the id there), the count behind "already stored here", the move of one stack and the sort of one panel (all over the whole box), and
+#   which panel L / R page. The bag / container screen's frame is shared with inventory sort above.
 entryhook 0x7100e980c0
 entryhook 0x7100ff08c0
 entryhook 0x7100776540
 entryhook 0x7100ff6f80
 entryhook 0x7100fee7d4
+entryhook 0x7100e70fb4
+entryhook 0x7100ff2bf0
+entryhook 0x7100e70130
+entryhook 0x7100fef30c
 #   Crafting search (pkp_craft.cpp, [pkp] craft_search): the crafting screen's per-frame virtual (x0 = the screen, UI class 0xe3): Y or a click
 #   on the Search key guide asks for a word on the game's keyboard and refills the recipe grid; its open virtual (x0 = the screen: the search
 #   ends when the screen opens); in the grid fill 0x7100ef0b80, after the recipe ids come from 0x7100e634e0 (u16 ids at [sp + 8], count at

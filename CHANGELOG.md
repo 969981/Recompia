@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for storage box tabs; saves and shaders are kept, no shader is translated again).
+
+### Game
+- Storage box tabs: sorting a box (X held, or a click on its prompt) sorts all its tabs as one, with no gaps left between them. Before, each tab was sorted for itself
+- Storage box tabs: (+) with "only what is already inside" looks at the whole box and uses every tab with room. Before, it said the box was full when the tab that held the item was full
+- Storage box tabs: adding a stack, half of it or one item (Y, ZL + A, A) to a full tab goes on into the next tabs with room
+- Storage box tabs: (+) on the box takes items out of every tab, for both choices. Before, it only emptied the shown tab
+- Storage box tabs: with a standard storage box open, L and R turn only the pages of the side the cursor is on (#895). Before, they turned the box's and the bag's pages together once the bag had more than one page. A bag with one page still leaves L and R to the box
+
 ## 0.17.0 (build U: Urchin)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's cleaning count, co-op's followers, co-op's shared rules for every player, co-op's opened areas, storage box tabs and the logs; saves and shaders are kept, no shader is translated again).
