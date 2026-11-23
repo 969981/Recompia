@@ -102,6 +102,9 @@ int res_get(const S&) {
 void res_set(S&, int pos) {   // the game ini at once: the scene follows from the next frame (pkp_render_size.cpp phone_scene_pct)
     const std::vector<int> v = res_values();
     settings::set_int(settings::Key::Resolution, v[static_cast<size_t>(std::clamp(pos, 0, static_cast<int>(v.size()) - 1))]);
+    // the frame rate counter's line too, at once: it is otherwise published by the per-frame copy of the game's size parameters,
+    // which may not run while the game's menu is open (a step back up to 50 % on a Tensor G2 phone showed 45 % there)
+    gfx::tuning().res_pct.store(phone_res_value(), std::memory_order_relaxed);
 }
 constexpr Row live_row(Row r) { r.live = true; return r; }
 // A phone's one Upscaler row: Off or SGSR ([pkp] scene_upscaler: the 3D picture alone, enlarged in one step to the screen; menus native).
