@@ -88,6 +88,16 @@ void install_render(uint64_t base, const play::DisplaySettings& d, int window_w,
         else gh = static_cast<int>(std::lround(kTableW / wd.aspect)) & ~1;
         gw = std::clamp(gw, 640, 8192);
         gh = std::clamp(gh, 360, 8192);
+        if constexpr (facts::kPhone) {
+            // A phone whose screen is larger than these targets (a foldable's near-square inner screen, wider than the 1920-wide targets): targets of the
+            // screen's own size, rendered at scale 1, so a share of the screen is a whole number of pixels. At a render scale above 1,
+            // 50 % came out one pixel short of half the screen per side (the level heights round to even before the scale), a ratio of
+            // just over 2 at which a temporal upscaler's sample phase drifts across the screen (SGSR 2's X pattern); now it is exactly half.
+            if (!fixed_size && !(d.aspect > 0) && window_w >= gw && window_h >= gh) {
+                gw = window_w & ~1;
+                gh = window_h & ~1;
+            }
+        }
         game_target_memory(base, &gw, &gh);
         s.w.store(gw);
         s.h.store(gh);
