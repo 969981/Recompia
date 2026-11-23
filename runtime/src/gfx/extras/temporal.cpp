@@ -426,11 +426,11 @@ std::atomic<int64_t> g_lod_eval_ns{0};                       // when it was made
 }  // namespace
 
 // The scene's textures are sampled at the render size's mip level; a temporal upscaler rebuilds the output size from several jittered
-// frames, so the textures need the output's level: a negative LOD bias of log2(render / output), in quarter steps (the samplers are
+// frames, so the textures need the output's level: a negative LOD bias of log2(render / output) + 0.5, in quarter steps (the samplers are
 // cached per bias), while a temporal mode ran in the last half second. [upscale] lod_bias_auto = false: none.
 float temporal_lod_bias() {
     static const bool on = config_get_bool("upscale", "lod_bias_auto", true);
-    if (!on) return 0.0f;
+    if (!on || g_lod_eval_ns.load(std::memory_order_relaxed) == 0) return 0.0f;   // no temporal pass has run: no clock read per sampler
     const int64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
     if (now - g_lod_eval_ns.load(std::memory_order_relaxed) > 500000000) return 0.0f;
     return g_lod_ratio.load(std::memory_order_relaxed);
@@ -637,7 +637,8 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     s.prev = cur;
     s.have_prev = true;
     (void)mode_name;
-    g_lod_ratio.store(static_cast<float>(std::floor(std::log2(std::min(1.0, static_cast<double>(render.width) / out.width)) * 4.0 + 0.5) / 4.0),
+    // half a step short of the output's level: the full step made far detail shimmer at a still camera with little visible gain
+    g_lod_ratio.store(static_cast<float>(std::min(0.0, std::floor(std::log2(std::min(1.0, static_cast<double>(render.width) / out.width)) * 4.0 + 0.5) / 4.0 + 0.5)),
                       std::memory_order_relaxed);
     g_lod_eval_ns.store(std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count(), std::memory_order_relaxed);
     return s.output.img.view;

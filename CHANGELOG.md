@@ -16,7 +16,7 @@
 - Storage box tabs: with a standard storage box open, L and R turn only the pages of the side the cursor is on (#895). Before, they turned the box's and the bag's pages together once the bag had more than one page. A bag with one page still leaves L and R to the box
 
 ### Graphics
-- The temporal upscalers ran at the tone map, before the game's own enlargement of a scene below 100%: their result was drawn back into the small scene and stretched, so they looked no different from Off (#232). They now run at the frame's last scene enlargement. FSR 3, DLSS and DLAA stay switched off until they are checked on Windows
+- The temporal upscalers ran at the tone map, before the game's own enlargement of a scene below 100%: their result was drawn back into the small scene and stretched, so they looked no different from Off (#232). They now run at the frame's first scene enlargement. FSR 3, DLSS and DLAA stay switched off until they are checked on Windows
 
 ## 0.17.0 (build U: Urchin)
 

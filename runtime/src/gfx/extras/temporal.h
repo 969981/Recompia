@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Temporal upscaling / anti-aliasing of the 3D scene: AMD FSR 3.1 (FidelityFX API, temporal_ffx.cpp), NVIDIA DLSS / DLAA (Streamline,
-// temporal_dlss.cpp), both SDKs loaded at run time (nothing is linked). The pass runs at the frame's last scene enlargement (nvn_replay_upscale.cpp temporal_where): on the HDR
+// temporal_dlss.cpp), both SDKs loaded at run time (nothing is linked). The pass runs at the frame's first scene enlargement (nvn_replay_upscale.cpp temporal_deferred): on the HDR
 // scene at the tone map when nothing enlarges it, else on the display-referred scene at the game's scene stretch or window composite.
 //
 // Inputs (docs/S14.md, "Temporal upscaling"):
