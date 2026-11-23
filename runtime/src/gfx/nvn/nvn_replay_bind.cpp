@@ -573,7 +573,11 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                         uint32_t tsr_words[kTsrMaxWords];
                         const bool tsr = d.nvn_stage == g_tsr.stage && idx == g_tsr.slot && bind.size >= g_tsr.bytes && extras::temporal_wanted() && S.depth_tex &&
                                          tsr_cam_copy(bind.addr, tsr_words);
-                        const bool tsr_other = !tsr && extras::temporal_wanted() && tsr_other_wanted(d.nvn_stage, idx, bind.addr, bind.size ? bind.size : 65536);
+                        bool tsr_other = false;
+                        if (!tsr && extras::temporal_wanted()) {   // the camera's copies in this block: scanned only as far as guest memory backs it
+                            const BufRef bo = resolve_read(bind.addr, bind.size, kReadUniform);
+                            tsr_other = bo.ok && tsr_other_wanted(d.nvn_stage, idx, bind.addr, std::min<uint64_t>(bind.size ? bind.size : 65536, bo.avail));
+                        }
                         if (ufs == 1.0f && !tsr && !tsr_other && uniform_snapshot(bind.addr, bind.size, align, &bi)) break;   // from video memory
                         BufRef br = resolve_read(bind.addr, bind.size, kReadUniform);
                         if (br.ok && (ufs != 1.0f || tsr || tsr_other)) {
