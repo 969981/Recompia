@@ -243,7 +243,8 @@ fun Meter(percent: Int?, label: String, eta: String, modifier: Modifier = Modifi
 
 /** A setting with a switch: the whole row is one target (gamepad A toggles it). */
 @Composable
-fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, sub: String? = null, enabled: Boolean = true) {
+fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, sub: String? = null, enabled: Boolean = true,
+              overline: String? = null, icon: androidx.compose.ui.graphics.vector.ImageVector? = null) {
     val shape = RoundedCornerShape(Rc.radiusSm)
     Row(
         modifier.fillMaxWidth().heightIn(min = 56.dp).clip(shape)
@@ -252,7 +253,9 @@ fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, modi
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (icon != null) { Icon(icon, null, tint = Rc.accent, modifier = Modifier.size(28.dp)); Spacer(Modifier.size(14.dp)) }
         Column(Modifier.weight(1f)) {
+            if (overline != null) Text(overline, style = MaterialTheme.typography.labelMedium, color = Rc.text3)
             Text(label, style = MaterialTheme.typography.titleMedium, color = if (enabled) Rc.text else Rc.text3)
             if (sub != null) Text(sub, style = MaterialTheme.typography.bodySmall, color = Rc.text3)
         }

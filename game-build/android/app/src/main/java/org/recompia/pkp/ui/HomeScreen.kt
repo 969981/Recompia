@@ -56,7 +56,7 @@ import androidx.navigation.NavHostController
 import org.recompia.pkp.R
 import org.recompia.pkp.Storage
 
-/** Home: the game's state, a large Play button, controller status, quick settings and the way to everything else. */
+/** Home: the game's state, a large Play button, controller status with the touch controls switch, and the way to everything else. */
 @Composable
 fun HomeScreen(vm: AppViewModel, nav: NavHostController) {
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -69,7 +69,6 @@ fun HomeScreen(vm: AppViewModel, nav: NavHostController) {
             HeapNotice(ui)
             CoopEntry(coop) { nav.navigate(Routes.COOP) }
             ControllerCard()
-            QuickSettings()
             Menu(nav, ui)
         }
         if (wide) {
@@ -192,37 +191,18 @@ private fun PlayButton(text: String, icon: androidx.compose.ui.graphics.vector.I
     RcButton(text, onClick, Modifier.fillMaxWidth().widthIn(max = 480.dp).height(76.dp).initialFocus(text), icon = icon, kind = Kind.PRIMARY, big = true, enabled = enabled)
 }
 
+/** The controls in use, and the touch controls switch (OverlayPrefs, the same key as Settings): the whole card toggles it. */
 @Composable
 private fun ControllerCard() {
     val pads = rememberControllers()
-    GlassCard(Modifier.fillMaxWidth(), strong = false, padding = 18.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Icon(if (pads.isEmpty()) Icons.Rounded.TouchApp else Icons.Rounded.SportsEsports, null,
-                tint = Rc.accent, modifier = Modifier.size(28.dp))
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.ui_controls_label), style = MaterialTheme.typography.labelMedium, color = Rc.text3)
-                Text(if (pads.isEmpty()) stringResource(R.string.ui_touch_controls) else pads.joinToString(", "),
-                    style = MaterialTheme.typography.titleMedium, color = Rc.text)
-            }
-        }
-    }
-}
-
-/** The settings a player reaches for most, the same keys as Settings. */
-@Composable
-private fun QuickSettings() {
     val ctx = LocalContext.current
-    val groups = remember { SettingsModel.groups(ctx) }
-    var values by remember { mutableStateOf(runCatching { SettingsModel.read(groups) }.getOrDefault(emptyMap())) }
     val overlay = remember { org.recompia.pkp.overlay.OverlayPrefs.of(ctx) }
     var touch by remember { mutableStateOf(org.recompia.pkp.overlay.OverlayPrefs.enabled(overlay)) }
-    val scale = groups.flatMap { it.rows }.firstOrNull { it.id == SettingsModel.RESOLUTION } as? SettingsModel.Choice
-    GlassCard(Modifier.fillMaxWidth(), strong = false, padding = 12.dp) {
-        SectionTitle(stringResource(R.string.ui_quick_settings))
-        if (scale != null && values.isNotEmpty()) { val v = values[scale.id] ?: scale.def
-            ChoiceRow(stringResource(scale.label), choiceOptions(scale, v), v, { n -> writeSetting(scale, n); values = values + (scale.id to n) }) }
-        Text(stringResource(R.string.ui_set_render_note), style = MaterialTheme.typography.bodySmall, color = Rc.text3, modifier = Modifier.padding(horizontal = 12.dp))
-        SwitchRow(stringResource(R.string.ui_set_touch), touch, { touch = it; overlay.edit().putBoolean(org.recompia.pkp.overlay.OverlayPrefs.ENABLED, it).apply() })
+    GlassCard(Modifier.fillMaxWidth(), strong = false, padding = 6.dp) {
+        SwitchRow(if (pads.isEmpty()) stringResource(R.string.ui_touch_controls) else pads.joinToString(", "), touch,
+            { touch = it; overlay.edit().putBoolean(org.recompia.pkp.overlay.OverlayPrefs.ENABLED, it).apply() },
+            overline = stringResource(R.string.ui_controls_label),
+            icon = if (pads.isEmpty()) Icons.Rounded.TouchApp else Icons.Rounded.SportsEsports)
     }
 }
 
