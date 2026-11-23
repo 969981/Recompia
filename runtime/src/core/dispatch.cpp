@@ -210,8 +210,8 @@ uint64_t guest_function_of(uint64_t host_rip) {
 
 // ---- HLE thunks -----------------------------------------------------------------------------------------------------
 
-uint64_t hle_register(const char* name, HleFn fn) { if constexpr (facts::kPhone) import_epoch().fetch_add(1, std::memory_order_release);
-    std::lock_guard<std::mutex> lk(g_hle_lock);
+uint64_t hle_register(const char* name, HleFn fn) {
+    std::lock_guard<std::mutex> lk(g_hle_lock); ImportEpochBump<> bump;   // after the change, under the lock
     if (g_thunks.capacity() < kMaxThunks) g_thunks.reserve(kMaxThunks);   // never reallocates: dispatch reads without the lock
     auto it = g_thunk_by_name.find(name);
     size_t i;
@@ -247,8 +247,8 @@ HleFn hle_lookup(const char* name) {
     return it == g_thunk_by_name.end() ? nullptr : g_thunks[it->second]->fn;
 }
 
-void hle_mark_leaf(const char* name) { if constexpr (facts::kPhone) import_epoch().fetch_add(1, std::memory_order_release);
-    std::lock_guard<std::mutex> lk(g_hle_lock);
+void hle_mark_leaf(const char* name) {
+    std::lock_guard<std::mutex> lk(g_hle_lock); ImportEpochBump<> bump;   // after the change, under the lock
     auto it = g_thunk_by_name.find(name);
     if (it != g_thunk_by_name.end() && g_thunks[it->second]->fn) g_thunks[it->second]->leaf.store(true, std::memory_order_release);
 }
@@ -277,8 +277,8 @@ std::vector<HleInfo> hle_list() {
     return v;
 }
 
-void hle_clear() { if constexpr (facts::kPhone) import_epoch().fetch_add(1, std::memory_order_release);
-    std::lock_guard<std::mutex> lk(g_hle_lock);
+void hle_clear() {
+    std::lock_guard<std::mutex> lk(g_hle_lock); ImportEpochBump<> bump;   // after the change, under the lock
     g_thunk_count.store(0);
     g_thunks.clear();
     g_thunk_by_name.clear();

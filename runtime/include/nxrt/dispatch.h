@@ -59,6 +59,12 @@ std::atomic<uint32_t>& import_epoch() {
     static std::atomic<uint32_t> e{1};
     return e;
 }
+// Bumps import_epoch when it goes out of scope: declared after the lock that guards the change, so the bump comes after the change and
+// before the unlock (a thread that read the new epoch can only see the new table).
+template <bool kOn = facts::kPhone>
+struct ImportEpochBump {
+    ~ImportEpochBump() { if constexpr (kOn) import_epoch().fetch_add(1, std::memory_order_release); }
+};
 
 // ---- the dispatch entry used by the ABI (abi_glue.cpp defines call_indirect / guest_trap on top of it) ----------------------
 // Runs the lifted function or HLE thunk at `addr` on `c`; an unknown target is a guest trap (GUEST TRAP report, exception
