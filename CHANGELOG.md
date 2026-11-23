@@ -18,6 +18,7 @@
 ### Graphics
 - The temporal upscalers ran at the tone map, before the game's own enlargement of a scene below 100%: their result was drawn back into the small scene and stretched, so they looked no different from Off (#232). They now run at the frame's first scene enlargement.
 - FSR 3, DLSS and DLAA are back in the Upscaler list where the PC can run them (FSR 3: with the FidelityFX DLLs; DLSS and DLAA: with an NVIDIA RTX GPU and the Streamline DLLs). The list now reads Off, Nearest, FSR 1, FSR 3, DLSS, DLAA; the Sharpness row drives FSR 3's own sharpening too
+- Linux: FSR 3 runs on Linux too. It is built into the game from AMD's open-source FidelityFX SDK, so nothing has to be downloaded (Settings > Performance > Upscaler, with Scene Resolution below 100%)
 
 ## 0.17.0 (build U: Urchin)
 

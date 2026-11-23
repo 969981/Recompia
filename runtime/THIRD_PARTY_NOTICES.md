@@ -362,6 +362,13 @@ Files: `third_party/smaa/` (`SMAA.hlsl`, `AreaTex.h`, `SearchTex.h`, unmodified)
 
 Files: `third_party/amd_ffx_api/` (`api/include/ffx_api.h`, `ffx_api_types.h`, `ffx_api_loader.h`, `vk/ffx_api_vk.h`, `upscalers/include/ffx_upscale.h`, unmodified). Copyright (c) Advanced Micro Devices, Inc. Licence text: `third_party/amd_ffx_api/LICENSE.txt`. Source: https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK, release v2.4.0. Used by `src/gfx/extras/temporal_ffx.cpp`.
 
+## AMD FidelityFX SDK v1.1.4, FSR 3 upscaler sources (MIT)
+
+Files: `third_party/amd_ffx_sdk/` (the FidelityFX API, the FSR 3 upscaler component, its GLSL shaders and the Vulkan backend; the file list
+and the few changes are in `third_party/amd_ffx_sdk/README.txt`). Copyright (c) Advanced Micro Devices, Inc. Licence text:
+`third_party/amd_ffx_sdk/LICENSE.txt`. Source: https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK, release v1.1.4. Built into the
+Linux runtime (`cmake/ffx_sdk.cmake`, `src/gfx/extras/temporal_ffx_linked.cpp`); `third_party/amd_ffx_sdk/linux/` is Recompia's, under the same MIT licence.
+
 ## AMD FidelityFX FSR 3.1 runtime (MIT)
 
 `amd_fidelityfx_loader_vk.dll` and `amd_fidelityfx_upscaler_vk.dll` (AMD-signed, byte-identical to `Kits/FidelityFX/signedbin/` in the FidelityFX SDK v2.4.0 release; the SDK's licence, `licenses/LICENSE.FidelityFX-SDK-v2.4.0.txt` in the release, lists both under MIT) are not in this repository. The release package carries them unchanged in `upscalers/fsr3/`; the game loads them at run time only (`LoadLibrary`), found there, next to the executable or via `[upscale] fsr_dll`. Copyright (C) Advanced Micro Devices, Inc.

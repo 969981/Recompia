@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# gen_ffx_fsr3_shaders.py <glslangValidator> <FidelityFX SDK v1.1.x root> <output dir>
+#
+# The FSR 3 upscaler's shader permutation headers for the FidelityFX SDK's Vulkan backend, without the SDK's Windows-only
+# FidelityFX_SC.exe. Same inputs as sdk/include/FidelityFX/gpu/fsr3upscaler/CMakeCompileFSR3UpscalerShaders.txt (base defines,
+# the 6 permutation options, glslang -Os --target-env vulkan1.2), same output names and layout as the blob accessor
+# (sdk/src/backends/shared/blob_accessors/ffx_fsr3upscaler_shaderblobs.cpp) expects: per pass <name>_permutations.h,
+# _wave64_ (GLSL has no wave size option: the same SPIR-V, the backend asks for subgroup size 64), _16bit_ and _wave64_16bit_
+# (FFX_HALF=1). The resource tables come from the SPIR-V itself (names, bindings, sets, array sizes).
+import hashlib
+import itertools
+import os
+import struct
+import subprocess
+import sys
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
+
+BASE = ['-DFFX_GPU=1', '-DFFX_GLSL=1',
+        '-DFFX_FSR3UPSCALER_OPTION_UPSAMPLE_SAMPLERS_USE_DATA_HALF=0',
+        '-DFFX_FSR3UPSCALER_OPTION_ACCUMULATE_SAMPLERS_USE_DATA_HALF=0',
+        '-DFFX_FSR3UPSCALER_OPTION_REPROJECT_SAMPLERS_USE_DATA_HALF=1',
+        '-DFFX_FSR3UPSCALER_OPTION_POSTPROCESSLOCKSTATUS_SAMPLERS_USE_DATA_HALF=0',
+        '-DFFX_FSR3UPSCALER_OPTION_UPSAMPLE_USE_LANCZOS_TYPE=2']
+OPTIONS = ['FFX_FSR3UPSCALER_OPTION_REPROJECT_USE_LANCZOS_TYPE', 'FFX_FSR3UPSCALER_OPTION_HDR_COLOR_INPUT',
+           'FFX_FSR3UPSCALER_OPTION_LOW_RESOLUTION_MOTION_VECTORS', 'FFX_FSR3UPSCALER_OPTION_JITTERED_MOTION_VECTORS',
+           'FFX_FSR3UPSCALER_OPTION_INVERTED_DEPTH', 'FFX_FSR3UPSCALER_OPTION_APPLY_SHARPENING']
+KINDS = ['constantBuffer', 'srvTexture', 'uavTexture', 'srvBuffer', 'uavBuffer', 'sampler', 'rtAccelerationStructure']
+COUNT_FIELD = dict(zip(KINDS, ['ConstantBuffers', 'SRVTextures', 'UAVTextures', 'SRVBuffers', 'UAVBuffers', 'Samplers', 'RTAccelerationStructures']))   # POPULATE_SHADER_BLOB_FFX's names
+
+
+def reflect(spv):
+    """{kind: [(name, binding, count, set)]} of the module's descriptor variables, by binding."""
+    w = struct.unpack(f'<{len(spv) // 4}I', spv)
+    assert w[0] == 0x07230203
+    names, deco, types, consts, ptrs, vars_ = {}, {}, {}, {}, {}, []
+    i = 5
+    while i < len(w):
+        op, n = w[i] & 0xFFFF, w[i] >> 16
+        a = w[i + 1:i + n]
+        if op == 5:
+            names[a[0]] = bytes(struct.pack(f'<{n - 2}I', *a[1:])).split(b'\0')[0].decode()
+        elif op == 71:
+            deco.setdefault(a[0], {})[a[1]] = a[2] if len(a) > 2 else True
+        elif op == 72:   # OpMemberDecorate
+            deco.setdefault((a[0], a[1]), {})[a[2]] = True
+        elif op in (25, 26, 27, 28, 29, 30, 21, 22, 23, 24):
+            types[a[0]] = (op, a)
+        elif op == 43:
+            consts[a[1]] = a[2]
+        elif op == 32:
+            ptrs[a[0]] = (a[1], a[2])
+        elif op == 59:
+            vars_.append((a[1], a[0], a[2]))
+        i += n
+    out = {k: [] for k in KINDS}
+    for vid, ptype, sc in vars_:
+        if sc not in (0, 2, 12):   # UniformConstant, Uniform, StorageBuffer
+            continue
+        t = ptrs[ptype][1]
+        count = 1
+        if types[t][0] == 28:
+            count = consts[types[t][1][2]]
+            t = types[t][1][1]
+        elif types[t][0] == 29:
+            count = 0
+            t = types[t][1][1]
+        op, a = types[t]
+        d = deco.get(t, {})
+        if op == 25:   # OpTypeImage: Dim Buffer (5) is a texel buffer; Sampled 2 = storage
+            kind = ('uav' if a[6] == 2 else 'srv') + ('Buffer' if a[2] == 5 else 'Texture')
+        elif op == 26:
+            kind = 'sampler'
+        elif op == 30 and sc == 2 and 2 in d:
+            kind = 'constantBuffer'
+        elif op == 30:
+            ro = all(24 in deco.get((t, m), {}) for m in range(len(a) - 1))
+            kind = 'srvBuffer' if ro else 'uavBuffer'
+        else:
+            continue
+        vd = deco.get(vid, {})
+        out[kind].append((names.get(vid, f'_{vid}'), vd.get(33, 0), count, vd.get(34, 0)))
+    for k in out:
+        out[k].sort(key=lambda r: r[1])
+    return out
+
+
+def compile_one(glslang, src, inc, defines):
+    with tempfile.NamedTemporaryFile(suffix='.spv', delete=False) as f:
+        path = f.name
+    try:
+        cmd = [glslang, '-V', '--target-env', 'vulkan1.2', '-S', 'comp', '-Os', '-o', path] + [f'-I{d}' for d in inc] + BASE + defines + [src]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode:
+            sys.exit(f'glslang failed: {" ".join(cmd)}\n{r.stdout}{r.stderr}')
+        return open(path, 'rb').read()
+    finally:
+        os.unlink(path)
+
+
+def emit(path, name, key_name, blobs, table):
+    """One header: the unique blobs, their reflection, the key -> blob table, and (once per pass) the key union."""
+    L = [f'// GENERATED by scripts/gen_ffx_fsr3_shaders.py from the FidelityFX SDK (MIT): do not edit', '#pragma once', '#include <stdint.h>', '']
+    guard = f'FFX_KEY_{key_name}'
+    L += [f'#ifndef {guard}', f'#define {guard}', f'typedef union {key_name}_PermutationKey {{', '    struct {']
+    L += [f'        uint32_t {o} : 1;' for o in OPTIONS]
+    L += ['    };', '    uint32_t index;', f'}} {key_name}_PermutationKey;', '#endif', '']
+    L += [f'typedef struct {name}_PermutationInfo {{', '    const uint32_t blobSize;', '    const unsigned char* blobData;']
+    for k in KINDS:
+        L += [f'    const uint32_t num{COUNT_FIELD[k]};']
+        L += [f'    const char** {k}Names;', f'    const uint32_t* {k}Bindings;', f'    const uint32_t* {k}Counts;', f'    const uint32_t* {k}Spaces;']
+    L += [f'}} {name}_PermutationInfo;', '']
+    infos = []
+    for bi, (spv, refl) in enumerate(blobs):
+        p = f'g_{name}_{bi}'
+        words = struct.unpack(f'<{len(spv) // 4}I', spv)
+        L.append(f'static const uint32_t {p}_data[] = {{')
+        for j in range(0, len(words), 12):
+            L.append('    ' + ', '.join(f'0x{v:08x}' for v in words[j:j + 12]) + ',')
+        L.append('};')
+        fields = [f'{len(spv)}', f'(const unsigned char*){p}_data']
+        for k in KINDS:
+            rows = refl[k]
+            fields.append(str(len(rows)))
+            if not rows:
+                fields += ['0', '0', '0', '0']
+                continue
+            for col, ctype in ((0, 'const char*'), (1, 'uint32_t'), (2, 'uint32_t'), (3, 'uint32_t')):
+                vals = ', '.join(f'"{r[0]}"' if col == 0 else str(r[col]) for r in rows)
+                L.append(f'static {"const char*" if col == 0 else "const uint32_t"} {p}_{k}_{col}[] = {{ {vals} }};')
+                fields.append(f'{"(const char**)" if col == 0 else ""}{p}_{k}_{col}')
+        infos.append('    { ' + ', '.join(fields) + ' },')
+    L += [f'static const {name}_PermutationInfo g_{name}_PermutationInfo[] = {{'] + infos + ['};', '']
+    L += [f'static const int32_t g_{name}_IndirectionTable[] = {{', '    ' + ', '.join(map(str, table)), '};', '']
+    with open(path, 'w', newline='\n') as f:
+        f.write('\n'.join(L))
+
+
+def main():
+    glslang, sdk, out = sys.argv[1:4]
+    shaders = os.path.join(sdk, 'sdk/src/backends/vk/shaders/fsr3upscaler')
+    gpu = os.path.join(sdk, 'sdk/include/FidelityFX/gpu')
+    inc = [gpu, os.path.join(gpu, 'fsr3upscaler')]
+    os.makedirs(out, exist_ok=True)
+    passes = sorted(f[:-5] for f in os.listdir(shaders) if f.endswith('.glsl'))
+    keys = list(itertools.product((0, 1), repeat=len(OPTIONS)))
+    jobs = []
+    for p in passes:
+        for half in (0, 1):
+            for k in keys:
+                jobs.append((p, half, k))
+    with ThreadPoolExecutor(os.cpu_count() or 4) as ex:
+        res = list(ex.map(lambda j: compile_one(glslang, os.path.join(shaders, j[0] + '.glsl'), inc,
+                                                [f'-DFFX_HALF={j[1]}'] + [f'-D{o}={v}' for o, v in zip(OPTIONS, j[2])]), jobs))
+    spv = dict(zip(jobs, res))
+    for p in passes:
+        for half in (0, 1):
+            uniq, table = {}, [0] * len(keys)
+            for k in keys:
+                idx = sum(v << i for i, v in enumerate(k))   # bit i = OPTIONS[i], the key union's bitfield order
+                b = spv[(p, half, k)]
+                h = hashlib.sha256(b).digest()
+                if h not in uniq:
+                    uniq[h] = (len(uniq), b)
+                table[idx] = uniq[h][0]
+            blobs = [(b, reflect(b)) for _, b in sorted(uniq.values())]
+            for wave in ('', '_wave64'):
+                name = f'{p}{wave}{"_16bit" if half else ""}'
+                emit(os.path.join(out, f'{name}_permutations.h'), name, p, blobs, table)
+    print(f'{len(passes)} passes, {len(jobs)} compiles -> {out}')
+
+
+if __name__ == '__main__':
+    main()

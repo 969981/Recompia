@@ -41,7 +41,7 @@ enum class UpscaleMode : uint8_t { Off = 0, Fsr1, Fsr3, Dlss, Xess, Nis, Dlaa, N
 inline UpscaleMode upscale_mode_enabled(UpscaleMode m) {
     return m == UpscaleMode::Nis || m == UpscaleMode::Xess ? UpscaleMode::Off : m;
 }
-// The mode can run here: Off and the spatial ones always; FSR 3 when the FidelityFX API is found (temporal_ffx_available: its DLLs on Windows);
+// The mode can run here: Off and the spatial ones always; FSR 3 when the FidelityFX API is found (temporal_ffx_available: built in on Linux, its DLLs on Windows);
 // DLSS / DLAA when the Streamline DLLs are found (the GPU check runs when the renderer starts them). The settings rows list these.
 bool upscale_mode_available(UpscaleMode m);
 // Temporal quality preset: the input scale per side (native 1, quality 1/1.5, balanced 1/1.7, performance 1/2, ultra performance 1/3); Custom
