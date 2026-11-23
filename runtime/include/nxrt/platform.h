@@ -77,6 +77,7 @@ struct Rect {
 };
 // The part of that display windows may cover (without the taskbar or panels); number 0 = the primary display. False for a bad number.
 bool display_work_area(int number, Rect* out);
+bool display_bounds(int number, Rect* out);   // the whole display, numbered the same way
 // Puts the window at that rectangle, without a frame (a fullscreen or maximised window leaves that state first). Synchronous, like
 // set_fullscreen. False when the window system gives a window no say in its position (Wayland): the window is then left as it was.
 bool place_window(const Rect& r);
