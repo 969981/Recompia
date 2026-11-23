@@ -291,6 +291,7 @@ static void smaa_scene_for_draw(const ProgLayout& pl, VkExtent3D te, extras::AaM
 void tonemap_for_draw(const ProgLayout& pl) {
     g_su.clear();
     g_su.stretch_armed = true;                                            // the frame's scene stretch comes after its tone map
+    g_su.chain = nullptr;
     if (S.ncolor == 0 || !S.color_tex[0]) return;
     if (extras::temporal_wanted()) {
         ++g_tsr_frame;                                                    // one tone-map draw per frame: the next frame's jitter phase
@@ -338,6 +339,12 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
         if (!r.tex || !tex_gpu(r.tex) || tex_is_depth(r.tex)) continue;
         const VkExtent3D se = tex_image_extent(r.tex, 0);
         if (se.width > te.width || se.height > te.height) return;          // a reduction, not the stretch
+        if (g_su.chain && r.tex != g_su.chain) {                            // re-armed by a 1:1 copy: only an enlargement of that copy is the stretch
+            g_su.stretch_armed = false;
+            g_su.chain = nullptr;
+            return;
+        }
+        g_su.chain = nullptr;
         g_su.stretch_armed = false;
         float fx = 1.0f, fy = 1.0f;
         extras::scene_fraction(&fx, &fy);
@@ -347,6 +354,7 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
             scene_part(part, out, &part, &out_tex);
             if (part.width >= out.width && part.height >= out.height) {      // a 1:1 copy: a later stretch may still enlarge the scene
                 g_su.stretch_armed = true;
+                g_su.chain = target;                                          // ... read from this copy
                 return;
             }
             g_tsr_stretch_frame = g_tsr_frame;
