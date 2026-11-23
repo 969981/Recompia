@@ -41,7 +41,7 @@ void edge_guard_note(float x, float y, float w, float h, const VkRect2D& scissor
 // to the frame it is building, which can be a frame ahead of the one replayed: one frame per step enlarged the wrong part.
 namespace {
 struct FramePart { Ref<Texture> tex; uint32_t w = 0, h = 0, pw = 0, ph = 0; };   // the reference keeps the texture alive
-FramePart g_parts[8];
+FramePart g_parts[64];   // a frame draws into some 20 to 40 colour targets: fewer slots dropped the stretch input's entry before the stretch
 uint32_t g_parts_next = 0;
 }  // namespace
 
@@ -59,7 +59,7 @@ void edge_guard_after_pass() {
         const uint32_t pw = std::min(W, static_cast<uint32_t>(std::lround(e.w))), ph = std::min(H, static_cast<uint32_t>(std::lround(e.h)));
         FramePart* slot = nullptr;
         for (FramePart& f : g_parts) if (f.tex.get() == P.color[0].tex) slot = &f;
-        if (!slot) slot = &g_parts[g_parts_next++ % 8];
+        if (!slot) slot = &g_parts[g_parts_next++ % 64];
         *slot = {Ref<Texture>::share(P.color[0].tex), W, H, pw, ph};
     }
     if (!edge_guard_on() || P.draws == 0 || e.other || P.ncolor == 0) return;
