@@ -294,6 +294,10 @@ void save(Dyn& d) {
     const auto now = std::chrono::steady_clock::now();
     if (now - d.saved < std::chrono::seconds(60)) return;
     d.saved = now;
+    if (signature(d.thermal, d.cap) != d.sig) {   // the upscaler or the frame cap changed live: learn again, under the new signature
+        d.cap = 0;
+        return;
+    }
     char b[160];
     std::snprintf(b, sizeof b, "%s pct=%d floor=%d tcap=%.0f", d.sig.c_str(), d.pct, d.floor_pct, d.thermal ? d.tcap : 0.0);
     if (d.stored == b) return;
