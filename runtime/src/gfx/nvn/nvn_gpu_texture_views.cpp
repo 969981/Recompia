@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Image views, dummy images, samplers and texel buffer views of the texture images.
 #include "nvn_gpu_texture_internal.h"
+#include "extras/temporal.h"
 
 namespace nxrt::nvn::be {
 
@@ -464,7 +465,8 @@ VkSampler dummy_sampler() {
 SamplerInfo tuned_sampler(const SamplerInfo& in) {
     SamplerInfo s = in;
     const int aniso = gfx::tuning().anisotropy.load(std::memory_order_relaxed);
-    const float bias = gfx::tuning().lod_bias.load(std::memory_order_relaxed);
+    // the player's bias, plus a temporal upscaler's (the output size's mip level: extras::temporal_lod_bias)
+    const float bias = gfx::tuning().lod_bias.load(std::memory_order_relaxed) + extras::temporal_lod_bias();
     if (s.compare_mode == NVN_COMPARE_MODE_COMPARE_R_TO_TEXTURE) return s;
     const bool mips = min_filter_uses_mips(s.min_filter);
     if (aniso > 1 && mips && vk_min_filter(s.min_filter) == VK_FILTER_LINEAR && vk_mag_filter(s.mag_filter) == VK_FILTER_LINEAR)

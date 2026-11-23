@@ -67,7 +67,12 @@ Settings settings_from_config() {
                       : uq == "custom" ? UpscaleQuality::Custom : UpscaleQuality::Quality;
     const std::string aa = lower(config_get_str("upscale", "aa", "off"));
     s.upscale.aa = aa == "smaa_low" ? AaMode::SmaaLow : aa == "smaa_medium" ? AaMode::SmaaMedium : aa == "smaa_high" ? AaMode::SmaaHigh : aa == "smaa_ultra" ? AaMode::SmaaUltra : AaMode::Off;
-    s.upscale.sharpness = std::clamp(config_get_double("upscale", "sharpness", 0.8), 0.0, 1.0);
+#if defined(__ANDROID__)
+    constexpr double kSharpness = 1.0;   // phones: the small, dense screen takes the full sharpening
+#else
+    constexpr double kSharpness = 0.8;
+#endif
+    s.upscale.sharpness = std::clamp(config_get_double("upscale", "sharpness", kSharpness), 0.0, 1.0);
     s.upscale.scene_scale = static_cast<int>(std::clamp<int64_t>(config_get_int("upscale", "scene_scale", 100), 25, 100));
     s.upscale.fsr_dll = config_get_str("upscale", "fsr_dll", "");
     s.upscale.dlss_dll = config_get_str("upscale", "dlss_dll", "");
