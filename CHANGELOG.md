@@ -1,8 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.17.0 (build U: Urchin)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's cleaning count, co-op's followers, co-op's shared rules for every player, co-op's opened areas, storage box tabs and the logs; saves and shaders are kept, no shader is translated again).
+
+### Highlights
+- **Seamless co-op is out of the Open Alpha and part of this release:** play one story in one world over the internet, each player with their own character, bag and coins. Open **Co-op** in the launcher. It needs its own save that starts from the beginning
+- Co-op story stops fixed, on existing saves too: the professor who had nothing to say, and the cleaning request that could never be finished
+- **Recompia for Android:** one APK for arm64 phones and tablets that builds the game on the device from your own dump
+- Storage box tabs: Store All now fills every tab
+
+### Known issues
+- Co-op: every player of a group needs this version. Open Alpha builds cannot join it. If your launcher is on the Experimental channel for the Open Alpha, switch it back to Stable to get this version; your co-op saves are kept
+- Co-op: on a Dream Island a teammate can be sent back home right after arriving
+- Co-op: asking a creature to move into a house, and confirming a finished house, still work for the host only: let the host do those
+- Co-op: a teammate's use of the PC counts for the story only while the host is in the same area
 
 ### Android
 - Added Recompia for Android (arm64 phones and tablets, Android 11 or later, Vulkan 1.3): one APK that builds the game on the phone from your own dump, with touch controls or a controller. The APK is on the release page next to the PC packages
