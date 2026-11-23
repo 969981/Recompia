@@ -63,7 +63,7 @@ void temporal_note_gbuffer(const uint32_t* words, size_t n_words);
 bool temporal_camera_ready();   // a camera was kept since the last evaluation
 // The scene camera's jitter. A game's own TAA jitter may never reach the camera block, so the
 // runtime jitters every binding of the camera block that holds a valid, unjittered camera: adds a Halton(2, 3) offset of the frame (8
-// phases at native size, more when upscaling, x +-0.5 px, y -0.05 to +0.45 px of width x height) to the view-projection in `words` (a copy the draw then binds).
+// phases at native size, more when upscaling, x and y +0.01 to +0.5 px of width x height) to the view-projection in `words` (a copy the draw then binds).
 // False: not a camera block, already jittered, or [upscale] jitter = 0.
 uint32_t temporal_jitter_phase_count();
 bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint32_t height, uint64_t frame);
