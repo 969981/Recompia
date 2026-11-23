@@ -214,6 +214,9 @@ constexpr Row kDisplay[] = {
     // a phone's Dynamic Resolution sits with its Resolution row (the Graphics tab's copy is left out there)
     when(choice("Dynamic Resolution", "Lowers the resolution below the one above while the GPU falls behind, and raises it back up to it.", kOffOn, 2,
                 ROW_BOOL(display.dynamic_resolution)), nxrt::host_is_phone),
+    when(choice("Dynamic Resolution Mode", "GPU Time: lower the resolution when the GPU falls behind. Heat: also hold it below what keeps the phone from throttling, so the GPU can run cooler.",
+                {"GPU Time", "Heat"}, 2, [](const S&) { return settings::get_str(settings::Key::DynamicResolutionMode) == "thermal" ? 1 : 0; },
+                [](S&, int v) { settings::set_str(settings::Key::DynamicResolutionMode, v ? "thermal" : "gpu"); }), nxrt::host_is_phone),
     when(choice("Upscaler", "Sharpens the enlarged 3D picture with SGSR (Snapdragon Game Super Resolution); menus stay sharp.", {"Off", "SGSR"}, 2,
                 phone_upscaler_get, phone_upscaler_set), nxrt::host_is_phone),
 };

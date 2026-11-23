@@ -454,6 +454,8 @@ The game's own keys, in the `[pkp]` section of the game ini (`pkp.ini`; `nxrt.in
 | `pkp` | `online_presence` | `0` | `1` `0` | `NXRT_PKP_ONLINE_PRESENCE` | Launcher only (online.rs): while the game runs, tell the Recompia online server that this player is online, with the launcher's online name, version, Windows or Linux and the creatures-at-home count. Sends data off the PC, so off by default. |
 | `pkp` | `online_events` | `1` | `1` `0` | `NXRT_PKP_ONLINE_EVENTS` | The game is told it has an internet connection, so events that need one the first time (Apples to Applin) can start. Nothing is sent: online services still fail. Next start. |
 | `pkp` | `resolution` | `0` | `0` to `100` (clamped into it) | `NXRT_PKP_RESOLUTION` | On a phone, the 3D picture's resolution in percent of the screen per side, 15 to 100 (0: worked out once from [display] render_scale and [upscale] scene_scale, the keys before it). |
+| `pkp` | `dynamic_resolution_mode` | `gpu` | `gpu` `thermal` | `NXRT_PKP_DYNAMIC_RESOLUTION_MODE` | On a phone with Dynamic Resolution: gpu follows the GPU's time per frame; thermal also caps the resolution by the phone's thermal headroom (dynamic_resolution_headroom, same section), so the GPU can run at lower clocks before the phone throttles. |
+| `pkp` | `dynamic_resolution_headroom` | `0.85` | `0.5` to `0.95` (clamped into it) | `NXRT_PKP_DYNAMIC_RESOLUTION_HEADROOM` | With dynamic_resolution_mode = thermal: the thermal headroom to hold (1.0 = the severe throttling status; about 0.033 per degree C); the device's light-throttling threshold minus 0.03 when lower. |
 
 Retired keys, read and ignored without a warning (the next save leaves them out): `[pkp]` `link_story_coop`.
 

@@ -116,8 +116,11 @@ void Overlay::Impl::refresh_counter_text(double now_s) {
                 if (sp && op && k > 0 && k < static_cast<int>(sizeof line))
                     k += std::snprintf(line + k, sizeof line - k, " %ux%u -> %ux%u", sp >> 16, sp & 0xffff, op >> 16, op & 0xffff);
                 if (k > 0 && k < static_cast<int>(sizeof line)) k += std::snprintf(line + k, sizeof line - k, "  %s", kUp[up]);
-                if (tu.res_dynamic.load(std::memory_order_relaxed) && k > 0 && k < static_cast<int>(sizeof line))
-                    std::snprintf(line + k, sizeof line - k, "  DR (max %d%%)", tu.res_cap.load(std::memory_order_relaxed));
+                if (tu.res_dynamic.load(std::memory_order_relaxed) && k > 0 && k < static_cast<int>(sizeof line)) {
+                    const int tcap = tu.res_dr_cap.load(std::memory_order_relaxed);   // the thermal cap (dynamic_resolution_mode = thermal)
+                    if (tcap > 0) std::snprintf(line + k, sizeof line - k, "  DR cap %d%% (max %d%%)", tcap, tu.res_cap.load(std::memory_order_relaxed));
+                    else std::snprintf(line + k, sizeof line - k, "  DR (max %d%%)", tu.res_cap.load(std::memory_order_relaxed));
+                }
                 counter_lines[counter_n++] = line;
             }
         }

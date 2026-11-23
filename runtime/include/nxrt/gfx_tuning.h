@@ -45,6 +45,7 @@ struct Tuning {
     // upscaler that enlarged it (0 none, 1 SGSR, 2 bicubic). 0 = not known yet (or not a phone).
     std::atomic<int> res_pct{0}, res_cap{0}, res_upscaler{0};
     std::atomic<bool> res_dynamic{false};
+    std::atomic<int> res_dr_cap{0};        // the thermal cap of the phone's dynamic resolution (percent of the screen), 0 when none
     std::atomic<uint32_t> res_scene_px{0}, res_out_px{0};
 };
 

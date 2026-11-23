@@ -19,16 +19,36 @@
 //   settle   20 frames after each change before the next decision, with the average started again at the new size;
 //   bounds   kPhoneResMin (15 % of the screen) up to the player's Resolution.
 // Every decision is logged with the numbers it was made from (elasticity included), and the state every 300 frames.
+//
+// [pkp] dynamic_resolution_mode = thermal (live; developer A/B: [diag] ab_name = dr_thermal) adds a slow loop on the phone's thermal
+// headroom (nxrt/thermal.h, 1 Hz, now and 10 s ahead) that sets a cap the loop above never exceeds, so the GPU keeps slack and its
+// governor settles at a lower clock before the phone throttles:
+//   target   H* = [pkp] dynamic_resolution_headroom (0.85), or the device's LIGHT threshold minus 0.03 when lower;
+//   cap      every 2 polls: down when the forecast is over H* + 0.02 (5 % of the screen per 0.05 of headroom, at most 5 % per 2 s);
+//            up 1 % per 4 s only when now and the forecast are both under H* - 0.05, 10 s after the last decrease, below the
+//            moderate status and while the loop above is not already lower than the cap; severe (or headroom 1.0): 15 % at once;
+//            critical: the lowest resolution;
+//   guard    the loop above with deadline thresholds: one step down after 2 frames over 98 % of the budget or the average over 92 % for
+//            8 frames (each after the last step's verdict, so at least 35 frames apart); one step up after 2 s under 75 % when the next step is predicted under 85 %; nothing in between, which leaves
+//            the governor room to lower the clock. Changes per minute are logged.
+// No headroom on the device: the guard alone (the cap stays at the player's Resolution). Not implemented: lowering the frame cap at the
+// lowest resolution.
 #include "input/pkp_play_internal.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <chrono>
 #include <cstdint>
+#include <cstdio>
+#include <string>
 
+#include "core/pkp_settings.h"
+#include "nxrt/ab_switch.h"
 #include "nxrt/gfx_tuning.h"
 #include "nxrt/log.h"
 #include "nxrt/platform.h"
+#include "nxrt/thermal.h"
 #include "render/pkp_phone_res.h"
 
 namespace nxrt::games::pkp::play_detail {
@@ -55,6 +75,17 @@ struct Dyn {
     int wait = 0, backoff = kProbeFirst, failed = 0;   // frames until a probe below the floor, the next back-off, probes failed in a row
     bool probing = false;          // the step being judged went below the floor
     bool told_none = false;
+    int lim = 0;                   // the cap the loop works under this frame: the player's Resolution, or the thermal cap below it
+    // thermal mode
+    bool thermal = false;
+    double tcap = 0.0;             // the thermal cap, percent of the screen (moves by 1 %; the loop uses it on the 5 % grid)
+    uint64_t polls_acted = 0;      // thermal::Headroom::polls at the last slow-loop action
+    int last_status = -1;
+    double prev_ms = 0.0;          // the previous frame's GPU ms (the guard's two-frame panic)
+    int under = 0;                 // frames in a row under 75 % of the budget (the guard's raise)
+    std::chrono::steady_clock::time_point last_down{}, last_up{}, minute{};
+    int changes = 0;               // resolution changes since `minute`
+    bool told_headroom = false;
 };
 Dyn g_dyn;   // the game thread's (hook_copy_params)
 
@@ -65,6 +96,7 @@ double budget_ms() {
 }
 
 void change(Dyn& d, int to, const char* why, double target) {
+    ++d.changes;
     NXLOG_I(kTag, "dynamic resolution: %d -> %d %% of the screen (%s: GPU %.1f ms a frame on average, target %.1f ms)", d.pct, to, why, d.avg, target);
     d.pct = to;
     d.avg = 0.0;
@@ -81,7 +113,7 @@ void judge_step(Dyn& d, double target) {
     const double saved = d.from_ms - d.avg;
     const double e = expected > 0.0 ? saved / expected : 0.0;
     // more than a quarter of the player's pixels for under a tenth of the GPU time measured there: stay high
-    const bool poor_trade = d.cap_ms > 0.0 && pixels(d.pct, d.cap) < 0.75 && (d.cap_ms - d.avg) < 0.10 * d.cap_ms;
+    const bool poor_trade = d.cap_ms > 0.0 && pixels(d.pct, d.lim) < 0.75 && (d.cap_ms - d.avg) < 0.10 * d.cap_ms;
     if (e >= kMinElasticity && !poor_trade) {
         NXLOG_I(kTag, "dynamic resolution: %d -> %d %% kept: it saved %.1f of %.1f ms in proportion (elasticity %.2f)", d.from, d.pct, saved,
                 expected, e);
@@ -94,7 +126,7 @@ void judge_step(Dyn& d, double target) {
         d.probing = false;
         return;
     }
-    const int back = poor_trade ? d.cap : d.from;
+    const int back = poor_trade ? d.lim : d.from;
     char why[96];
     std::snprintf(why, sizeof why, "%s, elasticity %.2f: %.1f of %.1f ms saved", poor_trade ? "a poor trade for the pixels" : "the step gained little", e,
                   saved, expected);
@@ -113,56 +145,131 @@ void judge_step(Dyn& d, double target) {
             d.failed >= 2 ? " (none while the target is out of reach: the last two probes failed)" : "");
 }
 
+// The thermal cap (slow loop): acts on every second poll of the headroom.
+void thermal_tick(Dyn& d, int cap, int lowest) {
+    thermal::headroom_start();
+    thermal::Headroom h;
+    if (!thermal::headroom(&h)) {
+        d.tcap = cap;
+        if (!d.told_headroom && ++d.samples > 900) {   // the poller needs a few seconds; past that the device has none
+            d.told_headroom = true;
+            NXLOG_W(kTag, "dynamic resolution: no thermal headroom on this device: the deadline guard alone, under the player's Resolution");
+        }
+        return;
+    }
+    if (!d.told_headroom) {
+        d.told_headroom = true;
+        NXLOG_I(kTag, "dynamic resolution: thermal cap on (headroom %.2f now, %.2f in 10 s, LIGHT threshold %.2f)", h.now, h.forecast, h.light);
+    }
+    const auto now = std::chrono::steady_clock::now();
+    const double target = std::min(settings::get_double(settings::Key::DynamicResolutionHeadroom),
+                                   std::isnan(h.light) ? 1.0 : static_cast<double>(h.light) - 0.03);
+    const double before = d.tcap;
+    const char* why = nullptr;
+    if (h.status != d.last_status) {   // the status overrides, at once
+        if (h.status >= 4) { d.tcap = lowest; why = "critical status"; }
+        else if (h.status >= 3 && d.last_status < 3) { d.tcap -= 15.0; why = "severe status"; }
+        d.last_status = h.status;
+    }
+    if (!why && h.now >= 1.0f && d.tcap > lowest && h.polls >= d.polls_acted + 2 && before > 0 && now - d.last_down > std::chrono::seconds(10)) {
+        d.tcap -= 15.0;
+        why = "headroom at the severe status";
+    }
+    if (!why && h.polls >= d.polls_acted + 2) {
+        d.polls_acted = h.polls;
+        if (h.forecast > target + 0.02) {
+            d.tcap -= std::clamp(100.0 * (h.forecast - target), 0.0, 5.0);
+            why = "the forecast is over the target";
+        } else if (std::max(h.now, h.forecast) < target - 0.05 && now - d.last_down > std::chrono::seconds(10) && now - d.last_up >= std::chrono::seconds(4) &&
+                   h.status < 2 && d.pct >= std::min<int>(cap, static_cast<int>(d.tcap) / kStep * kStep) && d.tcap < cap) {
+            d.tcap += 1.0;
+            d.last_up = now;
+            why = "headroom to spare";
+        }
+    }
+    d.tcap = std::clamp(d.tcap, static_cast<double>(lowest), static_cast<double>(cap));
+    if (why && static_cast<int>(d.tcap) != static_cast<int>(before)) {
+        if (d.tcap < before) d.last_down = now;
+        NXLOG_I(kTag, "dynamic resolution cap: %.0f -> %.0f %% (%s: headroom %.3f now, %.3f in 10 s, target %.3f, status %d)", before, d.tcap, why, h.now,
+                h.forecast, target, h.status);
+    }
+}
+
 }  // namespace
 
 int dynres_pct(int cap, bool on) {
     Dyn& d = g_dyn;
+    gfx::Tuning& tu = gfx::tuning();
     if (!on) {
         if (d.pct) NXLOG_I(kTag, "dynamic resolution: off, %d %% of the screen", cap);
         d = Dyn();
+        tu.res_dr_cap.store(0, std::memory_order_relaxed);
         return cap;
     }
     const int lowest = std::min(kPhoneResMin, cap);
-    if (!d.pct || d.cap != cap) {   // on, or a new Resolution: start afresh at it
-        const uint64_t seen = gfx::tuning().gpu_frames.load(std::memory_order_relaxed);
+    const bool thermal = diag::ab("dr_thermal", settings::get_str(settings::Key::DynamicResolutionMode) == "thermal");
+    if (!d.pct || d.cap != cap || d.thermal != thermal) {   // on, a new Resolution or the other mode: start afresh at it
+        const uint64_t seen = tu.gpu_frames.load(std::memory_order_relaxed);
         const bool first = !d.pct;
         d = Dyn();
-        d.pct = d.cap = cap;
+        d.pct = d.cap = d.lim = cap;
+        d.tcap = cap;
+        d.thermal = thermal;
         d.seen = seen;
         d.settle = kSettle;
-        if (first)
-            NXLOG_I(kTag, "dynamic resolution: on, %d to %d %% of the screen, from the GPU's time per frame (target 90 %% of %.1f ms)", lowest, cap, budget_ms());
+        d.minute = std::chrono::steady_clock::now();
+        NXLOG_I(kTag, "dynamic resolution: %s, %d to %d %% of the screen, %s (budget %.1f ms)", first ? "on" : "restarted", lowest, cap,
+                thermal ? "under a thermal cap, the GPU time as a deadline guard" : "from the GPU's time per frame", budget_ms());
     }
-    const uint64_t n = gfx::tuning().gpu_frames.load(std::memory_order_relaxed);
+    if (thermal) thermal_tick(d, cap, lowest);
+    // the cap of this frame on the 5 % grid; the loop below never goes over it
+    d.lim = thermal ? std::max(lowest, std::min(cap, static_cast<int>(d.tcap) / kStep * kStep)) : cap;
+    tu.res_dr_cap.store(thermal ? d.lim : 0, std::memory_order_relaxed);
+    if (d.pct > d.lim) change(d, d.lim, "the thermal cap", 0.9 * budget_ms());
+    if (const auto now = std::chrono::steady_clock::now(); now - d.minute >= std::chrono::seconds(60)) {
+        NXLOG_I(kTag, "dynamic resolution: %d changes in the last minute (%d %% of the screen, cap %d)", d.changes, d.pct, d.lim);
+        d.changes = 0;
+        d.minute = now;
+    }
+    const uint64_t n = tu.gpu_frames.load(std::memory_order_relaxed);
     if (n == d.seen) {
         if (n == 0 && !d.told_none && ++d.samples > 600) {
             d.told_none = true;
-            NXLOG_W(kTag, "dynamic resolution: no GPU timestamps on this device: the resolution stays at %d %%", d.pct);
+            NXLOG_W(kTag, "dynamic resolution: no GPU timestamps on this device: the resolution follows only the thermal cap (%d %%)", d.pct);
         }
         return d.pct;
     }
     d.seen = n;
-    const double ms = gfx::tuning().gpu_frame_us.load(std::memory_order_relaxed) / 1000.0;
+    const double budget = budget_ms();
+    const double ms = tu.gpu_frame_us.load(std::memory_order_relaxed) / 1000.0;
     d.avg = d.avg > 0.0 ? d.avg + 0.15 * (ms - d.avg) : ms;
-    const double target = 0.9 * budget_ms();
+    const double target = thermal ? 0.92 * budget : 0.9 * budget;
+    const bool panic = thermal && ms > 0.98 * budget && d.prev_ms > 0.98 * budget;
+    d.prev_ms = ms;
     if (d.wait > 0) --d.wait;
     if (d.failed && d.avg < 0.8 * target) d.failed = 0;   // the target is in reach again: probes may resume after their back-off
-    if (++d.samples % kStateEvery == 0)
-        NXLOG_I(kTag, "dynamic resolution: %d %% of the screen (cap %d, floor %d), GPU %.1f ms a frame on average, target %.1f ms, elasticity %.2f",
-                d.pct, cap, d.floor_pct, d.avg, target, d.elasticity);
+    if (++d.samples % kStateEvery == 0) {
+        thermal::Headroom h;
+        const bool hh = thermal && thermal::headroom(&h);
+        NXLOG_I(kTag, "dynamic resolution: %d %% of the screen (cap %d, floor %d), GPU %.1f ms a frame on average, target %.1f ms, elasticity %.2f%s",
+                d.pct, d.lim, d.floor_pct, d.avg, target, d.elasticity,
+                hh ? (", headroom " + std::to_string(h.now).substr(0, 5) + " now, " + std::to_string(h.forecast).substr(0, 5) + " in 10 s").c_str() : "");
+    }
+    // a panic still waits for the last step's verdict (settle and judge): stepping on before it chained a probe from 100 to 70 % in 2 s
     if (d.settle > 0) {
         --d.settle;
         return d.pct;
     }
-    if (d.pct == cap) d.cap_ms = d.avg;
+    if (d.pct == d.lim) d.cap_ms = d.avg;
     if (d.judge > 0) {
         if (--d.judge == 0) judge_step(d, target);
         return d.pct;
     }
     d.over = d.avg > target ? d.over + 1 : 0;
-    if (d.over >= kLowerAfter && d.pct > lowest) {
-        const double side = d.pct * std::sqrt(target / d.avg);
-        int to = std::max(lowest, std::min(d.pct - kStep, static_cast<int>(side) / kStep * kStep));
+    if ((panic || d.over >= kLowerAfter) && d.pct > lowest) {
+        const double side = d.pct * std::sqrt(target / std::max(d.avg, target));
+        int to = thermal ? d.pct - kStep : std::max(lowest, std::min(d.pct - kStep, static_cast<int>(side) / kStep * kStep));   // thermal: one step
+        to = std::max(lowest, to);
         bool probe = false;
         if (d.floor_pct && to < d.floor_pct) {
             // below the floor only as a probe: after the back-off, and not while out of reach after two failed probes
@@ -173,15 +280,21 @@ int dynres_pct(int cap, bool on) {
         if (to >= d.pct) return d.pct;
         const int from = d.pct;
         const double from_ms = d.avg;
-        change(d, to, probe ? "a probe below the floor" : "the GPU is late", target);
+        change(d, to, probe ? "a probe below the floor" : panic ? "two frames over 98 % of the budget" : "the GPU is late", target);
         d.from = from;
         d.from_ms = from_ms;
         d.judge = kJudge;
         d.probing = probe;
         return d.pct;
     }
-    const int up = std::min(cap, (d.pct / kStep + 1) * kStep);
+    const int up = std::min(d.lim, (d.pct / kStep + 1) * kStep);
     const double next = d.avg * (1.0 + d.elasticity * (pixels(up, d.pct) - 1.0));
+    if (thermal) {   // the guard: 2 s under 75 % of the budget and the next step predicted under 85 %
+        d.under = d.avg < 0.75 * budget ? d.under + 1 : 0;
+        const int two_s = static_cast<int>(std::lround(2000.0 / budget));
+        if (up > d.pct && d.under >= two_s && next < 0.85 * budget) change(d, up, "the next step fits under 85 % of the budget", target);
+        return d.pct;
+    }
     d.fits = up > d.pct && next < 0.95 * target ? d.fits + 1 : 0;
     if (d.fits >= kRaiseAfter) change(d, up, "the next step fits", target);
     return d.pct;
