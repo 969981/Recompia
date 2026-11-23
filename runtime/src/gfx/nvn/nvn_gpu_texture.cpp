@@ -677,7 +677,9 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     g->layout = nl;
     bump_gen(*g, -1);
     g->scale = to;
-    if (to == 1.0f && !is_shadow_map(*t)) g->scale_blocked = true;   // a shadow map goes back to 1 by choice and can be scaled again
+    // a shadow map goes back to 1 by choice and can be scaled again; so does a desktop window texture or its 2D depth ([gfx] ui_native
+    // switched off live, a window the size of the targets), which grows again with the window
+    if (to == 1.0f && !is_shadow_map(*t) && (facts::kPhone || (!t->is_display && !tex::g_ui_depth.count(t->id)))) g->scale_blocked = true;
     return true;
 }
 
