@@ -202,16 +202,27 @@ fun CoopScreen(canPlay: Boolean, onBack: () -> Unit, load: () -> List<Coop.Profi
                     "visit" -> R.string.ui_coop_visit_now
                     else -> if (hosts) R.string.ui_coop_you_host else R.string.ui_coop_you_visit
                 }), style = MaterialTheme.typography.bodyMedium, color = Rc.text2)
-                // the invite row in visual order for a gamepad: Invite code leads down to Copy code, LEFT / RIGHT stay in the row
+                // a gamepad walks the card's last part in visual order, whatever the FlowRows wrap to on a narrow screen: DOWN / UP go
+                // Play or Invite code, Copy code, Share, Copy long invite, Remove; LEFT / RIGHT stay in a row (Play, Invite code) or
+                // (Copy code, Share, Copy long invite). A disabled target cannot take focus, so it is skipped here (Default: geometric).
+                val playF = remember { FocusRequester() }
+                val inviteF = remember { FocusRequester() }
                 val copyF = remember { FocusRequester() }
                 val shareF = remember { FocusRequester() }
                 val longF = remember { FocusRequester() }
-                val panel = open == p.id
+                val removeF = remember { FocusRequester() }
+                val panel = open == p.id && !shortening   // the panel's buttons are enabled
+                val hasLong = panel && short != null
+                val playOrDefault = if (canPlay) playF else FocusRequester.Default
+                val aboveRemove = when { hasLong -> longF; panel -> shareF; creator -> inviteF; else -> playOrDefault }
+                val belowTop = if (panel) copyF else removeF
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     RcButton(stringResource(R.string.ui_coop_play), { GameLauncher.launchCoop(ctx, p.id, choice) },
-                        Modifier.focusProperties { if (panel) down = copyF }.let { if (i == 0) it.initialFocus() else it }, icon = Icons.Rounded.PlayArrow, kind = Kind.PRIMARY, enabled = canPlay)
+                        Modifier.focusRequester(playF).focusProperties { down = belowTop; left = FocusRequester.Cancel; right = if (creator) inviteF else FocusRequester.Cancel }
+                            .let { if (i == 0) it.initialFocus() else it }, icon = Icons.Rounded.PlayArrow, kind = Kind.PRIMARY, enabled = canPlay)
                     if (creator) RcButton(stringResource(R.string.ui_coop_invite_others), { if (open == p.id) open = null else showInvite(p) },
-                        Modifier.focusProperties { if (panel) down = copyF }, icon = Icons.AutoMirrored.Rounded.Send)
+                        Modifier.focusRequester(inviteF).focusProperties { down = belowTop; left = if (canPlay) playF else FocusRequester.Cancel; right = FocusRequester.Cancel },
+                        icon = Icons.AutoMirrored.Rounded.Send)
                 }
                 if (open == p.id) {
                     val long = remember(p) { Coop.invite(p) }
@@ -228,18 +239,19 @@ fun CoopScreen(canPlay: Boolean, onBack: () -> Unit, load: () -> List<Coop.Profi
                     }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         val send = code ?: long
-                        val hasLong = code != null
                         RcButton(stringResource(R.string.ui_coop_copy), { clip.setText(AnnotatedString(send)) },
-                            Modifier.focusRequester(copyF).focusProperties { left = FocusRequester.Cancel; right = shareF }.initialFocus(shortening),
+                            Modifier.focusRequester(copyF).focusProperties { up = if (creator) inviteF else playOrDefault; down = shareF; left = FocusRequester.Cancel; right = shareF }.initialFocus(shortening),
                             icon = Icons.Rounded.ContentCopy, enabled = !shortening)
                         RcButton(stringResource(R.string.ui_coop_share_code), { share(ctx, send) },
-                            Modifier.focusRequester(shareF).focusProperties { left = copyF; right = if (hasLong) longF else FocusRequester.Cancel },
+                            Modifier.focusRequester(shareF).focusProperties { up = copyF; down = if (hasLong) longF else removeF; left = copyF; right = if (hasLong) longF else FocusRequester.Cancel },
                             icon = Icons.Rounded.Share, enabled = !shortening)
                         if (hasLong) RcButton(stringResource(R.string.ui_coop_copy_long), { clip.setText(AnnotatedString(long)) },
-                            Modifier.focusRequester(longF).focusProperties { left = shareF; right = FocusRequester.Cancel }, kind = Kind.QUIET)
+                            Modifier.focusRequester(longF).focusProperties { up = shareF; down = removeF; left = shareF; right = FocusRequester.Cancel }, kind = Kind.QUIET)
                     }
                 }
-                RcButton(stringResource(R.string.ui_coop_remove), { removing = p }, icon = Icons.Rounded.Delete, kind = Kind.QUIET)
+                RcButton(stringResource(R.string.ui_coop_remove), { removing = p },
+                    Modifier.focusRequester(removeF).focusProperties { up = aboveRemove; left = FocusRequester.Cancel; right = FocusRequester.Cancel },
+                    icon = Icons.Rounded.Delete, kind = Kind.QUIET)
             }
         }
     }
