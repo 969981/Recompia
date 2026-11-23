@@ -48,6 +48,64 @@ bool tsr_cam_copy(uint64_t addr, uint32_t* words) {
     return tsr_jitter(words, g_tsr.bytes / 4);
 }
 
+// Copies of the scene camera's view-projection sit in other blocks too (G-buffer passes with their own block layout, the decal
+// and lighting passes) and its inverse in the lighting passes (world positions from the depth). Jittering only the camera block made the
+// frame inconsistent: some geometry was drawn jittered and some not, and the lighting rebuilt positions from the jittered depth with the
+// unjittered inverse, so some faces fell into shade depending on the offset (dark walls, looks switching between frames). Every block bound
+// while the frame has a jittered camera is searched once (per stage, slot, fragment program and size) for the frame's unjittered
+// view-projection or its inverse; where found, the binding is copied with the jittered matrix (or its inverse) in its place.
+namespace {
+struct OtherCam { std::vector<std::pair<uint32_t, uint8_t>> at; };   // float offset, 1 view-projection / 2 its inverse
+std::unordered_map<uint64_t, OtherCam> g_other;
+const OtherCam* g_other_hit = nullptr;   // the bind being prepared (tsr_other_wanted -> tsr_other_patch)
+float g_m[4][16];                        // this frame's view-projection, its inverse, jittered, jittered inverse
+bool near16(const float* a, const float* b) {
+    float mx = 0;
+    for (int i = 0; i < 16; ++i) mx = std::max(mx, std::fabs(b[i]));
+    for (int i = 0; i < 16; ++i) if (!(std::fabs(a[i] - b[i]) <= 1e-3f * mx)) return false;
+    return mx > 0;
+}
+}  // namespace
+
+bool tsr_other_wanted(int stage, int slot, uint64_t addr, uint64_t size) {
+    g_other_hit = nullptr;
+    if (!g_tsr_live || size < 64 || !extras::temporal_frame_matrices(g_m[0], g_m[1], g_m[2], g_m[3])) return false;
+    const uint64_t prog = reinterpret_cast<uintptr_t>(S.stage[kFragment]);
+    const uint64_t key = (prog * 0x9E3779B97F4A7C15ull) ^ (size << 8) ^ (static_cast<uint64_t>(stage) << 4) ^ static_cast<uint64_t>(slot);
+    const size_t nf = static_cast<size_t>(std::min<uint64_t>(size, 65536) / 4);
+    if (!gw_settled_fast(addr, nf * 4) || out_overlaps(addr, nf * 4)) return false;
+    auto it = g_other.find(key);
+    if (it == g_other.end()) {   // first time: where this block holds the camera
+        OtherCam oc;
+        const float* f = reinterpret_cast<const float*>(host_ptr(addr));
+        for (size_t o = 0; o + 16 <= nf; o += 4) {
+            if (near16(f + o, g_m[0])) oc.at.push_back({static_cast<uint32_t>(o), 1});
+            else if (near16(f + o, g_m[1])) oc.at.push_back({static_cast<uint32_t>(o), 2});
+        }
+        static int told = 0;
+        if (!oc.at.empty() && told < 40) {
+            ++told;
+            NXLOG_I(kTag, "temporal: the camera's %s also at stage %d slot %d float %u (fs %s, %llu-byte block): jittered there too", oc.at[0].second == 1 ? "view-projection"
+                    : "inverse view-projection", stage, slot, oc.at[0].first, S.stage[kFragment] ? S.stage[kFragment]->hash.c_str() : "-", static_cast<unsigned long long>(size));
+        }
+        it = g_other.emplace(key, std::move(oc)).first;
+    }
+    if (it->second.at.empty()) return false;
+    g_other_hit = &it->second;
+    return true;
+}
+
+void tsr_other_patch(uint8_t* words, size_t bytes) {
+    if (!g_other_hit) return;
+    for (const auto& a : g_other_hit->at) {
+        if ((a.first + 16) * 4 > bytes) continue;
+        float* f = reinterpret_cast<float*>(words) + a.first;
+        if (a.second == 1 && near16(f, g_m[0])) std::memcpy(f, g_m[2], sizeof g_m[2]);   // still this frame's matrix: the jittered one in its place
+        else if (a.second == 2 && near16(f, g_m[1])) std::memcpy(f, g_m[3], sizeof g_m[3]);
+    }
+    g_other_hit = nullptr;
+}
+
 // Scene upscaler (S14, #571, src/gfx/extras/hdr_nvn.h): before the game's scene stretch draw, FSR 1 / NIS enlarge the scene part of its
 // input to the target's size and the draw samples that instead, or Nearest gives the input the nearest sampler (scene_stretch_for_draw).
 // The override lives until the next draw.
