@@ -135,7 +135,8 @@ bool Fsr1Spatial::ensure_target(Target& t, VkExtent2D e, const char* name) {
     id.format = VK_FORMAT_R16G16B16A16_SFLOAT;
     id.width = e.width;
     id.height = e.height;
-    id.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    // TRANSFER_SRC: a phone blits the result into the game's stretch target (nvn_replay_upscale.cpp, tex_blit_from)
+    id.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     id.name = name;
     std::string why;
     if (dev_->create_image(id, &t.img, &why) != VK_SUCCESS) {
