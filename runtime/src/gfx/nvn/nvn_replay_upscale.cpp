@@ -42,7 +42,7 @@ bool tsr_jitter(uint32_t* words, size_t n_words) {
 }
 
 // The temporal pass ran in the frame before (temporal_run gave a result): only then is the camera jittered (tsr_cam_copy), so a frame
-// that is shown without the pass (no camera found, the stretch never came, the mode just switched on) is never a raw jittered frame.
+// that is shown without the pass (no camera found, the stretch never came, the mode just switched on) is not a raw jittered frame (only the first frame without the pass can be, the one that shows it lost).
 static bool g_tsr_live = false;
 bool tsr_cam_copy(uint64_t addr, uint32_t* words) {
     if (!g_tsr_live || g_tsr.bytes > kTsrMaxWords * 4 || !gw_settled_fast(addr, g_tsr.bytes) || out_overlaps(addr, g_tsr.bytes)) return false;

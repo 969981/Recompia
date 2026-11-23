@@ -17,7 +17,7 @@
 
 ### Graphics
 - New upscaler: **SGSR 2** (Qualcomm Snapdragon Game Super Resolution 2, temporal) in the launcher, the F1 page and the phone's Upscaler row. It builds the 3D picture's detail over several frames from the scene's depth and the camera's motion, on any GPU, phones included, and enlarges the scene straight to the size it is shown at, in one step; the HUD and menus stay sharp. Off by default. Creatures that move on their own can leave faint trails
-- The temporal upscalers ran at the tone map, before the game's own enlargement of a scene below 100%: their result was drawn back into the small scene and stretched, so they looked no different from Off (#232). They now run at the frame's last scene enlargement. FSR 3, DLSS and DLAA stay switched off until they are checked on Windows
+- The temporal upscalers ran at the tone map, before the game's own enlargement of a scene below 100%: their result was drawn back into the small scene and stretched, so they looked no different from Off (#232). They now run at the frame's first scene enlargement. FSR 3, DLSS and DLAA stay switched off until they are checked on Windows
 
 ## 0.17.0 (build U: Urchin)
 

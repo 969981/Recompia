@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Temporal upscaling / anti-aliasing of the 3D scene: AMD FSR 3.1 (FidelityFX API, temporal_ffx.cpp), NVIDIA DLSS / DLAA (Streamline,
 // temporal_dlss.cpp), both SDKs loaded at run time (nothing is linked), and Snapdragon Game Super Resolution 2 (temporal_sgsr2.cpp, plain
-// Vulkan compute, every platform). The pass runs at the frame's last scene enlargement (nvn_replay_upscale.cpp temporal_where): on the HDR
+// Vulkan compute, every platform). The pass runs at the frame's first scene enlargement (nvn_replay_upscale.cpp temporal_deferred): on the HDR
 // scene at the tone map when nothing enlarges it, else on the display-referred scene at the game's scene stretch or window composite.
 //
 // Inputs (docs/S14.md, "Temporal upscaling"):
@@ -13,7 +13,6 @@
 //   motion   made here by a compute pass from depth, the current jittered and the previous unjittered view-projection (camera motion only).
 // The projection jitter is added by the runtime (temporal_jitter_block) when the block holds none of its own.
 #pragma once
-#include <atomic>
 #include <volk.h>
 
 #include <cstddef>
