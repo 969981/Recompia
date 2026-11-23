@@ -29,7 +29,7 @@ struct Sgsr2Params {
     float render_rcp[2];
     float display_rcp[2];
     float jitter[2];
-    float pad0[2];
+    float input_scale[2];          // the render size over the render-size images' size (they may be larger: a sub-rect)
     float clip_to_prev_clip[16];   // columns
     float pre_exposure;
     float fov_hor;                 // tan(horizontal fov / 2)
@@ -119,7 +119,8 @@ public:
     }
 
     bool evaluate(VkCommandBuffer cb, const TemporalFrame& f) override {
-        if (!image(mda_, f.render, VK_FORMAT_R16G16B16A16_SFLOAT, "sgsr2 motion depth clip") || !image(ycocg_, f.render, VK_FORMAT_R32_UINT, "sgsr2 ycocg") ||
+        const VkExtent2D in_ext{f.color.width, f.color.height};   // the inputs' size, at least the render size: the same sub-rect here
+        if (!image(mda_, in_ext, VK_FORMAT_R16G16B16A16_SFLOAT, "sgsr2 motion depth clip") || !image(ycocg_, in_ext, VK_FORMAT_R32_UINT, "sgsr2 ycocg") ||
             !image(hist_[0], f.out, VK_FORMAT_R16G16B16A16_SFLOAT, "sgsr2 history 0") || !image(hist_[1], f.out, VK_FORMAT_R16G16B16A16_SFLOAT, "sgsr2 history 1"))
             return false;
         const uint32_t slot = next_;
@@ -154,6 +155,8 @@ public:
         p.display_rcp[1] = 1.0f / static_cast<float>(f.out.height);
         p.jitter[0] = f.jitter_px[0];   // the FSR convention (temporal.h) is SGSR 2's: the picture's offset in render pixels, +y down
         p.jitter[1] = f.jitter_px[1];
+        p.input_scale[0] = static_cast<float>(f.render.width) / static_cast<float>(in_ext.width);
+        p.input_scale[1] = static_cast<float>(f.render.height) / static_cast<float>(in_ext.height);
         std::memcpy(p.clip_to_prev_clip, f.clip_to_prev_clip, sizeof p.clip_to_prev_clip);
         p.pre_exposure = 1.0f;
         p.fov_hor = std::tan(f.fov_y * 0.5f) * f.aspect;

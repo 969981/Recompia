@@ -80,13 +80,15 @@ void main() {
 
 
 sgsr2_dir = os.path.join(root, "third_party", "qualcomm_sgsr", "v2")
-# The parameter block of both passes (std140), SGSR 2's field order; depthInverted is ours (appended, read by the convert edit only).
+# The parameter block of both passes (std140), SGSR 2's field order; ours: inputScale (in the padding after jitterOffset: the render size
+# over the size of the render-size images, which may be larger, a sub-rect; read by the UV edits below) and depthInverted (appended).
 SGSR2_PARAMS = """layout(set = 0, binding = 0, std140) uniform Params {
     uvec2 renderSize;
     uvec2 displaySize;
     vec2 %s;
     vec2 displaySizeRcp;
     vec2 jitterOffset;
+    vec2 inputScale;
     vec4 clipToPrevClip[4];
     float preExposure;
     float cameraFovAngleHor;
@@ -132,6 +134,28 @@ def sgsr2_glsl(name, decl):
                    "    if (params.depthInverted != 0u) { topleft = 1.0 - topleft; topRight = 1.0 - topRight; bottomLeft = 1.0 - bottomLeft; bottomRight = 1.0 - bottomRight; }\n")
         src = edit(src, "if (EncodedVelocity.x > 0.0)", "if (true)")
         src = edit(src, "motion = decodeVelocityFromTexture(EncodedVelocity.xy);", "motion = -2.0 * EncodedVelocity.xy;   // ours: UV, previous minus current")
+        # the inputs may be larger than the render size (a sub-rect, kept across render size changes): gathers in image UV, clamped to it
+        src = edit(src, "    vec2 ViewportUV = gatherCoord + vec2(0.5) * ViewportSizeInverse;\n",
+                   "    vec2 ViewportUV = gatherCoord + vec2(0.5) * ViewportSizeInverse;\n"
+                   "    vec2 texInv = ViewportSizeInverse * params.inputScale;\n"
+                   "    vec2 texMax = (vec2(params.renderSize) - vec2(1.0)) * texInv;\n"
+                   "    gatherCoord = vec2(gl_GlobalInvocationID.xy) * texInv;\n")
+        src = edit(src, "vec2 v10 = vec2(ViewportSizeInverse.x*2.0, 0.0);", "vec2 v10 = vec2(texInv.x*2.0, 0.0);")
+        src = edit(src, "vec2 v12 = vec2(0.0, ViewportSizeInverse.y*2.0);", "vec2 v12 = vec2(0.0, texInv.y*2.0);")
+        src = edit(src, "vec2 v14 = vec2(ViewportSizeInverse.x*2.0, ViewportSizeInverse.y*2.0);", "vec2 v14 = vec2(texInv.x*2.0, texInv.y*2.0);")
+        for v in ("v10", "v12", "v14"):
+            src = edit(src, "textureGather(InputDepth,(gatherCoord+%s), 0)" % v, "textureGather(InputDepth, min(gatherCoord+%s, texMax), 0)" % v)
+    if name == "sgsr2_upscale.comp":   # the same sub-rect for the render-size inputs (mda, YCoCg)
+        src = edit(src, "textureLod(MotionDepthClipAlphaBuffer, Jitteruv, 0.0)",
+                   "textureLod(MotionDepthClipAlphaBuffer, min(Jitteruv * params.inputScale, (vec2(params.renderSize) - vec2(0.5)) * params.renderSizeRcp * params.inputScale), 0.0)")
+        src = edit(src, "    ivec2 InputPosBtmRight = ivec2(1) + InputPos;\n", "    ivec2 InputPosBtmRight = min(ivec2(1) + InputPos, ivec2(params.renderSize) - ivec2(1));\n")
+        src = edit(src, "    vec2 gatherCoord = vec2(InputPos) * params.renderSizeRcp;\n",
+                   "    vec2 texRcp = params.renderSizeRcp * params.inputScale;\n"
+                   "    vec2 texMax = (vec2(params.renderSize) - vec2(1.0)) * texRcp;\n"
+                   "    vec2 gatherCoord = min(vec2(InputPos) * texRcp, texMax);\n")
+        src = edit(src, "gatherCoord + vec2(params.renderSizeRcp.x, 0.0)", "min(gatherCoord + vec2(texRcp.x, 0.0), texMax)")
+        src = edit(src, "gatherCoord + vec2(0.0, params.renderSizeRcp.y)", "min(gatherCoord + vec2(0.0, texRcp.y), texMax)")
+        src = edit(src, "gatherCoord + vec2(params.renderSizeRcp.x, params.renderSizeRcp.y)", "min(gatherCoord + texRcp, texMax)")
     note = ("// Snapdragon Game Super Resolution 2, 2-pass compute: Copyright (c) 2024, Qualcomm Innovation Center, Inc.\n"
             "// SPDX-License-Identifier: BSD-3-Clause (third_party/qualcomm_sgsr/v2/LICENSE); edited by scripts/gen_sgsr_shaders.py.\n")
     return src.replace("#version 450\n", "#version 450\n" + note, 1)

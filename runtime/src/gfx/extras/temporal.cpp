@@ -435,8 +435,11 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     TemporalBackend* be = mode == UpscaleMode::Sgsr2 ? temporal_sgsr2(gfx_device) : mode == UpscaleMode::Fsr3 ? temporal_ffx(gfx_device)
                                                                                      : temporal_dlss(gfx_device, mode == UpscaleMode::Dlaa);
     if (!be) return VK_NULL_HANDLE;
-    if (!ensure(s, s.color, render, VK_FORMAT_R16G16B16A16_SFLOAT, "temporal colour") || !ensure(s, s.depth, render, VK_FORMAT_R32_SFLOAT, "temporal depth") ||
-        !ensure(s, s.motion, render, VK_FORMAT_R16G16_SFLOAT, "temporal motion") || !ensure(s, s.output, VkExtent2D{std::max(out.width, out_tex.width), std::max(out.height, out_tex.height)}, VK_FORMAT_R16G16B16A16_SFLOAT,
+    // The render-size images are made at the largest render size so far and used as a sub-rect (the backends take the render size), so a
+    // lower render size (dynamic resolution, a Resolution step) neither waits for the GPU nor loses the history.
+    const VkExtent2D in_ext{std::max(render.width, s.max_render.width), std::max(render.height, s.max_render.height)};
+    if (!ensure(s, s.color, in_ext, VK_FORMAT_R16G16B16A16_SFLOAT, "temporal colour") || !ensure(s, s.depth, in_ext, VK_FORMAT_R32_SFLOAT, "temporal depth") ||
+        !ensure(s, s.motion, in_ext, VK_FORMAT_R16G16_SFLOAT, "temporal motion") || !ensure(s, s.output, VkExtent2D{std::max(out.width, out_tex.width), std::max(out.height, out_tex.height)}, VK_FORMAT_R16G16B16A16_SFLOAT,
                 "temporal output"))
         return VK_NULL_HANDLE;
 
