@@ -16,7 +16,7 @@
 - Storage box tabs: with a standard storage box open, L and R turn only the pages of the side the cursor is on (#895). Before, they turned the box's and the bag's pages together once the bag had more than one page. A bag with one page still leaves L and R to the box
 
 ### Android
-- After **Play** the app shows a loading screen (the app name, a spinner and what is being done) until the game's first picture, instead of a black screen for up to half a minute
+- After **Play** the app shows a loading screen (the logo, a spinner and what is being done) until the game's first picture, instead of a black screen for up to half a minute
 
 ## 0.17.0 (build U: Urchin)
 

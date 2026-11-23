@@ -14,7 +14,7 @@ namespace nxrt::os::app {
 enum Phase : int {
     kShaders = 1,        // the pipeline prewarm started: shaders load while the game boots
     kFirstPresent = 2,   // the game presents (its first frames are often black full-screen passes while it loads)
-    kPicture = 3,        // the first presented frame that draws geometry: the app's loading screen goes
+    kPicture = 3,        // the first present after a blended draw into a presented texture: the app's loading screen goes
 };
 
 inline void phase(Phase p) {

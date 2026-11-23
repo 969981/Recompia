@@ -18,12 +18,14 @@ import org.libsdl.app.SDLActivity
 /**
  * What GameActivity shows from Play until the game's first picture: the screen is otherwise black for 10 to 30 s or more (the
  * runtime starts, the game boots, the shaders load, and the game's first frames are black). An opaque view above SDL's surface
- * (below the touch controls, so the overlay menu can still quit), removed when the runtime reports the first frame that draws
- * geometry (runtime/src/os/os_app_phase.h, sent with SDL_SendAndroidMessage), at the latest [CAP_MS] after Play.
+ * (below the touch controls, so the overlay menu can still quit), removed when the runtime reports the first present after a
+ * blended draw into a presented texture (runtime/src/os/os_app_phase.h, sent with SDL_SendAndroidMessage), at the latest [CAP_MS]
+ * after Play.
  */
 class LoadingScreen(private val activity: SDLActivity) {
     private val main = Handler(Looper.getMainLooper())
     private val status: TextView
+    private var lastPhase = 0
     private val view: View
 
     init {
@@ -62,7 +64,8 @@ class LoadingScreen(private val activity: SDLActivity) {
 
     /** A phase from the runtime (UI thread). */
     fun phase(p: Int) {
-        if (view.parent == null) return
+        if (view.parent == null || p <= lastPhase) return   // the phases come from two runtime threads: never step back
+        lastPhase = p
         when (p) {
             PHASE_SHADERS -> status.setText(R.string.ui_loading_shaders)
             PHASE_FIRST_PRESENT -> status.setText(R.string.ui_loading_world)
