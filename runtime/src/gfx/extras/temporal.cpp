@@ -336,7 +336,7 @@ double radical_inverse(uint32_t i, uint32_t base) {
 }  // namespace
 
 // The game's own jitter does not reach the G-buffer camera (see temporal.h), so the runtime jitters it: Halton(2, 3), 8 phases at native
-// size and ceil(8 * ratio^2) when upscaling (at most 64), x +-0.5 px, y -0.05 to +0.45 px (see below).
+// size and ceil(8 * ratio^2) when upscaling (at most 64), x and y +0.01 to +0.5 px (see below).
 bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint32_t height, uint64_t frame) {
     static const int mode = static_cast<int>(config_get_int("upscale", "jitter", 1));   // 0 never, 1 when the projection has no jitter of its own
     const game::CameraBlock* cb = temporal_camera_block();
@@ -346,11 +346,12 @@ bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint
     if (std::fabs(c.jit[0]) * width > 0.01 || std::fabs(c.jit[1]) * height > 0.01) return false;   // already jittered (by the game)
     const uint32_t phases = temporal_jitter_phase_count();
     const uint32_t idx = static_cast<uint32_t>(frame % phases) + 1;
-    // x: +-0.5 px. y: the picture's offset is kept in [-0.05, +0.45] px (FSR convention, +y down) rather than +-0.5: the game's terrain-type
-    // blend, the placement highlight and some far grass switch to another look when the scene is moved up by more than about a tenth of a
-    // pixel, so a full-range y jitter showed that look on every third frame (Halton base 3) through every temporal upscaler. The upscalers
-    // are given the actual offset, so the uneven range costs no reconstruction, only a little vertical coverage.
-    const double jx = (2.0 * radical_inverse(idx, 2) - 1.0) / width, jy = (0.1 - radical_inverse(idx, 3)) / height;
+    // The picture's offset is kept in [+0.01, +0.5) px on both axes (FSR convention: +x right, +y down) rather than +-0.5: the game's
+    // terrain-type blend, its distant terrain shading, the placement highlight and some far grass switch to another look when the scene is
+    // moved left by even a few hundredths of a pixel or up by more than about a tenth, so a centred jitter showed that look on every other
+    // frame (Halton base 2, x) and every third (base 3, y) through every temporal upscaler. The upscalers are given the actual offset, so the
+    // one-sided range halves the jitter's spread (0.5 px) and costs no reconstruction.
+    const double jx = (0.02 + 0.98 * radical_inverse(idx, 2)) / width, jy = -(0.02 + 0.98 * radical_inverse(idx, 3)) / height;
     float f[16];
     std::memcpy(f, words + cb->view_proj, sizeof f);
     for (int col = 0; col < 4; ++col) {   // column-major: ndc.x += jx, ndc.y += jy (clip x += jx * w)
