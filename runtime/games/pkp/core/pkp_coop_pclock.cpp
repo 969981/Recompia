@@ -25,6 +25,14 @@
 //     lesson is the game's own);
 //   - a clear waits as 0x43f2a4 does: while 0xa88630, bit 0 or 0xa87f88 holds.
 // Content 64's own clear runs first whenever it is armed; its scene 114 still follows the notice.
+//
+// A PC press that cannot open (modding-docs coop-v2/MEMBER-PC-WAIT-RE.md section 3): the press (0x7d4d80 -> 0x7d5418) takes the
+// per-player lock of kind 0x10 and sets the object's +0x4c; its tick (0x7d41f4) opens the menu only while the Environment Level
+// 0x58042c(stage) is 1..10, and nothing but the menu's own close or the object's cancel (vtable slot 48, 0x7d5b04) releases the
+// lock. A member whose level is still 0 (the game's own fill is late) stood locked for 57 s. On a member, a pending press whose level
+// stays 0 for kFillAfter seconds first gets the authority's levels filled in (pkp_coop_levels.cpp: the game's own tick then opens
+// the menu); if it is still 0 after kCancelAfter, the object's own cancel releases the player. This does not depend on play mode:
+// a player parked in the PC's menu is "not playing".
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -49,6 +57,8 @@ constexpr uint32_t kShopIntro = 77;           // scene 77 (event 98): the Shop's
 constexpr double kAfterNotice = 5.0;
 constexpr double kShut = 30.0;
 constexpr double kEvery = 0.25;
+constexpr double kFillAfter = 2.0;     // a pending PC press whose level reads 0: the authority's levels are filled in
+constexpr double kCancelAfter = 6.0;   // and still 0: the press is cancelled (unverified: chosen to leave the game's own fill time)
 
 struct Lock {
     uint8_t bit;
@@ -61,10 +71,49 @@ struct State {
     double noticed[2] = {};   // when the pane's notice for kLocks[i] came (0: not since the lock was last clear)
     double shut[2] = {};      // since when its tile's gate is shut (0: open)
     double at = 0.0;
+    uint64_t pc = 0;          // a member: the PC object last pressed (0: none)
+    double waiting = 0.0;     // since when its press waits at level 0 (0: not)
+    bool filled = false;      // the fill was tried for this wait
 };
 State& st() {
     static State s;
     return s;
+}
+
+// A member: the pending press of the PC object, if it still waits for the level.
+bool pc_waiting(uint64_t pc) {
+    if (!guest::ok(pc, layout::kPcPending + 1) || guest::rd<uint64_t>(pc) != base() + layout::kPcClass) return false;   // freed, or reused
+    return guest::rd<uint8_t>(pc + layout::kPcPending) == 1 && guest::rd<uint8_t>(pc + layout::kPcMenuOpen) == 0;
+}
+
+// A member: ends the wait of a PC press that the level never opens.
+void release_stuck_press(::Ctx* c, double now) {
+    State& s = st();
+    if (!s.pc || link::is_authority()) return;
+    if (!pc_waiting(s.pc)) {
+        if (!guest::ok(s.pc, 8) || guest::rd<uint64_t>(s.pc) != base() + layout::kPcClass) s.pc = 0;
+        s.waiting = 0.0;
+        s.filled = false;
+        return;
+    }
+    if (guest::call(c, base() + layout::kLevelOf, session::area_stage()) & 0xff) {   // the game's own tick opens the menu now
+        s.waiting = 0.0;
+        s.filled = false;
+        return;
+    }
+    if (!s.waiting) s.waiting = now;
+    if (!s.filled && now - s.waiting >= kFillAfter) {
+        s.filled = true;
+        NXLOG_I(kTag, "Co-op PC menu: a press waits for the area's level, still 0 after %.0f s: the authority's levels are filled in (%zu)",
+                kFillAfter, levels::fill_now());
+    }
+    if (now - s.waiting < kCancelAfter) return;
+    guest::call(c, base() + layout::kPcCancel, s.pc);
+    NXLOG_I(kTag, "Co-op PC menu: the press was cancelled here, the area's level was still 0 after %.0f s (pending flag now %u)", kCancelAfter,
+            static_cast<unsigned>(guest::rd<uint8_t>(s.pc + layout::kPcPending)));
+    s.pc = 0;
+    s.waiting = 0.0;
+    s.filled = false;
 }
 
 bool played(uint32_t scene) {
@@ -81,12 +130,26 @@ int on_pane_notice(::Ctx* c) {
     return 0;
 }
 
+void on_press(::Ctx* c) {
+    if (!link::in_session() || link::is_authority() || static_cast<uint32_t>(c->x[1]) != 4) return;
+    const uint64_t pc = c->x[0];
+    if (guest::ok(pc, 8) && guest::rd<uint64_t>(pc) == base() + layout::kPcClass) st().pc = pc;
+}
+
 void tick(::Ctx* c, bool in_game) {
     State& s = st();
-    if (!c || !in_game || !link::in_session()) return;
+    if (!c) return;
+    if (!link::in_session()) {
+        s.pc = 0;
+        s.waiting = 0.0;
+        s.filled = false;
+        return;
+    }
     const double now = qpc::seconds();
     if (now - s.at < kEvery) return;
     s.at = now;
+    release_stuck_press(c, now);
+    if (!in_game) return;
     const uint64_t owner = guest::rd<uint64_t>(base() + layout::kUiOwner);
     if (!owner || !guest::ok(owner + kLockByte, 1)) return;
     for (size_t i = 0; i < 2; ++i) {

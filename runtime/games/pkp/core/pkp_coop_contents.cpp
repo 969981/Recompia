@@ -75,7 +75,6 @@ constexpr uint64_t kRunRequests = 0x1ab0;     // u32: 0x476100 refuses the start
 constexpr size_t kMax = 8;
 
 constexpr uint64_t kStageOf = 0x11ac38;      // (quest id) -> u8 the quest's area (its row +0xad)
-constexpr uint64_t kLevelOf = 0x58042c;      // (stage) -> u8 its Environment Level (condition 0x86b's getter)
 constexpr double kSettle = 5.0;              // a lost scene's condition held this long: the game's own record had its chance
 constexpr double kPressWait = 300.0;         // a press is looked at within this long (the first safe moment after kSettle; a
                                              // press no record took opens the PC's menu first)
@@ -323,7 +322,7 @@ bool scenes_say_lost(const Lost& l) {
 // level, and the scenes say lost.
 bool holds(::Ctx* c, const Lost& l, uint8_t here) {
     if (quest_state(l.quest) != 3 || (guest::call(c, base() + kStageOf, l.quest) & 0xff) != here) return false;
-    if (l.level && (guest::call(c, base() + kLevelOf, here) & 0xff) < l.level) return false;
+    if (l.level && (guest::call(c, base() + layout::kLevelOf, here) & 0xff) < l.level) return false;
     if (l.when == When::InBox && !in_box(l)) return false;
     return scenes_say_lost(l);
 }

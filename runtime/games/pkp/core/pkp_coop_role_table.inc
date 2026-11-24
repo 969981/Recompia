@@ -110,6 +110,15 @@ PKP_ROLE_BIT(0x34c68, 8, 2, 0x37100308u, "story request", "the creature of the s
 PKP_ROLE_BIT(0x13ab38, 8, 2, 0x37100548u, "story request", "the creature screen refuses its action for that creature while the request is open")
 PKP_ROLE_BIT(0x13aba8, 8, 2, 0x371001c8u, "story request", "the same, the inlined second test")
 
+#ifdef PKP_ROLE_READY
+// PKP_ROLE_READY(site, what): the row at site answers as the host only once the member's copy of what the host's answer reads exists
+// (pkp_coop_role.cpp ready()): until then the game's own answer stands. A row not listed is always ready. what is a `Ready`
+// enumerator: OpenAreas (the open-areas record 9 is in this save) or ShopRows (the authority's shop rows are in this copy of the shop).
+PKP_ROLE_READY(0x630fcc, OpenAreas)
+PKP_ROLE_READY(0xe85e0c, ShopRows)
+PKP_ROLE_READY(0xe86520, ShopRows)
+PKP_ROLE_READY(0x63e450, ShopRows)
+#endif
 #ifdef PKP_ROLE_KEEP
 // PKP_ROLE_KEEP(site, fn, from, why): at the row at site (in the function fn), when fn's frame record (x29 + 8, the caller's x30;
 // fn sets x29 before the row on every path) is main + from, the row keeps the game's answer. from - 4 is checked to be `bl fn`.

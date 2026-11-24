@@ -4,6 +4,9 @@
 
 **Update.** Saves and shaders are kept; no game shaders are rebuilt.
 
+### Gameplay
+- Fixed a co-op member who pressed the PC right after joining being stuck in place until the host's data arrived, and the member's shop rows and open areas staying empty while the host was in a menu or a talk
+
 ### Linux & Steam Deck
 - Fixed FSR 3 showing as unavailable in native Linux releases.
 
