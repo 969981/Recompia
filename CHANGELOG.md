@@ -1,8 +1,22 @@
 # Changelog
 
-## Unreleased
+## 0.17.6 (build U: Urchin Hotfix a2)
 
-**Update.** Saves and shaders are kept; no game shaders are rebuilt. On Android, install the new APK over the old one once; later versions update from inside the app.
+**Update:** press **Update** in the launcher. No **Set up again** needed. On Android, install the new APK over the old one once; later versions update from inside the app.
+
+### Highlights
+- **Cloud Islands (Experimental) works again:** sign-in and play failed for everyone after the account server's old address stopped working. A PC that was signed in stays signed in
+- **Cloud Islands accounts made before 24 November need a new passkey, and must not sign out before they have one:** update first, then press **Set up a new passkey** on a PC that is still signed in
+- Fixed three co-op problems: a teammate's rebuilding kit never appearing, a member stuck at the PC right after joining, and players drifting apart after a short network gap (#827)
+- Android updates from inside the app from now on
+
+### Known issues
+- A Cloud Islands account made before 24 November with no signed-in PC left cannot sign in: ask on Discord for a recovery link, and do not make a second account
+- Online presence is paused: its server is gone
+
+### Graphics
+- Fixed the ground wobbling with SGSR 2 while the camera moves, most of all with high Sharpness
+- Fixed the Water Gun target outline flickering with SGSR 2 or FSR 3
 
 ### Gameplay
 - Fixed a co-op rebuilding kit bought by a teammate never appearing: the host now places it once its player is in the kit's area, only counts it as delivered when it is in the world, and a purchase with nothing left to give no longer holds back the ones after it
@@ -10,17 +24,23 @@
 - Fixed co-op players drifting apart for minutes after a short network gap (#827): one 6 s silence used to leave everyone looking connected while nothing was shared, and story steps finished meanwhile reached nobody. Now the players drop and rejoin each other within a few seconds, and the join shares the story again
 
 ### Launcher
-- Fixed Cloud Islands (Experimental) failing for everyone, sign-in and play, after the account server's old address stopped working: the launcher signs in at the server's new address and connects to the server directly. A PC that was signed in stays signed in.
+- Fixed Cloud Islands (Experimental) failing for everyone, sign-in and play, after the account server's old address stopped working: the launcher signs in at the server's new address and connects to the server directly. A PC that was signed in stays signed in
 - Added **Set up a new passkey** for Cloud Islands accounts made before 24 November, whose passkeys stopped working when the server's address changed: on a PC that is still signed in, Home and the account screen offer it, and it opens a one-time page that gives the account a new passkey. Sign out is hidden on that PC until the account has one, because signing out would lock the account. With no signed-in PC left, ask on Discord for a recovery link
 - Changed the Discord links in the launcher and the READMEs to the current invite
 - Changed online presence to paused: its server is gone, so the launcher sends nothing even when the switch is on. On an older launcher, switch presence off or update
 - Fixed Zonith's Play only opening Zonith's setup window, so the game had to be started from its own file: once the setup has built the game, **Play** starts the game itself. Until then the button says **Set up** (or **Finish update** after a Zonith update), and a small **Set up** button next to Play opens the setup window again. Open folder now opens the game's folder
 
 ### Linux & Steam Deck
-- Fixed FSR 3 showing as unavailable in native Linux releases.
+- Fixed FSR 3 showing as unavailable in native Linux releases
 
 ### Android
 - Added updates from inside the app: Home shows when a new release is out, with its notes, and **Update** downloads the APK from the official release page, checks it against the release's checksum and installs it (Android confirms the first one). **Settings > Updates** has **Check for updates automatically** (on) and **Check now**
+- Fixed a blurry HUD on a foldable's cover screen and other screens that are not 16:9: the picture is drawn at the screen's own size
+- Fixed the first (+) in the world opening the "Close the game?" prompt; (+) on the title screen still opens it
+- Fixed a changed Upscaler row applying before the settings were saved, and staying after a discard
+- Changed the Upscaler hint to recommend SGSR
+- Changed the low-memory profile to offer Off and SGSR only: a stored SGSR 2 choice runs as SGSR there
+- Changed the README's Android settings to match the app
 
 ## 0.17.5 (build U: Urchin Hotfix a1)
 
