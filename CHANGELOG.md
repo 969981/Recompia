@@ -18,6 +18,7 @@
 ### Graphics
 - The temporal upscalers ran at the tone map, before the game's own enlargement of a scene below 100%: their result was drawn back into the small scene and stretched, so they looked no different from Off (#232). They now run at the frame's first scene enlargement.
 - FSR 3, DLSS and DLAA are back in the Upscaler list where the PC can run them (FSR 3: with the FidelityFX DLLs; DLSS and DLAA: with an NVIDIA RTX GPU and the Streamline DLLs). The list now reads Off, Nearest, FSR 1, FSR 3, DLSS, DLAA; the Sharpness row drives FSR 3's own sharpening too
+- The HUD, menus and text are drawn at your screen's real resolution when the window is larger than the game's picture (a 4K laptop, a high-DPI Mac screen, a 1440p monitor), whatever resolution the 3D scene renders at, so text and icons are as crisp as the screen allows instead of stretched. The cost grows with the window's size: on a 4K screen with a laptop's integrated GPU about 4 ms of GPU time a frame and 95 MB of video memory. At the game's own size or smaller nothing changes. While the Upscaler is FSR 1 or NIS at Scene Resolution 100% the old way is kept, so the upscaler still enlarges the picture. To turn it off, set `[gfx] ui_native = 0` in pkp.ini
 
 ## 0.17.0 (build U: Urchin)
 

@@ -6,9 +6,11 @@
 // level. Layouts are tracked per image (all levels and layers share one layout). Samplers are cached by their NVN state.
 // Readback (download_texture) copies a render target back and tiles it into the game's storage.
 #include "nvn_gpu_texture_internal.h"
+#include <cstring>
 #include <bit>
 #include <unordered_set>
 
+#include "nxrt/extras.h"
 #include "nxrt/host_device.h"
 #include "nxrt/platform_facts.h"
 #include "nvn_thread.h"   // BigThread: the texture-arming worker gets a stack of its own (the guest code cannot exhaust it)
@@ -341,14 +343,55 @@ static bool is_shadow_map(const Texture& t) {
 }
 
 // [gfx] ui_native: the window textures (the presented picture, where a game draws its 2D after the 3D scene) are rendered at the
-// swapchain's width instead of the render scale: the 2D is drawn at the screen's resolution while the 3D passes keep the low internal
+// swapchain's size instead of the render scale: the 2D is drawn at the screen's resolution while the 3D passes keep the low internal
 // size, and the draw that copies the scene into the window texture enlarges it. 0 when off or not known yet.
 static std::unordered_set<uint32_t> g_ui_depth;   // depth targets of passes on a window texture (render thread): they keep its scale
+
+// Desktop: `auto` (the default) is on while the window is larger than the game's frame (a 4K or 1440p screen with 1080p targets), except
+// while the player's FSR 1 or NIS has only the present to enlarge the 3D picture in (the scene shown at 100%: the game's composite then
+// enlarges the scene into the window texture with its own bilinear tap, and the upscaler the player chose would no longer reach the
+// picture; below 100% the scene stretch runs it into the window texture's size). At the frame's size or smaller it leaves the old path.
+// `1` always on (a smaller window shrinks the window texture too), `0` off. Live: a change rescales the window textures at their next
+// pass (attach_targets).
+static bool ui_native_desktop_on(float fit) {
+    static const std::string v = nxrt::config_get_str("gfx", "ui_native", "auto");
+    static const bool forced = nxrt::config_get_bool("gfx", "ui_native", false);
+    if (v != "auto") return forced;
+    const extras::UpscaleMode m = extras::upscale_mode();
+    return fit > 1.0f && !((m == extras::UpscaleMode::Fsr1 || m == extras::UpscaleMode::Nis) && extras::upscale_scene_scale() >= 100);
+}
+
+// Desktop: the window textures follow the window, fitted inside it with their aspect (a 1920x1080 frame is 3840x2160 on a 4K screen,
+// 1280x720 in a 1280x720 window), so the present copies them 1:1 with the nearest sampler. Remeasured when the swapchain changes size
+// (a resized window, Alt+Enter); a minimized window (extent 0) keeps the last scale.
+// Per texture (two divisions): a window texture whose own size changes (handheld vs docked targets, two window textures of different
+// sizes) gets its own fit. Render thread only (attach_targets), like g_ui_depth.
+static float ui_native_desktop_scale(const Texture& t) {
+    static std::unordered_set<uint64_t> told;   // (swapchain, texture size) pairs already logged
+    static VkExtent2D last{};   // the last non-zero swapchain extent: a minimized window (extent 0) keeps it
+    gfx::Renderer* r = renderer();
+    const VkExtent2D cur = r ? r->extent() : VkExtent2D{};
+    if (cur.width && cur.height) last = cur;
+    const VkExtent2D e = last;
+    if (!e.width || !e.height || t.b.width <= 0 || t.b.height <= 0) return 0.0f;
+    const float sc = std::min(static_cast<float>(e.width) / static_cast<float>(t.b.width), static_cast<float>(e.height) / static_cast<float>(t.b.height));
+    const uint64_t key = (uint64_t{e.width} << 48) ^ (uint64_t{e.height} << 32) ^ (static_cast<uint64_t>(t.b.width) << 16) ^ static_cast<uint64_t>(t.b.height);
+    if (told.insert(key).second) {
+        NXLOG_I(kTag, "ui_native: window textures (%dx%d) fit the swapchain %ux%u at scale %.3f (used when [gfx] ui_native is on for it)", t.b.width,
+                t.b.height, e.width, e.height, sc);
+    }
+    return sc;
+}
+
 static float ui_native_scale_impl(const Texture& t) {
-    // always on for a phone (its one-step upscale to the screen depends on it); off elsewhere: there the present then stops upscaling, so
-    // a desktop player's chosen upscaler would no longer reach the final picture (it would override a player's setting)
-    static const bool on = facts::kPhone || nxrt::config_get_bool("gfx", "ui_native", host_is_phone());
-    if (!on || t.b.width <= 0 || (!t.is_display && !g_ui_depth.count(t.id))) return 0.0f;
+    if constexpr (!facts::kPhone) {
+        if (t.b.width <= 0 || (!t.is_display && !g_ui_depth.count(t.id))) return 0.0f;
+        const float sc = ui_native_desktop_scale(t);
+        return sc > 0.0f && ui_native_desktop_on(sc) ? sc : 0.0f;
+    }
+    // a phone: always on (its one-step upscale to the screen depends on it), at the screen's width once (clamped to [render scale, 1]
+    // of the targets)
+    if (t.b.width <= 0 || (!t.is_display && !g_ui_depth.count(t.id))) return 0.0f;
     static float sc = 0.0f;
     if (sc == 0.0f) {
         gfx::Renderer* r = renderer();
@@ -650,7 +693,11 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     g->layout = nl;
     bump_gen(*g, -1);
     g->scale = to;
-    if (to == 1.0f && !is_shadow_map(*t)) g->scale_blocked = true;   // a shadow map goes back to 1 by choice and can be scaled again
+    // a shadow map goes back to 1 by choice and can be scaled again; so does a desktop window texture or its 2D depth ([gfx] ui_native
+    // switched off live, a window the size of the targets), which grows again with the window. Storage use stays blocked for every
+    // texture (imageStore coordinates are not scaled: rescaling it each pass would remake it twice a frame).
+    const bool storage = why && std::strstr(why, "storage") != nullptr;
+    if (to == 1.0f && !is_shadow_map(*t) && (facts::kPhone || storage || (!t->is_display && !tex::g_ui_depth.count(t->id)))) g->scale_blocked = true;
     return true;
 }
 
