@@ -131,10 +131,11 @@ export const api = {
   modsKeepLocked: () => invoke('mods_keep_locked'),   // ['install' | 'switch_on' | 'share_on'] done, once at launcher start
   modsSetLock: (args) => invoke('mods_set_lock', args),   // { what: 'mod' | 'sharing', locked }
   openModsDir: () => invoke('open_mods_dir'),
-  // Zonith (zonith.rs): the launcher fetches its newest release and starts it; Zonith's own setup builds the game the first time
+  // Zonith (zonith.rs): the launcher fetches its newest release; Zonith's own setup builds the game, the launcher starts the game
   zonithStatus: (args) => invoke('zonith_status', args),   // { refresh }
   zonithDownload: () => invoke('zonith_download'),   // progress: "zonith-progress"
   zonithCancel: () => invoke('zonith_cancel'),
+  zonithSetup: () => invoke('zonith_setup'),   // opens Zonith's setup window; "zonith-setup" when its process ends
   zonithPlay: () => invoke('zonith_play'),   // "zonith-game" { state: 'running' | 'exited', code }
   zonithOpenDir: () => invoke('zonith_open_dir'),
 

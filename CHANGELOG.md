@@ -7,6 +7,9 @@
 ### Gameplay
 - Fixed a co-op member who pressed the PC right after joining being stuck in place until the host's data arrived, and the member's shop rows and open areas staying empty while the host was in a menu or a talk
 
+### Launcher
+- Fixed Zonith's Play only opening Zonith's setup window, so the game had to be started from its own file: once the setup has built the game, **Play** starts the game itself. Until then the button says **Set up** (or **Finish update** after a Zonith update), and a small **Set up** button next to Play opens the setup window again. Open folder now opens the game's folder
+
 ### Linux & Steam Deck
 - Fixed FSR 3 showing as unavailable in native Linux releases.
 
