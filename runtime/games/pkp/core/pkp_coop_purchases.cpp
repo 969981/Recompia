@@ -33,13 +33,25 @@
 //     member key (the launch's 32 hex digits, the same on every launch of that player);
 //   - every new entry goes to every member (PurchaseLog); a member asks for what it lacks (PurchaseAsk: the log it knows and the
 //     last entry it applied) when it joins a session and when it sees a gap, and gets the rest from the authority;
-//   - every process (the authority too) applies the log in order, one entry per safe moment (it can walk, talks to no one): its own
+//   - every process (the authority too) applies the log, one entry per safe moment (it can walk, talks to no one): its own
 //     purchases are skipped, another's are given here through kGrant (no price), then the bought bit as the buy would. A bag give
-//     that fails (a full bag) is tried again later, kTries times, then skipped with a line;
-//   - the last entry applied (and the log it belongs to) is kept in this player's own save, in unused elements of the unique request
-//     record array (layout::kSaveUniqueRequests; pkp_coop_outcomes.cpp uses 201..208, readers check id <= 200): element 209
-//     kMarkMagic, 210 the last entry applied, 211..212 the log id. It is saved with the bag, so a give and its mark are kept or
-//     lost together. Another log (a new group's, or the authority's file lost) starts over at its first entry.
+//     that fails (a full bag) is tried again later, kTries times, then skipped with a line. Each entry has its own tries and retry
+//     time (Retry): purchases do not depend on one another (each is its own item, recipe or upgrade), so a stuck entry never holds
+//     the later ones back;
+//   - a recipe give (categories 0x0f, 0x15) that returns 0 has nothing left to give (every recipe known): it is done, not a failure;
+//   - the place class (pkp_coop_purchase_world.cpp: the rebuilding kits, which the game places next to the host's local player): a
+//     member never calls kGrant for one (the game answers 1 there and places nothing; the host's world decides). The host (or an
+//     offline process) replays one only while its player exists and stands in the shop row's area, waiting without a try and
+//     without holding the later entries back, and counts it as given only when a cabinet record is occupied after the call that was
+//     free before (kGrant's 1 is true even when the block write failed); not there: tried again later;
+//   - the entries applied are kept in this player's own save, in unused elements of the unique request record array
+//     (layout::kSaveUniqueRequests; pkp_coop_outcomes.cpp uses 201..208, readers check id <= 200): element 209 kMarkMagic, 210 the
+//     mark (every entry up to it is applied), 211..212 the log id; 213 kDoneMagic, 214 the entries applied past the mark (bit i =
+//     entry mark + 1 + i; at most kWindow ahead), 215 the mark that bitmap is relative to (a bitmap of another mark is not read). An
+//     old save has no 213 and reads as no entries past its mark; an old build reads the mark alone. It is saved with the bag AND
+//     the world, so a give, a placed kit and the mark are kept or lost together: a kit lost with an unsaved session is replayed with
+//     its mark, and a save that lost one that way recovers by the normal replay (no side file of placed kits is needed). Another log
+//     (a new group's, or the authority's file lost) starts over at its first entry.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_strings.h"
 #include "core/pkp_guest.h"
@@ -76,11 +88,15 @@ constexpr uint64_t kItemCategory = 0x3a;      // item record + : u8 category (th
 constexpr uint8_t kCategoryEvent = 0x12;      // the grant queues the item's scripted event (PP Up, the handy bag, Packing Tips)
 constexpr double kEventQuiet = 30.0;          // seconds after such a give in which the event's own item gives are not shared again
 constexpr uint8_t kCategoryRecipe = 0x0f;     // the grant learns a recipe (0 when known: not a failure to retry)
+constexpr uint8_t kCategoryRecipeBundle = 0x15;   // the grant learns a bundle's recipes (0 when all are known: the same)
 
 // The mark in this player's save: elements of the unique request record array (4 bytes each).
 constexpr uint32_t kRecordCount = 256;
 constexpr uint32_t kMarkMagicAt = 209, kMarkSeqAt = 210, kMarkLogAt = 211;   // 211..212: the log id
 constexpr uint32_t kMarkMagic = 0x706f6873;   // "shop"; the default element is 01 01 00 00
+constexpr uint32_t kDoneMagicAt = 213, kDoneBitsAt = 214, kDoneBaseAt = 215;   // the entries applied past the mark
+constexpr uint32_t kDoneMagic = 0x656e6f64;   // "done"
+constexpr uint32_t kWindow = 32;              // entries past the mark that are applied (the bitmap's width)
 
 constexpr size_t kKeyBytes = kMemberKeyBytes;
 constexpr size_t kEntryBytes = 4 + kKeyBytes + 2 + 2;   // seq, buyer, entry, count
@@ -96,6 +112,13 @@ struct Entry {
     uint16_t entry = 0, count = 0;
 };
 
+// One entry's own tries (a stuck entry never holds another back).
+struct Retry {
+    int tries = 0;
+    double retry_at = 0.0;
+    bool waiting_logged = false;   // the "waits for its stage" line was written
+};
+
 struct State {
     int remote = 0;                    // > 0 while our own give runs: not logged again
     // the authority
@@ -108,10 +131,9 @@ struct State {
     uint64_t known_log = 0;            // the log the authority last named (0: none yet)
     uint32_t known_end = 0;            // its last entry, as the authority last said
     std::map<uint32_t, Entry> pending; // received, not applied yet
+    std::map<uint32_t, Retry> retries; // by seq: the tries of the entries that did not go through
     bool ask = true;
     double asked_at = -1e9;
-    int tries = 0;
-    double retry_at = 0.0;
     double quiet_until = 0.0;          // a received upgrade's scripted event may still run until then
 };
 State& st() {
@@ -141,13 +163,32 @@ uint64_t marked_log() {
     return guest::rd<uint32_t>(recs + kMarkLogAt * 4) | uint64_t{guest::rd<uint32_t>(recs + (kMarkLogAt + 1) * 4)} << 32;
 }
 
-void set_applied(uint64_t id, uint32_t seq) {
+// The entries of log `id` applied past the mark (bit i: entry mark + 1 + i); 0 when there are none or they belong to another mark.
+uint32_t done_bits(uint64_t id) {
+    const uint64_t recs = records();
+    if (!recs || marked_log() != id || guest::rd<uint32_t>(recs + kDoneMagicAt * 4) != kDoneMagic) return 0;
+    return guest::rd<uint32_t>(recs + kDoneBaseAt * 4) == applied(id) ? guest::rd<uint32_t>(recs + kDoneBitsAt * 4) : 0;
+}
+
+void write_mark(uint64_t id, uint32_t mark, uint32_t bits) {
     const uint64_t recs = records();
     if (!recs) return;
     guest::wr<uint32_t>(recs + kMarkMagicAt * 4, kMarkMagic);
-    guest::wr<uint32_t>(recs + kMarkSeqAt * 4, seq);
+    guest::wr<uint32_t>(recs + kMarkSeqAt * 4, mark);
     guest::wr<uint32_t>(recs + kMarkLogAt * 4, static_cast<uint32_t>(id));
     guest::wr<uint32_t>(recs + (kMarkLogAt + 1) * 4, static_cast<uint32_t>(id >> 32));
+    guest::wr<uint32_t>(recs + kDoneMagicAt * 4, kDoneMagic);
+    guest::wr<uint32_t>(recs + kDoneBitsAt * 4, bits);
+    guest::wr<uint32_t>(recs + kDoneBaseAt * 4, mark);
+}
+
+// Entry `seq` of log `id` is applied: the mark moves up over every entry that is now done in a row.
+void set_applied(uint64_t id, uint32_t seq) {
+    uint32_t mark = applied(id), bits = done_bits(id);
+    if (seq <= mark || seq - mark > kWindow) return;
+    bits |= 1u << (seq - mark - 1);
+    for (; bits & 1; bits >>= 1) ++mark;
+    write_mark(id, mark, bits);
 }
 
 bool mine(const Entry& e) {
@@ -251,78 +292,131 @@ void append(const uint8_t* buyer, uint16_t entry, uint16_t count) {
 
 // ---- applying ----
 
-uint8_t category(::Ctx* c, uint16_t entry) {
+// The item a shop entry sells (0 when the shop is not there).
+uint32_t entry_item(::Ctx* c, uint16_t entry) {
     const uint64_t mgr = guest::rd<uint64_t>(base() + kShopManager);
-    if (!mgr) return 0;
-    const uint32_t item = static_cast<uint32_t>(guest::call(c, base() + kEntryToItem, mgr, entry)) & items::kIdMask;
+    return mgr ? static_cast<uint32_t>(guest::call(c, base() + kEntryToItem, mgr, entry)) & items::kIdMask : 0;
+}
+
+uint8_t category(::Ctx* c, uint32_t item) {
     const uint64_t rec = item ? items::record(c, base(), item) : 0;
     return rec && guest::ok(rec + kItemCategory, 1) ? guest::rd<uint8_t>(rec + kItemCategory) : 0;
 }
 
-std::string item_name(::Ctx* c, uint16_t entry) {
-    const uint64_t mgr = guest::rd<uint64_t>(base() + kShopManager);
-    if (!mgr) return {};
-    const uint32_t item = static_cast<uint32_t>(guest::call(c, base() + kEntryToItem, mgr, entry)) & items::kIdMask;
+std::string item_name(::Ctx* c, uint32_t item) {
     std::string name = item ? items::name(c, base(), item) : std::string();
     if (name.find('<') != std::string::npos) name.clear();   // markup: not shown raw
     return name;
 }
 
-// Gives entry e here (not this player's own). True: done with it (given, or given up).
-bool give(::Ctx* c, const Entry& e) {
+// A member in a session: the game gives a world-placed purchase to the process that holds the world, not to this one.
+bool member_in_session() {
+    const uint8_t bits = session_bits();
+    return (bits & layout::kSessionOnline) && !(bits & layout::kSessionHost);
+}
+
+enum class Result { Done, Retry, Wait };
+
+// Gives entry e here (not this player's own). Done: applied (given, or given up); Retry: failed, its own retry time is set; Wait:
+// not now (a place-class entry before its stage), no try counted.
+Result give(::Ctx* c, const Entry& e) {
     State& s = st();
-    const uint8_t cat = category(c, e.entry);
+    Retry& r = s.retries[e.seq];
+    const uint32_t item = entry_item(c, e.entry);
+    const uint8_t cat = category(c, item);
+    const bool placed = world::is_place_class(c, item, cat);
+    world::Snapshot before;
+    if (placed) {
+        if (member_in_session()) {   // the host's world places it; this process only records it as applied
+            NXLOG_I(kTag, "Co-op purchases: purchase %u (shop entry %u) is placed by the host's world, not given here", e.seq, e.entry);
+            return Result::Done;
+        }
+        const uint8_t area = world::shop_area(c, e.entry);
+        if (!world::in_stage(area)) {
+            if (!r.waiting_logged) {
+                r.waiting_logged = true;
+                NXLOG_I(kTag, "Co-op purchases: purchase %u (shop entry %u) is placed in area %u; it waits until the player is there", e.seq,
+                        e.entry, area);
+            }
+            return Result::Wait;
+        }
+        before = world::snapshot();
+    }
     ++s.remote;
     bags::gain_begin(c);   // a bag give is credited to the bag record (no write-back takes it away)
-    const bool given = guest::call(c, base() + kGrant, 0, e.entry, e.count, 0) & 1;
+    const bool called = guest::call(c, base() + kGrant, 0, e.entry, e.count, 0) & 1;
     bags::gain_end(c);
     --s.remote;
-    if (given && cat == kCategoryEvent) s.quiet_until = qpc::seconds() + kEventQuiet;
-    if (!given && cat != kCategoryRecipe) {
-        if (++s.tries < kTries) {
-            s.retry_at = qpc::seconds() + kRetryAfter;
-            if (s.tries == 1) notice::post(strings::get(base(), strings::Str::CoopBuyRetry));
-            NXLOG_I(kTag, "Co-op purchases: purchase %u (shop entry %u x%u) not given here (try %d of %d)", e.seq, e.entry, e.count,
-                    s.tries, kTries);
-            return false;
+    if (called && cat == kCategoryEvent) s.quiet_until = qpc::seconds() + kEventQuiet;
+    // A recipe give that returns 0 had nothing left to give: done. A kit counts only when it is in the world after the call.
+    const bool nothing_to_give = !called && (cat == kCategoryRecipe || cat == kCategoryRecipeBundle);
+    const bool given = placed ? called && world::added_since(before) : called;
+    if (!given && !nothing_to_give) {
+        if (++r.tries < kTries) {
+            r.retry_at = qpc::seconds() + kRetryAfter;
+            if (r.tries == 1) notice::post(strings::get(base(), strings::Str::CoopBuyRetry));
+            if (placed)
+                NXLOG_I(kTag, "Co-op purchases: purchase %u (shop entry %u) not verified in the world (%s), tried again later (try %d of %d)",
+                        e.seq, e.entry, called ? "no new object" : "the game did not place it", r.tries, kTries);
+            else
+                NXLOG_I(kTag, "Co-op purchases: purchase %u (shop entry %u x%u) not given here (try %d of %d)", e.seq, e.entry, e.count,
+                        r.tries, kTries);
+            return Result::Retry;
         }
         NXLOG_W(kTag, "Co-op purchases: purchase %u (shop entry %u x%u) not given here after %d tries, skipped", e.seq, e.entry,
                 e.count, kTries);
         notice::post(strings::get(base(), strings::Str::CoopBuyFailed));
-        s.tries = 0;
-        return true;
+        return Result::Done;
     }
-    s.tries = 0;
     if (!(guest::call(c, base() + kVisitorCheck, 0) & 1)) guest::call(c, base() + kBought, e.entry);
-    const std::string name = item_name(c, e.entry);
+    if (nothing_to_give) {
+        NXLOG_I(kTag, "Co-op purchases: purchase %u (shop entry %u, category 0x%x) had nothing left to give here", e.seq, e.entry, cat);
+        return Result::Done;
+    }
+    const std::string name = item_name(c, item);
     using strings::Str;
     if (name.empty())
         notice::post(e.count > 1 ? strings::fmt(base(), Str::CoopBoughtSomethingCount, e.count) : strings::get(base(), Str::CoopBoughtSomething));
     else notice::post(e.count > 1 ? strings::fmt(base(), Str::CoopBoughtCount, name, e.count) : strings::fmt(base(), Str::CoopBought, name));
-    NXLOG_I(kTag, "Co-op purchases: purchase %u (shop entry %u x%u, category 0x%x) given here", e.seq, e.entry, e.count, cat);
-    return true;
+    NXLOG_I(kTag, "Co-op purchases: purchase %u (shop entry %u x%u, category 0x%x) %s", e.seq, e.entry, e.count, cat,
+            placed ? "placed and verified in the world" : "given here");
+    return Result::Done;
 }
 
+// One entry per call. The mark and the entries past it (set_applied) say what is applied; an entry that fails or waits never holds the
+// later ones back.
 void tick_apply(::Ctx* c, bool in_game) {
     State& s = st();
     if (!s.known_log || !records()) return;
-    uint32_t done = applied(s.known_log);
+    const uint32_t mark = applied(s.known_log), bits = done_bits(s.known_log);
     // Entries this player has applied already, or of another log, are dropped.
-    while (!s.pending.empty() && s.pending.begin()->first <= done) s.pending.erase(s.pending.begin());
-    if (s.pending.empty() || s.pending.begin()->first != done + 1) {
-        if (s.known_end > done) s.ask = true;   // a gap: the rest is asked for
+    for (auto it = s.pending.begin(); it != s.pending.end();) {
+        const uint32_t seq = it->first;
+        const bool done = seq <= mark || (seq - mark <= kWindow && (bits >> (seq - mark - 1) & 1));
+        if (done) s.retries.erase(seq);
+        it = done ? s.pending.erase(it) : std::next(it);
+    }
+    if (s.known_end > mark && !s.pending.count(mark + 1)) s.ask = true;   // a gap: the rest is asked for
+    const bool safe = session::can_walk(in_game) && !talk::talking();
+    const double now = qpc::seconds();
+    for (const auto& item : s.pending) {
+        const uint32_t seq = item.first;
+        const Entry e = item.second;
+        if (seq - mark > kWindow) break;
+        const bool own = mine(e);
+        if (!own) {
+            if (!safe) return;
+            const auto r = s.retries.find(seq);
+            if (r != s.retries.end() && now < r->second.retry_at) continue;   // its own retry time: the next entry goes on
+            const Result res = give(c, e);
+            if (res == Result::Wait) continue;
+            if (res == Result::Retry) return;
+        }
+        set_applied(s.known_log, seq);
+        s.pending.erase(seq);
+        s.retries.erase(seq);
         return;
     }
-    const Entry e = s.pending.begin()->second;
-    if (mine(e)) {   // this player's own purchase: it has it
-        set_applied(s.known_log, e.seq);
-        s.pending.erase(s.pending.begin());
-        return;
-    }
-    if (!session::can_walk(in_game) || talk::talking() || qpc::seconds() < s.retry_at) return;
-    if (!give(c, e)) return;
-    set_applied(s.known_log, e.seq);
-    s.pending.erase(s.pending.begin());
 }
 
 void tick_send() {
@@ -427,6 +521,7 @@ void on_log_message(::Ctx*, int, uint8_t, wire::Reader& r) {
         if (s.known_log) NXLOG_I(kTag, "Co-op purchases: the authority's purchase log is another one; this player starts at its first entry");
         s.known_log = id;
         s.pending.clear();
+        s.retries.clear();
     }
     s.known_end = std::max(s.known_end, end);
     for (uint16_t i = 0; i < n; ++i) {
@@ -464,6 +559,7 @@ void on_session_change() {
     s.asked_at = -1e9;
     s.known_end = 0;
     s.pending.clear();
+    s.retries.clear();
     s.known_log = 0;   // learnt again: from the authority's answer, or (the authority) from its own log at the next tick
 }
 

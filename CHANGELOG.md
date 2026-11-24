@@ -5,6 +5,7 @@
 **Update.** Saves and shaders are kept; no game shaders are rebuilt. On Android, install the new APK over the old one once; later versions update from inside the app.
 
 ### Gameplay
+- Fixed a co-op rebuilding kit bought by a teammate never appearing: the host now places it once its player is in the kit's area, only counts it as delivered when it is in the world, and a purchase with nothing left to give no longer holds back the ones after it
 - Fixed a co-op member who pressed the PC right after joining being stuck in place until the host's data arrived, and the member's shop rows and open areas staying empty while the host was in a menu or a talk
 
 ### Linux & Steam Deck

@@ -24,6 +24,8 @@
 //   pkp_coop_unlocks.cpp  the moves and emotes any member learned, the areas visited, buildings built and area gates opened, unlocked
 //                         for every member
 //   pkp_coop_purchases.cpp what any member buys in a shop, given to every member (and to later joiners) too
+//   pkp_coop_purchase_world.cpp the world side of a purchase the game places in the world (the rebuilding kits): which entries, their
+//                         stage, and whether the object is there
 //   pkp_coop_money.cpp    the Life Coins of the challenges: each member claims its own at the PC, once, into its own coins
 //   pkp_coop_events.cpp   what an ended talk or scene leaves in the save (scenes played, conversations seen, story lines moved on)
 //                         kept by every member
@@ -61,6 +63,7 @@
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -292,6 +295,23 @@ void on_log_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);       
 void tick(::Ctx* c, bool in_game);
 void on_session_change();   // this process joined or left: what it lacks is asked again
 void reset();
+
+// The place class: purchases the game puts in the world next to the buyer, not in the bag (pkp_coop_purchase_world.cpp).
+namespace world {
+// The item (of a shop entry, with its item category) is placed in the world: the game's own test.
+bool is_place_class(::Ctx* c, uint32_t item, uint8_t category);
+// The stage the shop row belongs to (the stage its kit is placed in); 0 when the row cannot be read.
+uint8_t shop_area(::Ctx* c, uint16_t entry);
+// This process's player stands in that stage (and exists).
+bool in_stage(uint8_t area);
+// The occupied cabinet records of the world; added_since() says whether a record was occupied after the snapshot that was free before.
+struct Snapshot {
+    bool valid = false;
+    std::bitset<0x610> occupied;
+};
+Snapshot snapshot();
+bool added_since(const Snapshot& before);
+}  // namespace world
 }  // namespace purchases
 
 namespace stock {
