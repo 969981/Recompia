@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // os_posix_suspend.cpp: SuspendThread / ResumeThread / GetThreadContext for a running thread on Linux, which the
 // diagnostics that read another thread's registers rely on (diag/sampler.cpp, diag/watchdog.cpp). Linux has no
-// thread_suspend (macOS uses the mach call, os_posix.cpp), so the suspender sends the thread a real-time signal with
+// thread_suspend (macOS uses the mach call, os_posix_thread.cpp), so the suspender sends the thread a real-time signal with
 // tgkill; the handler copies the registers out of its ucontext, publishes kStopped and waits on a futex until
 // ResumeThread sets kRunning. The handler only touches atomics, the futex syscall and errno (async-signal-safe), and
 // reads the thread's object through thread_if_known(), which never allocates. tgkill rather than pthread_kill: a thread

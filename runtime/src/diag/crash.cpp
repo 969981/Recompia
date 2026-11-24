@@ -35,7 +35,7 @@ namespace nxrt {
 namespace {
 
 #if defined(__APPLE__)
-extern "C" uintptr_t nxos_fault_pthread();   // os_posix.cpp: pthread_self() of the thread that faulted (0 if not captured)
+extern "C" uintptr_t nxos_fault_pthread();   // os_posix_seh.cpp: pthread_self() of the thread that faulted (0 if not captured)
 // Reporter progress on fd 2: if the reporter itself dies, the last marker says which section killed it.
 void rep_mark(const char* s) { (void)::write(2, s, std::strlen(s)); }
 #else
@@ -52,7 +52,7 @@ extern "C" int nxos_recent_fault_details(uint64_t* guard_ptrs, uint64_t* slots, 
 constexpr DWORD kTrapCode = 0xE0000001u;
 constexpr DWORD kUntranslatedCode = 0xE0000002u;
 constexpr DWORD kGuestBreakCode = 0xE0000003u;
-constexpr DWORD kAbortCode = 0xE0000004u;      // os_posix.cpp: SIGABRT (the guest's abort()/std::terminate)   // svcBreak / svcReturnFromException (svc_thread.cpp)
+constexpr DWORD kAbortCode = 0xE0000004u;      // os_posix_seh.cpp: SIGABRT (the guest's abort()/std::terminate)   // svcBreak / svcReturnFromException (svc_thread.cpp)
 constexpr size_t kMaxHostFrames = 32;
 constexpr int kMaxGuestFrames = 24;
 constexpr DWORD kOverflowWaitMs = 30000;

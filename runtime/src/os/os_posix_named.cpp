@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // os_posix_named.cpp: the part of a Win32 object name that other processes see. On Windows a named mutex lives in a
 // namespace every process of the session shares, so CreateMutex in a second process answers ERROR_ALREADY_EXISTS;
-// the shim's names (os_posix.cpp) are a list inside one process. kernel/sched.cpp claims its console core slot that way,
+// the shim's names (os_posix_sync.cpp) are a list inside one process. kernel/sched.cpp claims its console core slot that way,
 // and with the list alone two games side by side both took slot 0 and put their console cores on the same processors.
 //
 // A name is present in a process while it holds a shared flock on the name's lock file; the kernel drops it when the
 // last handle closes the file or the process ends, crash included, so a dead process never keeps a name. Testing for
 // other holders and taking our own shared lock is one step under an exclusive flock on the user's guard file: flock
 // cannot turn an exclusive lock into a shared one atomically, and without the guard two processes starting at the same
-// moment could both find the name free. One fd per name per process: os_posix.cpp's list hands every further create of
+// moment could both find the name free. One fd per name per process: os_posix_sync.cpp's list hands every further create of
 // the name in this process the same object, and two fds of one process would see each other's flock.
 //
 // The lock files stay behind (removing one could race a process that is opening it); they are empty and live in

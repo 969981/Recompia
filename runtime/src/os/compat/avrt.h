@@ -2,7 +2,7 @@
 // <avrt.h> for the POSIX build: MMCSS thread characteristics.
 //
 // Windows' Multimedia Class Scheduler boosts an audio thread above everything else; macOS reaches the same place through
-// a QoS class, which the shim's SetThreadPriority already applies (os_posix.cpp: QOS_CLASS_USER_INTERACTIVE for
+// a QoS class, which the shim's SetThreadPriority already applies (os_posix_thread.cpp: QOS_CLASS_USER_INTERACTIVE for
 // THREAD_PRIORITY_TIME_CRITICAL). So AvSetMmThreadCharacteristicsW reports failure and
 // services/audren/Integration/ThreadBoost.h takes its SetThreadPriority fallback, which is the right one here.
 #pragma once
