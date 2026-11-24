@@ -105,8 +105,9 @@ void install(const FeatureInstall& in) {
 }
 
 // main thread, once per frame: (+) on the title opens the quit prompt
-void frame(bool, double, play::GameFrame*) {
+void frame(bool in_game, double, play::GameFrame*) {
     if (!g.host) return;
+    if (in_game) g.widget = 0;   // in the world: the title's widget keeps its key guide set until a menu takes another, so it is gone here
     const uint64_t buttons = hid::sampled_buttons();
     const uint64_t plus = hid::btn(hid::kBtnPlus);
     const bool press = (buttons & plus) && !(g.prev_buttons & plus);
