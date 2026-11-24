@@ -43,7 +43,8 @@
 //     member never calls kGrant for one (the game answers 1 there and places nothing; the host's world decides). The host (or an
 //     offline process) replays one only while its player exists and stands in the shop row's area, waiting without a try and
 //     without holding the later entries back, and counts it as given only when a cabinet record is occupied after the call that was
-//     free before (kGrant's 1 is true even when the block write failed); not there: tried again later;
+//     free before (kGrant's 1 is true even when the block write failed); not there: tried again later. A kit the game refused to place
+//     (kGrant's 0: no room next to the player) is tried again without a limit: it cannot be bought a second time;
 //   - the entries applied are kept in this player's own save, in unused elements of the unique request record array
 //     (layout::kSaveUniqueRequests; pkp_coop_outcomes.cpp uses 201..208, readers check id <= 200): element 209 kMarkMagic, 210 the
 //     mark (every entry up to it is applied), 211..212 the log id; 213 kDoneMagic, 214 the entries applied past the mark (bit i =
@@ -117,6 +118,7 @@ struct Retry {
     int tries = 0;
     double retry_at = 0.0;
     bool waiting_logged = false;   // the "waits for its stage" line was written
+    bool refused_noticed = false;  // the "not placed by the game" line and notice were written
 };
 
 struct State {
@@ -352,12 +354,20 @@ Result give(::Ctx* c, const Entry& e) {
     const bool nothing_to_give = !called && (cat == kCategoryRecipe || cat == kCategoryRecipeBundle);
     const bool given = placed ? called && world::added_since(before) : called;
     if (!given && !nothing_to_give) {
-        if (++r.tries < kTries) {
+        // A kit the game refused to place (no room next to the player) is not in the world and cannot be bought again: it is never
+        // given up, and its tries are not counted. Only a call that answered 1 with no new object counts (the object may be there).
+        const bool refused = placed && !called;
+        if (refused || ++r.tries < kTries) {
             r.retry_at = qpc::seconds() + kRetryAfter;
-            if (r.tries == 1) notice::post(strings::get(base(), strings::Str::CoopBuyRetry));
-            if (placed)
-                NXLOG_I(kTag, "Co-op purchases: purchase %u (shop entry %u) not verified in the world (%s), tried again later (try %d of %d)",
-                        e.seq, e.entry, called ? "no new object" : "the game did not place it", r.tries, kTries);
+            if (refused ? !r.refused_noticed : r.tries == 1) notice::post(strings::get(base(), strings::Str::CoopBuyRetry));
+            if (refused) {
+                if (!r.refused_noticed)
+                    NXLOG_I(kTag, "Co-op purchases: purchase %u (shop entry %u) was not placed by the game here; tried again until it is",
+                            e.seq, e.entry);
+                r.refused_noticed = true;
+            } else if (placed)
+                NXLOG_I(kTag, "Co-op purchases: purchase %u (shop entry %u) not verified in the world (no new object), tried again later (try %d of %d)",
+                        e.seq, e.entry, r.tries, kTries);
             else
                 NXLOG_I(kTag, "Co-op purchases: purchase %u (shop entry %u x%u) not given here (try %d of %d)", e.seq, e.entry, e.count,
                         r.tries, kTries);
