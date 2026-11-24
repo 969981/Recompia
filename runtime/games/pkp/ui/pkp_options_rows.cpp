@@ -436,7 +436,11 @@ constexpr size_t most_shown(const Row (&r)[N]) {
     }
     return std::max(phone, other);
 }
+// GCC 11 (the Linux release runners, Ubuntu 22.04) cannot compare two different functions' addresses in a constant expression; GCC 12+,
+// clang and MSVC can, so every other build still checks this.
+#if defined(__clang__) || !defined(__GNUC__) || __GNUC__ >= 12
 static_assert(most_shown(kDisplay) <= static_cast<size_t>(kDirtySlot), "no machine shows more Display rows than a tab has slots");
+#endif
 
 constinit const RowList kSoundRows = rows_of(kSound), kDisplayRows{kDisplay, static_cast<int>(std::size(kDisplay))}, kPerformanceRows = rows_of(kPerformance),
                         kGraphicsRows = rows_of(kGraphics), kPictureRows = rows_of(kPicture), kMouseRows = rows_of(kMouse),
