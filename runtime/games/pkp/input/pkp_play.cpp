@@ -90,11 +90,13 @@ void install_render(uint64_t base, const play::DisplaySettings& d, int window_w,
         gh = std::clamp(gh, 360, 8192);
         const int base_w = gw;   // the 16:9-derived width, the one [display] render_scale was a percent of
         if constexpr (facts::kPhone) {
-            // A phone whose screen is larger than these targets (a foldable's near-square inner screen, wider than the 1920-wide targets): targets of the
-            // screen's own size, rendered at scale 1, so a share of the screen is a whole number of pixels. At a render scale above 1,
-            // 50 % came out one pixel short of half the screen per side (the level heights round to even before the scale), a ratio of
-            // just over 2 at which a temporal upscaler's sample phase drifts across the screen (SGSR 2's X pattern); now it is exactly half.
-            if (!fixed_size && !(d.aspect > 0) && window_w >= gw && window_h >= gh) {
+            // A phone: targets of the screen's own size, rendered at scale 1, so the 2D lands 1:1 on the screen and a share of the screen
+            // is a whole number of pixels. Larger than the 16:9-derived targets: at a render scale above 1, 50 % came out one pixel short
+            // of half the screen per side (the level heights round to even before the scale), a ratio of just over 2 at which a temporal
+            // upscaler's sample phase drifts across the screen (SGSR 2's X pattern). Smaller (a wide, short screen): the 2D was drawn at
+            // the targets' size fitted to the screen, which rounds to one pixel narrower than the screen, so every frame was enlarged by
+            // that pixel and the HUD came out soft.
+            if (!fixed_size && !(d.aspect > 0)) {
                 gw = window_w & ~1;
                 gh = window_h & ~1;
             }
