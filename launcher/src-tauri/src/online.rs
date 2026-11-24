@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Online presence: while pkp.exe runs, and only while the player has it switched on, tells api.recompia.com that this player is online
-//! (hello, then a heartbeat every half minute, then leave). What is sent is exactly what the setting's notice and recompia.com say: the
+//! Online presence: while pkp.exe runs, and only while the player has it switched on, tells the presence server (`SERVER`) that this player is online
+//! (hello, then a heartbeat every half minute, then leave). What is sent is exactly what the setting's notice and PRIVACY.md say: the
 //! online name the player typed (none: the server shows "anonymous"), the build, the kind of device and the creatures-at-home count of the
 //! save (home_count.rs). Never the save, the profile nickname or the account uid.
 //!
@@ -25,8 +25,10 @@ use std::time::{Duration, Instant};
 use crate::ini::Ini;
 use crate::settings::PKP_INI;
 
-/// The presence API (jerbanpls/recompia-website api/). Public reads; writes need the token.
-pub const SERVER: &str = "https://api.recompia.com";
+/// The presence API's address. Public reads; writes need the token.
+/// None: the project runs no presence server at present (the old one, api.recompia.com, is gone and that name is no longer the
+/// project's), so nothing is sent whatever the switch says.
+pub const SERVER: Option<&str> = None;
 /// pkp.ini `[pkp]` key of the switch.
 pub const KEY: &str = "online_presence";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -200,8 +202,12 @@ pub struct Watch {
 
 impl Watch {
     pub fn start(app: &tauri::AppHandle, game_dir: &Path) -> Watch {
+        let Some(server) = SERVER else {
+            // no server: no thread and no request; `finish` returns at once (both far ends are gone)
+            return Watch { stop: channel().0, done: channel().1 };
+        };
         let (app, dir) = (app.clone(), game_dir.to_path_buf());
-        Watch::spawn(SERVER, move |client, stop| {
+        Watch::spawn(server, move |client, stop| {
             let inp = Inputs {
                 on: &|| switched_on(&dir),
                 player: &|| player_of(&app, &dir),

@@ -27,7 +27,7 @@ Questions about privacy: legal.recompia@gmail.com
 | Link Play, same network | Other PCs on your network | Only when you host or visit in the game | Link Play page, Same network off; or Off |
 | Link Play, internet | The public relay (the Recompia maintainers) | Only after you pick Internet on the Link Play page and host or visit | Pick Same network or Off on the Link Play page |
 | Public IP lookup | ipify, icanhazip | Only for an internet host with an own relay or address | Do not use that option |
-| Online presence | api.recompia.com (the Recompia maintainers) | Off by default; asked once | Home chip, Settings > Game, or the game's Online tab |
+| Online presence | Nobody at present: paused, nothing is sent | Off by default; asked once | Home chip, Settings > Game, or the game's Online tab |
 | Mod list and mod downloads | The mod hub (a third party) | When you open the Mods or Achievements page, or the launcher installs Community Achievements | Do not open those pages (see below for the one automatic install) |
 | Community Achievements | The Community Achievements service (a third party) | On by default once the mod is installed | Unlock sharing on the Mods page, then switch it off |
 | DLSS download | NVIDIA's GitHub repository | Only when you press the download button (Windows) | Do not press it |
@@ -109,7 +109,11 @@ so they see your IP address, and you see theirs. The launcher can show you your 
 - Who runs it: ipify and icanhazip (third parties). Kept in the launcher for the rest of the run, then dropped.
 - Turn it off: do not use that option.
 
-## Online presence (api.recompia.com)
+## Online presence (paused)
+
+**Paused:** the project runs no presence server at present, and the launcher sends nothing, whatever the switch says. Launchers
+before this change send to `api.recompia.com`, a name the project no longer holds: switch presence off there, or update. What follows
+describes presence as it was and as it will be when it returns.
 
 - What it is for: a "players online" list on the project's website.
 - When: off by default. The first time you press Play with a new launcher it asks once, and No is the default answer. You can switch it
