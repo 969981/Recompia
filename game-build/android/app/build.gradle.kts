@@ -31,9 +31,10 @@ val signingProps: Properties? = signingDir?.let { d -> file("$d/passwords.txt").
     ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } } }
 
 // The release version (-Precompia.versionName=x.y.z, tools/android/release/build-apk.sh): the app's version name, and its version
-// code as major*10^6 + minor*10^4 + patch*100. Not given: the version below.
+// code as (major*100 + minor)*10^6 + patch*10^4, the scheme of the 0.16 APKs (0.16.0.2 = 16000200), so each release updates them.
 val releaseVersion: List<Int>? = providers.gradleProperty("recompia.versionName").orNull
     ?.let { Regex("""^(\d+)\.(\d+)\.(\d+)$""").find(it) }?.groupValues?.drop(1)?.map { it.toInt() }
+    ?.also { require(it[0] <= 20 && it[1] < 100 && it[2] < 100) { "recompia.versionName $it does not fit the version code (major <= 20, minor and patch < 100)" } }
 
 android {
     namespace = "org.recompia.pkp"
@@ -44,7 +45,7 @@ android {
         applicationId = "org.recompia.pkp"
         minSdk = 30
         targetSdk = 35
-        versionCode = releaseVersion?.let { it[0] * 1_000_000 + it[1] * 10_000 + it[2] * 100 } ?: 16000200   // major*10^6 + minor*10^4 + patch*100 + sub
+        versionCode = releaseVersion?.let { (it[0] * 100 + it[1]) * 1_000_000 + it[2] * 10_000 } ?: 16000200   // (major*100 + minor)*10^6 + patch*10^4 + sub*100
         versionName = releaseVersion?.joinToString(".") ?: "0.16.0.2"
         // Test entry points (fake builder, "Build from exefs only", shader test size): false here so R8 drops them and the
         // resource shrinker drops their strings; true for debug and internalTest.

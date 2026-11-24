@@ -34,9 +34,10 @@ void do_clear_color(const P_ClearColor& p) {
     if (!S.render_enable) return;   // render enable gates clears as it gates draws (yuzu DrawManager::Clear)
     if (p.target >= 8 || !S.color_tex[p.target]) return;
     if (p.mask == 0) return;
-    if (!ensure_pass()) return;
+    if (!ensure_pass_for_clear()) return;
     if (!P.color_fmt[p.target]) return;
     ++(P.draws ? P.clears_mid : P.clears_first);
+    if (p.mask != 0xf) pass_flush();   // a masked clear is a draw ([nvn] clear_fold)
     if (p.mask != 0xf) {
         // vkCmdClearAttachments ignores the colour write mask: a masked clear is a draw with that mask
         if (!g_mask_ready) { g_mask_ok = g_mask.init(device()); g_mask_ready = true; }
@@ -59,6 +60,11 @@ void do_clear_color(const P_ClearColor& p) {
     ca.colorAttachment = p.target;
     std::memcpy(ca.clearValue.color.uint32, p.value, 16);
     VkClearRect r = full_rect();
+    if (pass_fold_clear_color(p.target, ca.clearValue.color, r)) {
+        counters().clears.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+    pass_flush();
     vkCmdClearAttachments(F->cb, 1, &ca, 1, &r);
     counters().clears.fetch_add(1, std::memory_order_relaxed);
 }
@@ -67,18 +73,18 @@ void do_clear_depth_stencil(const P_ClearDepthStencil& p) {
     TRACE("clear depth/stencil d %g (mask %d) s %d (mask %x)", p.depth, p.depth_mask, p.stencil, p.stencil_mask);
     if (!S.render_enable) return;
     if (!S.depth_tex) return;
-    if (!ensure_pass()) return;
+    if (!ensure_pass_for_clear()) return;
     VkClearAttachment ca = {};
     if (p.depth_mask) ca.aspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
     if (p.stencil_mask && P.has_stencil) ca.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
     if (!ca.aspectMask) return;
     ++(P.draws ? P.clears_mid : P.clears_first);
-    if (ca.aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) P.dclears++;
     // The stencil is 8 bits: a mask with all of them set (a full mask, 0xffffffff) is a full clear, not a masked one. Drawn as a masked
     // clear it was a full-screen depth and stencil draw in a pass of its own (about 0.1 ms each on a phone, five a frame) instead of a
     // vkCmdClearAttachments. Phones only (facts::kPhone); desktop keeps the comparison it had.
     const bool masked = facts::kPhone ? ((p.stencil_mask & 0xffu) != 0 && (p.stencil_mask & 0xffu) != 0xffu)
                                       : (p.stencil_mask && p.stencil_mask != 0xff);
+    if (masked && P.has_stencil && !P.depth_ro) pass_flush();   // drawn ([nvn] clear_fold)
     if (masked && P.has_stencil && !P.depth_ro) {
         // vkCmdClearAttachments has no stencil write mask: a masked stencil clear is a draw with that write mask (depth goes along)
         if (!g_mask_ready) { g_mask_ok = g_mask.init(device()); g_mask_ready = true; }
@@ -99,6 +105,12 @@ void do_clear_depth_stencil(const P_ClearDepthStencil& p) {
     }
     ca.clearValue.depthStencil = {p.depth, static_cast<uint32_t>(p.stencil)};
     VkClearRect r = full_rect();
+    if (pass_fold_clear_ds(ca.aspectMask, ca.clearValue.depthStencil, r)) {
+        counters().clears.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+    pass_flush();
+    if (ca.aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) P.dclears++;
     vkCmdClearAttachments(F->cb, 1, &ca, 1, &r);
     counters().clears.fetch_add(1, std::memory_order_relaxed);
 }
@@ -279,8 +291,19 @@ void do_copy_texture_texture(const P_CopyTexTex& p) {
     tex_ensure_current(s, *F);
     if (s != d) tex_ensure_current(d, *F);
     const bool same = s == d;
+    // phones: both transitions as one barrier, and after the copy its full barrier and the way back of both images (to the layouts they
+    // had, when that is an attachment or a sampled layout: their next use) as one more (barrier_batch); without it each was a barrier
+    bool batch = false;
+    VkImageLayout s_was = VK_IMAGE_LAYOUT_UNDEFINED, d_was = VK_IMAGE_LAYOUT_UNDEFINED;
+    if constexpr (facts::kPhone) {
+        s_was = tex_layout(s);
+        d_was = tex_layout(d);
+        batch = !same && tex_gpu(s) != tex_gpu(d) && barrier_batch_begin(F->cb);   // two images (one image twice in one barrier: no order)
+    }
     tex_transition(s, *F, same ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     if (!same) tex_transition(d, *F, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    if constexpr (facts::kPhone)
+        if (batch) barrier_batch_end();
     tev(d, "copy_texture_to_texture", reinterpret_cast<uint64_t>(s), 0);
     for (int32_t i = 0; i < std::max(1, d->b.target != NVN_TEXTURE_TARGET_3D ? dr.d : 1); ++i) tex_sparse_before_copy(d, ds.layer + static_cast<uint32_t>(i), ds.level);
     tex_mark_gpu_written(d);
@@ -309,7 +332,19 @@ void do_copy_texture_texture(const P_CopyTexTex& p) {
         const bool linear = (p.flags & NVN_COPY_FLAGS_LINEAR_FILTER_BIT) || (tex_scale(s) != tex_scale(d) && !tex_is_depth(s) && !tex_is_depth(d));
         vkCmdBlitImage(F->cb, tex_image(s), sl, tex_image(d), dl, 1, &b, linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
     }
-    memory_barrier(F->cb);
+    if constexpr (facts::kPhone) {
+        if (batch && barrier_batch_begin(F->cb)) {
+            const auto back = [](VkImageLayout l) { return l == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL || l == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; };
+            memory_barrier(F->cb);
+            if (back(s_was)) tex_transition(s, *F, s_was);
+            if (back(d_was)) tex_transition(d, *F, d_was);
+            barrier_batch_end();
+        } else {
+            memory_barrier(F->cb);
+        }
+    } else {
+        memory_barrier(F->cb);
+    }
     counters().copies.fetch_add(1, std::memory_order_relaxed);
     gstamp("copy texture");
 }

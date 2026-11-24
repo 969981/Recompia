@@ -254,12 +254,13 @@ void feedback_prepare(const ProgLayout& pl) {
         g_copies.fb_use[r.tex] = c;
         rp_bump(ft::kCntEpFeedback);   // [nvn] set_reuse: what this texture resolves to changed
         if (regions.empty()) continue;                                    // the copy is current for every level the draw samples (no pass break)
-        end_pass();
+        bool batch = false; if constexpr (facts::kPhone) batch = barrier_batch_begin(F->cb);   // phones: end_pass's barrier and both transitions as one barrier
+        end_pass(); VkImageLayout src_was = VK_IMAGE_LAYOUT_UNDEFINED; if constexpr (facts::kPhone) src_was = tex_layout(r.tex);
         tex_transition(r.tex, *F, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);   // the next pass moves it back to the attachment layout and loads it
-        tex_transition(c, *F, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        tex_transition(c, *F, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL); if constexpr (facts::kPhone) { if (batch) barrier_batch_end(); }
         vkCmdCopyImage(F->cb, tex_image(r.tex), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, tex_image(c), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(regions.size()), regions.data());
-        tex_mark_gpu_written(c);
-        tex_transition(c, *F, tex_sampled_layout(c));
+        tex_mark_gpu_written(c); if constexpr (facts::kPhone) { if (batch) batch = barrier_batch_begin(F->cb); }   // phones: the clone's and the source's way back as one barrier
+        tex_transition(c, *F, tex_sampled_layout(c)); if constexpr (facts::kPhone) { if (batch) { if (src_was == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) tex_transition(r.tex, *F, src_was); barrier_batch_end(); } }
         if (by_level)
             for (const VkImageCopy& rc : regions) fe.gen[rc.srcSubresource.mipLevel] = gens[rc.srcSubresource.mipLevel];
         rp_bump(ft::kCntEpFeedback);
@@ -413,6 +414,15 @@ void prepare_textures(const ProgLayout& pl) {
     for (Texture* t : need) out_texture_read(t);           // an upload reads game memory: compute results held there go back first
     for (Texture* t : need_storage) out_texture_read(t);
     for (Texture* t : need_general) out_texture_read(t);
+    // Phones (A/B name "barrier_batch"): when nothing here uploads (every image current on the GPU, no rescale), the end of the pass and all
+    // the layout changes are one barrier command instead of one each (about 20 such changes a frame outdoors on a Tensor G2 (Mali-G710)).
+    bool batch = false;
+    if constexpr (facts::kPhone) {
+        // sampled images only: an image that is also a storage or size-query image would change layout twice in the one command
+        bool plain = need_storage.empty() && need_general.empty();
+        for (Texture* t : need) plain = plain && !t->cpu_dirty.load() && tex_current_on_gpu(t);
+        batch = plain && barrier_batch_begin(F->cb);
+    }
     end_pass(true);     // layout changes and uploads follow: each carries the dependency for its own image
     counters().pass_breaks.fetch_add(1, std::memory_order_relaxed);
     for (Texture* t : need) {
@@ -429,6 +439,8 @@ void prepare_textures(const ProgLayout& pl) {
         tex_ensure_current(t, *F);
         tex_transition(t, *F, VK_IMAGE_LAYOUT_GENERAL);
     }
+    if constexpr (facts::kPhone)
+        if (batch) barrier_batch_end();
     gstamp("uploads/layouts");
 }
 

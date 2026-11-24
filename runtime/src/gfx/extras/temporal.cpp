@@ -2,6 +2,7 @@
 // Temporal upscaling: the camera from the G-buffer uniform block, the input pass (motion vectors, depth and colour copies) and the
 // backend call (temporal.h).
 #include "extras/temporal.h"
+#include "extras/fsr1_spatial.h"
 
 #include <algorithm>
 #include <atomic>
@@ -143,6 +144,7 @@ struct State {
     double phase_seen[32][2] = {};
     std::chrono::steady_clock::time_point last_eval{};
     UpscaleMode last_mode = UpscaleMode::Off;
+    bool last_hdr = true;
     VkExtent2D max_render = {}, last_out = {};
     // GPU objects
     gfx::Device* dev = nullptr;
@@ -286,6 +288,7 @@ const char* mode_name(UpscaleMode m) {
         case UpscaleMode::Fsr3: return "FSR 3";
         case UpscaleMode::Dlss: return "DLSS";
         case UpscaleMode::Dlaa: return "DLAA";
+        case UpscaleMode::Sgsr2: return "SGSR 2";
         default: return "?";
     }
 }
@@ -334,7 +337,7 @@ double radical_inverse(uint32_t i, uint32_t base) {
 }  // namespace
 
 // The game's own jitter does not reach the G-buffer camera (see temporal.h), so the runtime jitters it: Halton(2, 3), 8 phases at native
-// size and ceil(8 * ratio^2) when upscaling (at most 64), +-0.5 px.
+// size and ceil(8 * ratio^2) when upscaling (at most 64), +-0.5 px (see below).
 bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint32_t height, uint64_t frame) {
     static const int mode = static_cast<int>(config_get_int("upscale", "jitter", 1));   // 0 never, 1 when the projection has no jitter of its own
     const game::CameraBlock* cb = temporal_camera_block();
@@ -344,7 +347,13 @@ bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint
     if (std::fabs(c.jit[0]) * width > 0.01 || std::fabs(c.jit[1]) * height > 0.01) return false;   // already jittered (by the game)
     const uint32_t phases = temporal_jitter_phase_count();
     const uint32_t idx = static_cast<uint32_t>(frame % phases) + 1;
-    const double jx = (2.0 * radical_inverse(idx, 2) - 1.0) / width, jy = (2.0 * radical_inverse(idx, 3) - 1.0) / height;
+    // +-0.5 px on both axes. Copies of the camera's view-projection and its inverse sit in other blocks; with only the camera
+    // block jittered, some faces switched look with the offset's sign and some fell into shade, so those copies get the same jitter
+    // (nvn_replay_upscale.cpp tsr_other_wanted). [upscale] jitter_range = pos keeps the picture's offset in [+0.01, +0.5) px on both axes
+    // instead (FSR convention: +x right, +y down), the range that hid the switching before the copies were jittered.
+    static const bool one_sided = config_get_str("upscale", "jitter_range", "full") == "pos";
+    const double hx = radical_inverse(idx, 2), hy = radical_inverse(idx, 3);
+    const double jx = (one_sided ? 0.02 + 0.98 * hx : 2.0 * hx - 1.0) / width, jy = (one_sided ? -(0.02 + 0.98 * hy) : 2.0 * hy - 1.0) / height;
     float f[16];
     std::memcpy(f, words + cb->view_proj, sizeof f);
     for (int col = 0; col < 4; ++col) {   // column-major: ndc.x += jx, ndc.y += jy (clip x += jx * w)
@@ -381,14 +390,63 @@ void temporal_note_gbuffer(const uint32_t* words, size_t n_words) {
     }
 }
 
+bool temporal_frame_matrices(float vpu[16], float ivpu[16], float vpj[16], float ivpj[16]) {
+    State& s = st();
+    std::lock_guard<std::mutex> lk(s.mu);
+    if (!s.have_cam || (s.cam.jit[0] == 0.0 && s.cam.jit[1] == 0.0)) return false;
+    static M4 last_vpj, inv_u, inv_j;   // the inverses of the last camera asked for (a frame asks many times)
+    static bool have = false;
+    if (!have || std::memcmp(last_vpj.m, s.cam.vpj.m, sizeof last_vpj.m) != 0) {
+        if (!inverse(s.cam.vpu, inv_u) || !inverse(s.cam.vpj, inv_j)) return false;
+        last_vpj = s.cam.vpj;
+        have = true;
+    }
+    for (int i = 0; i < 16; ++i) {
+        vpu[i] = static_cast<float>(s.cam.vpu.m[i]);
+        ivpu[i] = static_cast<float>(inv_u.m[i]);
+        vpj[i] = static_cast<float>(s.cam.vpj.m[i]);
+        ivpj[i] = static_cast<float>(inv_j.m[i]);
+    }
+    return true;
+}
+
+void temporal_drop_camera() {
+    State& s = st();
+    std::lock_guard<std::mutex> lk(s.mu);
+    s.have_cam = false;
+}
+
 bool temporal_camera_ready() {
     State& s = st();
     std::lock_guard<std::mutex> lk(s.mu);
     return s.have_cam;
 }
 
+namespace {
+VkImage g_result_image = VK_NULL_HANDLE;                    // the image temporal_evaluate's last view belongs to (its output, or the sharpened copy)
+std::atomic<float> g_lod_ratio{0.0f};                        // log2(render / output width) of the last evaluation (0: native)
+std::atomic<int64_t> g_lod_eval_ns{0};                       // when it was made
+}  // namespace
+
+// The scene's textures are sampled at the render size's mip level; a temporal upscaler rebuilds the output size from several jittered
+// frames, so the textures need the output's level: a negative LOD bias of log2(render / output) + 0.5, in quarter steps (the samplers are
+// cached per bias), while a temporal mode ran in the last half second. [upscale] lod_bias_auto = false: none.
+float temporal_lod_bias() {
+    static const bool on = config_get_bool("upscale", "lod_bias_auto", true);
+    if (!on || g_lod_eval_ns.load(std::memory_order_relaxed) == 0) return 0.0f;   // no temporal pass has run: no clock read per sampler
+    const int64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (now - g_lod_eval_ns.load(std::memory_order_relaxed) > 500000000) return 0.0f;
+    return g_lod_ratio.load(std::memory_order_relaxed);
+}
+
+VkImage temporal_output_image() {
+    State& s = st();
+    std::lock_guard<std::mutex> lk(s.mu);
+    return g_result_image ? g_result_image : s.output.img.image;
+}
+
 VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView color, VkImageView depth, VkImageLayout depth_layout, VkExtent2D render,
-                              VkExtent2D out, bool depth_neg_one, VkExtent2D out_tex) {
+                              VkExtent2D out, bool depth_neg_one, VkExtent2D out_tex, bool hdr) {
     State& s = st();
     std::lock_guard<std::mutex> lk(s.mu);
     const UpscaleMode mode = upscale_mode();
@@ -414,10 +472,14 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
         }
         return VK_NULL_HANDLE;
     }
-    TemporalBackend* be = mode == UpscaleMode::Fsr3 ? temporal_ffx(gfx_device) : temporal_dlss(gfx_device, mode == UpscaleMode::Dlaa);
+    TemporalBackend* be = mode == UpscaleMode::Sgsr2 ? temporal_sgsr2(gfx_device) : mode == UpscaleMode::Fsr3 ? temporal_ffx(gfx_device)
+                                                                                     : temporal_dlss(gfx_device, mode == UpscaleMode::Dlaa);
     if (!be) return VK_NULL_HANDLE;
-    if (!ensure(s, s.color, render, VK_FORMAT_R16G16B16A16_SFLOAT, "temporal colour") || !ensure(s, s.depth, render, VK_FORMAT_R32_SFLOAT, "temporal depth") ||
-        !ensure(s, s.motion, render, VK_FORMAT_R16G16_SFLOAT, "temporal motion") || !ensure(s, s.output, VkExtent2D{std::max(out.width, out_tex.width), std::max(out.height, out_tex.height)}, VK_FORMAT_R16G16B16A16_SFLOAT,
+    // The render-size images are made at the largest render size so far and used as a sub-rect (the backends take the render size), so a
+    // lower render size (dynamic resolution, a Resolution step) neither waits for the GPU nor loses the history.
+    const VkExtent2D in_ext{std::max(render.width, s.max_render.width), std::max(render.height, s.max_render.height)};
+    if (!ensure(s, s.color, in_ext, VK_FORMAT_R16G16B16A16_SFLOAT, "temporal colour") || !ensure(s, s.depth, in_ext, VK_FORMAT_R32_SFLOAT, "temporal depth") ||
+        !ensure(s, s.motion, in_ext, VK_FORMAT_R16G16_SFLOAT, "temporal motion") || !ensure(s, s.output, VkExtent2D{std::max(out.width, out_tex.width), std::max(out.height, out_tex.height)}, VK_FORMAT_R16G16B16A16_SFLOAT,
                 "temporal output"))
         return VK_NULL_HANDLE;
 
@@ -450,7 +512,7 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
 
     // history: reset on the first frame, an output/mode change, a render size beyond the backend's capacity, or a camera cut. Dynamic-resolution
     // changes within the largest render size already given to the backend keep their history.
-    bool reset = !s.have_prev || mode != s.last_mode || render.width > s.max_render.width || render.height > s.max_render.height ||
+    bool reset = !s.have_prev || mode != s.last_mode || hdr != s.last_hdr || render.width > s.max_render.width || render.height > s.max_render.height ||
                  out.width != s.last_out.width || out.height != s.last_out.height;
     const auto now = std::chrono::steady_clock::now();
     double ms = s.evaluations ? std::chrono::duration<double, std::milli>(now - s.last_eval).count() : 16.7;
@@ -538,6 +600,7 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     auto ndc_at = [&](double t) { return (cur.p22 * cur.zsgn * t + cur.p23) / (a32 * t); };
     const bool inverted = ndc_at(1.0) > ndc_at(1000.0);
     f.depth_inverted = inverted;
+    f.hdr = hdr;
     const double z_near_ndc = inverted ? 1.0 : (depth_neg_one ? -1.0 : 0.0), z_far_ndc = inverted ? (depth_neg_one ? -1.0 : 0.0) : 1.0;
     auto dist_at = [&](double z) {
         const double den = z * a32 - cur.p22 * cur.zsgn;
@@ -563,8 +626,9 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
         f.cam_fwd[i] = static_cast<float>(cur.fwd[i]);
     }
     if (s.evaluations == 0)
-        NXLOG_I(kTag, "%s: render %ux%u -> %ux%u, depth %s, near %.3f far %.1f, vertical fov %.1f deg, motion vectors from depth + camera (camera motion only)",
-                be->name(), render.width, render.height, out.width, out.height, inverted ? "reversed" : "forward", static_cast<double>(f.near_z),
+        NXLOG_I(kTag, "%s: render %ux%u -> %ux%u (%s), depth %s, near %.3f far %.1f, vertical fov %.1f deg, motion vectors from depth + camera (camera motion only)",
+                be->name(), render.width, render.height, out.width, out.height, hdr ? "HDR scene at the tone map" : "display-referred scene at its enlargement",
+                inverted ? "reversed" : "forward", static_cast<double>(f.near_z),
                 static_cast<double>(f.far_z), static_cast<double>(f.fov_y) * 57.29578);
     if (!be->evaluate(cb, f)) return VK_NULL_HANDLE;
     barrier(cb, s.output.img.image, VK_IMAGE_LAYOUT_GENERAL, any, VK_ACCESS_2_MEMORY_WRITE_BIT,
@@ -579,12 +643,31 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     s.last_jit_px[1] = jpy;
     s.last_eval = now;
     s.last_mode = mode;
+    s.last_hdr = hdr;
     s.max_render.width = std::max(s.max_render.width, render.width);
     s.max_render.height = std::max(s.max_render.height, render.height);
     s.last_out = out;
     s.prev = cur;
     s.have_prev = true;
     (void)mode_name;
+    // half a step short of the output's level: the full step made far detail shimmer at a still camera with little visible gain
+    g_lod_ratio.store(static_cast<float>(std::min(0.0, std::floor(std::log2(std::min(1.0, static_cast<double>(render.width) / out.width)) * 4.0 + 0.5) / 4.0 + 0.5)),
+                      std::memory_order_relaxed);
+    g_lod_eval_ns.store(std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count(), std::memory_order_relaxed);
+    g_result_image = s.output.img.image;
+    // SGSR 2 has no sharpening of its own (SGSR 1 sharpens its edges, FSR 3 has RCAS built in): RCAS on its result, [upscale] sharpness
+    if (mode == UpscaleMode::Sgsr2 && f.sharpness > 0.0f) {
+        static Fsr1Spatial* const sharp = new Fsr1Spatial();   // lives as long as the device (not destroyed at exit)
+        if (!sharp->initialised()) sharp->init(dev);
+        if (sharp->initialised()) {
+            const VkImageView v = sharp->sharpen(cb, s.output.img.view, out, VkExtent2D{std::max(out.width, out_tex.width), std::max(out.height, out_tex.height)}, hdr,
+                                                f.sharpness);
+            if (v) {
+                g_result_image = sharp->result_image();
+                return v;
+            }
+        }
+    }
     return s.output.img.view;
 }
 

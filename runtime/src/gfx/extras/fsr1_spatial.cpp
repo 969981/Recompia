@@ -135,7 +135,8 @@ bool Fsr1Spatial::ensure_target(Target& t, VkExtent2D e, const char* name) {
     id.format = VK_FORMAT_R16G16B16A16_SFLOAT;
     id.width = e.width;
     id.height = e.height;
-    id.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    // TRANSFER_SRC: a phone blits the result into the game's stretch target (nvn_replay_upscale.cpp, tex_blit_from)
+    id.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     id.name = name;
     std::string why;
     if (dev_->create_image(id, &t.img, &why) != VK_SUCCESS) {
@@ -173,7 +174,7 @@ void Fsr1Spatial::shutdown() {
 }
 
 // RCAS from easu_img_ into rcas_img_ over out, then the barrier that makes the result readable (upscale, sharpen_enlarged).
-void Fsr1Spatial::rcas_pass(VkCommandBuffer cb, float perceptual, VkExtent2D out, float prescale, float sharpness) {
+void Fsr1Spatial::rcas_pass(VkCommandBuffer cb, float perceptual, VkExtent2D out, float prescale, float sharpness, VkImageView src) {
     VkDevice d = dev_->device();
     {
         RcasPush pc = {};
@@ -184,7 +185,7 @@ void Fsr1Spatial::rcas_pass(VkCommandBuffer cb, float perceptual, VkExtent2D out
         pc.opt[3] = prescale;
         VkDescriptorSet set = rcas_sets_[next_rcas_];
         next_rcas_ = (next_rcas_ + 1) % kSetRing;
-        VkDescriptorImageInfo si = {VK_NULL_HANDLE, easu_img_.img.view, VK_IMAGE_LAYOUT_GENERAL};
+        VkDescriptorImageInfo si = {VK_NULL_HANDLE, src ? src : easu_img_.img.view, VK_IMAGE_LAYOUT_GENERAL};
         VkDescriptorImageInfo di = {VK_NULL_HANDLE, rcas_img_.img.view, VK_IMAGE_LAYOUT_GENERAL};
         VkWriteDescriptorSet w[2] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
         w[0].dstSet = set; w[0].dstBinding = 0; w[0].descriptorCount = 1; w[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE; w[0].pImageInfo = &si;
@@ -245,6 +246,27 @@ VkImageView Fsr1Spatial::upscale(VkCommandBuffer cb, VkImageView src, VkExtent2D
     image_barrier(cb, easu_img_.img.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
     rcas_pass(cb, perceptual, out, prescale, sharpness);
+    ++frames_;
+    return rcas_img_.img.view;
+}
+
+VkImageView Fsr1Spatial::sharpen(VkCommandBuffer cb, VkImageView src, VkExtent2D out, VkExtent2D out_tex, bool linear_hdr, float sharpness) {
+    if (!dev_ || !src || !out.width || !out.height) return VK_NULL_HANDLE;
+    const VkExtent2D res{std::max(out.width, out_tex.width), std::max(out.height, out_tex.height)};
+    if (!ensure_target(rcas_img_, res, "rcas sharpen")) return VK_NULL_HANDLE;
+    const bool fresh = !rcas_img_.initialised;
+    image_barrier(cb, rcas_img_.img.image, rcas_img_.initialised ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                  VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    rcas_img_.initialised = true;
+    if (fresh && (res.width > out.width || res.height > out.height)) {   // as in upscale: the texel past out is read by the draw's filter
+        const VkClearColorValue zero{};
+        const VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdClearColorImage(cb, rcas_img_.img.image, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &all);
+        image_barrier(cb, rcas_img_.img.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+    }
+    rcas_pass(cb, linear_hdr ? 1.0f : 0.0f, out, 1.0f, sharpness, src);
     ++frames_;
     return rcas_img_.img.view;
 }

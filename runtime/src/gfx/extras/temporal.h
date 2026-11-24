@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Temporal upscaling / anti-aliasing on the HDR scene before the game's tone map: AMD FSR 3.1 (FidelityFX API, temporal_ffx.cpp) and NVIDIA DLSS /
-// DLAA (Streamline, temporal_dlss.cpp). Both SDKs are loaded at run time; nothing is linked.
+// Temporal upscaling / anti-aliasing of the 3D scene: AMD FSR 3.1 (FidelityFX API, temporal_ffx.cpp), NVIDIA DLSS / DLAA (Streamline,
+// temporal_dlss.cpp), both SDKs loaded at run time (nothing is linked), and Snapdragon Game Super Resolution 2 (temporal_sgsr2.cpp, plain
+// Vulkan compute, every platform). The pass runs at the frame's first scene enlargement (nvn_replay_upscale.cpp temporal_deferred): on the HDR
+// scene at the tone map when nothing enlarges it, else on the display-referred scene at the game's scene stretch or window composite.
 //
 // Inputs (docs/S14.md, "Temporal upscaling"):
-//   colour   the HDR scene the tone-map draw samples (the same interception as the spatial scene upscaler, nvn_replay.cpp)
+//   colour   the HDR scene the tone-map draw samples, or the scene part a later enlargement draw samples (nvn_replay_upscale.cpp)
 //   depth    the depth target of the G-buffer pass, reversed-Z, NDC z = depth (NVN depth mode NEAR_IS_ZERO)
 //   camera   the uniform block the game names (game::Info::render, nxrt/game_render.h CameraBlock: stage, slot, the float index of the
 //            column-major view-projection and of the view matrix). The projection is VP * inverse(V); its z-column x / y terms are the
@@ -35,6 +37,7 @@ struct TemporalFrame {
     float mv_scale[2] = {};          // motion vectors are in UV units: times the render size gives pixels
     bool reset = false;              // no usable history (first frame, camera cut, output size or backend capacity change)
     bool depth_inverted = false;     // reversed-Z when true, forward depth otherwise
+    bool hdr = true;                 // scene-referred colour (before the tone map); false: display-referred, 0..1
     float frame_ms = 16.7f;
     float near_z = 0.1f, far_z = 1000.0f, fov_y = 1.0f, aspect = 1.0f;
     float sharpness = 0.0f;          // 0..1, FSR's RCAS
@@ -63,19 +66,30 @@ bool temporal_camera_ready();   // a camera was kept since the last evaluation
 // runtime jitters every binding of the camera block that holds a valid, unjittered camera: adds a Halton(2, 3) offset of the frame (8
 // phases at native size, more when upscaling, +-0.5 px of width x height) to the view-projection in `words` (a copy the draw then binds).
 // False: not a camera block, already jittered, or [upscale] jitter = 0.
+// This frame's scene camera (once a G-buffer draw gave it) when it is jittered: the unjittered view-projection, its inverse, the jittered one
+// and its inverse (column-major). Copies of the view-projection and its inverse sit in other blocks too (other passes of the
+// G-buffer, the lighting); they get the same jitter (nvn_replay_upscale.cpp tsr_other_wanted). False: no jittered camera this frame.
+bool temporal_frame_matrices(float vpu[16], float ivpu[16], float vpj[16], float ivpj[16]);
+float temporal_lod_bias();   // log2(render / output width) in quarter steps while a temporal mode upscales (see temporal.cpp)
 uint32_t temporal_jitter_phase_count();
 bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint32_t height, uint64_t frame);
 // The tone-map draw: colour (view in SHADER_READ_ONLY_OPTIMAL) and depth (depth-aspect view, layout depth_layout) of the scene, the part of
 // them that is upscaled being `render` from texel 0, 0; depth_neg_one: NVN depth mode NEAR_IS_MINUS_W (NDC z = 2 d - 1). Returns the result
 // (`out` large, in the top-left of an image of out_tex when that is larger; GENERAL layout, readable by fragment shaders after the recorded
 // barrier) or null (nothing recorded: the draw keeps its own input).
+// hdr: the colour is the scene before the tone map (else display-referred).
+// The image temporal_evaluate last returned a view of (R16G16B16A16_SFLOAT, GENERAL layout); null before the first result.
+VkImage temporal_output_image();
 VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView color, VkImageView depth, VkImageLayout depth_layout, VkExtent2D render,
-                              VkExtent2D out, bool depth_neg_one, VkExtent2D out_tex = {});
+                              VkExtent2D out, bool depth_neg_one, VkExtent2D out_tex = {}, bool hdr = true);
+// Forgets the camera kept this frame (the draw that was to use it never came), so the next frame's G-buffer gives its own.
+void temporal_drop_camera();
 
 // ---- backends --------------------------------------------------------------------------------------------------------------------
 // gfx_device: the gfx::Device. Null when the SDK cannot be loaded or the GPU does not support it (logged once).
 TemporalBackend* temporal_ffx(void* gfx_device);
 TemporalBackend* temporal_dlss(void* gfx_device, bool dlaa);
+TemporalBackend* temporal_sgsr2(void* gfx_device);   // built everywhere
 // True when the backend's DLLs can be found (for the F1 page; does not load anything).
 bool temporal_ffx_available();
 bool temporal_dlss_available();

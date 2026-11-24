@@ -8,6 +8,7 @@
 #include <imgui_internal.h>   // RegisterUserTexture, UnregisterUserTexture
 
 #include "../diag/perf_system.h"
+#include "nxrt/gfx_tuning.h"
 #include "../os/os_android_thermal.h"
 
 namespace nxrt::gfx {
@@ -101,6 +102,28 @@ void Overlay::Impl::refresh_counter_text(double now_s) {
             counter_lines[counter_n++] = thermal_lines[0];
         }
         if (!thermal_lines[1].empty()) counter_lines[counter_n++] = thermal_lines[1];
+        if constexpr (facts::kPhone) {
+            // the live 3D resolution: percent of the screen, the scene's pixels, the output and the upscaler; DR: the phone's dynamic
+            // resolution is on (the percent is its current one, max the player's Resolution)
+            const gfx::Tuning& tu = gfx::tuning();
+            const int pct = tu.res_pct.load(std::memory_order_relaxed);
+            if (pct > 0) {
+                static constexpr const char* kUp[] = {"Off", "SGSR", "Bicubic", "SGSR 2"};
+                const uint32_t sp = tu.res_scene_px.load(std::memory_order_relaxed), op = tu.res_out_px.load(std::memory_order_relaxed);
+                const int up = std::clamp(tu.res_upscaler.load(std::memory_order_relaxed), 0, 3);
+                char line[96];
+                int k = std::snprintf(line, sizeof line, "Res %d%%", pct);
+                if (sp && op && k > 0 && k < static_cast<int>(sizeof line))
+                    k += std::snprintf(line + k, sizeof line - k, " %ux%u -> %ux%u", sp >> 16, sp & 0xffff, op >> 16, op & 0xffff);
+                if (k > 0 && k < static_cast<int>(sizeof line)) k += std::snprintf(line + k, sizeof line - k, "  %s", kUp[up]);
+                if (tu.res_dynamic.load(std::memory_order_relaxed) && k > 0 && k < static_cast<int>(sizeof line)) {
+                    const int tcap = tu.res_dr_cap.load(std::memory_order_relaxed);   // the thermal cap (dynamic_resolution_mode = thermal)
+                    if (tcap > 0) std::snprintf(line + k, sizeof line - k, "  DR cap %d%% (max %d%%)", tcap, tu.res_cap.load(std::memory_order_relaxed));
+                    else std::snprintf(line + k, sizeof line - k, "  DR (max %d%%)", tu.res_cap.load(std::memory_order_relaxed));
+                }
+                counter_lines[counter_n++] = line;
+            }
+        }
     }
 }
 
@@ -113,7 +136,7 @@ void Overlay::Impl::draw_counter(const FrameInfo& f, double now_s) {
     const float gap = size * 0.15f;
     const float margin = size * 0.8f;
     const int n = counter_n;
-    float lines_w[6] = {};
+    float lines_w[kCounterLines] = {};
     float line_h = 0, text_w = 0;
     for (int i = 0; i < n; ++i) {
         const ImVec2 sz = font->CalcTextSizeA(size, FLT_MAX, 0.0f, counter_lines[i].c_str());

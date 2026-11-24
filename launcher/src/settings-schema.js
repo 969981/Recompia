@@ -466,11 +466,15 @@ export const SECTIONS = [
         title: t('Upscaling'),
         rows: [
           {
-            // spatial is the runtime's other word for fsr1. ponytail: fsr3 / nis / dlss / dlaa / xess are switched off in the runtime until
-            // they are reworked (#232) and run as off; add their options back here (and the dlss guard) when they return.
+            // spatial is the runtime's other word for fsr1. ponytail: nis / xess are switched off in the runtime until they are reworked
+            // (#232) and run as off. FSR 3 and DLSS / DLAA run where the PC has them (the runtime's extras::upscale_mode_available), else as off.
             id: 'upscale_mode', label: t('Upscaler'), type: 'select', ...fromSchema(controls('upscale', 'mode')),
-            aliases: { spatial: 'fsr1', xess: 'off', fsr3: 'off', nis: 'off', dlss: 'off', dlaa: 'off' }, lock: (env) => env.dlssBusy,
-            options: [{ value: 'off', label: t('Off') }, { value: 'fsr1', label: t('FSR 1') }, { value: 'nearest', label: t('Nearest (sharp pixels)') }],
+            aliases: { spatial: 'fsr1', xess: 'off', nis: 'off' }, lock: (env) => env.dlssBusy,
+            options: [
+              { value: 'off', label: t('Off') }, { value: 'nearest', label: t('Nearest (sharp pixels)') }, { value: 'fsr1', label: t('FSR 1') },
+              { value: 'fsr3', label: t('FSR 3') }, { value: 'dlss', label: t('DLSS') }, { value: 'dlaa', label: t('DLAA') },
+              { value: 'sgsr2', label: t('SGSR 2 (temporal)') },
+            ],
           },
           {
             id: 'upscale_quality', label: t('Upscaling quality'), type: 'select', ...fromSchema(controls('upscale', 'quality')),

@@ -81,9 +81,12 @@ object SettingsModel {
         val pkp = Schema(AppViewModel.readText(ctx, "pkp_ini_schema.json"))
         val c = File.CONTROLS
         val display = Group(R.string.ui_set_display, listOf(
-            Choice("render_scale", c, "display", "render_scale", R.string.ui_set_render_scale, controls.def("display", "render_scale"), listOf(
-                // the game's Maximum Resolution row: [display] render_scale in percent (auto = the screen's size = 100 %)
-                Option("auto", R.string.ui_set_match_screen)) + listOf("30", "40", "50", "60", "70", "80", "100").map { Option(it, text = "$it%") }),
+            // [pkp] resolution: the one resolution, percent of the screen per side, 15 to 100 in 5 % steps (more than 8 options: a stepper);
+            // the game's Display tab moves the same key live. PhoneDefaults writes it (a value from older keys can sit between the steps).
+            Choice(RESOLUTION, File.PKP, "pkp", "resolution", R.string.ui_set_render_scale, "100", (15..100 step 5).map { Option("$it", text = "$it%") },
+                note = R.string.ui_set_render_note),
+            // [display] dynamic_resolution: off by default (it overrides the player's resolution); capped by the row above
+            Toggle("dynamic_resolution", c, "display", "dynamic_resolution", R.string.ui_set_dynres, false, note = R.string.ui_set_dynres_note),
             Choice("fps_limit", c, "display", "fps_limit", R.string.ui_set_fps_limit, controls.def("display", "fps_limit"), listOf(
                 // 25 and 20 (phones): any number is valid for the runtime; the game keeps real speed down to 20 fps (its own
                 // multiplier, dt * 60 clamped to [1, 3]; the timestep module is not hooked into this game: no [time] keys needed)
@@ -91,27 +94,18 @@ object SettingsModel {
                 Option("auto", R.string.ui_set_match_display), Option("20", text = "20"), Option("24", text = "24"), Option("30", text = "30"),
                 Option("40", text = "40"), Option("60", text = "60"), Option("120", text = "120"), Option("0", R.string.ui_set_unlimited)),
                 note = R.string.ui_set_fps_limit_note),
-            // [gfx] present_scale (pkp.ini, runtime default 100, read once at the first swapchain): not written by the phone defaults (a squeezed picture after a rotation)
-            Choice("present_scale", File.PKP, "gfx", "present_scale", R.string.ui_set_present_scale, "100", listOf(
-                Option("100", text = "100%"), Option("83", text = "83%"), Option("67", text = "67%"), Option("50", text = "50%")),
-                note = R.string.ui_set_present_scale_note),
             // [gfx] shadow_map_scale (runtime 0.25..1, default 1 = the game's 2048 map, read once at the first shadow map)
             Choice("shadow_map_scale", File.PKP, "gfx", "shadow_map_scale", R.string.ui_set_shadow, "1", listOf(
                 Option("1", R.string.ui_set_shadow_high), Option("0.75", R.string.ui_set_shadow_medium), Option("0.5", R.string.ui_set_shadow_low)),
                 note = R.string.ui_set_shadow_note),
-            // [gfx] ui_native (runtime default 0; the phone defaults write 1)
-            Toggle("ui_native", File.PKP, "gfx", "ui_native", R.string.ui_set_ui_native, false, note = R.string.ui_set_ui_native_note),
-            Toggle("vsync", c, "display", "vsync", R.string.ui_set_vsync, truthy(controls.def("display", "vsync"))),
             Toggle("fps_show", c, "fps", "show", R.string.ui_set_fps_show, truthy(controls.def("fps", "show"))),
             // [fps] detail: Full (2) also shows heat and load on a phone (the separate [fps] thermal key is retired)
             Choice("fps_detail", c, "fps", "detail", R.string.ui_set_fps_detail, controls.def("fps", "detail").ifEmpty { "1" }, listOf(
                 Option("0", R.string.ui_set_fps_detail_0), Option("1", R.string.ui_set_fps_detail_1), Option("2", R.string.ui_set_fps_detail_2))),
-            // [upscale] mode: off on phones (FSR 1 measured at 9.4 ms per frame on a large phone screen); FSR 1 stays selectable
-            // the phone's one Upscaler row (runtime pkp_options_rows phone_upscaler_get/set): Off / SGSR / Bicubic = pkp.ini [pkp]
-            // scene_upscaler 0/1/2 with [upscale] mode off; FSR 1 = [upscale] mode fsr1 with scene_upscaler 0. read()/write() map it.
+            // the phone's one Upscaler row (runtime pkp_options_rows phone_upscaler_get/set): Off / SGSR = pkp.ini [pkp] scene_upscaler 0/1,
+            // SGSR 2 = controls.ini [upscale] mode sgsr2 (readOne / write keep the two keys exclusive, as the in-game row does)
             Choice(PHONE_UPSCALER, File.PKP, "pkp", "scene_upscaler", R.string.ui_set_upscale, "1", listOf(
-                Option("0", R.string.ui_set_upscale_off), Option("1", text = "SGSR"), Option("2", R.string.ui_set_upscale_bicubic),
-                Option("3", text = "FSR 1")), note = R.string.ui_set_upscale_note),
+                Option("0", R.string.ui_set_upscale_off), Option("1", text = "SGSR"), Option("2", text = "SGSR 2")), note = R.string.ui_set_upscale_note),
         ), note = R.string.ui_set_display_note)
         val game = Group(R.string.ui_set_game, listOf(
             Choice("language", c, "tweaks", "language", R.string.ui_set_language, controls.def("tweaks", "language"),
@@ -143,29 +137,33 @@ object SettingsModel {
 
     private fun fileOf(f: File) = if (f == File.PKP) Paths.pkpIni else Paths.controlsIni
 
-    /** Current values by row id: the file's value, else the schema default. */
     const val PHONE_UPSCALER = "phone_upscaler"
+    const val RESOLUTION = "resolution"
 
+    /** Current values by row id: the file's value, else the schema default. */
     fun read(groups: List<Group>): Map<String, String> {
         val inis = File.entries.associateWith { Ini.load(fileOf(it)) }
-        return groups.flatMap { it.rows }.associate { r ->
-            when {
-                r.id == PHONE_UPSCALER && inis[File.CONTROLS]!!.get("upscale", "mode")?.trim().equals("fsr1", true) -> r.id to "3"
-                else -> readOne(r, inis)
-            }
-        }
+        return groups.flatMap { it.rows }.associate { readOne(it, inis) }
     }
 
     private fun readOne(r: Row, inis: Map<File, Ini>): Pair<String, String> =
-            when (r) {
+            if (r.id == PHONE_UPSCALER && inis[File.CONTROLS]!!.get("upscale", "mode")?.trim()?.lowercase() == "sgsr2") r.id to "2"
+            else when (r) {
                 is Toggle -> r.id to (inis[r.file]!!.get(r.section, r.key)?.let { if (truthy(it)) "1" else "0" } ?: if (r.def) "1" else "0")
                 is Choice -> r.id to (inis[r.file]!!.get(r.section, r.key)?.ifBlank { null } ?: r.def)
             }
 
     fun write(row: Row, value: String) {
-        if (row.id == PHONE_UPSCALER) {   // each choice clears the other key, as in the game's own row
-            val pkp = Ini.load(fileOf(File.PKP)); pkp.set("pkp", "scene_upscaler", if (value == "3") "0" else value); pkp.save(fileOf(File.PKP))
-            val c = Ini.load(fileOf(File.CONTROLS)); c.set("upscale", "mode", if (value == "3") "fsr1" else "off"); c.save(fileOf(File.CONTROLS))
+        if (row.id == PHONE_UPSCALER) {   // SGSR 2 is the temporal mode in controls.ini; SGSR / Off are the game ini's key
+            val controls = Ini.load(fileOf(File.CONTROLS))
+            val sgsr2 = controls.get("upscale", "mode")?.trim()?.lowercase() == "sgsr2"
+            if (value == "2" || sgsr2) {
+                controls.set("upscale", "mode", if (value == "2") "sgsr2" else "off")
+                controls.save(fileOf(File.CONTROLS))
+            }
+            val pkp = Ini.load(fileOf(File.PKP))
+            pkp.set("pkp", "scene_upscaler", if (value == "1") "1" else "0")
+            pkp.save(fileOf(File.PKP))
             return
         }
         val (file, section, key) = when (row) {

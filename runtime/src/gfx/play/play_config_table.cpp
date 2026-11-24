@@ -18,7 +18,7 @@ using namespace cfg;
 // ---- the words of the choice keys, indexed by the enum value -------------------------------------------------------------------
 constexpr const char* kHdrModeWords[] = {"off", "auto", "on", "native"};
 constexpr const char* kHdrFormatWords[] = {"auto", "hdr10", "scrgb"};
-constexpr const char* kUpscaleWords[] = {"off", "fsr1", "fsr3", "dlss", "xess", "nis", "dlaa", "nearest"};
+constexpr const char* kUpscaleWords[] = {"off", "fsr1", "fsr3", "dlss", "xess", "nis", "dlaa", "nearest", "sgsr2"};
 constexpr const char* kUpscaleQualityWords[] = {"native", "quality", "balanced", "performance", "ultra_performance", "custom"};
 constexpr const char* kShadowWords[] = {"default", "high", "very_high", "ultra", "extreme"};   // [display] shadow_quality, indexed by gfx::ShadowQuality
 constexpr const char* kAaWords[] = {"off", "smaa_low", "smaa_medium", "smaa_high", "smaa_ultra"};   // [upscale] aa, indexed by extras::AaMode
@@ -32,10 +32,11 @@ constexpr const char* kFpsSnapWords[] = {"auto", "true", "false"};
 constexpr const char* kPicturePresetWords[] = {"neutral", "vivid"};
 constexpr int kAnisotropyValues[] = {0, 2, 4, 8, 16};
 // The upscale words accepted when reading (spatial is an older name of fsr1) and the mode each one means.
-constexpr const char* kUpscaleReadWords[] = {"off", "fsr1", "spatial", "fsr3", "dlss", "xess", "nis", "dlaa", "nearest"};
+constexpr const char* kUpscaleReadWords[] = {"off", "fsr1", "spatial", "fsr3", "dlss", "xess", "nis", "dlaa", "nearest", "sgsr2"};
 constexpr extras::UpscaleMode kUpscaleFromWord[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Fsr1,
                                                     extras::UpscaleMode::Fsr3, extras::UpscaleMode::Dlss, extras::UpscaleMode::Xess,
-                                                    extras::UpscaleMode::Nis, extras::UpscaleMode::Dlaa, extras::UpscaleMode::Nearest};
+                                                    extras::UpscaleMode::Nis, extras::UpscaleMode::Dlaa, extras::UpscaleMode::Nearest,
+                                                    extras::UpscaleMode::Sgsr2};
 
 // ---- the readers and writers of the Custom rows ----------------------------------------------------------------------------------
 bool bad_number(const std::string& k, const std::string& v, std::string* msg) {

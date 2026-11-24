@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.17.5 (build U: Urchin Hotfix a1)
+
+**Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for storage box tabs; saves and shaders are kept, no shader is translated again). On Android, install the new APK over the old one: the app builds the game library again once (faster phone code), and saves, settings and shaders are kept.
+
+### Highlights
+- **FSR 3 and DLSS really upscale now and are back in the Upscaler list** (#232), and FSR 3 runs on Linux too with nothing to download
+- **Sharp HUD and text on 4K and high-DPI screens:** menus and text are drawn at your screen's real resolution, whatever the 3D scene renders at
+- **Android is much faster** (CPU per frame -28 %), with one simple Resolution slider, a loading screen after Play and co-op on its own screen
+- New upscaler: **SGSR 2**, temporal, on any GPU, phones included
+
+### Graphics
+- Fixed the temporal upscalers looking no different from Off below 100% Scene Resolution (#232): they ran at the tone map, before the game's own enlargement, and now run at the frame's first scene enlargement
+- Added FSR 3, DLSS and DLAA back to the Upscaler list where the PC can run them (FSR 3: with the FidelityFX DLLs; DLSS and DLAA: with an NVIDIA RTX GPU and the Streamline DLLs). The **Sharpness** row drives FSR 3's own sharpening too
+- Added **SGSR 2** (Qualcomm Snapdragon Game Super Resolution 2) to the Upscaler list in the launcher, the F1 page and the phone's Upscaler row: it builds the 3D picture's detail over several frames, on any GPU, and the HUD stays sharp. Off by default; creatures that move on their own can leave faint trails
+- Changed the HUD, menus and text to draw at your screen's real resolution when the window is larger than the game's picture (a 4K laptop, a high-DPI Mac screen, a 1440p monitor)
+  - Cost on a 4K screen with a laptop's integrated GPU: about 4 ms of GPU time a frame and 95 MB of video memory. At the game's own size or smaller nothing changes
+  - With FSR 1 or NIS at Scene Resolution 100% the old way is kept, so the upscaler still enlarges the picture. To turn it off: `[gfx] ui_native = 0` in `pkp.ini`
+- Fixed the round screen transitions (houses, the ball wipe) being stretched on screens that are not 16:9: upright on a near-square phone screen, squashed on a long one
+
+### Gameplay
+- Changed storage box tabs to work on the whole box:
+  - sorting a box (X held, or a click on its prompt) sorts all its tabs as one, with no gaps left between them
+  - (+) with "only what is already inside" uses every tab with room. Before, it said the box was full when the tab that held the item was full
+  - adding a stack, half of it or one item (Y, ZL + A, A) to a full tab goes on into the next tabs with room
+  - (+) on the box takes items out of every tab, for both choices. Before, it only emptied the shown tab
+- Fixed L and R turning the box's and the bag's pages together with a standard storage box open (#895): they now turn only the pages of the side the cursor is on. A bag with one page still leaves L and R to the box
+
+### Launcher
+- Added **Own screens** for split screen: each player gets a monitor of their own, filling it. Pick the monitor per player on the save's card; players on the same monitor share it (#890)
+
+### Linux & Steam Deck
+- Added FSR 3 on Linux: it is built into the game from AMD's open-source FidelityFX SDK, so nothing has to be downloaded (**Settings > Performance > Upscaler**, with Scene Resolution below 100%)
+
+### Android
+- Fixed 0.16 players being unable to update without uninstalling (#888): the new APK installs over 0.16 and 0.17.0, and keeps the game library and settings
+- Performance: CPU per frame 236 ⇒ 170 ms (-28 %), 15.1 ⇒ 19.5 fps on a hot Tensor G2, with 58 % fewer full GPU barriers and 25 % fewer render passes. The picture does not change
+- Changed **Maximum Resolution** and **Resolution** to one **Resolution** slider (15 to 100 %, live), worked out once from your old settings; the 3D picture is enlarged to the screen in one step, so it is sharper for the same cost
+- Fixed the low-resolution glitches: the floating grid, the band along the right edge, and a memory spike of up to 1.4 GB that could close the game
+- Added an optional **Dynamic Resolution** under Resolution (off by default), with a **Heat** mode that keeps the phone from throttling
+- Added a loading screen after **Play** (the logo, a spinner and what is being done) instead of up to half a minute of black
+- Changed co-op to its own screen, laid out like the PC launcher's Co-op page, with **Remove from this phone** on each save; Home shows where co-op stands and a **Play co-op** button
+- Removed Home's **Quick settings** card: the touch-controls switch is now on the **Controls** card
+- Added Android to the README: what phone you need, where the APK is and how to set it up
+
 ## 0.17.0 (build U: Urchin)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for the mouse mode pointer, the co-op PC menu, co-op's Life Coins, co-op's area gates, co-op's bags, co-op's cleaning count, co-op's followers, co-op's shared rules for every player, co-op's opened areas, storage box tabs and the logs; saves and shaders are kept, no shader is translated again).

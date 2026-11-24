@@ -1,5 +1,5 @@
 // Tests for what the co-op Home says (src/coop-model.js). Run: node scripts/test-coop-model.mjs   (exit 1 on a failure)
-import { askOnce, choosePad, hosting, isSplit, mismatchText, needsPlayers, others, roleLine, runningLine, windowPads } from '../src/coop-model.js';
+import { askOnce, choosePad, chooseScreen, hosting, isSplit, mismatchText, needsPlayers, others, roleLine, runningLine, windowPads, windowScreens } from '../src/coop-model.js';
 
 let bad = 0;
 const check = (ok, what) => { if (!ok) { console.log(`FAIL ${what}`); bad++; } };
@@ -39,6 +39,9 @@ check(others(newest).join() === 'Ash,Brock', 'the others, in list order');
   check(windowPads(2, [9, 'x']).join() === '1,2', 'nonsense is replaced');
   check(choosePad(3, [1, 2, 3], 1, 0).join() === '1,0,3', 'window 2 takes the keyboard');
   check(choosePad(3, [0, 1, 2], 2, 0).join() === '2,1,0', 'the keyboard moves: the window that had it gets the controller back');
+  check(windowScreens(3).join() === '1,2,3', 'screens in window order by default');
+  check(windowScreens(3, [2, 2, 9]).join() === '2,2,3', 'two windows may share a screen; nonsense is replaced');
+  check(chooseScreen(2, [], 0, 2).join() === '2,2', 'window 1 moves to screen 2, window 2 stays');
   check(roleLine(couch, 'auto').startsWith('Each player plays in a window of their own') && runningLine(couch, 'auto').startsWith('The windows find each other'), 'split lines name no host');
 }
 // a hidden host

@@ -2,6 +2,9 @@
 // Render passes of the replay: dynamic rendering begun lazily on the current targets, ended with or without a barrier (tracked barriers).
 #include "nvn_replay_internal.h"
 #include "nxrt/diag.h"
+#include "nxrt/ab_switch.h"
+#include "nxrt/platform_facts.h"
+#include "nxrt/host_device.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -82,6 +85,9 @@ void PassBarriers::begin_submit(bool tracked_on) {
     pass_unsafe = false;
 }
 
+bool clear_carry_on();
+static void carry_folded_clears();
+
 // ---- passes ----------------------------------------------------------------------------------------------------------------
 // Ends transform feedback in the open pass, remembering the bytes written in the counter buffer (a pass break must not restart the buffer).
 void xfb_end_in_pass() {
@@ -112,8 +118,16 @@ void end_pass(bool to_pass) {
     // the many end_pass calls with nothing open (230 of 406 epoch bumps in a world frame) threw away the descriptor-set cache of
     // every draw that followed: set_reuse hit 48%, and each miss rebuilds a set inside the replay.
     rp_bump(ft::kCntEpEndPass);
-    xfb_end_in_pass();
-    vkCmdEndRendering(F->cb);
+    if (P.deferred && P.folded) {                        // the folded clears still have to happen
+        if (clear_carry_on()) carry_folded_clears();     // ... at the next pass on these attachments, or before anything else uses them
+        else pass_flush();
+    }
+    const bool never_begun = P.deferred;                 // no draw and no clear: LOAD + STORE of untouched attachments, nothing to record
+    if (!never_begun) {
+        xfb_end_in_pass();
+        vkCmdEndRendering(F->cb);
+    }
+    P.deferred = false;
     P.open = false;
     if (pass_stats_level() > 0) pass_stats_end();
     if (gpass_on()) {
@@ -140,6 +154,7 @@ void end_pass(bool to_pass) {
     g_bar.pass_unsafe = false;
     g_cmd.bound_pipeline = VK_NULL_HANDLE;
     g_cmd.dirty = kAllDirty;
+    if constexpr (facts::kPhone) edge_guard_after_pass();   // nvn_replay_edge.cpp
 }
 
 // A pass is about to use `t` as an attachment in `layout`. An earlier pass that ended without a barrier wrote it, and no layout change
@@ -237,6 +252,213 @@ static std::string pass_report() {
     return out;
 }
 
+// [nvn] ro_store_none (phones, default on; A/B name "ro_store_none"): a pass whose depth/stencil attachment is read-only ends with
+// STORE_OP_NONE instead of STORE: the pass cannot write it (DEPTH_STENCIL_READ_ONLY_OPTIMAL), and NONE keeps its contents (core in Vulkan
+// 1.3, which the runtime requires), so a tiler skips writing the whole depth buffer back at the end of every such pass. The outdoor
+// lighting section has about 25 of them per frame (half-size D24S8 targets on a Tensor G2 (Mali-G710)). Same picture by construction.
+template <bool kOn = facts::kPhone>
+bool ro_store_none() {
+    static const bool on = config_get_bool("nvn", "ro_store_none", true);
+    return diag::ab("ro_store_none", on);
+}
+
+// ---- [nvn] clear_fold ----------------------------------------------------------------------------------------------------
+// A ClearColor / ClearDepthStencil over the whole render area before the pass's first draw is the pass's LOAD_OP_CLEAR instead of a
+// vkCmdClearAttachments after a LOAD_OP_LOAD. Same result by the Vulkan rules (the render area is the clear rectangle, one layer), but a
+// tiler skips the load of that attachment, and Turnip keeps LRZ: a depth vkCmdClearAttachments disables it until a LOAD_OP_CLEAR.
+static bool g_for_clear = false;
+bool clear_fold_on() {
+    static const bool v = nxrt::config_get_bool("nvn", "clear_fold", host_is_phone());   // phones: Turnip keeps LRZ, SYSMEM skips empty passes
+    return v;
+}
+void pass_flush() {
+    if (!P.deferred) return;
+    P.deferred = false;
+    VkRenderingInfo ri = P.ri;
+    ri.pColorAttachments = P.att_c;
+    if (ri.pDepthAttachment) ri.pDepthAttachment = &P.att_d;
+    if (ri.pStencilAttachment) ri.pStencilAttachment = &P.att_s;
+    vkCmdBeginRendering(F->cb, &ri);
+}
+static bool fold_rect_ok(const VkClearRect& r) {
+    return P.deferred && P.layers == 1 && r.baseArrayLayer == 0 && r.layerCount == 1 && r.rect.offset.x == 0 && r.rect.offset.y == 0 &&
+           r.rect.extent.width == P.extent.width && r.rect.extent.height == P.extent.height;
+}
+bool pass_fold_clear_color(uint32_t slot, const VkClearColorValue& v, const VkClearRect& r) {
+    if (!fold_rect_ok(r) || slot >= P.ncolor || slot >= 8 || !P.att_c[slot].imageView) return false;
+    P.att_c[slot].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    P.att_c[slot].clearValue.color = v;
+    P.loaded &= static_cast<uint8_t>(~(1u << slot));
+    P.folded = true;
+    return true;
+}
+bool pass_fold_clear_ds(VkImageAspectFlags aspect, const VkClearDepthStencilValue& v, const VkClearRect& r) {
+    if (!fold_rect_ok(r) || P.depth_ro || !P.att_d.imageView) return false;
+    if (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) {
+        P.att_d.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        P.att_d.clearValue.depthStencil = v;
+        P.loaded_d = false;
+    }
+    if (aspect & VK_IMAGE_ASPECT_STENCIL_BIT) {
+        P.att_s.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        P.att_s.clearValue.depthStencil = v;
+    }
+    P.folded = true;
+    return true;
+}
+// ---- [nvn] clear_carry -------------------------------------------------------------------------------------------------------
+// A pass that holds only folded clears (no draw) and ends is not recorded. Its clears wait: the next pass that attaches the same image with
+// the same view over the same area begins it with LOAD_OP_CLEAR; anything else first records the clear as a pass of its own, exactly as
+// clear_fold would have: a layout change or a remake of the image (g_tex_touch_hook from move_layout, tex_rescale, the feedback-loop
+// remake), another way of attaching it, the end of the submission or of a split piece. The image keeps its attachment layout meanwhile, so
+// no command can read or write it in between (every other use changes its layout first). Removes the clear-only passes (on an Adreno 750 each
+// costs 0.08 ms and more: the 2048x2048 shadow clear pass 0.40 ms).
+struct PendingClear {
+    Ref<Texture> tex;
+    TexGpu* g = nullptr;
+    Target tg;
+    VkExtent2D extent{};
+    bool depth = false, has_d = false, has_s = false;
+    VkRenderingAttachmentInfo att{}, att_s{};
+};
+static std::vector<PendingClear> g_pc;
+static uint64_t g_pc_taken = 0, g_pc_recorded = 0, g_pc_carried = 0;   // [prof] pass_stats: carried clears taken by a pass's begin / recorded alone
+static void touch_hook(Frame& f, TexGpu* g);
+static void pc_sync_hook() { g_tex_touch_hook = g_pc.empty() ? nullptr : &touch_hook; }
+bool clear_carry_on() {
+    static const bool v = clear_fold_on() && nxrt::config_get_bool("nvn", "clear_carry", host_is_phone());
+    return v;
+}
+// the carried clear as a pass of its own, holding only that attachment (the others of its pass may have changed layout since)
+static void record_clear(VkCommandBuffer cb, const PendingClear& c) {
+    ++g_pc_recorded;
+    if (P.open && !P.deferred) {   // never expected: a pass of its own cannot begin inside a begun pass (the callers come between passes)
+        static bool told = false;
+        if (!told) { told = true; NXLOG_E("nvn.passes", "clear carry: a carried clear was recorded while a pass was open (please report)"); }
+    }
+    VkRenderingInfo ri = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+    ri.renderArea = {{0, 0}, c.extent};
+    ri.layerCount = 1;
+    VkRenderingAttachmentInfo a = c.att, st = c.att_s;
+    if (!c.depth) {
+        ri.colorAttachmentCount = 1;
+        ri.pColorAttachments = &a;
+    } else {
+        if (c.has_d) ri.pDepthAttachment = &a;
+        if (c.has_s) ri.pStencilAttachment = &st;
+    }
+    vkCmdBeginRendering(cb, &ri);
+    vkCmdEndRendering(cb);
+    memory_barrier(cb);
+}
+static void touch_hook(Frame& f, TexGpu* g) {
+    for (size_t i = 0; i < g_pc.size();) {
+        if (g_pc[i].g == g) {
+            record_clear(f.cb, g_pc[i]);
+            g_pc.erase(g_pc.begin() + static_cast<std::ptrdiff_t>(i));
+        } else {
+            ++i;
+        }
+    }
+    pc_sync_hook();
+}
+void pending_clears_flush_all() {
+    if (pass_stats_level() > 0) {   // [prof] pass_stats: the carry's work per frame
+        static uint64_t since = 0;
+        const uint64_t now = counters().presents.load(std::memory_order_relaxed);
+        if (!since) since = now ? now : 1;
+        if (now >= since + 300) {
+            const double f = static_cast<double>(now - since);
+            NXLOG_I("nvn.passes", "clear carry, per frame: carried %.1f, taken by the next pass %.1f, recorded alone %.1f", g_pc_carried / f, g_pc_taken / f,
+                    g_pc_recorded / f);
+            g_pc_carried = g_pc_taken = g_pc_recorded = 0;
+            since = now;
+        }
+    }
+    if (g_pc.empty()) return;
+    for (const PendingClear& c : g_pc) record_clear(F->cb, c);
+    g_pc.clear();
+    pc_sync_hook();
+}
+static void carry_folded_clears() {
+    for (uint32_t i = 0; i < P.ncolor && i < 8; ++i) {
+        if (P.att_c[i].loadOp != VK_ATTACHMENT_LOAD_OP_CLEAR || !P.att_c[i].imageView || !P.color[i].tex) continue;
+        PendingClear c;
+        c.tex = Ref<Texture>::share(P.color[i].tex);
+        c.g = tex_gpu(P.color[i].tex);
+        c.tg = P.color[i];
+        c.extent = P.extent;
+        c.att = P.att_c[i];
+        touch_hook(*F, c.g);                              // an older carried clear of the same image goes first
+        g_pc.push_back(c);
+        ++g_pc_carried;
+    }
+    const bool dclear = P.ri.pDepthAttachment && P.att_d.loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR;
+    const bool sclear = P.ri.pStencilAttachment && P.att_s.loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR;
+    if ((dclear || sclear) && P.depth.tex) {
+        PendingClear c;
+        c.tex = Ref<Texture>::share(P.depth.tex);
+        c.g = tex_gpu(P.depth.tex);
+        c.tg = P.depth;
+        c.extent = P.extent;
+        c.depth = true;
+        c.has_d = P.ri.pDepthAttachment != nullptr;
+        c.has_s = P.ri.pStencilAttachment != nullptr;
+        c.att = P.att_d;
+        c.att_s = P.att_s;
+        touch_hook(*F, c.g);
+        g_pc.push_back(c);
+        ++g_pc_carried;
+    }
+    pc_sync_hook();                                       // P.deferred stays set: end_pass records nothing for this pass
+}
+// At a pass's begin: a carried clear of one of its attachments becomes its LOAD_OP_CLEAR when the view and the area match, else it is
+// recorded first. Carried clears of images this pass does not attach stay carried.
+static void take_carried(VkRenderingAttachmentInfo* colors, VkRenderingAttachmentInfo& depth, VkRenderingAttachmentInfo& stencil, bool have_depth,
+                         VkExtent2D extent) {
+    if (g_pc.empty()) return;
+    for (size_t k = 0; k < g_pc.size();) {
+        PendingClear& c = g_pc[k];
+        bool used = false, taken = false;
+        if (!c.depth) {
+            for (uint32_t i = 0; i < P.ncolor && i < 8; ++i) {
+                if (!P.color[i].tex || tex_gpu(P.color[i].tex) != c.g) continue;
+                used = true;
+                if (colors[i].imageView && P.color[i] == c.tg && extent.width == c.extent.width && extent.height == c.extent.height && P.layers == 1) {
+                    colors[i].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                    colors[i].clearValue = c.att.clearValue;
+                    taken = true;
+                    P.folded = true;                     // a pass with a taken clear is recorded even without draws
+                    ++g_pc_taken;
+                }
+            }
+        } else if (have_depth && P.depth.tex && tex_gpu(P.depth.tex) == c.g) {
+            used = true;
+            if (!P.depth_ro && P.depth == c.tg && extent.width == c.extent.width && extent.height == c.extent.height && P.layers == 1) {
+                if (c.has_d && c.att.loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR) { depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; depth.clearValue = c.att.clearValue; }
+                if (c.has_s && c.att_s.loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR) { stencil.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; stencil.clearValue = c.att_s.clearValue; }
+                taken = true;
+                P.folded = true;
+                ++g_pc_taken;
+            }
+        }
+        if (used) {
+            if (!taken) record_clear(F->cb, c);
+            g_pc.erase(g_pc.begin() + static_cast<std::ptrdiff_t>(k));
+        } else {
+            ++k;
+        }
+    }
+    pc_sync_hook();
+}
+
+bool ensure_pass_for_clear() {
+    g_for_clear = true;
+    const bool ok = ensure_pass();
+    g_for_clear = false;
+    return ok;
+}
+
 // Starts a pass on the current render targets if none is open for them. False when there is nothing to render to. fbl: the colour slots
 // that are in the feedback loop layout (a pass in another layout mode is ended: the layouts and the pipelines' feedback flag go together).
 bool ensure_pass(bool depth_ro, uint8_t fbl) {
@@ -244,6 +466,7 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
     // target is made from S's target fields, which only that op writes, and from fields of the texture that never change after its init.
     if (P.open && P.depth_ro == depth_ro && P.fbl == fbl && (P.targets_gen == S.targets_gen || targets_match())) {
         P.targets_gen = S.targets_gen;
+        if (P.deferred && !g_for_clear) pass_flush();
         return true;
     }
     static const bool report_registered = (diag_add_report(pass_report), true);   // crash report and freeze dump
@@ -291,6 +514,7 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
         colors[i].imageLayout = cl;
         colors[i].loadOp = fresh ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
         if (!fresh) P.loaded |= static_cast<uint8_t>(1u << i);
+        else P.folded = true;     // [nvn] clear_fold: a new image's clear must happen even if the pass draws nothing
         colors[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         P.color_fmt[i] = tex_attachment_format(t, P.color[i].view_format);
         const VkExtent3D e = tex_image_extent(t, P.color[i].level);
@@ -313,7 +537,10 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
             depth.imageLayout = stencil.imageLayout = dlayout;
             depth.loadOp = stencil.loadOp = (fresh && !depth_ro) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
             P.loaded_d = depth.loadOp == VK_ATTACHMENT_LOAD_OP_LOAD;
+            if (!P.loaded_d) P.folded = true;     // the same for a new depth image
             depth.storeOp = stencil.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            if constexpr (facts::kPhone)
+                if (depth_ro && ro_store_none()) depth.storeOp = stencil.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
             depth.clearValue.depthStencil = {1.0f, 0};
             stencil.clearValue.depthStencil = {1.0f, 0};
             P.depth_fmt = tex_vk_format(dt);
@@ -353,9 +580,21 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
         if (P.has_stencil) ri.pStencilAttachment = &stencil;
     }
     (void)last;
+    take_carried(colors, depth, stencil, have_depth, extent);   // [nvn] clear_carry
     gstamp("pass setup");
-    vkCmdBeginRendering(F->cb, &ri);
-    P.open = true;
+    if (clear_fold_on() && P.layers == 1) {
+        // keep the begin: clears that come before the first draw can still become LOAD_OP_CLEAR (pass_fold_clear_*)
+        for (uint32_t i = 0; i < S.ncolor && i < 8; ++i) P.att_c[i] = colors[i];
+        P.att_d = depth;
+        P.att_s = stencil;
+        P.ri = ri;
+        P.deferred = true;
+        P.open = true;
+        if (!g_for_clear) pass_flush();
+    } else {
+        vkCmdBeginRendering(F->cb, &ri);
+        P.open = true;
+    }
     rp_bump(ft::kCntEpBeginPass);
     counters().passes.fetch_add(1, std::memory_order_relaxed);
     g_cmd.bound_pipeline = VK_NULL_HANDLE;

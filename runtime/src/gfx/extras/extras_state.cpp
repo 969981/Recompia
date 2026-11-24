@@ -12,6 +12,7 @@
 #include "nxrt/log.h"
 #include "nxrt/text.h"
 #include "extras/hdr_math.h"
+#include "extras/temporal.h"
 
 namespace nxrt::extras {
 namespace {
@@ -59,7 +60,7 @@ Settings settings_from_config() {
     s.hdr.highlight_boost = std::clamp(config_get_double("hdr", "highlight_boost", 1.0), 0.0, 2.0);
 
     const std::string um = lower(config_get_str("upscale", "mode", "off"));
-    s.upscale.mode = um == "fsr1" || um == "spatial" ? UpscaleMode::Fsr1 : um == "fsr3" ? UpscaleMode::Fsr3 : um == "dlss" ? UpscaleMode::Dlss : um == "xess" ? UpscaleMode::Xess : um == "nis" ? UpscaleMode::Nis : um == "dlaa" ? UpscaleMode::Dlaa : um == "nearest" ? UpscaleMode::Nearest : UpscaleMode::Off;
+    s.upscale.mode = um == "fsr1" || um == "spatial" ? UpscaleMode::Fsr1 : um == "fsr3" ? UpscaleMode::Fsr3 : um == "dlss" ? UpscaleMode::Dlss : um == "xess" ? UpscaleMode::Xess : um == "nis" ? UpscaleMode::Nis : um == "dlaa" ? UpscaleMode::Dlaa : um == "nearest" ? UpscaleMode::Nearest : um == "sgsr2" ? UpscaleMode::Sgsr2 : UpscaleMode::Off;
     s.upscale.mode = upscale_mode_enabled(s.upscale.mode);
     const std::string uq = lower(config_get_str("upscale", "quality", "quality"));
     s.upscale.quality = uq == "native" || uq == "nativeaa" || uq == "aa" ? UpscaleQuality::Native : uq == "balanced" ? UpscaleQuality::Balanced
@@ -67,7 +68,12 @@ Settings settings_from_config() {
                       : uq == "custom" ? UpscaleQuality::Custom : UpscaleQuality::Quality;
     const std::string aa = lower(config_get_str("upscale", "aa", "off"));
     s.upscale.aa = aa == "smaa_low" ? AaMode::SmaaLow : aa == "smaa_medium" ? AaMode::SmaaMedium : aa == "smaa_high" ? AaMode::SmaaHigh : aa == "smaa_ultra" ? AaMode::SmaaUltra : AaMode::Off;
-    s.upscale.sharpness = std::clamp(config_get_double("upscale", "sharpness", 0.8), 0.0, 1.0);
+#if defined(__ANDROID__)
+    constexpr double kSharpness = 1.0;   // phones: the small, dense screen takes the full sharpening
+#else
+    constexpr double kSharpness = 0.8;
+#endif
+    s.upscale.sharpness = std::clamp(config_get_double("upscale", "sharpness", kSharpness), 0.0, 1.0);
     s.upscale.scene_scale = static_cast<int>(std::clamp<int64_t>(config_get_int("upscale", "scene_scale", 100), 25, 100));
     s.upscale.fsr_dll = config_get_str("upscale", "fsr_dll", "");
     s.upscale.dlss_dll = config_get_str("upscale", "dlss_dll", "");
@@ -104,6 +110,7 @@ Settings settings() {
     return g_settings;
 }
 
+void set_upscale_sharpness_live(float v) { g_upscale_sharp.store(std::clamp(v, 0.0f, 1.0f)); }
 void set_scene_scale_live(int pct) { g_scene_scale.store(std::clamp(pct, 25, 100)); }
 
 void set_settings(const Settings& in) {
@@ -161,6 +168,19 @@ UpscaleMode upscale_mode() {
     return static_cast<UpscaleMode>(m);
 }
 
+bool upscale_mode_available(UpscaleMode m) {
+    switch (upscale_mode_enabled(m)) {
+        case UpscaleMode::Off:
+        case UpscaleMode::Fsr1:
+        case UpscaleMode::Nearest: return true;
+        case UpscaleMode::Fsr3: return temporal_ffx_available();
+        case UpscaleMode::Dlss:
+        case UpscaleMode::Dlaa: return temporal_dlss_available();
+        case UpscaleMode::Sgsr2: return temporal_camera_block() != nullptr;   // plain Vulkan compute; needs the game's camera block
+        default: return false;
+    }
+}
+
 float upscale_sharpness() { return g_upscale_sharp.load(std::memory_order_relaxed); }
 
 AaMode aa_mode() {
@@ -171,7 +191,7 @@ AaMode aa_mode() {
 int upscale_scene_scale() {
     upscale_mode();      // reads the settings once
     if (upscale_mode() == UpscaleMode::Dlaa) return 100;
-    if (upscale_temporal()) {
+    if (upscale_temporal() && upscale_mode() != UpscaleMode::Sgsr2) {   // SGSR 2 renders at the player's scene size (the phones' Resolution row)
         const int pct = quality_percent(upscale_quality());
         if (pct > 0) return pct;
     }
@@ -198,7 +218,7 @@ UpscaleQuality upscale_quality() {
 
 bool upscale_temporal() {
     const UpscaleMode m = upscale_mode();
-    return m == UpscaleMode::Fsr3 || m == UpscaleMode::Dlss || m == UpscaleMode::Dlaa;
+    return m == UpscaleMode::Fsr3 || m == UpscaleMode::Dlss || m == UpscaleMode::Dlaa || m == UpscaleMode::Sgsr2;
 }
 
 int quality_percent(UpscaleQuality q) {

@@ -115,6 +115,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_view_offset.cpp"
         # render
         "${_pkp}/render/pkp_render_size.cpp"
+        "${_pkp}/render/pkp_dynres.cpp"
         "${_pkp}/render/pkp_render_targets.cpp"
         "${_pkp}/render/pkp_aspect.cpp"
         "${_pkp}/render/pkp_loading_backdrop.cpp"
@@ -157,6 +158,9 @@ if(TARGET nxrt_gfx)
         "${_pkp}/ui/pkp_sort.cpp"
         "${_pkp}/ui/pkp_box_tabs.cpp"
         "${_pkp}/ui/pkp_box_tabs_carry.cpp"
+        "${_pkp}/ui/pkp_box_tabs_move.cpp"
+        "${_pkp}/ui/pkp_box_tabs_sort.cpp"
+        "${_pkp}/ui/pkp_box_tabs_storage.cpp"
         "${_pkp}/ui/pkp_box_tabs_store.cpp"
         "${_pkp}/ui/pkp_craft.cpp"
         "${_pkp}/ui/pkp_save_now.cpp"

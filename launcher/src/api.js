@@ -95,7 +95,7 @@ export const api = {
   coopResolveInvite: (args) => invoke('coop_resolve_invite', args),   // { text, relay }: the long invite for a short code; other text as it is; rejects { code: 'invite_not_found' } when no invite has it
   coopInviteMembers: (args) => invoke('coop_invite_members', args),   // { invite }: { id, members: [{ id, name }] }, null when it is not an invite
   coopAccept: (args) => invoke('coop_accept', args),   // { invite, member }
-  coopPlay: (args) => invoke('coop_play', args),   // { id, startAs: 'auto' | 'host' | 'visit', split: { side, pads, sound } }; options may be omitted
+  coopPlay: (args) => invoke('coop_play', args),   // { id, startAs: 'auto' | 'host' | 'visit', split: { side, screens, pads, sound } }; options may be omitted
   coopDelete: (args) => invoke('coop_delete', args),   // { id, relay }: relay = the one coop_invite was given; resolves the list
   coopLastRun: (args) => invoke('coop_last_run', args),   // { since }: unix seconds; { mismatch: 'build' | 'mods', own_mods } or null
 

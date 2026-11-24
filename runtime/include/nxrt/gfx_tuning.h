@@ -36,6 +36,17 @@ struct Tuning {
     std::atomic<uint64_t> csr_hash{0};     // the compute shader's hash (its 16 hex digits as a number); 0 = off
     std::atomic<int> csr_block{-1};        // the uniform block (NVN index, the N of cp_cN)
     std::atomic<uint32_t> csr_mask{0};     // bit i: the float at byte offset 4 * i of the block
+    // A phone: the GPU time of the last frame whose submissions all finished (the union of their timestamp pairs), in microseconds, and
+    // how many such frames there were; the game's dynamic resolution reads it. 0 = no timestamps (or not a phone).
+    std::atomic<uint32_t> gpu_frame_us{0};
+    std::atomic<uint64_t> gpu_frames{0};
+    // A phone's live 3D resolution for the frame rate counter (detail Full): the game layer's percent of the screen this frame, the
+    // player's Resolution and whether its dynamic resolution runs; the back end's scene part and output in pixels (w << 16 | h) and the
+    // upscaler that enlarged it (0 none, 1 SGSR, 2 bicubic, 3 SGSR 2). 0 = not known yet (or not a phone).
+    std::atomic<int> res_pct{0}, res_cap{0}, res_upscaler{0};
+    std::atomic<bool> res_dynamic{false};
+    std::atomic<int> res_dr_cap{0};        // the thermal cap of the phone's dynamic resolution (percent of the screen), 0 when none
+    std::atomic<uint32_t> res_scene_px{0}, res_out_px{0};
 };
 
 Tuning& tuning();                          // process-wide

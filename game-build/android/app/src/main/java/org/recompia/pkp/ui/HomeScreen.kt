@@ -56,19 +56,19 @@ import androidx.navigation.NavHostController
 import org.recompia.pkp.R
 import org.recompia.pkp.Storage
 
-/** Home: the game's state, a large Play button, controller status, quick settings and the way to everything else. */
+/** Home: the game's state, a large Play button, controller status with the touch controls switch, and the way to everything else. */
 @Composable
 fun HomeScreen(vm: AppViewModel, nav: NavHostController) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val job by vm.job.collectAsStateWithLifecycle()
     val wide = isWide()
+    val coop = remember { coopSaves() }   // read again each time Home comes back from Co-op
     ArtBackground(sharp = true) {
-        val hero: @Composable ColumnScope.() -> Unit = { Hero(vm, ui, job, nav) }
+        val hero: @Composable ColumnScope.() -> Unit = { Hero(vm, ui, job, nav, coop) }
         val more: @Composable ColumnScope.() -> Unit = {
             HeapNotice(ui)
-            CoopCard(ui.status == GameStatus.READY || ui.status == GameStatus.SHADERS_MISSING)
+            CoopEntry(coop) { nav.navigate(Routes.COOP) }
             ControllerCard()
-            QuickSettings()
             Menu(nav, ui)
         }
         if (wide) {
@@ -92,7 +92,7 @@ fun HomeScreen(vm: AppViewModel, nav: NavHostController) {
 }
 
 @Composable
-private fun Hero(vm: AppViewModel, ui: UiState, job: org.recompia.pkp.build.BuildState, nav: NavHostController) {
+private fun Hero(vm: AppViewModel, ui: UiState, job: org.recompia.pkp.build.BuildState, nav: NavHostController, coop: List<org.recompia.pkp.Coop.Profile>) {
     val act = activity()
     val pickShaders = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::importShaders) }
     Image(painterResource(R.drawable.ui_logo), stringResource(R.string.ui_app_name), Modifier.widthIn(max = 380.dp).fillMaxWidth())
@@ -140,6 +140,9 @@ private fun Hero(vm: AppViewModel, ui: UiState, job: org.recompia.pkp.build.Buil
             PlayButton(stringResource(R.string.ui_view_progress), Icons.Rounded.Build) { nav.navigate(Routes.BUILD) }
         }
     }
+    // a co-op save is played from its own button, under Play and never in its place (Play stays the singleplayer game)
+    if (coop.isNotEmpty() && (ui.status == GameStatus.READY || ui.status == GameStatus.SHADERS_MISSING))
+        PlayCoopButton(coop, onOpen = { nav.navigate(Routes.COOP) }, modifier = Modifier.fillMaxWidth().widthIn(max = 480.dp))
     val ctx = LocalContext.current
     val session = ui.session
     if (ui.lastPlayed > 0) Text(
@@ -188,37 +191,20 @@ private fun PlayButton(text: String, icon: androidx.compose.ui.graphics.vector.I
     RcButton(text, onClick, Modifier.fillMaxWidth().widthIn(max = 480.dp).height(76.dp).initialFocus(text), icon = icon, kind = Kind.PRIMARY, big = true, enabled = enabled)
 }
 
+/** The controls in use, and the touch controls switch (OverlayPrefs, the same key as Settings): the whole card toggles it. */
 @Composable
 private fun ControllerCard() {
     val pads = rememberControllers()
-    GlassCard(Modifier.fillMaxWidth(), strong = false, padding = 18.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Icon(if (pads.isEmpty()) Icons.Rounded.TouchApp else Icons.Rounded.SportsEsports, null,
-                tint = Rc.accent, modifier = Modifier.size(28.dp))
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.ui_controls_label), style = MaterialTheme.typography.labelMedium, color = Rc.text3)
-                Text(if (pads.isEmpty()) stringResource(R.string.ui_touch_controls) else pads.joinToString(", "),
-                    style = MaterialTheme.typography.titleMedium, color = Rc.text)
-            }
-        }
-    }
-}
-
-/** The settings a player reaches for most, the same keys as Settings. */
-@Composable
-private fun QuickSettings() {
     val ctx = LocalContext.current
-    val groups = remember { SettingsModel.groups(ctx) }
-    var values by remember { mutableStateOf(runCatching { SettingsModel.read(groups) }.getOrDefault(emptyMap())) }
     val overlay = remember { org.recompia.pkp.overlay.OverlayPrefs.of(ctx) }
     var touch by remember { mutableStateOf(org.recompia.pkp.overlay.OverlayPrefs.enabled(overlay)) }
-    val scale = groups.flatMap { it.rows }.firstOrNull { it.id == "render_scale" } as? SettingsModel.Choice
-    GlassCard(Modifier.fillMaxWidth(), strong = false, padding = 12.dp) {
-        SectionTitle(stringResource(R.string.ui_quick_settings))
-        if (scale != null && values.isNotEmpty()) { val v = values[scale.id] ?: scale.def
-            ChoiceRow(stringResource(scale.label), choiceOptions(scale, v), v, { n -> writeSetting(scale, n); values = values + (scale.id to n) }) }
-        Text(stringResource(R.string.ui_set_render_note), style = MaterialTheme.typography.bodySmall, color = Rc.text3, modifier = Modifier.padding(horizontal = 12.dp))
-        SwitchRow(stringResource(R.string.ui_set_touch), touch, { touch = it; overlay.edit().putBoolean(org.recompia.pkp.overlay.OverlayPrefs.ENABLED, it).apply() })
+    GlassCard(Modifier.fillMaxWidth(), strong = false, padding = 6.dp) {
+        // the switch is the touch overlay; the connected pads are its status line (TalkBack reads "Touch controls" as the switch's label)
+        SwitchRow(stringResource(R.string.ui_set_touch), touch,
+            { touch = it; overlay.edit().putBoolean(org.recompia.pkp.overlay.OverlayPrefs.ENABLED, it).apply() },
+            sub = if (pads.isEmpty()) stringResource(R.string.ui_no_controller) else pads.joinToString(", "),
+            overline = stringResource(R.string.ui_controls_label),
+            icon = if (pads.isEmpty()) Icons.Rounded.TouchApp else Icons.Rounded.SportsEsports)
     }
 }
 
@@ -230,8 +216,11 @@ fun optionText(o: SettingsModel.Option) = if (o.label != 0) stringResource(o.lab
 @Composable
 fun choiceOptions(c: SettingsModel.Choice, current: String): List<Pair<String, String>> {
     val base = c.options.map { it.value to optionText(it) }
-    return if (current.isBlank() || base.any { it.first.equals(current, true) }) base
-    else base + (current to (if (c.key == "render_scale" && current.toIntOrNull() != null) "$current%" else current))
+    if (current.isBlank() || base.any { it.first.equals(current, true) }) return base
+    // a percent between the steps ([pkp] resolution worked out from older keys) takes its place in the order, so the stepper moves from it
+    val n = current.toIntOrNull()
+    if (c.id == SettingsModel.RESOLUTION && n != null) return (base + (current to "$current%")).sortedBy { it.first.toIntOrNull() ?: 0 }
+    return base + (current to current)
 }
 
 @Composable
@@ -259,3 +248,31 @@ private fun HeapNotice(ui: UiState) {
     if (PhoneDefaults.untestedGpu(f)) Text(stringResource(R.string.ui_gpu_untested, f.gpu), style = MaterialTheme.typography.bodyMedium, color = Rc.warn)
     if (!PhoneDefaults.foldClass(f)) Text(stringResource(R.string.ui_defaults_cautious), style = MaterialTheme.typography.bodyMedium, color = Rc.text2)
 }
+
+// ---- previews: Home's play area and co-op row, with and without a co-op save (the rest of Home needs the app's state) ----------------
+
+@Composable
+private fun HomeCoopPreview(coop: List<org.recompia.pkp.Coop.Profile>) = RecompiaTheme {
+    ArtBackground(sharp = true) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+            Column(Modifier.weight(0.5f), verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically)) {
+                Image(painterResource(R.drawable.ui_logo), null, Modifier.widthIn(max = 380.dp).fillMaxWidth())
+                Pill(stringResource(R.string.ui_status_ready), Rc.accent, Rc.tintAccent, Icons.Rounded.CheckCircle)
+                PlayButton(stringResource(R.string.ui_play), Icons.Rounded.PlayArrow) {}
+                if (coop.isNotEmpty()) PlayCoopButton(coop, {}, Modifier.fillMaxWidth().widthIn(max = 480.dp))
+            }
+            Column(Modifier.weight(0.5f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                CoopEntry(coop) {}
+                ControllerCard()
+            }
+        }
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Home, foldable inner, no co-op save", widthDp = 882, heightDp = 640)
+@Composable
+private fun HomeNoCoopPreview() = HomeCoopPreview(emptyList())
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Home, foldable inner, one co-op save", widthDp = 882, heightDp = 640)
+@Composable
+private fun HomeCoopSavePreview() = HomeCoopPreview(previewSaves)

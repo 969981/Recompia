@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "hid_shm.h"
+#include "nxrt/platform_facts.h"
 #include "nxrt/gauge.h"
 #include "nxrt/config.h"
 #include "nxrt/input_source.h"
@@ -299,7 +300,9 @@ void sampler_main(HidState* s) {
     log_set_thread_name("hid-sampler");
     while (!s->stop.load()) {
         if (s->background.load() && s->resources.load() > 0) hid_sample_once();
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        // Phones (facts::kPhone) sample every 8 ms: a sample writes every npad's rings (about 75 us on a Tensor G2 (Mali-G710), 0.6 % of all the
+        // game's CPU at 5 ms), and the latest one is read once per frame, which on a phone is 40 ms or more.
+        std::this_thread::sleep_for(std::chrono::milliseconds(facts::kPhone ? 8 : 5));
     }
 }
 

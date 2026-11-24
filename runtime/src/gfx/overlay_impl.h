@@ -28,6 +28,7 @@
 #include <imgui_impl_vulkan.h>
 
 #include "nxrt/config.h"
+#include "nxrt/platform_facts.h"
 #include "nxrt/host_device.h"
 #include "nxrt/input_source.h"
 #include "nxrt/log.h"
@@ -102,8 +103,10 @@ struct Overlay::Impl {
     FpsStats stats;
     double text_s = -1e9;                 // time of the last text refresh, seconds (far past: refresh at once)
     FpsStats::Snapshot snap;              // the snapshot taken at text_s
-    std::string counter_lines[6];
-    ImU32 counter_colors[6] = {};
+    // a phone has one more line in detail Full: the live 3D resolution (overlay_hud.cpp)
+    static constexpr int kCounterLines = facts::kPhone ? 7 : 6;
+    std::string counter_lines[kCounterLines];
+    ImU32 counter_colors[kCounterLines] = {};
     int counter_n = 0;
     double thermal_s = -1e9;              // time of the last thermal reading (detail Full), at most one a second
     std::string thermal_lines[2];         // its lines ("" = none) and the first one's colour

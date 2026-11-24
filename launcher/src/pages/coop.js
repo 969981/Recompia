@@ -10,7 +10,7 @@ import { api } from '../api.js';
 import { t } from '../i18n.js';
 import { PUBLIC_RELAY } from '../linkplay-model.js';
 import { formatDate } from '../markdown.js';
-import { MAX_PLAYERS, START_AS, askOnce, choosePad, creatorName, hosting, isSplit, mismatchText, nameOf, needsPlayers, others, roleLine, runningLine, windowPads } from '../coop-model.js';
+import { MAX_PLAYERS, MAX_SCREENS, START_AS, askOnce, choosePad, chooseScreen, creatorName, hosting, isSplit, mismatchText, nameOf, needsPlayers, others, roleLine, runningLine, windowPads, windowScreens } from '../coop-model.js';
 import { askText, confirm, errCode, errText, esc, formDialog, icon, segmented, select, toast, toggle } from '../ui.js';
 import { store } from '../store.js';
 import { saveLogs } from '../log-bundle.js';
@@ -33,15 +33,17 @@ let redraw = () => {};   // the page on screen, if any
 const LOG_POLL_MS = 5000;   // while it runs: a host hidden by other mods is said while the visitor still waits in the game
 let poll = null;
 
-// split screen's choices (coop_launch.rs SplitOptions): how two or three windows share the screen, what each window plays with (by
-// window number, coop-model.js windowPads), and whether the other windows play sound
+// split screen's choices (coop_launch.rs SplitOptions): how two or three windows share the screen, whether the players have
+// their own screens and which (by window number, coop-model.js windowScreens), what each window plays with (windowPads), and whether
+// the other windows play sound
 const SPLIT_LS = 'pkp.coop.split';
 const split = (() => {
   try {
     const m = JSON.parse(localStorage.getItem(SPLIT_LS)) || {};
-    return { side: !!m.side, pads: Array.isArray(m.pads) ? m.pads : [], sound: !!m.sound };
-  } catch { return { side: false, pads: [], sound: false }; }
+    return { side: !!m.side, own: !!m.own, screens: Array.isArray(m.screens) ? m.screens : [], pads: Array.isArray(m.pads) ? m.pads : [], sound: !!m.sound };
+  } catch { return { side: false, own: false, screens: [], pads: [], sound: false }; }
 })();
+const splitOptions = (n) => ({ side: split.side, screens: split.own ? windowScreens(n, split.screens) : [], pads: windowPads(n, split.pads), sound: split.sound });
 const keepSplit = () => { try { localStorage.setItem(SPLIT_LS, JSON.stringify(split)); } catch { /* private window: kept for this run */ } };
 
 function readLog(id, at) {
@@ -112,14 +114,20 @@ export async function render(el, ctx) {
     const opt = (label, control) => `<div class="coop-split-opt"><span class="coop-role-label">${esc(label)}</span>${control}</div>`;
     const inputs = [...[1, 2, 3, 4].map((k) => [k, t('Controller {n}', { n: k })]), [0, t('Keyboard and mouse')]];
     const pads = windowPads(n, split.pads);
-    const players = v.profile.members.map((m, i) => `<label class="coop-split-pad"><span class="coop-split-who">${icon('monitor')}${i + 1}<span class="clip">${esc(m.name)}</span></span>${
-      select(`split-pad-${id}-${i}`, inputs, pads[i], { label: t('{name} plays with', { name: m.name }), disabled: off })}</label>`).join('');
+    const numbers = Array.from({ length: MAX_SCREENS }, (_, k) => [k + 1, t('Screen {n}', { n: k + 1 })]);
+    const screens = windowScreens(n, split.screens);
+    const layouts = n === 4 ? [['stacked', t('One screen')]] : [['stacked', t('Top and bottom')], ['side', t('Side by side')]];
+    const layout = split.own ? 'own' : n !== 4 && split.side ? 'side' : 'stacked';
+    const players = v.profile.members.map((m, i) => `<div class="coop-split-player"><label class="coop-split-pad"><span class="coop-split-who">${icon('monitor')}${i + 1}<span class="clip">${esc(m.name)}</span></span>${
+      select(`split-pad-${id}-${i}`, inputs, pads[i], { label: t('{name} plays with', { name: m.name }), disabled: off })}</label>${
+      split.own ? select(`split-screen-${id}-${i}`, numbers, screens[i], { label: t('Screen of {name}', { name: m.name }), disabled: off }) : ''}</div>`).join('');
     return `<div class="coop-split">
       <div class="coop-split-pads">${players}</div>
       <div class="coop-split-opts">
-        ${n === 4 ? '' : opt(t('Screen'), segmented(`split-layout-${id}`, [['stacked', t('Top and bottom')], ['side', t('Side by side')]], split.side ? 'side' : 'stacked', { label: t('Screen'), disabled: off }))}
+        ${opt(t('Screen'), segmented(`split-layout-${id}`, [...layouts, ['own', t('Own screens')]], layout, { label: t('Screen'), disabled: off }))}
         <label class="coop-split-opt">${toggle(`split-sound-${id}`, split.sound, { disabled: off })}<span class="coop-role-label">${esc(t('Sound from the other windows'))}</span></label>
       </div>
+      ${split.own ? `<p class="coop-split-note">${esc(t('Each player fills a screen of their own. Screens count as in the game\'s Monitor setting; players on the same screen share it, and a screen that is not there is replaced by the main one.'))}</p>` : ''}
       <p class="coop-split-note">${esc(t('Controllers count in the order they were connected. The keyboard and mouse play in the window you click.'))} ${esc(t('Each window is a game of its own and needs about 7 GB of memory: 32 GB is recommended for two players, 64 GB for four.'))}</p>
     </div>`;
   }
@@ -376,7 +384,7 @@ export async function render(el, ctx) {
     playing = { id, at: now(), seen: false };
     try {
       const v = saves.find((x) => x.profile.id === id);
-      await api.coopPlay({ id, startAs: startAs.get(id) ?? 'auto', split: { side: split.side, sound: split.sound, pads: windowPads(v.profile.members.length, split.pads) } });
+      await api.coopPlay({ id, startAs: startAs.get(id) ?? 'auto', split: splitOptions(v.profile.members.length) });
     } catch (e) {
       playing = null;
       throw e;
@@ -402,14 +410,17 @@ export async function render(el, ctx) {
     else if (act === 'recompia') ctx.go('home');   // Solo's Home: Set up, Update or the game files, whichever is needed
   });
   el.addEventListener('change', (e) => {
-    const what = /^split-(layout|pad|sound)-/.exec(e.target.name || e.target.id)?.[1];
+    const what = /^split-(layout|screen|pad|sound)-/.exec(e.target.name || e.target.id)?.[1];
     if (what) {
-      if (what === 'layout') split.side = e.target.value === 'side';
-      else if (what === 'sound') split.sound = e.target.checked;
+      if (what === 'layout') {
+        split.own = e.target.value === 'own';   // the shared screen's layout stays what it was: windows on one screen use it
+        if (!split.own) split.side = e.target.value === 'side';
+      } else if (what === 'sound') split.sound = e.target.checked;
       else {
-        const [, sid, i] = /^split-pad-(.+)-(\d)$/.exec(e.target.id);
+        const [, sid, i] = /^split-(?:pad|screen)-(.+)-(\d)$/.exec(e.target.id);
         const n = saves.find((x) => x.profile.id === sid).profile.members.length;
-        split.pads = choosePad(n, split.pads, Number(i), Number(e.target.value));
+        if (what === 'screen') split.screens = chooseScreen(n, split.screens, Number(i), Number(e.target.value));
+        else split.pads = choosePad(n, split.pads, Number(i), Number(e.target.value));
       }
       keepSplit();
       draw();

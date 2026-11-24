@@ -7,6 +7,8 @@
 // negative-height viewport, a memory barrier after every pass, textures sampled by a draw are made current before the pass,
 // handles never dropped by count, deferred bind arrays read at record time.
 #include "nvn_replay_internal.h"
+#include "nxrt/platform_facts.h"
+#include "../../os/os_app_phase.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -109,6 +111,7 @@ static void piece_point(Op op) {
         if (op != Op::SetRenderTargets) return;
         end_pass(true);
     }
+    pending_clears_flush_all();   // [nvn] clear_carry
     if (!split_piece(*F)) { g_piece.armed = false; return; }
     g_cmd.begin_submit();
     g_piece.t0 = ft::tsc();
@@ -185,6 +188,21 @@ struct RpOpScope {
     }
 };
 
+// [nvn] clear_fold: the ops that record nothing into an open pass (state, nested lists) or fold into its begin (clears). Every other op
+// records the deferred vkCmdBeginRendering first.
+static bool op_keeps_begin_deferred(Op op) {
+    // Only commands that are recorded INSIDE an open pass need its begin first: draws (they come through ensure_pass, which records it),
+    // queries and counters, debug labels, stream-out. Every other command (copies, dispatches, barriers, fills, texture clears, events)
+    // ends the pass before it records anything, and end_pass handles a pass never begun ([nvn] clear_carry keeps its clears).
+    switch (op) {
+        case Op::ReportCounter: case Op::ReportValue: case Op::ResetCounter: case Op::PushDebugGroup: case Op::PopDebugGroup:
+        case Op::BeginXfb: case Op::EndXfb: case Op::PauseXfb: case Op::ResumeXfb: case Op::DrawTexture:
+            return false;
+        default:
+            return true;
+    }
+}
+
 static void run_list(const CmdList& list, int depth) {
     if (depth > kMaxDepth) { log_once(kOnceCallDepth, "CallCommands nesting too deep"); return; }
     counters().lists_replayed.fetch_add(1, std::memory_order_relaxed);
@@ -193,6 +211,7 @@ static void run_list(const CmdList& list, int depth) {
         if (g_piece.armed && (!P.open || r.op() == Op::SetRenderTargets)) piece_point(r.op());
         RpOpScope rpo(rt, r.op());
         mark_dirty(r);
+        if (P.deferred && !op_keeps_begin_deferred(r.op())) pass_flush();   // [nvn] clear_fold: anything that may record in the pass
         if (out_lazy()) out_before_op(r);                                                   // compute shadows: results back to the pool first
         else if (out_any() && !compute_out_may_wait(r.op())) flush_compute_out(kOutOther);
         rpo.mid();
@@ -492,7 +511,7 @@ static void run_list(const CmdList& list, int depth) {
                 }
                 break;
             }
-            case Op::Barrier: end_pass(); memory_barrier(F->cb); break;
+            case Op::Barrier: if constexpr (facts::kPhone) barrier_op(r.payload<P_Barrier>().bits); else { end_pass(); memory_barrier(F->cb); } break;
             case Op::FenceSync: {
                 const auto& p = r.payload<P_Sync>();
                 if (p.sync) { p.sync->serial.store(F->serial); p.sync->armed.store(true); }
@@ -608,6 +627,16 @@ void note_frame_for_loading() {
         NXLOG_I(kTag, "%s (present %llu, %llu draws)", want ? "loading" : "playing", static_cast<unsigned long long>(p),
                 static_cast<unsigned long long>(per));
     }
+    // the app's loading screen (os_app_phase.h) goes with the first present after a blended draw into a presented texture
+    // (note_first_2d): a game's boot frames that only run opaque full-screen passes (black, tens of seconds on a phone) keep it
+    static bool first = true, picture = false;
+    if (first) { first = false; nxrt::os::app::phase(nxrt::os::app::kFirstPresent); }
+    if (!picture && replay::g_drew_2d) {
+        picture = true;
+        nxrt::os::app::phase(nxrt::os::app::kPicture);
+        NXLOG_I(kTag, "first picture: 2D drawn over the presented texture (present %llu, %llu draws)", static_cast<unsigned long long>(p),
+                static_cast<unsigned long long>(per));
+    }
     if (!full && per >= 16) {
         full = true;
         NXLOG_I(kTag, "first frame with 16+ draws (present %llu, %llu draws)", static_cast<unsigned long long>(p), static_cast<unsigned long long>(per));
@@ -677,6 +706,8 @@ void replay_end_submit(Frame& f) {
         out_end_submit(F->cb, F->serial);
     }
     end_pass();
+    pending_clears_flush_all();   // [nvn] clear_carry: nothing carried past its command buffer
+    if constexpr (facts::kPhone) pcopy_ring_flush(f.cb, f.serial);   // phones: the landing ring's GPU copies (nvn_pool_land.cpp)
     g_copies.end_submit(f.serial);
     g_q.end_submit();
     for (; g_dbg_depth > 0; --g_dbg_depth) vkCmdEndDebugUtilsLabelEXT(f.cb);   // labels cannot outlive their command buffer either
@@ -686,6 +717,7 @@ void replay_end_submit(Frame& f) {
 }
 
 void replay_shutdown() {
+    frame_parts_reset();
     g_xfb.shutdown();
     g_q.shutdown();
     g_dbg_depth = 0;

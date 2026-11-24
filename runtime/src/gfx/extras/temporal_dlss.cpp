@@ -125,12 +125,13 @@ public:
                : r < 2.2 ? sl::DLSSMode::eMaxPerformance : sl::DLSSMode::eUltraPerformance;
         o.outputWidth = f.out.width;
         o.outputHeight = f.out.height;
-        o.colorBuffersHDR = sl::Boolean::eTrue;
+        o.colorBuffersHDR = f.hdr ? sl::Boolean::eTrue : sl::Boolean::eFalse;
         o.useAutoExposure = sl::Boolean::eTrue;
-        if (o.mode != last_mode_ || f.out.width != last_out_.width || f.out.height != last_out_.height) {
+        if (o.mode != last_mode_ || f.out.width != last_out_.width || f.out.height != last_out_.height || f.hdr != last_hdr_) {
             if (s.set_options(vp, o) != sl::Result::eOk) return fail("slDLSSSetOptions");
             last_mode_ = o.mode;
             last_out_ = f.out;
+            last_hdr_ = f.hdr;
             NXLOG_I(kTag, "%s: mode %u, %ux%u -> %ux%u", name(), static_cast<unsigned>(o.mode), f.render.width, f.render.height, f.out.width, f.out.height);
         }
         sl::Constants c;
@@ -180,6 +181,7 @@ private:
     bool dlaa_ = false, failed_ = false;
     sl::DLSSMode last_mode_ = sl::DLSSMode::eCount;
     VkExtent2D last_out_ = {};
+    bool last_hdr_ = true;
 };
 
 }  // namespace

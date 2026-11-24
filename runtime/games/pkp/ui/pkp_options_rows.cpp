@@ -6,6 +6,7 @@
 #include "ui/pkp_options_internal.h"
 #include "core/pkp_game.h"
 #include "nxrt/game_render.h"
+#include "render/pkp_phone_res.h"
 
 #include <algorithm>
 #include <cmath>
@@ -73,41 +74,48 @@ int fps_get(const S& s) {
 void fps_set(S& s, int v) { s.display.fps_cap = fps_value(v); play::quality_preset_edited(s.display, play::QualityField::FrameLimit); }
 bool not_phone() { return !nxrt::host_is_phone(); }
 
-// A phone's resolution rows. "Maximum Resolution" is [display] render_scale (30..100 % of 1920x1080, the size of the game's targets: next
-// start). "Resolution" moves [upscale] scene_scale live, the game's own dynamic-resolution part of those targets, from the maximum the
-// game started with down to the game's lowest correct level (game::Render::scene_scale_min); each step is labelled with the real percent.
-int res_ceiling() {
-    const float f = gfx::tuning().render_scale.load(std::memory_order_relaxed);
-    return f > 0.0f ? std::clamp(static_cast<int>(std::lround(f * 100.0f)), 25, 100) : 100;
+// A phone's Resolution row: [pkp] resolution (render/pkp_phone_res.h), percent of the screen per side in 5 % steps from kPhoneResMin up to
+// the screen (or its presented share); a value between the steps (worked out from the keys before it) is an entry of its own. Each entry
+// shows the 3D picture's size in pixels. Up to the targets of this start (the whole screen, or on the low-memory profile the start
+// percent) it changes at once; above them it applies at the next start.
+std::vector<int> res_values() {
+    std::vector<int> v;
+    const int top = phone_res_max(), cur = phone_res_setting();
+    for (int p = kPhoneResMin; p < top; p += 5) v.push_back(p);
+    v.push_back(top);
+    if (std::find(v.begin(), v.end(), cur) == v.end()) v.insert(std::upper_bound(v.begin(), v.end(), cur), cur);
+    return v;
 }
-int res_steps() {   // real percents c, c - 5, ... down to the floor
-    const int c = res_ceiling(), floor = (c * render_info().scene_scale_min + 99) / 100;
-    return std::max(1, (c - floor) / 5 + 1);
+const char* res_text(int pos, char* out, size_t n) {
+    const std::vector<int> v = res_values();
+    const int pct = v[static_cast<size_t>(std::clamp(pos, 0, static_cast<int>(v.size()) - 1))];
+    int w = 0, h = 0;
+    phone_res_pixels(pct, &w, &h);
+    std::snprintf(out, n, pct > phone_res_ceiling() ? "%d%% (%d x %d), next start" : "%d%% (%d x %d)", pct, w, h);
+    return out;
 }
-int res_real(int pos) { return res_ceiling() - 5 * (res_steps() - 1 - pos); }
-const char* res_text(int pos, char* out, size_t n) { std::snprintf(out, n, "%d%%", res_real(pos)); return out; }
-int res_max() { return res_steps() - 1; }
-int res_get(const S& s) {
-    const int c = res_ceiling(), real = c * s.extras.upscale.scene_scale / 100;
-    return std::clamp(res_steps() - 1 - static_cast<int>(std::lround((c - real) / 5.0)), 0, res_max());
+int res_max() { return static_cast<int>(res_values().size()) - 1; }
+int res_get(const S&) {
+    const std::vector<int> v = res_values();
+    return static_cast<int>(std::find(v.begin(), v.end(), phone_res_setting()) - v.begin());
 }
-void res_set(S& s, int v) {
-    s.extras.upscale.scene_scale = std::clamp(static_cast<int>(std::lround(res_real(v) * 100.0 / res_ceiling())), render_info().scene_scale_min, 100);
+void res_set(S&, int pos) {   // the game ini at once: the scene follows from the next frame (pkp_render_size.cpp phone_scene_pct)
+    const std::vector<int> v = res_values();
+    settings::set_int(settings::Key::Resolution, v[static_cast<size_t>(std::clamp(pos, 0, static_cast<int>(v.size()) - 1))]);
+    // the frame rate counter's line too, at once: it is otherwise published by the per-frame copy of the game's size parameters,
+    // which may not run while the game's menu is open (a step back up to 50 % on a Tensor G2 phone showed 45 % there)
+    gfx::tuning().res_pct.store(phone_res_value(), std::memory_order_relaxed);
 }
-const char* max_text(int pos, char* out, size_t n) { std::snprintf(out, n, "%d%%", 30 + 5 * pos); return out; }
-int max_max() { return 14; }
-int max_get(const S& s) { return std::clamp(((s.display.render_scale > 0 ? s.display.render_scale : res_ceiling()) - 30) / 5, 0, 14); }
-void max_set(S& s, int v) { s.display.render_scale = 30 + 5 * v; play::quality_preset_edited(s.display, play::QualityField::RenderScale); }
 constexpr Row live_row(Row r) { r.live = true; return r; }
-// A phone's one Upscaler row: Off, SGSR, Bicubic ([pkp] scene_upscaler, the 3D alone, menus native) or FSR 1 ([upscale] mode, the whole
-// picture at the present). Each choice clears the other key. Both apply at once.
+// A phone's one Upscaler row: Off, SGSR ([pkp] scene_upscaler) or SGSR 2 ([upscale] mode sgsr2, temporal): the 3D picture alone, enlarged
+// in one step to the screen; menus native. Each choice clears the other key (and FSR 1 of older builds). Applies at once.
 int phone_upscaler_get(const S& s) {
-    if (s.extras.upscale.mode == extras::UpscaleMode::Fsr1) return 3;
-    return static_cast<int>(std::clamp<int64_t>(settings::get_int(settings::Key::SceneUpscaler), 0, 2));
+    if (s.extras.upscale.mode == extras::UpscaleMode::Sgsr2) return 2;
+    return settings::get_int(settings::Key::SceneUpscaler) != 0 ? 1 : 0;
 }
 void phone_upscaler_set(S& s, int v) {
-    s.extras.upscale.mode = v == 3 ? extras::UpscaleMode::Fsr1 : extras::UpscaleMode::Off;
-    settings::set_int(settings::Key::SceneUpscaler, v == 3 ? 0 : v);   // the game ini, like a key row
+    s.extras.upscale.mode = v == 2 ? extras::UpscaleMode::Sgsr2 : extras::UpscaleMode::Off;
+    settings::set_int(settings::Key::SceneUpscaler, v == 1 ? 1 : 0);   // the game ini, like a key row
 }
 
 constexpr int kWidths[] = {1280, 1600, 1920, 2560, 3840}, kHeights[] = {720, 900, 1080, 1440, 2160};
@@ -129,7 +137,6 @@ constexpr const char* kShadowNames[] = {"Game Default", "High (2x)", "Very High 
 constexpr const char* kAstcKeys[] = {"fast", "high", "uncompressed"};
 constexpr const char* kUniformSnapshotKeys[] = {"auto", "on", "off"};
 constexpr const char* kWindowKeys[] = {"windowed", "borderless", "exclusive"};
-constexpr extras::UpscaleMode kUpscalers[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Nearest};
 
 std::vector<std::string> g_devices;   // audio output names, refreshed when the screen opens
 
@@ -173,6 +180,38 @@ const char* device_text(int v, char*, size_t) {
 }
 int device_max() { return std::clamp(static_cast<int>(g_devices.size()), 1, 250); }
 
+// The desktop Upscaler row's entries, in this order (the stored [upscale] mode values do not depend on it); the temporal ones only where
+// this machine can run them (extras::upscale_mode_available), asked once.
+const std::vector<extras::UpscaleMode>& upscalers() {
+    static const std::vector<extras::UpscaleMode> v = [] {
+        std::vector<extras::UpscaleMode> r;
+        for (extras::UpscaleMode m : {extras::UpscaleMode::Off, extras::UpscaleMode::Nearest, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Fsr3,
+                                      extras::UpscaleMode::Dlss, extras::UpscaleMode::Dlaa, extras::UpscaleMode::Sgsr2})
+            if (extras::upscale_mode_available(m)) r.push_back(m);
+        return r;
+    }();
+    return v;
+}
+int upscaler_max() { return static_cast<int>(upscalers().size()) - 1; }
+const char* upscaler_text(int v, char*, size_t) {
+    switch (upscalers()[static_cast<size_t>(std::clamp(v, 0, upscaler_max()))]) {
+        case extras::UpscaleMode::Nearest: return "Nearest";
+        case extras::UpscaleMode::Fsr1: return "FSR 1";
+        case extras::UpscaleMode::Fsr3: return "FSR 3";
+        case extras::UpscaleMode::Dlss: return "DLSS";
+        case extras::UpscaleMode::Dlaa: return "DLAA";
+        case extras::UpscaleMode::Sgsr2: return "SGSR 2";
+        default: return "Off";
+    }
+}
+int upscaler_get(const S& s) {
+    const auto& v = upscalers();
+    for (size_t i = 0; i < v.size(); ++i)
+        if (v[i] == s.extras.upscale.mode) return static_cast<int>(i);
+    return 0;
+}
+void upscaler_set(S& s, int v) { s.extras.upscale.mode = upscalers()[static_cast<size_t>(std::clamp(v, 0, upscaler_max()))]; }
+
 const Row kSound[] = {
     number("Master Volume", "The volume of everything in the game, on top of the sliders above.", 0, 100, "%.0f%%", 0, 1, ROW_PCT(audio.volume)),
     choice("Mute in Background", "Silence the game while its window is not in focus.", kOffOn, 2, ROW_BOOL(audio.mute_unfocused)),
@@ -184,7 +223,7 @@ const Row kSound[] = {
 // Window rows only where the window system has a choice of modes (a phone has one: nxrt/platform.h window_modes).
 bool several_window_modes() { const int m = platform::window_modes(); return (m & (m - 1)) != 0; }
 
-const Row kDisplay[] = {
+constexpr Row kDisplay[] = {
     when(choice("Window Mode", "Windowed, borderless fullscreen or exclusive fullscreen.", {"Windowed", "Borderless", "Fullscreen"}, 3,
            [](const S& s) { return key_index(kWindowKeys, 3, s.display.window_mode); }, [](S& s, int v) { s.display.window_mode = kWindowKeys[v]; }), several_window_modes),
     when(dynamic("Monitor", "The display the window moves to. Fullscreen modes use this display.", monitor_text, monitor_max, ROW_INT(display.monitor)), several_window_modes),
@@ -195,7 +234,7 @@ const Row kDisplay[] = {
           [](const S& s) { return index_of(kAspectValues, kAspectCount, s.display.aspect, kAspectCount); },
           [](S& s, int v) { if (v < kAspectCount) s.display.aspect = kAspectValues[v]; }, true),
     choice("Letterbox", "Black bars keep the picture's shape when it does not fit the window, instead of stretching it.", kOffOn, 2, ROW_BOOL(display.keep_aspect)),
-    choice("VSync", "Wait for the display between frames: no tearing, a little more delay.", kOffOn, 2, ROW_BOOL(display.vsync)),
+    when(choice("VSync", "Wait for the display between frames: no tearing, a little more delay.", kOffOn, 2, ROW_BOOL(display.vsync)), not_phone),
     when(names("Frame Rate Limit", "The highest frame rate. Match Display follows the refresh rate.", kFpsNames, kFpsCount + 1,
           [](const S& s) { return index_of(kFpsValues, kFpsCount, s.display.fps_cap, kFpsCount); },
           [](S& s, int v) { if (v < kFpsCount) { s.display.fps_cap = kFpsValues[v]; play::quality_preset_edited(s.display, play::QualityField::FrameLimit); } }), not_phone),
@@ -207,19 +246,25 @@ const Row kDisplay[] = {
     when(autonum("Render Scale", "The game's resolution; 100% is 1920 x 1080. Auto follows the window.", 76, "%.0f%%", 20, 5,
             [](const S& s) { return s.display.render_scale <= 0 ? 0 : std::clamp((s.display.render_scale - 20) / 5, 1, 76); },
             [](S& s, int v) { s.display.render_scale = v <= 0 ? 0 : 20 + v * 5; play::quality_preset_edited(s.display, play::QualityField::RenderScale); }, true), not_phone),
-    when(dynamic("Maximum Resolution", "The highest resolution of the 3D picture (100% is 1920 x 1080). Takes effect at the next start.", max_text, max_max, max_get, max_set, true),
-         nxrt::host_is_phone),
-    when(live_row(dynamic("Resolution", "The 3D picture's resolution, from the maximum down; menus and text stay sharp. Changes at once.", res_text, res_max, res_get, res_set)),
-         nxrt::host_is_phone),
-    when(choice("Upscaler", "Sharpens the enlarged 3D picture: SGSR (Snapdragon Game Super Resolution) or bicubic, menus stay sharp; FSR 1 the whole picture (costs more).",
-                {"Off", "SGSR", "Bicubic", "FSR 1"}, 4, phone_upscaler_get, phone_upscaler_set), nxrt::host_is_phone),
+    when(live_row(dynamic("Resolution", "The 3D picture's resolution, in percent of the screen; menus and text stay sharp. Changes at once (an entry marked next start: after a restart).", res_text, res_max,
+                          res_get, res_set)), nxrt::host_is_phone),
+    // a phone's Dynamic Resolution sits with its Resolution row (the Graphics tab's copy is left out there)
+    when(choice("Dynamic Resolution", "Lowers the resolution below the one above while the GPU falls behind, and raises it back up to it.", kOffOn, 2,
+                ROW_BOOL(display.dynamic_resolution)), nxrt::host_is_phone),
+    when(choice("Dynamic Resolution Mode", "GPU Time: lower the resolution when the GPU falls behind. Heat: also hold it below what keeps the phone from throttling, so the GPU can run cooler.",
+                {"GPU Time", "Heat"}, 2, [](const S&) { return settings::get_str(settings::Key::DynamicResolutionMode) == "thermal" ? 1 : 0; },
+                [](S&, int v) { settings::set_str(settings::Key::DynamicResolutionMode, v ? "thermal" : "gpu"); }), nxrt::host_is_phone),
 };
 
 const Row kPerformance[] = {
-    when(choice("Upscaler", "How the picture is enlarged from a lower resolution.", {"Off", "FSR 1", "Nearest"}, 3,
-           [](const S& s) { for (int i = 0; i < 3; ++i) if (s.extras.upscale.mode == kUpscalers[i]) return i; return 0; },
-           [](S& s, int v) { s.extras.upscale.mode = kUpscalers[v]; }), not_phone),
-    number("Sharpness", "How much FSR 1 sharpens the picture.", 0, 20, "%.2f", 0, 0.05, ROW_STEP(extras.upscale.sharpness, 0.0, 0.05)),
+    when(dynamic("Upscaler", "How the picture is enlarged from a lower resolution. FSR 3, DLSS and SGSR 2 build a sharper picture from several frames (DLSS and DLAA apply after a restart).",
+                 upscaler_text, upscaler_max, upscaler_get, upscaler_set), not_phone),
+    when(number("Sharpness", "How much FSR 1, FSR 3 or SGSR 2 sharpens the picture.", 0, 20, "%.2f", 0, 0.05, ROW_STEP(extras.upscale.sharpness, 0.0, 0.05)), not_phone),
+    // a phone's Upscaler and its Sharpness sit here too, at the same place as the desktop's (the Display tab keeps Resolution)
+    when(choice("Upscaler", "Sharpens the enlarged 3D picture: SGSR (Snapdragon Game Super Resolution), or SGSR 2, which builds detail over several "
+                "frames; menus stay sharp.", {"Off", "SGSR", "SGSR 2"}, 3, phone_upscaler_get, phone_upscaler_set), nxrt::host_is_phone),
+    when(live_row(number("Sharpness", "How much SGSR 2 sharpens its picture; SGSR does not use it. Higher is crisper, and fine detail can shimmer more.", 0,
+                         20, "%.2f", 0, 0.05, ROW_STEP(extras.upscale.sharpness, 0.0, 0.05))), nxrt::host_is_phone),
     when(number("Scene Resolution", "Renders the 3D scene smaller and keeps the menus sharp. 100% turns it off.", 25, 100, "%.0f%%", 0, 1, ROW_INT(extras.upscale.scene_scale)), not_phone),
     names("Anti-Aliasing", "Smooths jagged edges of the 3D scene. The menus are not filtered.", kAaNames, 5,
           [](const S& s) { return static_cast<int>(s.extras.upscale.aa); },
@@ -239,7 +284,7 @@ const Row kGraphics[] = {
     dynamic("Quality Preset", "Sets the texture options together.", preset_text, preset_max,
             [](const S& s) { int n = 0; const play::QualityPresetInfo* q = play::quality_presets(&n); for (int i = 0; i < n; ++i) if (s.display.quality_preset == q[i].id) return i; return n - 1; },
             [](S& s, int v) { int n = 0; const play::QualityPresetInfo* q = play::quality_presets(&n); const play::GamePlay* gp = play::game_play(); if (v < n - 1 && gp && gp->quality_preset) gp->quality_preset(q[v].id, s); }),
-    choice("Dynamic Resolution", "Let the game lower its resolution when the GPU falls behind.", kOffOn, 2, ROW_BOOL(display.dynamic_resolution)),
+    when(choice("Dynamic Resolution", "Let the game lower its resolution when the GPU falls behind.", kOffOn, 2, ROW_BOOL(display.dynamic_resolution)), not_phone),
     names("Texture Filtering", "Sharper textures at an angle.", kAnisoNames, 5,
           [](const S& s) { return index_of(kAniso, 5, s.display.anisotropy, 0); },
           [](S& s, int v) { s.display.anisotropy = kAniso[v]; play::quality_preset_edited(s.display, play::QualityField::Anisotropy); }),
@@ -381,7 +426,19 @@ constexpr Row kInventory[] = {
 
 }  // namespace
 
-constinit const RowList kSoundRows = rows_of(kSound), kDisplayRows = rows_of(kDisplay), kPerformanceRows = rows_of(kPerformance),
+// Display holds more rows than a tab's slots, split by machine: a phone leaves out the not_phone rows, any other machine the phone rows.
+template <size_t N>
+constexpr size_t most_shown(const Row (&r)[N]) {
+    size_t phone = 0, other = 0;
+    for (const Row& x : r) {
+        phone += x.shown != &not_phone;
+        other += x.shown != &nxrt::host_is_phone;
+    }
+    return std::max(phone, other);
+}
+static_assert(most_shown(kDisplay) <= static_cast<size_t>(kDirtySlot), "no machine shows more Display rows than a tab has slots");
+
+constinit const RowList kSoundRows = rows_of(kSound), kDisplayRows{kDisplay, static_cast<int>(std::size(kDisplay))}, kPerformanceRows = rows_of(kPerformance),
                         kGraphicsRows = rows_of(kGraphics), kPictureRows = rows_of(kPicture), kMouseRows = rows_of(kMouse),
                         kControllerRows = rows_of(kController), kGameplayRows = rows_of(kGameplay),
                         kInventoryRows = rows_of(kInventory);

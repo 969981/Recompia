@@ -17,6 +17,9 @@
 
 #include <volk.h>
 
+#include "../vk_work_track.h"
+#include "nxrt/platform_facts.h"
+#include "nxrt/ab_switch.h"
 #include "nxrt/gfx.h"
 #include "nvn_present_pass.h"
 
@@ -122,6 +125,56 @@ void image_barrier(VkCommandBuffer cb, VkImage image, VkImageLayout from, VkImag
                    uint32_t base_level, uint32_t level_count, uint32_t base_layer, uint32_t layer_count);
 // All commands before, all commands after, all memory (used after passes, dispatches, copies and fills).
 void memory_barrier(VkCommandBuffer cb);
+// Phones (A/B name "barrier_batch", default on): between barrier_batch_begin(cb) and barrier_batch_end(), image_barrier / memory_barrier
+// on that command buffer are collected and recorded as ONE vkCmdPipelineBarrier2 (the union of their dependencies; each barrier command is
+// a sync point of its own on a tiler). Render thread only; other command buffers are not affected. Templates: a build without the fact has none.
+struct BarrierBatch {
+    std::atomic<VkCommandBuffer> cb{VK_NULL_HANDLE}; bool on(VkCommandBuffer c) const { return cb.load(std::memory_order_relaxed) == c; }
+    bool mem = false;
+    std::vector<VkImageMemoryBarrier2> img;
+};
+template <bool kOn = facts::kPhone>
+BarrierBatch& barrier_batch() {
+    static BarrierBatch b;
+    return b;
+}
+template <bool kOn = facts::kPhone>
+bool barrier_batch_begin(VkCommandBuffer cb) {
+    if (!diag::ab("barrier_batch", true)) return false;
+    BarrierBatch& b = barrier_batch();
+    b.mem = false;
+    b.img.clear();
+    b.cb.store(cb, std::memory_order_relaxed);
+    return true;
+}
+template <bool kOn = facts::kPhone>
+// One vkCmdPipelineBarrier2 for the collected barriers. Merging is exact: the global barrier keeps its all-commands / all-memory scopes,
+// and every image barrier carries its own stage, access and layout masks, which a dependency info applies to each barrier on its own; the
+// only change is that they become one dependency instead of several in a row, which orders nothing less.
+void barrier_batch_end() {
+    BarrierBatch& b = barrier_batch();
+    const VkCommandBuffer cb = b.cb.exchange(VK_NULL_HANDLE, std::memory_order_relaxed);
+    if (!cb || (!b.mem && b.img.empty())) return;
+    VkMemoryBarrier2 m = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    m.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    m.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    m.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    m.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+    VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.memoryBarrierCount = b.mem ? 1 : 0;
+    di.pMemoryBarriers = &m;
+    di.imageMemoryBarrierCount = static_cast<uint32_t>(b.img.size());
+    di.pImageMemoryBarriers = b.img.data();
+    vkCmdPipelineBarrier2(cb, &di);
+}
+// Phones, memory_barrier: true when an open barrier batch on cb collects it; else a full barrier in the replay's command buffer resets the
+// GPU work record (vk_work_track.h).
+template <bool kOn = facts::kPhone>
+bool mem_barrier_phone(VkCommandBuffer cb) {
+    if (barrier_batch().on(cb)) { barrier_batch().mem = true; return true; }
+    if (on_render_thread()) gfx::work_reset_for(cb);
+    return false;
+}
 // [nvn] pass_barriers = tracked (S38): image_barrier derives its stage and access masks from the two layouts instead of all commands and
 // all memory. Set by the replay for each submission; any thread may record image barriers, so it is an atomic.
 void set_narrow_barriers(bool on);
@@ -247,6 +300,9 @@ struct ViewRequest {
 // Creates the VkImage if needed and returns it (null when the format cannot be created: logged once; callers then bind
 // the dummy). Does not upload.
 TexGpu* tex_gpu(Texture* t);
+// [nvn] clear_carry (nvn_replay_pass.cpp): called before an image with a carried clear changes layout or is remade, so the clear is recorded
+// first. Null while nothing is carried (one pointer test per layout change).
+extern void (*g_tex_touch_hook)(Frame& f, TexGpu* g);
 // tex_gpu for a texture about to be a render target: an image made now gets the resolution scale when the texture qualifies ([gfx]
 // render_scale). tex_gpu_scaled makes the image at a given scale (a copy of a scaled target). Both return the existing image if there is one.
 TexGpu* tex_gpu_attachment(Texture* t);
@@ -296,6 +352,9 @@ bool tex_promoted(Texture* t);
 // the NVN format that is blitted from or to the texture (the GPU converts; a scaled image's region is scaled). The texture must be in
 // TRANSFER_DST_OPTIMAL (to_texture) or TRANSFER_SRC_OPTIMAL. False with *why set when no conversion is possible: nothing recorded.
 bool tex_copy_buffer_converted(Texture* t, Frame& f, VkBuffer buffer, const VkBufferImageCopy& c, bool to_texture, const char** why);
+// A phone's scene upscale (nvn_gpu_texture_blit.cpp): src (GENERAL layout, format src_fmt, at least ext) blitted 1:1 into level 0 / layer 0
+// of t. False, nothing recorded: t cannot take it (no transfer usage, depth, or a format without blit support).
+bool tex_blit_from(Texture* t, Frame& f, VkImage src, VkFormat src_fmt, VkExtent2D ext);
 // vkCmdResolveImage of s into d when their formats differ (d HDR-promoted): resolved into a transient image of s's format, blitted into
 // d. s in TRANSFER_SRC_OPTIMAL, d in TRANSFER_DST_OPTIMAL. False with *why set: nothing recorded.
 bool tex_resolve_converted(Texture* s, Texture* d, Frame& f, const VkImageResolve& r, const char** why);
@@ -557,6 +616,7 @@ void pcopy_note_write(uint64_t gpu_address, uint64_t size, VkBuffer hint = VK_NU
 // index buffer of an indirect draw): the rest of the range is copied too. No-op when copy mode is off.
 void pool_copy_touch(uint64_t gpu_address, uint64_t size);
 uint64_t pcopy_land(uint64_t reached);                // any thread: lands every recorded write of a serial <= reached (read_completed)
+void pcopy_ring_flush(VkCommandBuffer cb, uint64_t serial);   // phones, [nvn] pool_ring: end of a recording: GPU copies of its writes into the readback ring
 void pcopy_shutdown();                                // pool_shutdown: stops the landing thread, drops records
 void pcopy_log_summary(uint32_t presents);            // every 1200 presents (lazy_drop_idle)
 void pcopy_evict_for(uint64_t bytes);                 // over [nvn] pool_copy_mb: drops least recently used idle shadows first

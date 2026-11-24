@@ -908,15 +908,15 @@ void image_barrier(VkCommandBuffer cb, VkImage image, VkImageLayout from, VkImag
     b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     b.image = image;
     b.subresourceRange = {aspect, base_level, level_count, base_layer, layer_count};
-    VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    di.imageMemoryBarrierCount = 1;
+    if constexpr (facts::kPhone) { if (barrier_batch().on(cb)) { barrier_batch().img.push_back(b); return; } }
+    VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO}; di.imageMemoryBarrierCount = 1;
     di.pImageMemoryBarriers = &b;
     ft::split_count(ft::kCntCmdBarrier);
     vkCmdPipelineBarrier2(cb, &di);
 }
 
 void memory_barrier(VkCommandBuffer cb) {
-    g_gauge_barriers_mem.add(1);
+    g_gauge_barriers_mem.add(1); if constexpr (facts::kPhone) { if (mem_barrier_phone(cb)) return; }   // nvn_gpu_internal.h
     VkMemoryBarrier2 b = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
     b.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     b.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
@@ -972,7 +972,7 @@ uint64_t submit_on_render_thread(const std::function<void(Frame&)>& record, uint
     f.slot = &s;
     VkCommandBufferBeginInfo bi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(s.cb, &bi);
+    vkBeginCommandBuffer(s.cb, &bi); if constexpr (facts::kPhone) gfx::work_cb() = s.cb;
     const uint32_t slot_i = static_cast<uint32_t>(&s - g->slots);
     timing::begin(s.cb, slot_i);
     if (t_cb0) ft::event(z_cbsetup, t_cb0, ft::now_ns());   // slot, begin command buffer, query resets
@@ -1062,7 +1062,7 @@ bool split_piece(Frame& f) {
     f.cb = next;
     VkCommandBufferBeginInfo bi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(next, &bi);
+    vkBeginCommandBuffer(next, &bi); if constexpr (facts::kPhone) gfx::work_cb() = next;
     if (g->split_pieces.fetch_add(1, std::memory_order_relaxed) == 0)
         NXLOG_I(kTag, "gpu_split: first piece sent while its submission (serial %llu) is still being recorded", static_cast<unsigned long long>(f.serial));
     return true;

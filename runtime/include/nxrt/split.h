@@ -10,6 +10,10 @@
 //   layout = stacked    two windows: stacked = top and bottom halves, each as wide as the screen; side = left and right halves.
 //                       Three: the first window has the top half (stacked) or the left half (side), the other two share the rest.
 //                       Four: a quarter each, whatever this says
+//   displays =          empty: the windows share one screen. Else the display of each window in window order (`1,2`: window 2 has the
+//                       second display), numbered as [display] monitor, the same list for every window. A window alone on its display
+//                       fills it (borderless fullscreen); windows on one display share it as `layout` says. A display that is not
+//                       there counts as the primary one
 //   pad = <window>      the controller this window plays, by its place in the order the controllers were connected (1 = the first);
 //                       0: none (keyboard and mouse only)
 //   mute = false        this window plays no sound

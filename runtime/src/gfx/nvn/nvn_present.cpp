@@ -137,7 +137,11 @@ void present_on_render_thread(Window* w, int index, bool again) {
     float cm[12];
     const bool cm_on = color_matrix::get(cm);
     extras::OutputPass* op = output_pass();
-    if (op && (hs.scene_hdr || hs.output != extras::OutputKind::Sdr8 || extras::upscale_mode() == extras::UpscaleMode::Fsr1 ||
+    // FSR 1 enlarges the picture to the window in FSR 1 mode, and in a temporal mode (FSR 3, DLSS) when the window is larger than the render
+    // size: the temporal pass has rebuilt the scene at the render size, and the rest of the way should not be a plain bilinear stretch.
+    const bool fsr1_out = extras::upscale_mode() == extras::UpscaleMode::Fsr1 ||
+                          (extras::upscale_temporal() && (fi.extent.width > e.width || fi.extent.height > e.height));
+    if (op && (hs.scene_hdr || hs.output != extras::OutputKind::Sdr8 || fsr1_out ||
                extras::upscale_mode() == extras::UpscaleMode::Nis || pic.active || cm_on)) {
         extras::OutputParams prm;
         prm.src = src;
@@ -149,7 +153,7 @@ void present_on_render_thread(Window* w, int index, bool again) {
         prm.out = hs.output;
         prm.paper_white_nits = hs.paper_white_nits;
         prm.peak_nits = hs.peak_nits;
-        prm.fsr1 = extras::upscale_mode() == extras::UpscaleMode::Fsr1;
+        prm.fsr1 = fsr1_out;
         prm.nis = extras::upscale_mode() == extras::UpscaleMode::Nis;
         prm.sharpness = extras::upscale_sharpness();
         prm.picture = pic.active;

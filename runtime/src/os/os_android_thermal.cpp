@@ -22,6 +22,7 @@
 #include <string>
 
 #include "nxrt/log.h"
+#include "nxrt/thermal.h"
 
 namespace nxrt::os::thermal {
 namespace {
@@ -170,19 +171,14 @@ float cpu_cores() {
 
 bool read(Reading* out) {
     static AThermalManager* const mgr = AThermal_acquireManager();   // kept for the life of the process
-    using HeadroomFn = float (*)(AThermalManager*, int);
-    static const auto headroom = reinterpret_cast<HeadroomFn>(dlsym(RTLD_DEFAULT, "AThermal_getThermalHeadroom"));   // API 31+
-    static float last_headroom = -1.f;   // NaN answers (called a little early, or warming up) keep the last value
     *out = Reading{};
     if (mgr) {
         const AThermalStatus s = AThermal_getCurrentThermalStatus(mgr);
         if (s >= ATHERMAL_STATUS_NONE) out->status = static_cast<int>(s);
-        if (headroom) {
-            const float h = headroom(mgr, 0);
-            if (!std::isnan(h)) last_headroom = h;
-            out->headroom = last_headroom;
-        }
     }
+    // the headroom from the one poller (nxrt/thermal.h): the platform wants a single caller, and a game's dynamic resolution reads it too
+    nxrt::thermal::headroom_start();
+    if (nxrt::thermal::Headroom h; nxrt::thermal::headroom(&h)) out->headroom = h.now;
     out->skin_c = skin_c();
     out->battery_c = battery_c();
     if (!fastest_ceiling().empty()) {

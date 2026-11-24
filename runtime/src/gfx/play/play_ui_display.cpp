@@ -122,23 +122,17 @@ void fps_group(UiHost& host, Page& p) {
 
 // HDR output, upscaling and low latency (nxrt/extras.h). Items that apply at the next start say so in their labels, as the Display tab does.
 constexpr const char* kLatencyModeNames[] = {"Off", "Auto", "On", "Boost"};
-constexpr const char* kUpscaleNames[] = {"Off", "FSR 1 (spatial)", "FSR 3", "DLSS", "XeSS", "NIS (spatial)", "DLAA", "Nearest (sharp pixels)"};   // indexed by extras::UpscaleMode
-// The order the list shows them in. ponytail: NIS, FSR 3, DLSS, DLAA and XeSS are off until reworked (extras::upscale_mode_enabled, #232).
-constexpr extras::UpscaleMode kUpscaleOrder[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Nearest};
+constexpr const char* kUpscaleNames[] = {"Off", "FSR 1 (spatial)", "FSR 3", "DLSS", "XeSS", "NIS (spatial)", "DLAA", "Nearest (sharp pixels)",
+                                         "SGSR 2 (temporal)"};   // indexed by extras::UpscaleMode
+// The order the list shows them in (the stored values are the enum's). ponytail: NIS and XeSS are off until reworked (extras::upscale_mode_enabled, #232).
+constexpr extras::UpscaleMode kUpscaleOrder[] = {extras::UpscaleMode::Off, extras::UpscaleMode::Nearest, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Fsr3,
+                                                 extras::UpscaleMode::Dlss, extras::UpscaleMode::Dlaa, extras::UpscaleMode::Sgsr2};
 constexpr const char* kAaNames[] = {"Default (none)", "SMAA Low", "SMAA Medium", "SMAA High", "SMAA Ultra"};   // indexed by extras::AaMode
 constexpr const char* kUpscaleQualityNames[] = {"Native (AA only)", "Quality", "Balanced", "Performance", "Ultra performance", "Custom (scene resolution)"};
 
-// Off and the spatial upscalers (FSR 1, NIS) always work. The temporal ones (src/gfx/extras/temporal.h) get depth, camera motion vectors made by
-// the runtime and the game's projection jitter: FSR 3 when the FidelityFX DLLs are found, DLSS / DLAA when the Streamline DLLs and nvngx_dlss.dll are found (the GPU
-// check runs when the renderer starts them). XeSS is not wired. A file that holds an unavailable one shows it as selected (the game runs as Off).
-bool upscale_available(extras::UpscaleMode m) {
-    switch (m) {
-        case extras::UpscaleMode::Off:
-        case extras::UpscaleMode::Fsr1:
-        case extras::UpscaleMode::Nearest: return true;
-        default: return false;   // switched off for now (#232)
-    }
-}
+// Off and the spatial upscalers always work; the temporal ones (src/gfx/extras/temporal.h) where extras::upscale_mode_available says so. A file
+// that holds an unavailable one shows it as selected (the game runs as Off).
+bool upscale_available(extras::UpscaleMode m) { return extras::upscale_mode_available(m); }
 const char* temporal_why(extras::UpscaleMode m) {
     if (m == extras::UpscaleMode::Fsr3)
         return "Needs amd_fidelityfx_loader_vk.dll and amd_fidelityfx_upscaler_vk.dll (AMD FidelityFX SDK v2.4.0) in upscalers\\fsr3 next to the "
@@ -146,6 +140,7 @@ const char* temporal_why(extras::UpscaleMode m) {
     if (m == extras::UpscaleMode::Dlss || m == extras::UpscaleMode::Dlaa)
         return "Needs an NVIDIA RTX GPU and the Streamline DLLs (sl.interposer.dll, sl.common.dll, sl.dlss.dll, nvngx_dlss.dll) in upscalers\\streamline "
                "next to the executable, or their folder in [upscale] dlss_dll. The launcher's Game files page downloads nvngx_dlss.dll from NVIDIA.";
+    if (m == extras::UpscaleMode::Sgsr2) return "This game does not name its camera block, which the temporal upscalers need.";
     return "Switched off for now: it will come back once it is reworked.";
 }
 
@@ -159,7 +154,8 @@ void upscale_group(Page& p) {
     if (!upscale_available(u.mode)) preview += " (not available)";
     const bool open = ImGui::BeginCombo("Upscaler##upscale_mode", preview.c_str());
     tip("How the game's picture is enlarged from a lower render or scene resolution. Off: smooth (bilinear). FSR 1 (AMD): filtered and sharpened, any GPU. "
-        "Nearest: every pixel kept as a hard block, no blur. FSR 3, DLSS and NIS are switched off until they are reworked.");
+        "Nearest: every pixel kept as a hard block, no blur. FSR 3 (AMD) and DLSS / DLAA (NVIDIA RTX): temporal, a sharper picture from several frames. "
+        "SGSR 2 (Qualcomm): temporal, builds detail over several frames from the scene's depth and camera motion, any GPU; it can leave faint trails behind moving creatures.");
     if (open) {
         for (extras::UpscaleMode m : kUpscaleOrder) {
             const int i = static_cast<int>(m);
@@ -227,6 +223,7 @@ void upscale_group(Page& p) {
         } else {
             const char* who = m == extras::UpscaleMode::Fsr1 ? "upscaled with FSR 1" : m == extras::UpscaleMode::Nearest ? "enlarged with nearest neighbour" : m == extras::UpscaleMode::Nis ? "upscaled with NIS"
                             : m == extras::UpscaleMode::Fsr3 ? "upscaled with FSR 3" : m == extras::UpscaleMode::Dlss ? "upscaled with DLSS"
+                            : m == extras::UpscaleMode::Sgsr2 ? "upscaled with SGSR 2"
                             : "stretched by the game (pick an upscaler to make it sharper)";
             ImGui::TextDisabled("Scene: %d%% per side, %s", pct, who);
         }

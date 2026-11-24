@@ -78,6 +78,11 @@ enum class Key : uint8_t {
     SaveNow,
     OnlinePresence,
     OnlineEvents,
+    // a phone's resolution (pkp_render_size.cpp): last, so no other key's number moves
+    Resolution,
+    DynamicResolutionMode,
+    DynamicResolutionHeadroom,
+    DynamicResolutionState,
     Count
 };
 

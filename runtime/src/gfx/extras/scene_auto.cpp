@@ -17,6 +17,7 @@
 #include "nxrt/game_render.h"
 #include "nxrt/log.h"
 #include "nxrt/notices.h"
+#include "nxrt/platform_facts.h"
 #include "../../diag/perf_system.h"
 
 namespace nxrt::extras {
@@ -86,7 +87,7 @@ static void watch_tick(Ctl& c, std::chrono::steady_clock::time_point now) {
         if (std::fscanf(f, "%d", &v) != 1) v = 0;
         std::fclose(f);
     }
-    v = v > 0 ? std::clamp(v, 25, 100) : 0;
+    v = v > 0 ? std::clamp(v, facts::kPhone ? 1 : 25, 100) : 0;   // a phone: its percent of the screen, which goes lower (the game layer clamps it)
     if (g_watch_pct.exchange(v, std::memory_order_relaxed) != v) NXLOG_I(kTag, "live scene percent %d%% (%s)", v, v ? "from the watched file" : "file gone: the player's again");
 }
 

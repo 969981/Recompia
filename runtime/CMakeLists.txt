@@ -150,6 +150,9 @@ if(NOT NXRT_WINDOWS)
         # library has it). Every target that compiles runtime code links nxrt, so it reaches all of them.
         target_compile_options(nxrt PUBLIC
             "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/src/os/compat/atomic_ref_compat.h>")
+        # ARMv8.2: the LSE atomics inline (no __aarch64_* helper call per atomic operation: the locks, counters and caches of the hot
+        # paths). The game library already needs it (pkp_build.py --target android-arm64), and every phone that runs the game has it.
+        target_compile_options(nxrt PUBLIC "-march=armv8.2-a")
     endif()
     # astc2bc7's interface header (tools/textures). The transcoder itself is an x86 ISPC build, so the POSIX build uses
     # src/os/os_posix_a2b.cpp: the same helpers, and an honest "unsupported" for the kernels Metal replaces (D4).

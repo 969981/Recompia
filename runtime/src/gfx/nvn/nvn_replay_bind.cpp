@@ -495,8 +495,8 @@ void prepare_texel_buffers(const ProgLayout& pl) {
             continue;
         }
         if (!barrier) {
-            end_pass();                 // a full barrier: earlier writes to the source land before the copy reads them
-            memory_barrier(F->cb);
+            if constexpr (facts::kPhone) end_pass_full_barrier(); else end_pass();   // a full barrier: earlier writes to the source land before the copy reads them
+            if constexpr (!facts::kPhone) memory_barrier(F->cb);
             barrier = true;
         }
         const VkBufferCopy c = {br.offset, 0, bytes};
@@ -568,16 +568,26 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                         }
                         const VkDeviceSize align = device().properties().limits.minUniformBufferOffsetAlignment;
                         const float ufs = ufs_scale_for(d, idx);
-                        const bool tsr = d.nvn_stage == g_tsr.stage && idx == g_tsr.slot && bind.size >= g_tsr.bytes && extras::temporal_wanted() && S.depth_tex;
-                        if (ufs == 1.0f && !tsr && uniform_snapshot(bind.addr, bind.size, align, &bi)) break;   // from video memory
+                        // temporal upscaling: only a valid, unjittered camera block, settled in guest memory, is bound from a jittered copy (tsr_cam_copy);
+                        // every other block at that binding (most draws use it for their own constants) keeps the normal path
+                        uint32_t tsr_words[kTsrMaxWords];
+                        const bool tsr = d.nvn_stage == g_tsr.stage && idx == g_tsr.slot && bind.size >= g_tsr.bytes && extras::temporal_wanted() && S.depth_tex &&
+                                         tsr_cam_copy(bind.addr, tsr_words);
+                        bool tsr_other = false;
+                        if (!tsr && extras::temporal_wanted()) {   // the camera's copies in this block: scanned only as far as guest memory backs it
+                            const BufRef bo = resolve_read(bind.addr, bind.size, kReadUniform);
+                            tsr_other = bo.ok && tsr_other_wanted(d.nvn_stage, idx, bind.addr, std::min<uint64_t>(bind.size ? bind.size : 65536, bo.avail));
+                        }
+                        if (ufs == 1.0f && !tsr && !tsr_other && uniform_snapshot(bind.addr, bind.size, align, &bi)) break;   // from video memory
                         BufRef br = resolve_read(bind.addr, bind.size, kReadUniform);
-                        if (br.ok && (ufs != 1.0f || tsr)) {
+                        if (br.ok && (ufs != 1.0f || tsr || tsr_other)) {
                             // the game's scale on some floats of this block (nxrt/gfx_tuning.h): bound from a patched copy in the upload ring
                             const VkDeviceSize n = std::min<VkDeviceSize>({bind.size ? bind.size : 65536, br.avail, 65536});
                             UploadAlloc u = F->upload(n, std::max<VkDeviceSize>(align, 256));
                             if (u) {
                                 std::memcpy(u.ptr, host_ptr(bind.addr), n);
-                                if (tsr && n >= g_tsr.bytes) tsr_jitter(reinterpret_cast<uint32_t*>(u.ptr), static_cast<size_t>(n / 4));   // temporal upscaling
+                                if (tsr && n >= g_tsr.bytes) std::memcpy(u.ptr, tsr_words, g_tsr.bytes);   // temporal upscaling: the jittered camera
+                                if (tsr_other) tsr_other_patch(static_cast<uint8_t*>(u.ptr), static_cast<size_t>(n));   // ... and its copies elsewhere
                                 const uint32_t mask = ufs == 1.0f ? 0u : d.nvn_stage == kCompute ? nxrt::gfx::tuning().csr_mask.load(std::memory_order_relaxed)
                                                                                  : nxrt::gfx::tuning().ufs_mask.load(std::memory_order_relaxed);
                                 for (uint32_t i = 0; i < 32; ++i) {

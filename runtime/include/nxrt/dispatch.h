@@ -4,11 +4,13 @@
 // Pattern from smo-recomp runtime/core/hostrt.c (fn hash, hostfn_address) and SuperMarioWonderRecomp loader.cpp (thunks).
 #pragma once
 #include <cstddef>
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
 
 #include "nxrt/abi.h"
+#include "nxrt/platform_facts.h"
 
 namespace nxrt {
 
@@ -49,6 +51,20 @@ void hle_restore_current(const char* name);               // after a longjmp out
 enum : uint32_t { kHostCbCmdMem = 1u << 0 };              // NVN command-memory callback (gfx/nvn/api_cmdbuf.cpp)
 uint32_t host_callback_flags();
 void host_callback_restore(uint32_t flags);
+
+// Phones: bumped whenever what an import call resolves to can change (import_cache_invalidate, hle_register, hle_mark_leaf,
+// hle_clear): host_import's per-context cache (abi_glue.cpp) drops what it holds. A template, so a build without the fact has none.
+template <bool kOn = facts::kPhone>
+std::atomic<uint32_t>& import_epoch() {
+    static std::atomic<uint32_t> e{1};
+    return e;
+}
+// Bumps import_epoch when it goes out of scope: declared after the lock that guards the change, so the bump comes after the change and
+// before the unlock (a thread that read the new epoch can only see the new table).
+template <bool kOn = facts::kPhone>
+struct ImportEpochBump {
+    ~ImportEpochBump() { if constexpr (kOn) import_epoch().fetch_add(1, std::memory_order_release); }
+};
 
 // ---- the dispatch entry used by the ABI (abi_glue.cpp defines call_indirect / guest_trap on top of it) ----------------------
 // Runs the lifted function or HLE thunk at `addr` on `c`; an unknown target is a guest trap (GUEST TRAP report, exception
