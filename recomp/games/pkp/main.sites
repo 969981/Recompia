@@ -230,6 +230,12 @@ entryhook 0x71008eb6e0
 #   compare with s8 (x22 = the object), and s0 = the squared switch distance handed to the batch update 0x71008f4c20
 midhook 0x71008f3a20
 midhook 0x71008f3fa0
+#   job workers' idle spin governor (core/pkp_job_spin.cpp, phones): the head of a worker's scan, x25 = the job system
+midhook 0x7101fef914
+#   the same governor: a class's re-check after its queue was found empty (the scan's inner loop)
+midhook 0x7101fefa20
+#   the same governor: the waiting-job bitmap's pass, which loops back to itself while its class bit is set again
+midhook 0x7101fefb4c
 #   menu mouse: every screen-layout pane class's draw (vtable slot +0x2b0) at its flag store `str wN, [x0, #0x104]` (pane in x0; x21 in
 #   0x7101f77fe0), the layouts drawn this frame (pkp_menu.cpp kDrawSites)
 midhook 0x7101f5ac6c

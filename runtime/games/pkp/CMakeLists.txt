@@ -132,6 +132,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/render/pkp_wide_text.cpp"
         "${_pkp}/render/pkp_frame_rate.cpp"
         "${_pkp}/render/pkp_gfx_heap.cpp"
+        "${_pkp}/core/pkp_job_spin.cpp"
         "${_pkp}/render/pkp_quality.cpp"
         "${_pkp}/render/pkp_taa.cpp"
         "${_pkp}/render/pkp_shoulder_camera.cpp"
