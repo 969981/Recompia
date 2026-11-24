@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Graphics
-- Fixed render resolution percentages depending on the startup window size instead of the game's base resolution, leaving the scene at a lower resolution after switching to fullscreen.
+- Fixed render resolution percentages depending on the startup window size instead of the game's base resolution.
 
 ## 0.17.6 (build U: Urchin Hotfix a2)
 
