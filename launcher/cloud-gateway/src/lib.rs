@@ -53,6 +53,9 @@ pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
 pub struct Options {
     /// The device folder (device.rs). It need not hold a sign-in yet.
     pub device_dir: PathBuf,
+    /// The server's address when the caller knows it: dialled instead of the host the sign-in stored (a name that may
+    /// no longer resolve). The port and the name the server's certificate is checked against stay the sign-in's.
+    pub server: Option<String>,
     /// 0: any free port (read it back from `Gateway`).
     pub tls_port: u16,
     pub plain_port: u16,
@@ -98,11 +101,11 @@ struct Upstream {
 }
 
 impl Upstream {
-    fn new(dev: &device::Device) -> Result<Upstream, String> {
+    fn new(dev: &device::Device, server: Option<&str>) -> Result<Upstream, String> {
         let name = ServerName::try_from(dev.server_name.clone()).map_err(|_| "launcher.json names no usable server_name".to_string())?;
         let connector = |alpn: Option<&[u8]>| client_config(dev, alpn).map(|c| TlsConnector::from(Arc::new(c)));
         Ok(Upstream {
-            host: dev.host.clone(),
+            host: server.unwrap_or(&dev.host).to_string(),
             port: dev.port,
             name,
             h2: connector(Some(b"h2"))?,
@@ -180,6 +183,7 @@ fn stamp(dir: &Path) -> Stamp {
 /// The device folder as of the last connection.
 struct Linked {
     dir: PathBuf,
+    server: Option<String>,
     log: Log,
     seen: Mutex<Option<Seen>>,
 }
@@ -204,8 +208,11 @@ impl Linked {
         let (upstream, said) = if !device::linked(&self.dir) {
             (Err("not signed in: no device in the device folder".to_string()), "gateway: not signed in; connections are closed until a device signs in".to_string())
         } else {
-            match device::load(&self.dir).and_then(|d| Upstream::new(&d).map(|u| (d, u))) {
-                Ok((d, u)) => (Ok(Arc::new(u)), format!("gateway: signed in as device {} of account {} -> {}:{} ({})", short_id(&d.device), short_id(&d.account), d.host, d.port, d.server_name)),
+            match device::load(&self.dir).and_then(|d| Upstream::new(&d, self.server.as_deref()).map(|u| (d, u))) {
+                Ok((d, u)) => {
+                    let said = format!("gateway: signed in as device {} of account {} -> {}:{} ({})", short_id(&d.device), short_id(&d.account), u.host, d.port, d.server_name);
+                    (Ok(Arc::new(u)), said)
+                }
                 Err(e) => (Err(e.clone()), format!("gateway: the device folder is not usable: {e}")),
             }
         };
@@ -253,7 +260,7 @@ pub fn start(opt: Options) -> Result<Gateway, String> {
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
     let log = opt.log.clone();
     log(&format!("gateway: TLS 127.0.0.1:{tls_port}, plain 127.0.0.1:{plain_port}"));
-    let linked = Arc::new(Linked { dir: opt.device_dir.clone(), log: log.clone(), seen: Mutex::new(None) });
+    let linked = Arc::new(Linked { dir: opt.device_dir.clone(), server: opt.server.clone(), log: log.clone(), seen: Mutex::new(None) });
     let _ = linked.upstream();   // says at once whether a device is signed in
     let slots = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
     let thread = std::thread::Builder::new()

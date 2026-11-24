@@ -832,10 +832,25 @@ mod tests {
         save_test_device(&dir, "acct-abcd2345efgh", "dev-wxyz6789mnop");
         let lines = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
         let sink = lines.clone();
-        let linked = crate::Linked { dir: dir.clone(), log: std::sync::Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_string())), seen: std::sync::Mutex::new(None) };
+        let linked = crate::Linked { dir: dir.clone(), server: None, log: std::sync::Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_string())), seen: std::sync::Mutex::new(None) };
         assert!(linked.upstream().is_ok());
         let said = lines.lock().unwrap().join("\n");
         assert_eq!(said, "gateway: signed in as device dev-wxyz.. of account acct-abcd.. -> 127.0.0.1:9443 (localhost)");
+        device::remove(&dir).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_gateway_dials_the_server_it_is_given_instead_of_the_sign_ins_host() {
+        let dir = std::env::temp_dir().join(format!("recompia-signin-test-{}", hex(&random(6).unwrap())));
+        save_test_device(&dir, "acct-abcd2345efgh", "dev-wxyz6789mnop");
+        let lines = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let sink = lines.clone();
+        let linked = crate::Linked { dir: dir.clone(), server: Some("192.0.2.7".into()), log: std::sync::Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_string())), seen: std::sync::Mutex::new(None) };
+        assert!(linked.upstream().is_ok());
+        // the port and the certificate name stay the sign-in's
+        assert_eq!(lines.lock().unwrap().join("
+"), "gateway: signed in as device dev-wxyz.. of account acct-abcd.. -> 192.0.2.7:9443 (localhost)");
         device::remove(&dir).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }

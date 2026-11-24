@@ -40,6 +40,7 @@ fn fail(m: String) -> ! {
 fn main() {
     let mut opt = Options {
         device_dir: device::default_dir(),
+        server: None,
         tls_port: DEFAULT_TLS_PORT,
         plain_port: DEFAULT_PLAIN_PORT,
         ca_file: None,
