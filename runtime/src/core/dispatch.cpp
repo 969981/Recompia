@@ -21,6 +21,8 @@
 #include "nxrt/platform_facts.h"
 #include "../diag/hle_census.h"
 
+extern "C" const void* nx_fn_slots;
+
 namespace nxrt {
 namespace {
 
@@ -68,10 +70,16 @@ constexpr size_t kCtxCaches = 1024;   // the top 10 bits of the hash below pick 
 template <bool kOn = facts::kPhone>   // a template: a build without the fact emits neither the function nor its slots
 CtxCache* ctx_cache(const ::Ctx* c) {
     constinit static CtxCache slots[kCtxCaches];   // zero: in .bss
-    CtxCache& s = slots[(reinterpret_cast<uintptr_t>(c) * 0x9E3779B97F4A7C15ull) >> 54];
-    const ::Ctx* o = s.owner.load(std::memory_order_relaxed);
-    if (o == c) return &s;
-    if (o == nullptr && s.owner.compare_exchange_strong(o, c, std::memory_order_relaxed)) return &s;
+    // up to 4 neighbouring slots: with a few hundred contexts some hashes collide, and a context with no slot took the thread_local
+    // cache (two TLSDESC resolver calls per indirect call)
+    const size_t h = (reinterpret_cast<uintptr_t>(c) * 0x9E3779B97F4A7C15ull) >> 54;
+    for (size_t k = 0; k < 4; ++k) {
+        CtxCache& s = slots[(h + k) & (kCtxCaches - 1)];
+        const ::Ctx* o = s.owner.load(std::memory_order_relaxed);
+        if (o == c) return &s;
+        if (o == nullptr && s.owner.compare_exchange_strong(o, c, std::memory_order_relaxed)) return &s;
+        if (o == c) return &s;
+    }
     return nullptr;
 }
 std::vector<std::unique_ptr<Table>> g_all_tables;   // owns current + retired tables
@@ -98,6 +106,7 @@ Table* table_for_write() {
     Table* raw = nt.get();
     g_all_tables.push_back(std::move(nt));
     g_table.store(raw, std::memory_order_release);
+    __atomic_store_n(&nx_fn_slots, reinterpret_cast<const void*>(raw->slots.get()), __ATOMIC_RELEASE);
     return raw;
 }
 
@@ -175,8 +184,30 @@ GuestFn fn_lookup(uint64_t guest_addr) {
 
 size_t fn_count() { return g_fn_count.load(std::memory_order_relaxed); }
 
+}  // namespace nxrt
+
+// The lifted code's per-call-site caches (Android: recomp/native/nx_native_call.h): the slot index of a function in the current table
+// (+1; 0 = none). A cached index is checked against the slot's address on every use, so a table that grew, or a replaced function
+// (written in place), never runs the wrong code.
+extern "C" const void* nx_fn_slots = nullptr;
+extern "C" uint32_t nx_fn_index(uint64_t guest_addr) {
+    using namespace nxrt;
+    Table* t = g_table.load(std::memory_order_acquire);
+    if (!t) return 0;
+    size_t h = hash_addr(guest_addr) & t->mask;
+    for (;;) {
+        uint64_t a = t->slots[h].addr.load(std::memory_order_acquire);
+        if (a == guest_addr) return static_cast<uint32_t>(h + 1);
+        if (!a) return 0;
+        h = (h + 1) & t->mask;
+    }
+}
+
+namespace nxrt {
+
 void fn_clear() {
     std::lock_guard<std::mutex> lk(g_write);
+    __atomic_store_n(&nx_fn_slots, static_cast<const void*>(nullptr), __ATOMIC_RELEASE);
     g_table.store(nullptr);
     g_fn_epoch.fetch_add(1, std::memory_order_release);
     g_all_tables.clear();
@@ -387,18 +418,10 @@ template <bool kOn = facts::kPhone>
 }
 }  // namespace
 
-void dispatch_call(::Ctx* c, uint64_t addr) {
-    // HLE thunks live in their own address range, away from every lifted function: no hash lookup for them
+namespace {
+// The whole lookup: desktop builds run it inline in dispatch_call, phones out of line (dispatch_slow) behind the context cache.
+[[gnu::always_inline]] inline void dispatch_body(::Ctx* c, uint64_t addr) {
     const bool in_hle_range = addr - mem::kHleBase < mem::kHleSize;
-    if constexpr (facts::kPhone) {
-        if (!in_hle_range)
-            if (CtxCache* cc = ctx_cache(c)) {
-                const FnCacheEntry& e = cc->e[((addr >> 2) ^ (addr >> 12)) & (kFnCache - 1)];
-                // An empty entry is {0, nullptr}: without the fn test a guest call to address 0 would "hit" it and jump to host address 0.
-                if (cc->epoch == g_fn_epoch.load(std::memory_order_acquire) && e.fn && e.addr == addr) [[likely]] return e.fn(c);
-                return dispatch_miss(c, addr, cc);
-            }
-    }
     if (!in_hle_range) {
         const uint32_t ep = g_fn_epoch.load(std::memory_order_acquire);
         if (t_fn_epoch != ep) {
@@ -428,5 +451,23 @@ void dispatch_call(::Ctx* c, uint64_t addr) {
     }
     trap("indirect call to an address that is not a known function", addr);
 }
+[[gnu::noinline, maybe_unused]] void dispatch_slow(::Ctx* c, uint64_t addr) { dispatch_body(c, addr); }
+}  // namespace
+
+void dispatch_call(::Ctx* c, uint64_t addr) {
+    // HLE thunks live in their own address range, away from every lifted function: no hash lookup for them
+    if constexpr (facts::kPhone) {
+        if (addr - mem::kHleBase >= mem::kHleSize)
+            if (CtxCache* cc = ctx_cache(c)) {
+                const FnCacheEntry& e = cc->e[((addr >> 2) ^ (addr >> 12)) & (kFnCache - 1)];
+                // An empty entry is {0, nullptr}: without the fn test a guest call to address 0 would "hit" it and jump to host address 0.
+                if (cc->epoch == g_fn_epoch.load(std::memory_order_acquire) && e.fn && e.addr == addr) [[likely]] return e.fn(c);
+                return dispatch_miss(c, addr, cc);
+            }
+    }
+    if constexpr (facts::kPhone) return dispatch_slow(c, addr);   // out of line, so the hit above needs no stack frame (a tail call)
+    dispatch_body(c, addr);
+}
+
 
 }  // namespace nxrt

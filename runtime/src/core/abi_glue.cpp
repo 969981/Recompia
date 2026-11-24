@@ -46,10 +46,14 @@ struct alignas(64) ImpCache {
 template <bool kOn = facts::kPhone>
 ImpCache* imp_cache(const ::Ctx* c) {
     constinit static ImpCache slots[256];   // zero: in .bss; 24 KiB per slot, touched by the contexts that import
-    ImpCache& s = slots[(reinterpret_cast<uintptr_t>(c) * 0x9E3779B97F4A7C15ull) >> 56];
-    const ::Ctx* o = s.owner.load(std::memory_order_relaxed);
-    if (o == c) return &s;
-    if (o == nullptr && s.owner.compare_exchange_strong(o, c, std::memory_order_relaxed)) return &s;
+    const size_t h = (reinterpret_cast<uintptr_t>(c) * 0x9E3779B97F4A7C15ull) >> 56;
+    for (size_t k = 0; k < 4; ++k) {   // up to 4 neighbouring slots (dispatch.cpp ctx_cache)
+        ImpCache& s = slots[(h + k) & 255];
+        const ::Ctx* o = s.owner.load(std::memory_order_relaxed);
+        if (o == c) return &s;
+        if (o == nullptr && s.owner.compare_exchange_strong(o, c, std::memory_order_relaxed)) return &s;
+        if (o == c) return &s;
+    }
     return nullptr;
 }
 // Everything but a cached leaf call, out of line, so that the hit path needs no stack frame (a leaf thunk is then a tail call).
@@ -77,7 +81,6 @@ template <bool kOn = facts::kPhone>
         }
         return leaf(c);
     }
-    detail::count_import();
     const uint32_t saved_id = c->import_id;
     const uint64_t saved_from = c->import_from;
     c->import_id = import_id;
@@ -100,6 +103,18 @@ template <bool kOn = facts::kPhone>
 extern "C" {
 
 void call_indirect(Ctx* c, uint64_t addr) { nxrt::dispatch_call(c, addr); }
+
+// The lifted code's per-import caches (Android: recomp/native/nx_native_call.h): an import's leaf handler (strlen and friends) with
+// the low 16 bits of import_epoch it was read at in the top 16 bits; 0 in the low 48 bits = not a leaf (the call takes host_import).
+// [diag] hle_census counts leaf calls in host_import, so with it on nothing is a leaf here.
+extern const uint32_t* const nx_import_epoch_word;   // a const object has internal linkage unless declared extern
+const uint32_t* const nx_import_epoch_word = reinterpret_cast<const uint32_t*>(&nxrt::import_epoch<true>());
+uint64_t nx_import_leaf(uint32_t import_id) {
+    const uint32_t ep = nxrt::import_epoch<true>().load(std::memory_order_acquire);
+    const uint64_t target = nxrt::import_resolve(import_id);
+    const nxrt::HleFn leaf = target && !nxrt::diag::census::on() ? nxrt::hle_leaf_fn(target) : nullptr;
+    return uint64_t{ep & 0xffffu} << 48 | (reinterpret_cast<uint64_t>(leaf) & 0xffffffffffffull);
+}
 
 // A call to a symbol another module provides: the lifted PLT stub passes NX_IMPORT_ID(module index, symbol index) of its own
 // module. The registry (nxmodule.cpp) names the import and finds its target: a function another lifted module defines, else the HLE
