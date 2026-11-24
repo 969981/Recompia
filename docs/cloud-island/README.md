@@ -50,7 +50,9 @@ All of it sits behind one launcher switch, **Settings > Game > Online > Cloud Is
 gateway, and the game is not pointed at a server (a `cloud_server` left in pkp.ini is overridden with an empty one for the run).
 Switching it off keeps the sign-in (the device folder). Switching it on opens the sign-in screen at once (Skip or Back returns to
 Settings). On, for each run the launcher points the game at the Cloud Islands server (`NXRT_NET_CLOUD_SERVER`) and runs the gateway;
-the server and portal addresses are built in (`launcher/src-tauri/src/cloud_account.rs`, `SERVER` and `PORTAL`). pkp.ini can name
+the server and portal addresses are built in (`launcher/src-tauri/src/cloud_account.rs`, `SERVER` and `PORTAL`). The gateway dials that
+server address, not the host a sign-in stored, so a sign-in keeps working when the server's name changes; the port and the name its
+certificate is checked against stay the sign-in's. pkp.ini can name
 others for a test server; the launcher never writes these keys:
 
 ```ini

@@ -29,7 +29,7 @@ use std::sync::{Arc, Mutex};
 /// The Cloud Islands server the switch points the game at (an IPv4 address, as the runtime's `[net] cloud_server`).
 pub const SERVER: &str = "204.216.107.117";
 /// That server's account portal: where the launcher signs this device in, and the account page.
-pub const PORTAL: &str = "https://islands.recompia.com:8444";
+pub const PORTAL: &str = "https://204-216-107-117.sslip.io:8444";
 
 /// The gateway's lines for this run (one per connection: counts and how it ended, never contents), next to pkp.log.
 pub const LOG_FILE: &str = "cloud_gateway.log";
@@ -111,7 +111,7 @@ impl Watch {
                 let _ = writeln!(f.lock().unwrap_or_else(|e| e.into_inner()), "{} {line}", chrono::Local::now().format("%H:%M:%S"));
             }
         });
-        let options = |tls_port, plain_port| Options { device_dir: device_dir.clone(), tls_port, plain_port, ca_file: None, log: log.clone() };
+        let options = |tls_port, plain_port| Options { device_dir: device_dir.clone(), server: server(on, &pkp), tls_port, plain_port, ca_file: None, log: log.clone() };
         // the wanted ports first; taken (another game's gateway): any free ones
         let started = recompia_cloud_gateway::start(options(want.tls_port, want.plain_port)).or_else(|first| {
             eprintln!("cloud account: {first}; trying free ports");

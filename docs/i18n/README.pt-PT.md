@@ -39,7 +39,7 @@
   <a href="../../LEGAL.md">Aviso legal</a> ·
   <a href="../../PRIVACY.md">Privacidade</a> ·
   <a href="https://github.com/Dittobyte/Recompia/issues">Problemas</a> ·
-  <a href="https://discord.recompia.com">Discord</a>
+  <a href="https://discord.gg/VyRcUUQNKH">Discord</a>
 </p>
 
 > [!IMPORTANT]
@@ -303,7 +303,7 @@ Nunca anexe ficheiros do jogo, as pastas `build` ou `shader_cache`, nem saves a 
 
 ## Comunidade
 
-Dúvidas, ajuda com bugs, testes e conversa: junte-se ao [Discord do Recompia](https://discord.recompia.com). O launcher também tem um botão **Join Discord** em Settings > About > Community. Os bugs que precisam de correção continuam a ser comunicados no [GitHub](https://github.com/Dittobyte/Recompia/issues/new/choose).
+Dúvidas, ajuda com bugs, testes e conversa: junte-se ao [Discord do Recompia](https://discord.gg/VyRcUUQNKH). O launcher também tem um botão **Join Discord** em Settings > About > Community. Os bugs que precisam de correção continuam a ser comunicados no [GitHub](https://github.com/Dittobyte/Recompia/issues/new/choose).
 
 ## Comunicar problemas
 

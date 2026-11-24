@@ -9,6 +9,6 @@ The first start of the app: macOS blocks it because it is not notarized. Right-c
 
 Updating: extract the new release over your install. If the update changes the game code, the launcher says so: press Set up again and it rebuilds pkp. Your shaders and saves are kept.
 
-Community and help: https://discord.recompia.com
+Community and help: https://discord.gg/VyRcUUQNKH
 
 Licences: LICENSE.txt and licenses/.

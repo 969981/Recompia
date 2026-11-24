@@ -1,6 +1,6 @@
 # Experimental builds
 
-Recompia has two update channels. Questions and reports are welcome on the Recompia Discord: https://discord.recompia.com (also under Settings > About > Community in the launcher). You pick one in the launcher with the two dropdowns next to the **Play** button (also under **Settings > About > Update channel**): the channel, and the version.
+Recompia has two update channels. Questions and reports are welcome on the Recompia Discord: https://discord.gg/VyRcUUQNKH (also under Settings > About > Community in the launcher). You pick one in the launcher with the two dropdowns next to the **Play** button (also under **Settings > About > Update channel**): the channel, and the version.
 
 - **Stable** (the default): the releases everyone gets. **Latest** follows the newest release and offers each update, as the launcher always has. Pick a specific release instead to install it and stay on it: no update is offered until you pick Latest again.
 - **Experimental**: every GitHub prerelease (for example `0.8.1-beta.1` or `0.9.0-alpha.1`). Each one tests its own new features, so you pick the one you want to try; there is no Latest here, and nothing updates by itself. Until you pick one, you keep the version you have. The old Testing channel is gone: a launcher that was on Testing is moved to Stable with Latest.
