@@ -100,11 +100,12 @@ void StaticTab::revert() {
     }
 }
 
-// A live row moved: the picture with this tab's changes so far, at once (nothing is saved).
+// A live row moved: the picture with this tab's live changes so far, at once (nothing is saved). Only the live rows: another row's
+// set may write the game ini directly (a phone's Upscaler row), which would then apply before the save and survive a discard.
 void StaticTab::preview(int, int) {
     S s = play::current_settings();
     for (int i = 0; i < count_; ++i)
-        if (cur[i] != orig[i] && !is_key_row(rows_[i])) rows_[i].set(s, cur[i]);
+        if (rows_[i].live && cur[i] != orig[i] && !is_key_row(rows_[i])) rows_[i].set(s, cur[i]);
     extras::set_picture_live(s.extras.picture);
     extras::set_scene_scale_live(s.extras.upscale.scene_scale);   // a phone's Resolution row: the scene size follows at once
     extras::set_upscale_sharpness_live(static_cast<float>(s.extras.upscale.sharpness));   // a phone's Sharpness row: SGSR 2's sharpening follows at once

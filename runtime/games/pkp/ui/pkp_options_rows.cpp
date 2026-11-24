@@ -108,7 +108,7 @@ void res_set(S&, int pos) {   // the game ini at once: the scene follows from th
 }
 constexpr Row live_row(Row r) { r.live = true; return r; }
 // A phone's one Upscaler row: Off, SGSR ([pkp] scene_upscaler) or SGSR 2 ([upscale] mode sgsr2, temporal): the 3D picture alone, enlarged
-// in one step to the screen; menus native. Each choice clears the other key (and FSR 1 of older builds). Applies at once.
+// in one step to the screen; menus native. Each choice clears the other key (and FSR 1 of older builds). Applies on save.
 int phone_upscaler_get(const S& s) {
     if (s.extras.upscale.mode == extras::UpscaleMode::Sgsr2) return 2;
     return settings::get_int(settings::Key::SceneUpscaler) != 0 ? 1 : 0;
