@@ -832,7 +832,7 @@ jobs:
           sudo apt-get install -y -q --no-install-recommends g++ ninja-build pkg-config libvulkan-dev libx11-dev libxext-dev \
             libxrandr-dev libxi-dev libxcursor-dev libxfixes-dev libxss-dev libxtst-dev libwayland-dev libwayland-bin \
             libxkbcommon-dev libdrm-dev libudev-dev libasound2-dev libpulse-dev libgbm-dev libdbus-1-dev \
-            libgl1-mesa-dev libfribidi-dev libthai-dev fonts-dejavu-core
+            libgl1-mesa-dev libfribidi-dev libthai-dev fonts-dejavu-core glslang-tools
 
       - name: CMake
         run: |
@@ -849,7 +849,7 @@ jobs:
                 -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
                 -DPython3_EXECUTABLE="$(command -v python3)" \
                 "-DNXRT_DEPS_DIR=$PWD/build/deps" \
-                -DPKP_RT_DLL=ON -DPKP_RELEASE=ON "-DPKP_VERSION=$VERSION"
+                -DPKP_RT_DLL=ON -DPKP_RELEASE=ON -DNXRT_UPSCALER_FSR3=ON "-DPKP_VERSION=$VERSION"
           cmake --build build/rtdll --target pkp_rt
           file build/rtdll/libpkp_rt.so
           # the same export check as linux-runtime: the exe resolves its exports through this list
