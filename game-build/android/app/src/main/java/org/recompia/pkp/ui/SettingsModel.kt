@@ -104,8 +104,10 @@ object SettingsModel {
                 Option("0", R.string.ui_set_fps_detail_0), Option("1", R.string.ui_set_fps_detail_1), Option("2", R.string.ui_set_fps_detail_2))),
             // the phone's one Upscaler row (runtime pkp_options_rows phone_upscaler_get/set): Off / SGSR = pkp.ini [pkp] scene_upscaler 0/1,
             // SGSR 2 = controls.ini [upscale] mode sgsr2 (readOne / write keep the two keys exclusive, as the in-game row does)
+            // SGSR 2 is not offered on the low-memory profile (lowMemoryProfile; the runtime runs a stored sgsr2 as SGSR there)
             Choice(PHONE_UPSCALER, File.PKP, "pkp", "scene_upscaler", R.string.ui_set_upscale, "1", listOf(
-                Option("0", R.string.ui_set_upscale_off), Option("1", text = "SGSR"), Option("2", text = "SGSR 2")), note = R.string.ui_set_upscale_note),
+                Option("0", R.string.ui_set_upscale_off), Option("1", text = "SGSR")) + if (lowMemoryProfile()) emptyList() else listOf(Option("2", text = "SGSR 2")),
+                note = R.string.ui_set_upscale_note),
         ), note = R.string.ui_set_display_note)
         val game = Group(R.string.ui_set_game, listOf(
             Choice("language", c, "tweaks", "language", R.string.ui_set_language, controls.def("tweaks", "language"),
@@ -137,6 +139,9 @@ object SettingsModel {
 
     private fun fileOf(f: File) = if (f == File.PKP) Paths.pkpIni else Paths.controlsIni
 
+    /** The low-memory profile (PhoneDefaults writes [gfx] present_scale below 100 there, the runtime's own test): no SGSR 2. */
+    private fun lowMemoryProfile(pkp: Ini = Ini.load(fileOf(File.PKP))) = (pkp.get("gfx", "present_scale")?.trim()?.toIntOrNull() ?: 100) < 100
+
     const val PHONE_UPSCALER = "phone_upscaler"
     const val RESOLUTION = "resolution"
 
@@ -147,7 +152,7 @@ object SettingsModel {
     }
 
     private fun readOne(r: Row, inis: Map<File, Ini>): Pair<String, String> =
-            if (r.id == PHONE_UPSCALER && inis[File.CONTROLS]!!.get("upscale", "mode")?.trim()?.lowercase() == "sgsr2") r.id to "2"
+            if (r.id == PHONE_UPSCALER && !lowMemoryProfile(inis[File.PKP]!!) && inis[File.CONTROLS]!!.get("upscale", "mode")?.trim()?.lowercase() == "sgsr2") r.id to "2"
             else when (r) {
                 is Toggle -> r.id to (inis[r.file]!!.get(r.section, r.key)?.let { if (truthy(it)) "1" else "0" } ?: if (r.def) "1" else "0")
                 is Choice -> r.id to (inis[r.file]!!.get(r.section, r.key)?.ifBlank { null } ?: r.def)

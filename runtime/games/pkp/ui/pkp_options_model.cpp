@@ -15,7 +15,8 @@
 namespace nxrt::games::pkp::options_detail {
 namespace {
 
-int row_hi(const Row& r) { return r.choices ? r.choices - 1 : r.max ? r.max() : r.hi; }
+int row_choices(const Row& r) { return r.choices && r.choices_now ? std::clamp<int>(r.choices_now(), 1, r.choices) : r.choices; }
+int row_hi(const Row& r) { return r.choices ? row_choices(r) - 1 : r.max ? r.max() : r.hi; }
 
 bool is_key_row(const Row& r) { return r.key != settings::Key::Count; }
 int key_position(const Row& r, double v) { return static_cast<int>(std::lround((v - settings::spec(r.key).lo) / r.unit)); }
@@ -48,12 +49,12 @@ void save_key(const Row& r, int pos) {
 Shape StaticTab::shape(int i) const {
     const Row& r = rows_[i];
     const Use use = r.capture ? Use::Capture : r.live ? Use::Live : Use::Value;
-    return Shape{r.choices, r.lo, row_hi(r), use};
+    return Shape{static_cast<uint8_t>(row_choices(r)), r.lo, row_hi(r), use};
 }
 
 const char* StaticTab::value_text(int i, int pos, char* out, size_t n) const {
     const Row& r = rows_[i];
-    if (r.choices) return r.names[std::clamp(pos, 0, r.choices - 1)];
+    if (r.choices) return r.names[std::clamp(pos, 0, row_choices(r) - 1)];
     if (r.capture) return capture::text(*r.capture, out, n);
     if (r.text) return r.text(pos, out, n);
     if (r.list) return r.list[std::clamp(pos - r.lo, 0, r.hi - r.lo)];
