@@ -460,7 +460,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::ReleaseGate: return coop::linkqueue::on_release_gate(c, addr - st().base);
         case Site::RequestSend: return coop::linkqueue::on_send_request(c);
         case Site::OwnerApply: return coop::owner::on_owner_apply(c);
-        case Site::OwnerPress: return coop::owner::on_press(c);
+        case Site::OwnerPress: coop::pclock::on_press(c); return coop::owner::on_press(c);
         case Site::OwnerNotice: return coop::owner::on_notice(c);
         case Site::OwnerRefused: return coop::owner::on_grant_reply(c);
         case Site::TakeoutStore: return coop::takeout::on_remove_store(c);
@@ -586,6 +586,7 @@ void game_frame(::Ctx* c) {
     coop::trace::tick(s.in_game.load(std::memory_order_relaxed));
     coop::digest::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::records::tick(s.in_game.load(std::memory_order_relaxed));
+    coop::levels::tick();
     coop::skits::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::answers::tick();
     coop::friendship::tick(c);
@@ -646,6 +647,7 @@ void remove() {   // the registry has removed the hooks
     coop::feed::reset();
     coop::session::reset();
     coop::records::reset();
+    coop::levels::reset();
     coop::skits::reset();
     coop::answers::reset();
     coop::jobs::reset();

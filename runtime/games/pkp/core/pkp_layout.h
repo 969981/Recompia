@@ -23,6 +23,13 @@ constexpr uint64_t kSaveAreaLevelMirror = 0x1718490;  // u8[32] the host's level
 constexpr uint64_t kSaveCloudLevel = 0xfd84a7;        // u8 Cloud Island's level
 constexpr uint8_t kCloudStage = 0x11;
 constexpr size_t kAreaStages = 32;
+constexpr uint64_t kLevelOf = 0x58042c;               // (stage) -> u8 the Environment Level the game reads here
+// GM + this: the stage-change record (u32 phase, 0xffffffff idle; a filer files only from phase 5 up). Active while the phase is below 5.
+constexpr uint64_t kStageRecord = 0x3bb600;
+constexpr uint32_t kStageRecordReady = 5;
+// The PC's object (class vtable main + this): +0x4c a press waits to open, +0x4e its menu is open. Slot 48, 0x7d5b04(obj), is its cancel.
+constexpr uint64_t kPcClass = 0x326b918, kPcCancel = 0x7d5b04;
+constexpr uint64_t kPcPending = 0x4c, kPcMenuOpen = 0x4e;
 constexpr size_t kGateHistoryBytes = 32;
 constexpr uint64_t kSaveLastGate = 0x13d3a59;         // u8 STGDAT m_lastGate (the current stage's)
 constexpr uint64_t kSaveSkitInGate = 0x7416d1;        // u8 m_playSkitInGateNum

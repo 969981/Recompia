@@ -1,4 +1,4 @@
-# source-sha256: 5cbb87d01e3e7fefcc22735bcc5a27585b9aca77f56d6fbef640c1799de09fb6
+# source-sha256: d6310ed7d7eb81d86b916c15f73219d3a4906f290a306160f96e58d37ce17989
 यह अंग्रेज़ी README का मशीनी अनुवाद है, इसमें गलतियाँ हो सकती हैं, और अंग्रेज़ी README ही आधिकारिक है।
 
 Recompia @VERSION@ Linux, SteamOS और Steam Deck के लिए

@@ -103,20 +103,21 @@ struct Record {
     uint64_t at;         // base + : the record's first byte
     size_t size;         // bytes copied
     bool per_area;       // taken only in the authority's area
+    bool settle;         // sent only once the area is settled (session::area_settled): its bytes are the area data's, not the save's
     uint64_t stride = 1; // byte i is at base + at + i * stride
 };
 constexpr uint64_t kOpenAreasAt =
     layout::kChallengeAreas + layout::kChallengeAreaSize + layout::kChallengeAreaOpen;   // area 1's open byte
 constexpr Record kRecords[] = {
-    {1, "effect commands", Base::Save, layout::kSaveEffectCommands, layout::kEffectCommandsBytes, true},
-    {2, "town flags", Base::Save, layout::kSaveTownFlags, layout::kTownRecordBytes, false},
-    {3, "town targets", Base::Save, layout::kSaveTownTargets, layout::kTownRecordBytes, false},
-    {4, "stage flags", Base::Save, layout::kSaveStageFlags, layout::kStageFlagsBytes, false},
-    {5, "hint groups", Base::Save, layout::kSaveHintGroups, layout::kHintGroupsBytes, false},
-    {6, "materials drop", Base::Save, layout::kSaveDrop, layout::kDropRecordBytes, false},
-    {7, "campaign history", Base::Save, layout::kSaveCampaignHistory, layout::kCampaignHistoryBytes, false},
-    {8, "cleaning count", Base::Save, layout::kSaveCleanCount, 1, false},
-    {9, "open areas", Base::Challenges, kOpenAreasAt, layout::kChallengeAreaMax, true, layout::kChallengeAreaSize},
+    {1, "effect commands", Base::Save, layout::kSaveEffectCommands, layout::kEffectCommandsBytes, true, true},
+    {2, "town flags", Base::Save, layout::kSaveTownFlags, layout::kTownRecordBytes, false, false},
+    {3, "town targets", Base::Save, layout::kSaveTownTargets, layout::kTownRecordBytes, false, false},
+    {4, "stage flags", Base::Save, layout::kSaveStageFlags, layout::kStageFlagsBytes, false, false},
+    {5, "hint groups", Base::Save, layout::kSaveHintGroups, layout::kHintGroupsBytes, false, false},
+    {6, "materials drop", Base::Save, layout::kSaveDrop, layout::kDropRecordBytes, false, false},
+    {7, "campaign history", Base::Save, layout::kSaveCampaignHistory, layout::kCampaignHistoryBytes, false, false},
+    {8, "cleaning count", Base::Save, layout::kSaveCleanCount, 1, false, false},
+    {9, "open areas", Base::Challenges, kOpenAreasAt, layout::kChallengeAreaMax, true, false, layout::kChallengeAreaSize},
 };
 constexpr size_t kCount = sizeof kRecords / sizeof kRecords[0];
 constexpr size_t kMaxBytes = layout::kTownRecordBytes;
@@ -162,7 +163,6 @@ struct State {
     Copy sent[kCount];                 // what was sent last, per record
     double sent_at = -1e9, all_at = -1e9;
     bool send_all = true;
-    int settled_stage = -1;            // the area play last ran in (-1: none yet)
     // A member.
     Copy theirs[kCount];               // the authority's latest copy
     Copy written[kCount];              // what this save held right after the last write or check (the own-writes baseline)
@@ -173,11 +173,6 @@ struct State {
 State& st() {
     static State s;
     return s;
-}
-
-uint8_t area_stage() {
-    const uint64_t gm = guest::rd<uint64_t>(base() + layout::kGameState);
-    return guest::ok(gm, layout::kStateStage + 1) ? guest::rd<uint8_t>(gm + layout::kStateStage) : 0;
 }
 
 // The record's first byte here, or 0 when its save or manager is not there.
@@ -243,18 +238,20 @@ void send(bool in_game) {
     // Not gated on in_game: that is play mode's "playing", false under every game menu, choice box and talk box, so the authority,
     // whose player is in one most of the time, sent only in the gaps (alpha 6: copies 32..110 s apart, changes waiting up to 40 s).
     // Reading its own save is safe on the game thread at any time; only the effect-command record (STGDAT) is held after a stage
-    // change until play has run in the new area once, so a copy is never taken from the area data while it loads.
+    // change until the area is settled (session::area_settled: play ran in it, or its stage held and no stage change is running), so
+    // a copy is never taken from the area data while it loads. The open-areas record is the challenge manager's own bytes: sent as
+    // soon as the manager exists (a value read just after a stage change is corrected by the next change look).
     if (!link::is_authority() || !(session_bits() & layout::kSessionOnline) || !link::member_count() || !local_player()) return;
-    const uint8_t stage = area_stage();
-    if (in_game) s.settled_stage = stage;
+    const uint8_t stage = session::area_stage();
     const double now = qpc::seconds();
     if (now - s.sent_at < kSendEvery) return;
     s.sent_at = now;
     const bool all = s.send_all || now - s.all_at >= kAllEvery;
+    const bool settled = session::area_settled(in_game);
     for (size_t i = 0; i < kCount; ++i) {
         const Record& rec = kRecords[i];
         const uint64_t at = record_at(rec);
-        if (!at || (rec.per_area && s.settled_stage != stage)) continue;   // sent once settled: its stage then differs from the last
+        if (!at || (rec.settle && !settled)) continue;   // sent once settled: its stage then differs from the last
         std::array<uint8_t, kMaxBytes> bytes;
         read_record(rec, at, bytes.data());
         const uint8_t* now_bytes = bytes.data();
@@ -287,7 +284,7 @@ bool member_safe(bool in_game) {
 void take(bool in_game) {
     State& s = st();
     if (!member_safe(in_game)) return;
-    const uint8_t stage = area_stage();
+    const uint8_t stage = session::area_stage();
     for (size_t i = 0; i < kCount; ++i) {
         const Record& rec = kRecords[i];
         const Copy& t = s.theirs[i];
@@ -376,6 +373,14 @@ void on_session_change() {
 }
 
 void on_member_joined() { st().send_all = true; }
+
+bool applied(uint8_t id) {
+    const State& s = st();
+    for (size_t i = 0; i < kCount; ++i)
+        if (kRecords[i].id == id)
+            return s.written[i].have && (!kRecords[i].per_area || s.written[i].stage == session::area_stage());
+    return false;
+}
 
 void reset() { st() = State{}; }
 

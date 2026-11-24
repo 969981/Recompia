@@ -24,6 +24,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- The app's own update from the project's GitHub releases (update/Updater.kt); "Install unknown apps" is asked once -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:label="Recompia"
@@ -76,5 +78,12 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Local compilation of the user's own game files, runs for tens of minutes" />
         </service>
+
+        <!-- The update's install status, and the restart after the app replaced itself -->
+        <receiver android:name=".update.InstallReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

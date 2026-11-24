@@ -28,7 +28,7 @@ object PhoneDefaults {
     /** Adreno 740 and newer that the bundled Turnip (Mesa 26.3.1) knows: its device table has FD740, FD740v3, FD750, Adreno 753 and the
      *  Adreno 8xx parts 810, 829, 830, 840. Update this set with the Turnip build. */
     val TURNIP_740_PLUS = setOf(740, 750, 753, 810, 829, 830, 840)
-    /** The top class: Adreno 740 or newer (Snapdragon 8 Gen 2 and later; measured on a Galaxy Z Fold 6 with an Adreno 750, and a newer
+    /** The top class: Adreno 740 or newer (Snapdragon 8 Gen 2 and later; measured on a Snapdragon 8 Gen 3 foldable with an Adreno 750, and a newer
      *  GPU should not get less) on Turnip, and only where the bundled Turnip knows the GPU (the game runs on Turnip). */
     fun foldClass(f: Facts) = f.turnip && (adreno(f) ?: 0) in TURNIP_740_PLUS
     /** An Adreno 740+ the bundled Turnip does not list: cautious defaults, and Home says the GPU is untested. */
@@ -121,7 +121,7 @@ object PhoneDefaults {
     /** A fresh install writes every key; an existing ini keeps the player's values and only gains what is missing. */
     private const val GIB = 1L shl 30
     val FOLD = Facts(19 * GIB, "Adreno (TM) 750", true, true, "/data/user/0/org.recompia.pkp/cache", 2160, 1856)
-    val PIXEL7A = Facts(11 * GIB, "Mali-G710", false, false, "/data/user/0/org.recompia.pkp/cache", 2400, 1080)
+    val MALI_8GB = Facts(11 * GIB, "Mali-G710", false, false, "/data/user/0/org.recompia.pkp/cache", 2400, 1080)
     val OTHER = Facts(16 * GIB, "Adreno (TM) 650", true, false, "/data/user/0/org.recompia.pkp/cache")
     val ELITE = Facts(16 * GIB, "Adreno (TM) 830", true, false, "/data/user/0/org.recompia.pkp/cache")
 
@@ -134,23 +134,23 @@ object PhoneDefaults {
         check(fi.get("gfx", "ui_native") == null && fi.get("nvn", "depth_ro_keep") == "1" && fi.get("latency", "grid") == "false" &&
             fi.get("nvn", "compute_shadows") == "false" && fi.get("memory", "heap_gb") == "9" && fi.get("gfx", "present_scale") == null)
         check(fc.get("upscale", "mode") == "off" && fc.get("upscale", "scene_auto") == null && fi.get("upscale", "scene_auto") == null)
-        val (pi, pc) = fresh(PIXEL7A)
+        val (pi, pc) = fresh(MALI_8GB)
         check(pi.get("pkp", "resolution") == "50" && pc.get("display", "fps_limit") == "30") { pi.text() + pc.text() }
-        check(pi.get("memory", "heap_section") == "1" && pi.get("memory", "section_dir") == PIXEL7A.cacheDir && pi.get("nvn", "shader_preload_mb") == "0" &&
+        check(pi.get("memory", "heap_section") == "1" && pi.get("memory", "section_dir") == MALI_8GB.cacheDir && pi.get("nvn", "shader_preload_mb") == "0" &&
             pi.get("nvn", "pool_ahb") == "off" && pi.get("gfx", "present_scale") == "75" && pi.get("pkp", "menu_in_game") == "0") { pi.text() }
         val (oi, oc) = fresh(OTHER)
         check(oi.get("pkp", "resolution") == "40" && oc.get("display", "fps_limit") == "30") { oi.text() + oc.text() }
-        check(!foldClass(FOLD.copy(turnip = false)) && foldClass(FOLD) && foldClass(ELITE) && !foldClass(OTHER) && lowMemory(PIXEL7A) && !lowMemory(FOLD))
+        check(!foldClass(FOLD.copy(turnip = false)) && foldClass(FOLD) && foldClass(ELITE) && !foldClass(OTHER) && lowMemory(MALI_8GB) && !lowMemory(FOLD))
         check(untestedGpu(ELITE.copy(gpu = "Adreno (TM) 850")) && !foldClass(ELITE.copy(gpu = "Adreno (TM) 850")) && !untestedGpu(FOLD))
         check(performance(ELITE).first == "55" && performance(FOLD.copy(foldable = false)).first == "50" && performance(FOLD).first == "35" &&
-            performance(OTHER).second == "30" && performance(PIXEL7A).second == "30")
+            performance(OTHER).second == "30" && performance(MALI_8GB).second == "30")
         // an earlier build's keys keep their pixels: a foldable's near-square inner screen at Maximum 70 and Resolution 100 is 62 % of the screen
         check(migratedResolution(Ini.parse("[display]\nrender_scale = 70\n[upscale]\nscene_scale = 100\n"), FOLD) == "62")
         check(migratedResolution(Ini.parse("[display]\nrender_scale = 70\n[upscale]\nscene_scale = 57\n"), FOLD.copy(screenW = 2376, screenH = 968)) == "45")
-        check(migratedResolution(Ini.parse("[display]\nrender_scale = auto\n"), PIXEL7A) == "100" && migratedResolution(Ini.parse(""), FOLD) == null)
+        check(migratedResolution(Ini.parse("[display]\nrender_scale = auto\n"), MALI_8GB) == "100" && migratedResolution(Ini.parse(""), FOLD) == null)
         val old = Ini.parse("[gfx]\r\nui_native = 0\r\npresent_scale = 83\r\n[latency]\r\ngrid = true\r\n[nvn]\r\npool_copy_mb = 768\r\ncompute_shadows = true\r\n[memory]\r\nheap_gb = 8\r\n")
         val oldControls = Ini.parse("[display]\nwindow_mode = windowed\nfps_limit = 60\nrender_scale = 50\n[upscale]\nmode = fsr1\nscene_scale = 80\n")
-        check(apply(old, oldControls, "/sdcard/Recompia", PIXEL7A))   // missing keys are added, retired choices converted
+        check(apply(old, oldControls, "/sdcard/Recompia", MALI_8GB))   // missing keys are added, retired choices converted
         check(oldControls.get("display", "fps_limit") == "60" && oldControls.get("display", "window_mode") == "windowed" &&
             oldControls.get("upscale", "mode") == "off" && old.get("pkp", "scene_upscaler") == "1" && old.get("pkp", "resolution") == "40") { oldControls.text() + old.text() }
         check(old.get("gfx", "ui_native") == "0" && old.get("latency", "grid") == "true" && old.get("gfx", "present_scale") == "75") { old.text() }

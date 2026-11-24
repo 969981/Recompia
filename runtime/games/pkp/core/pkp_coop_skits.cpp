@@ -76,7 +76,6 @@ struct State {
     std::array<bool, kIds> sent_have{};
     double sent_at = -1e9, all_at = -1e9;
     bool send_all = true;
-    int settled_stage = -1;
     // A member.
     std::array<Talk, kIds> theirs{};
     std::array<bool, kIds> known{};
@@ -95,10 +94,6 @@ State& st() {
 }
 
 uint64_t save_root() { return guest::rd<uint64_t>(base() + layout::kSaveRoot); }
-uint8_t area_stage() {
-    const uint64_t gm = guest::rd<uint64_t>(base() + layout::kGameState);
-    return guest::ok(gm, layout::kStateStage + 1) ? guest::rd<uint8_t>(gm + layout::kStateStage) : 0;
-}
 
 // The record 0x3b2278 reads for this data id on this process (Cloud Island excluded by the callers), or 0.
 uint64_t record_of(uint64_t root, uint16_t id) {
@@ -122,8 +117,8 @@ Talk read_talk(uint64_t at) {
 void send(bool in_game) {
     State& s = st();
     if (!link::is_authority() || !(session_bits() & layout::kSessionOnline) || !link::member_count() || !local_player()) return;
-    const uint8_t stage = area_stage();
-    if (in_game) s.settled_stage = stage;
+    const uint8_t stage = session::area_stage();
+    const bool settled = session::area_settled(in_game);
     const double now = qpc::seconds();
     if (now - s.sent_at < kSendEvery || stage == layout::kStageCloudIsland) return;
     s.sent_at = now;
@@ -132,7 +127,7 @@ void send(bool in_game) {
     const bool all = s.send_all || now - s.all_at >= kAllEvery;
     std::vector<uint16_t> ids;
     for (uint16_t id = 1; id < kIds; ++id) {
-        if (id == kProfessor && s.settled_stage != stage) continue;   // stage data: only once play ran in this area
+        if (id == kProfessor && !settled) continue;   // stage data: only once this area is settled
         const uint64_t at = record_of(root, id);
         if (!at) continue;
         const Talk t = read_talk(at);
@@ -173,7 +168,7 @@ void take(::Ctx* c, bool in_game) {
     const double now = qpc::seconds();
     if (now - s.scan_at < kScanEvery || !member_safe(in_game)) return;
     s.scan_at = now;
-    const uint8_t stage = area_stage();
+    const uint8_t stage = session::area_stage();
     const uint64_t root = save_root();
     if (!root || stage == layout::kStageCloudIsland) return;
     size_t applied = 0;

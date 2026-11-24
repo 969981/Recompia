@@ -109,7 +109,7 @@
 ### In-game settings
 Press **F1** in the game to change graphics, controls and sound (volume, output device, mute when the window is in the background). Most changes apply straight away.
 
-On Android, open the game's pause menu, then **Settings**: the phone's display rows are on the **Display** tab (see [Android settings](#android-settings)).
+On Android, open the game's pause menu, then **Settings**: the phone's display rows are on the **Display** and **Performance** tabs (see [Android settings](#android-settings)).
 
 ## Quick start
 
@@ -163,12 +163,16 @@ The app's **Settings** has the display, touch controls, gameplay, Link Play and 
 
 | Setting | What it does |
 |---|---|
-| **Maximum Resolution** | The highest resolution of the 3D picture (100% is 1920 x 1080). Takes effect at the next start. The first start picks 70% on Snapdragon 8 Gen 2 and newer with the Turnip driver, 50% elsewhere. |
-| **Resolution** | The 3D picture's resolution, from the maximum down to about half of it. Menus and text stay sharp. Changes at once: lower it if the phone gets hot or slow. |
-| **Upscaler** | **SGSR** (Snapdragon Game Super Resolution, the default) or **Bicubic** sharpen the enlarged 3D picture, menus stay sharp. **FSR 1** sharpens the whole picture and costs more frame rate. **Off** stretches it. |
 | **Frame Rate Limit** | Each choice is a whole number of the screen's refreshes. 30 by default; lower runs cooler and steadier. |
+| **Resolution** | The 3D picture's resolution, from 15% to 100% of the screen per side. Menus and text stay sharp. Changes at once: lower it if the phone gets hot or slow. The first start picks a share of the screen that suits the phone's GPU. |
+| **Dynamic Resolution** | Off by default. Lowers the resolution below the one above while the GPU falls behind, and raises it back up to it. **Dynamic Resolution Mode** picks **GPU Time** or **Heat** (also holds it below what keeps the phone from throttling). |
 
-**Dynamic Resolution** (on the **Graphics** tab, off by default) lets the game lower its resolution by itself when the GPU falls behind.
+And on the **Performance** tab:
+
+| Setting | What it does |
+|---|---|
+| **Upscaler** | **SGSR** (Snapdragon Game Super Resolution, the default and the recommended choice: cheaper and steadier) sharpens the enlarged 3D picture. **SGSR 2** builds more detail over several frames, but costs more and can shimmer slightly while moving; it is not offered on phones with the low memory profile. **Off** stretches the picture. Menus stay sharp either way. Applies when the settings are saved. |
+| **Sharpness** | How much SGSR 2 sharpens its picture (SGSR does not use it). Changes at once. |
 
 ## Mods and translations
 

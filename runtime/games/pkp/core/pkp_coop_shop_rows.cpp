@@ -79,6 +79,7 @@ struct State {
     std::vector<Row> rows;     // the authority's set (index entry - 1), empty until it arrives
     uint8_t day = 0;
     double applied_at = -1e9;
+    bool written = false;      // the set is in this member's copy of the shop (apply ran)
 };
 State& st() {
     static State s;
@@ -155,13 +156,14 @@ uint64_t fnv(const std::vector<uint8_t>& v) {
     return h;
 }
 
-// The game's own builder runs only in the world, and nobody needs the rows without a member: no pass then.
+// The game's own builder needs the area's data loaded (session::area_settled: play ran in it, or its stage held and no stage change
+// runs: under a menu or a talk too), and nobody needs the rows without a member: no pass then.
 void tick_authority(::Ctx* c, bool in_game) {
     State& s = st();
     const double now = qpc::seconds();
     const uint64_t cm = manager();
     const uint64_t root = guest::rd<uint64_t>(base() + layout::kSaveRoot);
-    if (!in_game || !link::member_count() || !cm || !root || !guest::ok(root + kRecords, (kEntryMax + 1) * 8) ||
+    if (!session::area_settled(in_game) || !link::member_count() || !cm || !root || !guest::ok(root + kRecords, (kEntryMax + 1) * 8) ||
         !guest::ok(root + kLineup, kLineupDay - kLineup + 1) || stage() == layout::kStageCloudIsland) {
         s.next = 0;
         return;
@@ -214,6 +216,7 @@ void apply() {
         set_hint(cm, r.hint1, r.bits & kHint1);
     }
     guest::wr<uint32_t>(cm + kDay, s.day);
+    s.written = true;
 }
 
 void tick_member() {
@@ -253,9 +256,12 @@ void tick(::Ctx* c, bool in_game) {
     else tick_member();
 }
 
+bool applied() { return st().written; }
+
 void on_session_change() {
     State& s = st();
     s.rows.clear();
+    s.written = false;
     s.applied_at = -1e9;
     s.sent = false;
     s.next = 0;

@@ -15,7 +15,8 @@
 namespace nxrt::games::pkp::options_detail {
 namespace {
 
-int row_hi(const Row& r) { return r.choices ? r.choices - 1 : r.max ? r.max() : r.hi; }
+int row_choices(const Row& r) { return r.choices && r.choices_now ? std::clamp<int>(r.choices_now(), 1, r.choices) : r.choices; }
+int row_hi(const Row& r) { return r.choices ? row_choices(r) - 1 : r.max ? r.max() : r.hi; }
 
 bool is_key_row(const Row& r) { return r.key != settings::Key::Count; }
 int key_position(const Row& r, double v) { return static_cast<int>(std::lround((v - settings::spec(r.key).lo) / r.unit)); }
@@ -48,12 +49,12 @@ void save_key(const Row& r, int pos) {
 Shape StaticTab::shape(int i) const {
     const Row& r = rows_[i];
     const Use use = r.capture ? Use::Capture : r.live ? Use::Live : Use::Value;
-    return Shape{r.choices, r.lo, row_hi(r), use};
+    return Shape{static_cast<uint8_t>(row_choices(r)), r.lo, row_hi(r), use};
 }
 
 const char* StaticTab::value_text(int i, int pos, char* out, size_t n) const {
     const Row& r = rows_[i];
-    if (r.choices) return r.names[std::clamp(pos, 0, r.choices - 1)];
+    if (r.choices) return r.names[std::clamp(pos, 0, row_choices(r) - 1)];
     if (r.capture) return capture::text(*r.capture, out, n);
     if (r.text) return r.text(pos, out, n);
     if (r.list) return r.list[std::clamp(pos - r.lo, 0, r.hi - r.lo)];
@@ -100,11 +101,12 @@ void StaticTab::revert() {
     }
 }
 
-// A live row moved: the picture with this tab's changes so far, at once (nothing is saved).
+// A live row moved: the picture with this tab's live changes so far, at once (nothing is saved). Only the live rows: another row's
+// set may write the game ini directly (a phone's Upscaler row), which would then apply before the save and survive a discard.
 void StaticTab::preview(int, int) {
     S s = play::current_settings();
     for (int i = 0; i < count_; ++i)
-        if (cur[i] != orig[i] && !is_key_row(rows_[i])) rows_[i].set(s, cur[i]);
+        if (rows_[i].live && cur[i] != orig[i] && !is_key_row(rows_[i])) rows_[i].set(s, cur[i]);
     extras::set_picture_live(s.extras.picture);
     extras::set_scene_scale_live(s.extras.upscale.scene_scale);   // a phone's Resolution row: the scene size follows at once
     extras::set_upscale_sharpness_live(static_cast<float>(s.extras.upscale.sharpness));   // a phone's Sharpness row: SGSR 2's sharpening follows at once

@@ -109,6 +109,7 @@ static void set_viewports_and_scissors() {
         } else {
             vp[i] = vk_viewport_of(S.vp[i][0], S.vp[i][1], S.vp[i][2], S.vp[i][3], i);
         }
+        const float x = vp[i].x, y = vp[i].height < 0 ? vp[i].y + vp[i].height : vp[i].y, w = vp[i].width, h = std::fabs(vp[i].height);
         if (i < S.nsc) sc[i] = scissor_rect(S.sc[i]);
         else sc[i] = {{0, 0}, P.extent};
         if constexpr (facts::kPhone)

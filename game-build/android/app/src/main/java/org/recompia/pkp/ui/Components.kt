@@ -293,10 +293,11 @@ fun ChoiceRow(label: String, options: List<Pair<String, String>>, selected: Stri
 
 /** A tappable list row with icon, title, detail and an optional trailing text. */
 @Composable
-fun NavRow(icon: ImageVector, title: String, onClick: () -> Unit, modifier: Modifier = Modifier, detail: String? = null, trailing: String? = null) {
+fun NavRow(icon: ImageVector, title: String, onClick: () -> Unit, modifier: Modifier = Modifier, detail: String? = null, trailing: String? = null,
+           background: Color = Rc.surface1) {
     val shape = RoundedCornerShape(Rc.radiusMd)
     Row(
-        modifier.fillMaxWidth().heightIn(min = 64.dp).clip(shape).background(Rc.surface1)
+        modifier.fillMaxWidth().heightIn(min = 64.dp).clip(shape).background(background)
             .focusRing(shape).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),

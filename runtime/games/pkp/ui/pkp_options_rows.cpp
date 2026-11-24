@@ -108,11 +108,13 @@ void res_set(S&, int pos) {   // the game ini at once: the scene follows from th
 }
 constexpr Row live_row(Row r) { r.live = true; return r; }
 // A phone's one Upscaler row: Off, SGSR ([pkp] scene_upscaler) or SGSR 2 ([upscale] mode sgsr2, temporal): the 3D picture alone, enlarged
-// in one step to the screen; menus native. Each choice clears the other key (and FSR 1 of older builds). Applies at once.
+// in one step to the screen; menus native. Each choice clears the other key (and FSR 1 of older builds). Applies on save.
 int phone_upscaler_get(const S& s) {
-    if (s.extras.upscale.mode == extras::UpscaleMode::Sgsr2) return 2;
+    if (s.extras.upscale.mode == extras::UpscaleMode::Sgsr2 && !extras::low_memory_phone()) return 2;
     return settings::get_int(settings::Key::SceneUpscaler) != 0 ? 1 : 0;
 }
+// Off and SGSR only on the low-memory profile (SGSR 2 is not offered there, extras low_memory_phone).
+uint8_t phone_upscaler_choices() { return extras::low_memory_phone() ? 2 : 3; }
 void phone_upscaler_set(S& s, int v) {
     s.extras.upscale.mode = v == 2 ? extras::UpscaleMode::Sgsr2 : extras::UpscaleMode::Off;
     settings::set_int(settings::Key::SceneUpscaler, v == 1 ? 1 : 0);   // the game ini, like a key row
@@ -261,8 +263,9 @@ const Row kPerformance[] = {
                  upscaler_text, upscaler_max, upscaler_get, upscaler_set), not_phone),
     when(number("Sharpness", "How much FSR 1, FSR 3 or SGSR 2 sharpens the picture.", 0, 20, "%.2f", 0, 0.05, ROW_STEP(extras.upscale.sharpness, 0.0, 0.05)), not_phone),
     // a phone's Upscaler and its Sharpness sit here too, at the same place as the desktop's (the Display tab keeps Resolution)
-    when(choice("Upscaler", "Sharpens the enlarged 3D picture: SGSR (Snapdragon Game Super Resolution), or SGSR 2, which builds detail over several "
-                "frames; menus stay sharp.", {"Off", "SGSR", "SGSR 2"}, 3, phone_upscaler_get, phone_upscaler_set), nxrt::host_is_phone),
+    when(with_choices(choice("Upscaler", "Sharpens the enlarged 3D picture. SGSR is recommended: cheaper and steadier. SGSR 2 builds more detail over several "
+                "frames, but costs more and can shimmer slightly while moving.", {"Off", "SGSR", "SGSR 2"}, 3, phone_upscaler_get, phone_upscaler_set),
+                     phone_upscaler_choices), nxrt::host_is_phone),
     when(live_row(number("Sharpness", "How much SGSR 2 sharpens its picture; SGSR does not use it. Higher is crisper, and fine detail can shimmer more.", 0,
                          20, "%.2f", 0, 0.05, ROW_STEP(extras.upscale.sharpness, 0.0, 0.05))), nxrt::host_is_phone),
     when(number("Scene Resolution", "Renders the 3D scene smaller and keeps the menus sharp. 100% turns it off.", 25, 100, "%.0f%%", 0, 1, ROW_INT(extras.upscale.scene_scale)), not_phone),
@@ -436,7 +439,11 @@ constexpr size_t most_shown(const Row (&r)[N]) {
     }
     return std::max(phone, other);
 }
+// GCC 11 (the Linux release runners, Ubuntu 22.04) cannot compare two different functions' addresses in a constant expression; GCC 12+,
+// clang and MSVC can, so every other build still checks this.
+#if defined(__clang__) || !defined(__GNUC__) || __GNUC__ >= 12
 static_assert(most_shown(kDisplay) <= static_cast<size_t>(kDirtySlot), "no machine shows more Display rows than a tab has slots");
+#endif
 
 constinit const RowList kSoundRows = rows_of(kSound), kDisplayRows{kDisplay, static_cast<int>(std::size(kDisplay))}, kPerformanceRows = rows_of(kPerformance),
                         kGraphicsRows = rows_of(kGraphics), kPictureRows = rows_of(kPicture), kMouseRows = rows_of(kMouse),

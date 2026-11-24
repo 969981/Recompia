@@ -171,6 +171,10 @@ struct ModuleObj : Obj {
 };
 
 // ---- handle plumbing (os_posix.cpp) -------------------------------------------------------------------------------
+// The two Win32 pseudo-handles, GetCurrentProcess() = (HANDLE)-1 and GetCurrentThread() = (HANDLE)-2: never objects.
+constexpr DWORD kPseudoProcess = static_cast<DWORD>(-1);
+constexpr DWORD kPseudoThread = static_cast<DWORD>(-2);
+
 Obj* as_obj(HANDLE h);
 
 template <typename T>
@@ -181,6 +185,7 @@ T* as(HANDLE h, Kind k) {
 
 void retain(Obj* o);
 void release(Obj* o);
+void release_named_mutex(MutexObj* m);   // release() of a named mutex: drops the name with the last handle (os_posix_sync.cpp)
 
 // ---- names other processes see (os_posix_named.cpp) ---------------------------------------------------------------
 // Holds `name` for this process until the returned fd is closed; *others = another process holds it too. -1 when no
@@ -197,7 +202,7 @@ bool past(const struct timespec& ts);
 bool signaled_of(Obj* o);
 void consume(Obj* o);
 
-// ---- shared identity and conversion helpers ----------------------------------------------------------------------
+// ---- the calling thread (os_posix_thread.cpp) --------------------------------------------------------------------
 DWORD self_tid();
 ThreadObj* self_thread();   // the calling thread's object, created on first use
 ThreadObj* thread_if_known();   // the calling thread's object, or nullptr; never allocates (callable from a signal handler)
@@ -213,6 +218,8 @@ bool signal_resume(ThreadObj* t, DWORD* prev);
 bool signal_context(ThreadObj* t, CONTEXT* ctx);
 void note_kernel_tid(ThreadObj* t);   // on the thread itself, when it starts
 #endif
+
+// ---- shared conversion helpers (os_posix.cpp) --------------------------------------------------------------------
 uint64_t filetime_of(const struct timespec& ts);
 void set_filetime(FILETIME* ft, uint64_t v);
 std::string native_path(const char* p);   // backslashes to slashes

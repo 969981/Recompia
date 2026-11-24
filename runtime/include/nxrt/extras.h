@@ -45,6 +45,8 @@ inline UpscaleMode upscale_mode_enabled(UpscaleMode m) {
 // The mode can run here: Off and the spatial ones always; FSR 3 when the FidelityFX API is found (temporal_ffx_available: built in on Linux, its DLLs on Windows);
 // DLSS / DLAA when the Streamline DLLs are found (the GPU check runs when the renderer starts them). The settings rows list these.
 bool upscale_mode_available(UpscaleMode m);
+// A phone on the low-memory profile (the app sets [gfx] present_scale below 100 there): SGSR 2 is not offered and a stored sgsr2 runs as Off.
+bool low_memory_phone();
 // Temporal quality preset: the input scale per side (native 1, quality 1/1.5, balanced 1/1.7, performance 1/2, ultra performance 1/3); Custom
 // keeps scene_scale. The scale only takes effect where the game renders the scene below its output (scene_scale); otherwise the temporal
 // upscalers run at the input size (native anti-aliasing).

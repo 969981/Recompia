@@ -19,7 +19,7 @@
 //
 // Phones (facts::kPhone) keep the title for a press: there the written result left the title's layer up after the load (its key guide
 // stayed on screen in the house, every menu the player opened closed again at once and Leave never fired, so the player never got
-// outside and the session never started; Pixel 7a, alpha 14 and 16, the same save and group a desktop visitor played). One press of A
+// outside and the session never started; a Tensor G2 phone, alpha 14 and 16, the same save and group a desktop visitor played). One press of A
 // runs the title's own path, as before alpha 14. The mark is still cleared on phones.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"

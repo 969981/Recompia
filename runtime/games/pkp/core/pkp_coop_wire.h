@@ -123,6 +123,9 @@
 //               unlock condition 0 / 1 met, 3 / 4 hint 0 / 1 met, 7 the row has an area), u16 lineup price, u32 lineup slot word, u16
 //               hint 0, u16 hint 1   (the authority's answer for every row, as the game's kind-8 record has it; when it changes,
 //               every 30 s and when a member joins)
+//   ---- the Environment Levels (pkp_coop_levels.cpp) ----
+//   AreaLevels  +2 u8 count n (32), n bytes: the authority's own level of each stage 0..31   (when a member joins, when a level
+//               changes and every 30 s)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -224,6 +227,8 @@ enum class Type : uint32_t {
     StockAsk = 64,
     // ---- the shared shop rows (pkp_coop_shop_rows.cpp) ----
     ShopRows = 65,
+    // ---- the Environment Levels (pkp_coop_levels.cpp) ----
+    AreaLevels = 66,
 };
 
 // Builds one payload: the header, then the fields in order.

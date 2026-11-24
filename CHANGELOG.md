@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+**Update.** Saves and shaders are kept; no game shaders are rebuilt. On Android, install the new APK over the old one once; later versions update from inside the app.
+
+### Gameplay
+- Fixed a co-op member who pressed the PC right after joining being stuck in place until the host's data arrived, and the member's shop rows and open areas staying empty while the host was in a menu or a talk
+
+### Linux & Steam Deck
+- Fixed FSR 3 showing as unavailable in native Linux releases.
+
+### Android
+- Added updates from inside the app: Home shows when a new release is out, with its notes, and **Update** downloads the APK from the official release page, checks it against the release's checksum and installs it (Android confirms the first one). **Settings > Updates** has **Check for updates automatically** (on) and **Check now**
+
 ## 0.17.5 (build U: Urchin Hotfix a1)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for storage box tabs; saves and shaders are kept, no shader is translated again). On Android, install the new APK over the old one: the app builds the game library again once (faster phone code), and saves, settings and shaders are kept.

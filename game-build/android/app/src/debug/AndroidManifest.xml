@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Debug builds only: activities show over the lock screen and wake it, so adb test runs work on a locked phone. -->
+<!-- Debug builds only: activities show over the lock screen and wake it, so adb test runs work on a locked phone; plain http is
+     allowed so the update flow can be walked through against a local releases list (update-feed.txt, Releases.kt). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
-    <application>
+    <application android:usesCleartextTraffic="true">
         <activity android:name=".ui.MainActivity" android:showWhenLocked="true" android:turnScreenOn="true" />
         <!-- test builds only: adb starts the game directly; release keeps it unexported -->
         <activity android:name=".GameActivity" android:showWhenLocked="true" android:turnScreenOn="true" android:exported="true" tools:replace="android:exported" />

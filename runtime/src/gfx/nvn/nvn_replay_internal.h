@@ -780,7 +780,6 @@ struct SceneOverride {   // owner: nvn_replay_upscale.cpp
     bool stretch_armed = false;
     const Texture* chain = nullptr;   // after a 1:1 copy of the scene: the copy's target, the only input the re-armed stretch may read
     bool skip_draw = false;        // a phone: the scene upscale wrote the stretch's target itself (scene_stretch_for_draw), the draw is skipped
-    const Texture* chain = nullptr;   // after a 1:1 copy of the scene: the copy's target, the only input the re-armed stretch may read
     bool nearest(const Texture* t) const {
         for (uint32_t i = 0; i < near_n; ++i) if (near[i] == t) return true;
         return false;
@@ -804,6 +803,10 @@ bool tsr_jitter(uint32_t* words, size_t n_words);
 // compute results reach only the GPU's copy), and the frame before ran the pass (a frame that is not upscaled must not be jittered).
 constexpr size_t kTsrMaxWords = 256;   // 1 KiB (temporal_camera_block checks the block's length)
 bool tsr_cam_copy(uint64_t addr, uint32_t* words);
+// The target marker's ground tiles: their own projection block, given the frame's jitter (marker_draw: this draw is one; marker_jitter: false
+// when the frame has no jitter).
+bool marker_draw(int stage, int slot, uint64_t size);
+bool marker_jitter(float* vp);
 // Temporal upscaling at any other uniform block binding: true when the block holds this frame's unjittered view-projection or its inverse
 // (found once per stage, slot, fragment program and size) and is settled in guest memory; the caller then binds a copy that
 // tsr_other_patch gives the jittered matrices.

@@ -27,10 +27,10 @@ constexpr Area kArea = Area::Travel;
 
 // GM = *(main+layout::kGameState). The stage-change record (TRAVEL-RE 1, SEAMLESS-COOP-RE 5): +0 u32 phase, +4 u32 kind, +8 stage,
 // +9 arg, +0xc u32, +0x10..+0x15 flags.
-constexpr uint64_t kRecord = 0x3bb600;
+constexpr uint64_t kRecord = layout::kStageRecord;
 constexpr size_t kRecordBytes = 0x16;
 constexpr uint32_t kIdle = 0xffffffffu;
-constexpr uint32_t kRecordReady = 5;               // a filer files only from phase 5 up (below it the filers refuse silently)
+constexpr uint32_t kRecordReady = layout::kStageRecordReady;               // a filer files only from phase 5 up (below it the filers refuse silently)
 constexpr uint64_t kFrameState = 0x84828;          // GM: u32, the game frame's state: 1..0x10 boot steps, 0x11 the simulation (P0-RE 889)
 constexpr uint64_t kSessionBackup = 0x10;          // GM: u8 low byte of the u16 the stage entry sets (0xbe5f0 tests & 0x81)
 constexpr uint64_t kTripRequest = 0x48;            // GM: the trip request 0xbcde0 fills and 0x113b460 submits (0x48 bytes up to GM+0x90)

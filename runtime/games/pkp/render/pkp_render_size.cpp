@@ -74,6 +74,12 @@ float phone_res_install(const play::DisplaySettings& d, int window_w, int window
         settings::set_int(settings::Key::SceneUpscaler, 1);
         NXLOG_I(kTag, "scene upscaler: bicubic (an earlier build's 2) is now SGSR");
     }
+    // SGSR 2 is not offered on the low-memory profile (extras low_memory_phone): a stored sgsr2 runs as Off there, so SGSR takes its place
+    if (extras::low_memory_phone() && play::current_settings().extras.upscale.mode == extras::UpscaleMode::Sgsr2 &&
+        settings::get_int(settings::Key::SceneUpscaler) == 0) {
+        settings::set_int(settings::Key::SceneUpscaler, 1);
+        NXLOG_I(kTag, "scene upscaler: SGSR in place of SGSR 2, which the low-memory profile does not offer");
+    }
     const double per_pct = static_cast<double>(window_w) / std::max(1, tw) / 100.0;   // render scale per percent of the screen
     const int lowest = static_cast<int>(std::ceil(0.25 / per_pct - 1e-6));
     const int ceiling = top >= 100 ? 100 : std::clamp(phone_res_setting(), std::min(std::max(lowest, 50), top), top);

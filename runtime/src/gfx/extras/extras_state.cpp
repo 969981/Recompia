@@ -9,6 +9,7 @@
 #include <mutex>
 
 #include "nxrt/config.h"
+#include "nxrt/host_device.h"
 #include "nxrt/log.h"
 #include "nxrt/text.h"
 #include "extras/hdr_math.h"
@@ -36,7 +37,19 @@ std::atomic<bool> g_pic_active{false};
 std::atomic<uint32_t> g_seq{0};
 HdrState g_state;
 
+// The modes this build has (upscale_mode_enabled), and on a low-memory phone no SGSR 2: there it showed its first frame and then fell
+// back to no upscaling every frame, a known fault not yet found; the game layer turns SGSR on in its place (pkp_render_size.cpp).
+UpscaleMode upscale_mode_here(UpscaleMode m) {
+    m = upscale_mode_enabled(m);
+    if (m != UpscaleMode::Sgsr2 || !low_memory_phone()) return m;
+    static std::atomic<bool> told{false};
+    if (!told.exchange(true)) NXLOG_I("extras", "upscale: SGSR 2 is not offered on the low-memory phone profile, so it runs as Off here (SGSR in its place)");
+    return UpscaleMode::Off;
+}
+
 }  // namespace
+
+bool low_memory_phone() { return host_is_phone() && config_get_int("gfx", "present_scale", 100) < 100; }
 
 const char* output_kind_name(OutputKind k) {
     switch (k) {
@@ -61,7 +74,7 @@ Settings settings_from_config() {
 
     const std::string um = lower(config_get_str("upscale", "mode", "off"));
     s.upscale.mode = um == "fsr1" || um == "spatial" ? UpscaleMode::Fsr1 : um == "fsr3" ? UpscaleMode::Fsr3 : um == "dlss" ? UpscaleMode::Dlss : um == "xess" ? UpscaleMode::Xess : um == "nis" ? UpscaleMode::Nis : um == "dlaa" ? UpscaleMode::Dlaa : um == "nearest" ? UpscaleMode::Nearest : um == "sgsr2" ? UpscaleMode::Sgsr2 : UpscaleMode::Off;
-    s.upscale.mode = upscale_mode_enabled(s.upscale.mode);
+    s.upscale.mode = upscale_mode_here(s.upscale.mode);
     const std::string uq = lower(config_get_str("upscale", "quality", "quality"));
     s.upscale.quality = uq == "native" || uq == "nativeaa" || uq == "aa" ? UpscaleQuality::Native : uq == "balanced" ? UpscaleQuality::Balanced
                       : uq == "performance" ? UpscaleQuality::Performance : uq == "ultra_performance" || uq == "ultraperformance" ? UpscaleQuality::UltraPerformance
@@ -115,7 +128,7 @@ void set_scene_scale_live(int pct) { g_scene_scale.store(std::clamp(pct, 25, 100
 
 void set_settings(const Settings& in) {
     Settings s = in;
-    s.upscale.mode = upscale_mode_enabled(s.upscale.mode);
+    s.upscale.mode = upscale_mode_here(s.upscale.mode);
     std::lock_guard<std::mutex> lk(g_mu);
     g_settings = s;
     g_settings_set = true;

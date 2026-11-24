@@ -573,20 +573,27 @@ static VkDescriptorSet build_set_resolved(const ProgLayout& pl, uint32_t set) {
                         uint32_t tsr_words[kTsrMaxWords];
                         const bool tsr = d.nvn_stage == g_tsr.stage && idx == g_tsr.slot && bind.size >= g_tsr.bytes && extras::temporal_wanted() && S.depth_tex &&
                                          tsr_cam_copy(bind.addr, tsr_words);
+                        float marker_vp[16];   // the target marker's projection, jittered (marker_jitter)
+                        bool marker = false;
+                        if (!tsr && marker_draw(d.nvn_stage, idx, bind.size) && gw_settled_fast(bind.addr, 64) && !out_overlaps(bind.addr, 64)) {
+                            std::memcpy(marker_vp, host_ptr(bind.addr), sizeof marker_vp);
+                            marker = marker_jitter(marker_vp);
+                        }
                         bool tsr_other = false;
-                        if (!tsr && extras::temporal_wanted()) {   // the camera's copies in this block: scanned only as far as guest memory backs it
+                        if (!tsr && !marker && extras::temporal_wanted()) {   // the camera's copies in this block: scanned only as far as guest memory backs it
                             const BufRef bo = resolve_read(bind.addr, bind.size, kReadUniform);
                             tsr_other = bo.ok && tsr_other_wanted(d.nvn_stage, idx, bind.addr, std::min<uint64_t>(bind.size ? bind.size : 65536, bo.avail));
                         }
-                        if (ufs == 1.0f && !tsr && !tsr_other && uniform_snapshot(bind.addr, bind.size, align, &bi)) break;   // from video memory
+                        if (ufs == 1.0f && !tsr && !tsr_other && !marker && uniform_snapshot(bind.addr, bind.size, align, &bi)) break;   // from video memory
                         BufRef br = resolve_read(bind.addr, bind.size, kReadUniform);
-                        if (br.ok && (ufs != 1.0f || tsr || tsr_other)) {
+                        if (br.ok && (ufs != 1.0f || tsr || tsr_other || marker)) {
                             // the game's scale on some floats of this block (nxrt/gfx_tuning.h): bound from a patched copy in the upload ring
                             const VkDeviceSize n = std::min<VkDeviceSize>({bind.size ? bind.size : 65536, br.avail, 65536});
                             UploadAlloc u = F->upload(n, std::max<VkDeviceSize>(align, 256));
                             if (u) {
                                 std::memcpy(u.ptr, host_ptr(bind.addr), n);
                                 if (tsr && n >= g_tsr.bytes) std::memcpy(u.ptr, tsr_words, g_tsr.bytes);   // temporal upscaling: the jittered camera
+                                if (marker && n >= 64) std::memcpy(u.ptr, marker_vp, sizeof marker_vp);   // ... and the marker's projection
                                 if (tsr_other) tsr_other_patch(static_cast<uint8_t*>(u.ptr), static_cast<size_t>(n));   // ... and its copies elsewhere
                                 const uint32_t mask = ufs == 1.0f ? 0u : d.nvn_stage == kCompute ? nxrt::gfx::tuning().csr_mask.load(std::memory_order_relaxed)
                                                                                  : nxrt::gfx::tuning().ufs_mask.load(std::memory_order_relaxed);

@@ -129,7 +129,9 @@ if(NOT NXRT_WINDOWS)
     # Android: the default model. bionic refuses to dlopen a library with initial-exec TLS, and the app dlopens libpkp_rt.so. At
     # android-30 the default is TLSDESC, whose resolver is a few loads once the thread's block for the library exists; the block is
     # made on the thread's first access to any of the library's thread-locals, and every runtime thread writes t_tid / t_self when it
-    # starts or is adopted (os_posix.cpp), so a handler never makes it on such a thread.
+    # starts or is adopted (os_posix_thread.cpp), so a handler never makes it on such a thread.
+    # The shim's files that define thread-locals, all on the one model: t_last_error (os_posix.cpp), t_tid / t_self
+    # (os_posix_thread.cpp), the handler's own (os_posix_seh.cpp).
     if(APPLE)
         set(_nxrt_tls_model "-ftls-model=local-exec")
     elseif(NOT NXRT_ANDROID)
@@ -137,6 +139,8 @@ if(NOT NXRT_WINDOWS)
     endif()
     if(_nxrt_tls_model)
         set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/src/os/os_posix.cpp"
+                                    "${CMAKE_CURRENT_SOURCE_DIR}/src/os/os_posix_thread.cpp"
+                                    "${CMAKE_CURRENT_SOURCE_DIR}/src/os/os_posix_seh.cpp"
                                     PROPERTIES COMPILE_OPTIONS "${_nxrt_tls_model}")
     endif()
 endif()

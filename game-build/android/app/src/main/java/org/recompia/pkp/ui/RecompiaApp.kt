@@ -22,6 +22,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import org.recompia.pkp.GameLauncher
+import org.recompia.pkp.update.Updater
 
 object Routes {
     const val SETUP = "setup"
@@ -34,6 +35,7 @@ object Routes {
     const val ABOUT = "about"
     const val HELP = "help"
     const val COOP = "coop"
+    const val UPDATE = "update"
 }
 
 @Composable
@@ -42,7 +44,8 @@ fun RecompiaApp(keyNav: MutableState<Boolean>) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val nav = rememberNavController()
     val start = androidx.compose.runtime.remember { if (ui.setupDone) Routes.HOME else Routes.SETUP }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refresh() }
+    val ctx = LocalContext.current
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refresh(); Updater.onResume(ctx) }
     RecompiaTheme {
         ProvideKeyNav(keyNav) {
             Surface(Modifier.fillMaxSize(), color = Rc.bg) {
@@ -63,11 +66,12 @@ fun RecompiaApp(keyNav: MutableState<Boolean>) {
                     }
                     composable(Routes.HOME) { HomeScreen(vm, nav) }
                     composable(Routes.BUILD) { BuildPage(vm, onBack = { nav.popBackStack() }, onChangeFiles = { openSetup(vm, nav, SetupStep.DUMP) }) }
-                    composable(Routes.SETTINGS) { SettingsScreen(onBack = { nav.popBackStack() }) }
+                    composable(Routes.SETTINGS) { SettingsScreen(onBack = { nav.popBackStack() }, onUpdate = { nav.navigate(Routes.UPDATE) }) }
                     composable(Routes.STORAGE) { StorageScreen(vm, onBack = { nav.popBackStack() }) }
                     composable(Routes.SAVES) { SavesScreen(vm, onBack = { nav.popBackStack() }) }
                     composable(Routes.LOGS) { LogsScreen(onBack = { nav.popBackStack() }) }
                     composable(Routes.ABOUT) { AboutScreen(onBack = { nav.popBackStack() }) }
+                    composable(Routes.UPDATE) { UpdatePage(onBack = { nav.popBackStack() }) }
                     composable(Routes.HELP) { HelpScreen(onBack = { nav.popBackStack() }) }
                     composable(Routes.COOP) {
                         CoopScreen(ui.status == GameStatus.READY || ui.status == GameStatus.SHADERS_MISSING, onBack = { nav.popBackStack() })
