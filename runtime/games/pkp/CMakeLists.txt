@@ -45,6 +45,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop_tutorials.cpp"
         "${_pkp}/core/pkp_coop_hints.cpp"
         "${_pkp}/core/pkp_coop_purchases.cpp"
+        "${_pkp}/core/pkp_coop_purchase_world.cpp"
         "${_pkp}/core/pkp_coop_stock.cpp"
         "${_pkp}/core/pkp_coop_shop_rows.cpp"
         "${_pkp}/core/pkp_coop_pclock.cpp"
