@@ -62,11 +62,12 @@ fun HomeScreen(vm: AppViewModel, nav: NavHostController) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val job by vm.job.collectAsStateWithLifecycle()
     val wide = isWide()
+    val coop = remember { coopSaves() }   // read again each time Home comes back from Co-op
     ArtBackground(sharp = true) {
-        val hero: @Composable ColumnScope.() -> Unit = { Hero(vm, ui, job, nav) }
+        val hero: @Composable ColumnScope.() -> Unit = { Hero(vm, ui, job, nav, coop) }
         val more: @Composable ColumnScope.() -> Unit = {
             HeapNotice(ui)
-            CoopCard(ui.status == GameStatus.READY || ui.status == GameStatus.SHADERS_MISSING)
+            CoopEntry(coop) { nav.navigate(Routes.COOP) }
             ControllerCard()
             QuickSettings()
             Menu(nav, ui)
@@ -92,7 +93,7 @@ fun HomeScreen(vm: AppViewModel, nav: NavHostController) {
 }
 
 @Composable
-private fun Hero(vm: AppViewModel, ui: UiState, job: org.recompia.pkp.build.BuildState, nav: NavHostController) {
+private fun Hero(vm: AppViewModel, ui: UiState, job: org.recompia.pkp.build.BuildState, nav: NavHostController, coop: List<org.recompia.pkp.Coop.Profile>) {
     val act = activity()
     val pickShaders = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::importShaders) }
     Image(painterResource(R.drawable.ui_logo), stringResource(R.string.ui_app_name), Modifier.widthIn(max = 380.dp).fillMaxWidth())
@@ -140,6 +141,9 @@ private fun Hero(vm: AppViewModel, ui: UiState, job: org.recompia.pkp.build.Buil
             PlayButton(stringResource(R.string.ui_view_progress), Icons.Rounded.Build) { nav.navigate(Routes.BUILD) }
         }
     }
+    // a co-op save is played from its own button, under Play and never in its place (Play stays the singleplayer game)
+    if (coop.isNotEmpty() && (ui.status == GameStatus.READY || ui.status == GameStatus.SHADERS_MISSING))
+        PlayCoopButton(coop, onOpen = { nav.navigate(Routes.COOP) }, modifier = Modifier.fillMaxWidth().widthIn(max = 480.dp))
     val ctx = LocalContext.current
     val session = ui.session
     if (ui.lastPlayed > 0) Text(
@@ -262,3 +266,31 @@ private fun HeapNotice(ui: UiState) {
     if (PhoneDefaults.untestedGpu(f)) Text(stringResource(R.string.ui_gpu_untested, f.gpu), style = MaterialTheme.typography.bodyMedium, color = Rc.warn)
     if (!PhoneDefaults.foldClass(f)) Text(stringResource(R.string.ui_defaults_cautious), style = MaterialTheme.typography.bodyMedium, color = Rc.text2)
 }
+
+// ---- previews: Home's play area and co-op row, with and without a co-op save (the rest of Home needs the app's state) ----------------
+
+@Composable
+private fun HomeCoopPreview(coop: List<org.recompia.pkp.Coop.Profile>) = RecompiaTheme {
+    ArtBackground(sharp = true) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+            Column(Modifier.weight(0.5f), verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically)) {
+                Image(painterResource(R.drawable.ui_logo), null, Modifier.widthIn(max = 380.dp).fillMaxWidth())
+                Pill(stringResource(R.string.ui_status_ready), Rc.accent, Rc.tintAccent, Icons.Rounded.CheckCircle)
+                PlayButton(stringResource(R.string.ui_play), Icons.Rounded.PlayArrow) {}
+                if (coop.isNotEmpty()) PlayCoopButton(coop, {}, Modifier.fillMaxWidth().widthIn(max = 480.dp))
+            }
+            Column(Modifier.weight(0.5f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                CoopEntry(coop) {}
+                ControllerCard()
+            }
+        }
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Home, foldable inner, no co-op save", widthDp = 882, heightDp = 640)
+@Composable
+private fun HomeNoCoopPreview() = HomeCoopPreview(emptyList())
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Home, foldable inner, one co-op save", widthDp = 882, heightDp = 640)
+@Composable
+private fun HomeCoopSavePreview() = HomeCoopPreview(previewSaves)

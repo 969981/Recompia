@@ -33,6 +33,7 @@ object Routes {
     const val LOGS = "logs"
     const val ABOUT = "about"
     const val HELP = "help"
+    const val COOP = "coop"
 }
 
 @Composable
@@ -68,6 +69,9 @@ fun RecompiaApp(keyNav: MutableState<Boolean>) {
                     composable(Routes.LOGS) { LogsScreen(onBack = { nav.popBackStack() }) }
                     composable(Routes.ABOUT) { AboutScreen(onBack = { nav.popBackStack() }) }
                     composable(Routes.HELP) { HelpScreen(onBack = { nav.popBackStack() }) }
+                    composable(Routes.COOP) {
+                        CoopScreen(ui.status == GameStatus.READY || ui.status == GameStatus.SHADERS_MISSING, onBack = { nav.popBackStack() })
+                    }
                 }
             }
         }
