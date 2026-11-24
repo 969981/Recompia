@@ -27,32 +27,47 @@ struct Begun {
 }
 
 /// Asks the portal about this device's account: None when it needs no new passkey.
-fn begin(portal: &Portal, dir: &Path) -> Result<Option<Begun>, String> {
-    let certificate = device::certificate_pem(dir)?;
+fn begin(portal: &Portal, dir: &Path) -> Result<Option<Begun>, Fault> {
+    let certificate = device::certificate_pem(dir).map_err(Fault::Network)?;
     let answer = match portal.post("/api/recover/device/begin", &serde_json::json!({ "certificate": certificate })) {
         Ok(a) => a,
         Err(Fault::Status(404, _)) => return Ok(None),
-        Err(e) => return Err(e.text()),
+        Err(e) => return Err(e),
     };
     if answer.get("needed").and_then(|n| n.as_bool()) != Some(true) {
         return Ok(None);
     }
-    let unusable = || "the portal sent an unusable answer".to_string();
+    let unusable = || Fault::Status(200, "the portal sent an unusable answer".into());
     let ceremony = answer.get("ceremony").and_then(|c| c.as_str()).ok_or_else(unusable)?.to_string();
     let challenge = answer.get("challenge").and_then(|c| c.as_str()).and_then(|c| B64URL.decode(c).ok()).filter(|c| c.len() >= 16).ok_or_else(unusable)?;
     Ok(Some(Begun { ceremony, challenge }))
 }
 
-/// Whether the account this device is signed in to needs a new passkey (its old ones were made for another address).
-pub fn needed(portal: &str, dir: &Path) -> Result<bool, String> {
-    begin(&Portal::new(portal)?, dir).map(|b| b.is_some())
+/// What the portal says about this device's account.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Need {
+    /// Its passkeys were made for another address: it needs a new one, and this device can get it one.
+    Passkey,
+    /// It can sign in.
+    Nothing,
+    /// The portal does not know this device (revoked there, or signed in at another portal): nothing to recover with.
+    Stranger,
+}
+
+pub fn needed(portal: &str, dir: &Path) -> Result<Need, String> {
+    match begin(&Portal::new(portal)?, dir) {
+        Ok(Some(_)) => Ok(Need::Passkey),
+        Ok(None) => Ok(Need::Nothing),
+        Err(Fault::Status(403, _)) => Ok(Need::Stranger),
+        Err(e) => Err(e.text()),
+    }
 }
 
 /// The one-time address of the portal's page that makes the account a new passkey, for this PC's browser. None: the
 /// account needs none.
 pub fn link(portal: &str, dir: &Path) -> Result<Option<String>, String> {
     let portal = Portal::new(portal)?;
-    let Some(begun) = begin(&portal, dir)? else { return Ok(None) };
+    let Some(begun) = begin(&portal, dir).map_err(|e| e.text())? else { return Ok(None) };
     let dev = device::load(dir)?;
     let rng = ring::rand::SystemRandom::new();
     let key = ring::signature::EcdsaKeyPair::from_pkcs8(&ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING, dev.key.secret_der(), &rng)

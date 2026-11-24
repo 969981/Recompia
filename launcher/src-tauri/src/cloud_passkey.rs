@@ -37,15 +37,16 @@ fn known() -> std::sync::MutexGuard<'static, Option<Known>> {
     KNOWN.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn learned(key: &str, dir: &Path, portal: &str, answer: Result<bool, String>) {
+fn learned(key: &str, dir: &Path, portal: &str, answer: Result<recover::Need, String>) {
     let mut slot = known();
     let Some(k) = slot.as_mut().filter(|k| k.key == key) else { return };
     k.asking = false;
     k.asked = Instant::now();
     match answer {
-        Ok(needed) => {
-            k.needed = Some(needed);
-            if !needed && device::summary(dir).is_ok_and(|s| s.portal.trim_end_matches('/') != portal) {
+        Ok(need) => {
+            k.needed = Some(need == recover::Need::Passkey);
+            // a sign-in the portal knows, and that is fine, belongs to today's portal from here on (not a stranger's)
+            if need == recover::Need::Nothing && device::summary(dir).is_ok_and(|s| s.portal.trim_end_matches('/') != portal) {
                 if let Err(e) = device::set_portal(dir, portal) {
                     eprintln!("cloud account: {e}");
                 }
@@ -100,7 +101,7 @@ pub async fn cloud_passkey_begin(app: AppHandle) -> Result<Value, String> {
         // it has one already (made on another device, perhaps): say so at the next state
         None => {
             if let Ok(s) = device::summary(&dir) {
-                learned(&format!("{}\n{portal}", s.device), &dir, &portal, Ok(false));
+                learned(&format!("{}\n{portal}", s.device), &dir, &portal, Ok(recover::Need::Nothing));
             }
         }
     }
