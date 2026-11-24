@@ -59,6 +59,7 @@ constexpr Route kRoutes[] = {
     {wire::Type::StockAsk, Path::ToAuthority, &stock::on_ask_message},
     {wire::Type::StockState, Path::FromAuthority, &stock::on_state_message},
     {wire::Type::ShopRows, Path::FromAuthority, &shoprows::on_rows_message},
+    {wire::Type::AreaLevels, Path::FromAuthority, &levels::on_levels_message},
     {wire::Type::EventHistory, Path::Shared, &events::on_history_message},
     {wire::Type::StoryLines, Path::Shared, &events::on_lines_message},
     {wire::Type::DexKnown, Path::Shared, &discovery::on_dex_message},
@@ -198,6 +199,7 @@ void on_member(const ch::MemberEvent& e) {
         money::on_session_change();
         digest::on_session_change();
         records::on_session_change();
+        levels::on_session_change();
         skits::on_session_change();
         NXLOG_I(kTag, "Co-op: %s the session's channel as node %d%s", e.joined ? "in" : "out of", e.node, e.authority ? " (the authority)" : "");
         if (e.joined && e.authority != (role() == CoopRole::Host))
@@ -220,6 +222,7 @@ void on_member(const ch::MemberEvent& e) {
         shoprows::on_member_joined();
         bags::on_member_joined(e.node);
         records::on_member_joined();
+        levels::on_member_joined();
         skits::on_member_joined();
         friendship::on_member_joined(e.node);
     }

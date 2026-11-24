@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Game layer: seamless co-op's shared-state digests (pkp_coop_internal.h digest, the State* messages in pkp_coop_wire.h). Logging only:
-// nothing here changes the game. What the shared parts promise is that every member ends with the authority's quest states, abilities,
+// nothing here changes the game or writes a save. What the shared parts promise is that every member ends with the authority's quest states, abilities,
 // the dex, habitats, recipes, unlock lists and played scenes (and, logged the same way, the area levels, gates and open areas the game reads). When one member does not (a dex entry that reached 3 players of 4),
 // each part's own lines say what it applied, but not that the result differs. So:
 //   - the authority sends every member a digest of each domain (a hash of its set entries and their count) every kDigestEvery seconds;
 //   - a member compares its own. One differing digest can be a change still on its way, so only a domain that differs in two digests
 //     in a row is a MISMATCH (Warn): the member asks for the authority's entries (StateAsk, once per kAskEvery per domain);
-//   - with them (StateFull), the member writes every entry that differs (the authority's value and its own) and sends the first
+//   - with them (StateFull), the member logs every entry that differs (the authority's value and its own) and sends the first
 //     kReportMax of them to the authority (StateReport), which writes them in its own log: a host's log alone shows which member lacks what.
+// The digest writes nothing back. The domains it only watches are carried by their own parts: the area levels (domain 8) by
+// pkp_coop_levels.cpp, the open areas (domain 11) by story record 9 (pkp_coop_records.cpp); a difference that stays is a real fault.
 // Every look writes a line (j.sync digest) when a domain's own hash changed, on every process, so logs can also be compared by hand.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"

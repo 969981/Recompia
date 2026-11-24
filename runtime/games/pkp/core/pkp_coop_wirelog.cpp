@@ -152,6 +152,7 @@ const char* type_name(uint32_t type) {
     case wire::Type::StockState: return "StockState";
     case wire::Type::StockAsk: return "StockAsk";
     case wire::Type::ShopRows: return "ShopRows";
+    case wire::Type::AreaLevels: return "AreaLevels";
     }
     return "?";
 }

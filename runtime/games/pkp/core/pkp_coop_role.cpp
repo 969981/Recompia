@@ -22,6 +22,8 @@
 // A row can have callers that must keep the game's answer (PKP_ROLE_KEEP: a caller that writes the member's own save from it). At
 // such a row the function's frame record (x29 + 8, its caller's x30) is read: a listed caller, or a frame that cannot be read,
 // keeps the game's answer. Each listed caller's `bl` is checked with the row; one that fails leaves the row off.
+// A row can wait for its copy (PKP_ROLE_READY): the host's answer reads what only the authority's records fill (the open areas, the
+// shop rows), so until that copy is in this member's save the game's own answer stands: a vanilla visitor's, not an empty host's.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -78,6 +80,26 @@ constexpr Keep kKeeps[] = {
     {~0ull, 0, 0},
 };
 constexpr size_t kKeepCount = sizeof kKeeps / sizeof kKeeps[0] - 1;
+
+// The copies a row can wait for.
+enum class Ready : uint8_t { OpenAreas, ShopRows };
+struct Wait {
+    uint64_t site;
+    Ready what;
+};
+constexpr Wait kWaits[] = {
+#define PKP_ROLE_ROW(ret, getter, word, tag, what)
+#define PKP_ROLE_BIT(site, reg, bit, word, tag, what)
+#define PKP_ROLE_KEEP(site, fn, from, why)
+#define PKP_ROLE_READY(site, what) {site, Ready::what},
+#include "core/pkp_coop_role_table.inc"
+#undef PKP_ROLE_READY
+#undef PKP_ROLE_KEEP
+#undef PKP_ROLE_BIT
+#undef PKP_ROLE_ROW
+    {~0ull, Ready::OpenAreas},
+};
+constexpr size_t kWaitCount = sizeof kWaits / sizeof kWaits[0] - 1;
 constexpr uint64_t kFrameCaller = 8;   // x29 + : the saved x30 of the frame record
 
 constexpr bool has_keeps(uint64_t site) {
@@ -122,6 +144,15 @@ constexpr bool keeps_listed() {
     }
     return true;
 }
+constexpr bool waits_listed() {
+    for (size_t k = 0; k < kWaitCount; ++k) {
+        bool found = false;
+        for (size_t i = 0; i < kRowCount; ++i) found = found || kRows[i].site == kWaits[k].site;
+        if (!found) return false;
+    }
+    return true;
+}
+static_assert(waits_listed(), "pkp_coop_role_table.inc: a PKP_ROLE_READY names no listed row");
 static_assert(keeps_listed(), "pkp_coop_role_table.inc: a PKP_ROLE_KEEP names no listed row, or an address that is not an instruction");
 
 constexpr uint64_t getter_at(Kind k) { return k == Kind::IsHost ? layout::kIsHost : layout::kIsVisitor; }
@@ -164,6 +195,15 @@ const Row* find(uint64_t site) {
     const Row* end = kRows.data() + kRowCount;
     const Row* r = std::lower_bound(kRows.data(), end, site, [](const Row& row, uint64_t a) { return row.site < a; });
     return r != end && r->site == site ? r : nullptr;
+}
+
+// The row's copy is in this save (a row with no PKP_ROLE_READY always is).
+bool ready(const Row& r) {
+    for (size_t k = 0; k < kWaitCount; ++k) {
+        if (kWaits[k].site != r.site) continue;
+        return kWaits[k].what == Ready::OpenAreas ? records::applied(9) : shoprows::applied();
+    }
+    return true;
 }
 
 bool check_keeps(const Row& r) {
@@ -221,7 +261,7 @@ int on_answer(::Ctx* c, uint64_t site) {
         v = check(*r) ? kGood : kBad;
         s.checked[i].store(v, std::memory_order_release);
     }
-    if (v != kGood || kept(*r, c)) return 0;
+    if (v != kGood || kept(*r, c) || !ready(*r)) return 0;
     uint64_t& reg = r->kind == Kind::SessionBit ? c->x[r->reg] : c->x[0];
     const uint64_t was = reg;
     if (r->kind == Kind::SessionBit) {

@@ -43,6 +43,7 @@
 //                         the game selects and given back at every join; the host's copy of each visitor's bag fed from it
 //   pkp_coop_records.cpp  the authority's story records (effect-command record, town flags and targets, stage flags, hint groups)
 //                         written into every member's own save
+//   pkp_coop_levels.cpp   the authority's Environment Levels (the 32 area-level bytes), filled into every member's save at the join
 //   pkp_coop_role.cpp     the role answers: at the listed permission and display checks (pkp_coop_role_table.inc) a member gets the
 //                         host's answer from the game's role getters
 //   pkp_coop_friendship.cpp a member's friendship gains with a creature made on the authority (the group's), its records shown to all
@@ -93,6 +94,11 @@ void tick(::Ctx* c, bool in_game);
 void reset();
 // The player walks: in the world, no event running, no autosave in progress.
 bool can_walk(bool in_game);
+// The stage the player is in (GM+0x18; 0 while the game state is not there).
+uint8_t area_stage();
+// The area's data is loaded and still: play ran in it (play mode's in_game), or its stage has held for a while and the stage-change
+// record is not active. Holds under a game menu or a talk too, where in_game is false.
+bool area_settled(bool in_game);
 }  // namespace session
 
 namespace link {
@@ -311,12 +317,16 @@ void on_rows_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void tick(::Ctx* c, bool in_game);
 void on_session_change();   // this process joined or left: sent again, a member's set is dropped
 void on_member_joined();    // another member joined: the rows are sent again
+// A member: the authority's rows are written into its copy of the shop, so a bent game answer may read it.
+bool applied();
 void reset();
 }  // namespace shoprows
 
 namespace pclock {
 // The hook site (pkp_coop.cpp): entry 0x1364f4 (SC, u8), the kind-28 notice of the PC's Shop pane (1) and challenges pane (0).
 int on_pane_notice(::Ctx* c);
+// The player's press on an object (midhook 0x313eb4, shared with the owner's: x0 the object, w1 the kind): a member keeps the PC's.
+void on_press(::Ctx* c);
 // Ends a PC menu lock the game's own way cannot end here (once a frame).
 void tick(::Ctx* c, bool in_game);
 void reset();
@@ -622,8 +632,22 @@ void on_record_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void tick(bool in_game);
 void on_session_change();   // this process joined or left: copies forgotten, all records sent again
 void on_member_joined();    // another member joined: all records sent again
+// A member: this record's copy of the authority is in the save (for this area, a per-area record), so a bent game answer may read it.
+bool applied(uint8_t id);
 void reset();
 }  // namespace records
+// ---- the Environment Levels (pkp_coop_levels.cpp): the authority's area levels, filled into every member's save ----
+namespace levels {
+// The message (pkp_coop_link.cpp): a member keeps the authority's 32 levels.
+void on_levels_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// The authority sends its levels at a join, on a change and every so often; a member fills the mirror bytes that are still 0.
+void tick();
+// A member: the fill, at once; how many mirror bytes it wrote.
+size_t fill_now();
+void on_session_change();   // this process joined or left: the copy forgotten, levels sent again
+void on_member_joined();    // another member joined: the levels are sent again
+void reset();
+}  // namespace levels
 // ---- the story talks (pkp_coop_skits.cpp): each character's story talk, its bubble and the objective that follows it ----
 namespace skits {
 // The message (pkp_coop_link.cpp): a member keeps the authority's story talks.

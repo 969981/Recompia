@@ -53,6 +53,10 @@ constexpr double kSearchWait = 2.0;                      // between a visitor's 
 constexpr double kArrivalCover = 16.0, kHintAfter = 6.0, kWarpWait = 1.0, kWarpHold = 0.6, kLeaveCover = 6.0;
 constexpr double kOpenTimeout = 30.0, kSearchTimeout = 15.0, kJoinTimeout = 45.0;
 
+// area_settled: the stage must have held this long before it counts as loaded without play mode's in_game (unverified: a rig run
+// should show the longest load that still leaves the stage-change record idle)
+constexpr double kAreaStable = 10.0;
+
 constexpr uint64_t kWarp = 0x275760;
 constexpr uint64_t kOtherPlayer = layout::kManagerPlayer + 8;
 constexpr unsigned kPlaceTries = 3;
@@ -74,6 +78,9 @@ struct State {
     // The trip home after the session ended (visit role): covered until the player is back in play.
     bool leaving = false, left_world = false;
     double left_at = 0.0;
+    // The stage the player is in and since when (area_settled).
+    int stage = -1;
+    double stage_since = 0.0;
 };
 State& st() {
     static State s;
@@ -200,9 +207,28 @@ bool can_walk(bool in_game) {
     return !(event && guest::ok(event, layout::kEventBusy + 1) && guest::rd<uint8_t>(event + layout::kEventBusy));
 }
 
+uint8_t area_stage() {
+    const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
+    return guest::ok(game, layout::kStateStage + 1) ? guest::rd<uint8_t>(game + layout::kStateStage) : 0;
+}
+
+bool area_settled(bool in_game) {
+    if (in_game) return true;
+    const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
+    if (!guest::ok(game, layout::kStageRecord + 4)) return false;
+    const State& s = st();
+    // The record's phase is below kStageRecordReady while a stage change runs (0xffffffff: idle).
+    return guest::rd<uint8_t>(game + layout::kStateStage) == s.stage && qpc::seconds() - s.stage_since >= kAreaStable &&
+           guest::rd<uint32_t>(game + layout::kStageRecord) >= layout::kStageRecordReady;
+}
+
 void tick(::Ctx* c, bool in_game) {
     State& s = st();
     const double now = qpc::seconds();
+    if (const int stage = area_stage(); stage != s.stage) {
+        s.stage = stage;
+        s.stage_since = now;
+    }
     const bool online = session_bits() & layout::kSessionOnline;
     if (online) {
         if (s.step != Step::Up) {
