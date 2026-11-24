@@ -135,7 +135,7 @@ To start from Steam (Game Mode on the Deck): add the launcher to Steam, either i
 
 **What you need:**
 - An arm64 phone or tablet with Android 11 or later and Vulkan 1.3. It was tested on a Snapdragon 8 Gen 3 (Adreno 750). The included Mesa Turnip driver lists Adreno 6xx, 7xx and 8xx GPUs (Snapdragon 8 Gen 1 to 8 Gen 3 and 8 Elite). 12 GB of RAM is recommended; phones with less get a [low memory profile](#common-problems). Phones with other GPUs (Exynos, Mali and others) use the phone's own driver and cautious defaults, and are far less tested.
-- Your own decrypted dump of the game, version **2.0.1a** (update 655360), as folders: the same folder the PC launcher takes (`base` and `updates`, or `exefs` and `romfs`). About 7.3 GB. The app never downloads game data and includes no game files.
+- Your own decrypted dump of the game, as folders: the same folder the PC launcher takes (`base` and `updates`, or `exefs` and `romfs`). About 7.3 GB. The app never downloads game data and includes no game files.
 - Free space: about 7.3 GB for the game files, 2.6 GB while the game is built (0.6 GB stay) and 6.6 GB for the shaders. Translating the shaders on the phone needs 12 GB free when it starts.
 
 **Set up:**
