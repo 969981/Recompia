@@ -7,6 +7,10 @@
 ### Gameplay
 - Fixed a co-op member who pressed the PC right after joining being stuck in place until the host's data arrived, and the member's shop rows and open areas staying empty while the host was in a menu or a talk
 
+### Launcher
+- Fixed Cloud Islands (Experimental) failing for everyone, sign-in and play, after the account server's old address stopped working: the launcher signs in at the server's new address and connects to the server directly. A PC that was signed in stays signed in
+- Changed the Discord links in the launcher and the READMEs to the current invite
+
 ### Linux & Steam Deck
 - Fixed FSR 3 showing as unavailable in native Linux releases.
 

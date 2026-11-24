@@ -303,7 +303,7 @@ const WRITE = {
 
 const REPO_URL = 'https://github.com/featureJosh/pokopia-recomp';
 const SOURCE_URL = 'https://github.com/Dittobyte/Recompia';
-const DISCORD_URL = 'https://discord.recompia.com';
+const DISCORD_URL = 'https://discord.gg/VyRcUUQNKH';
 const PRIVACY_URL = 'https://github.com/Dittobyte/Recompia/blob/main/PRIVACY.md';
 const open = (url, label = t('Open')) => ({ act: 'open-url', arg: url, label, icon: 'external-link' });
 const hasControls = (src) => src.controls_exists !== false;

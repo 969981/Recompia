@@ -73,7 +73,7 @@ const repackMessage = (r) => {
 
 const QUIET = new Set(['ready', 'no_files', 'setup', 'resume']);
 const LINK_PLAY_LABEL = { off: t('Off'), lan: t('Same network'), internet: t('Internet') };
-const DISCORD_URL = 'https://discord.recompia.com';
+const DISCORD_URL = 'https://discord.gg/VyRcUUQNKH';
 
 export function render(el, ctx) {
   el.innerHTML = `<div class="page home hero-page">

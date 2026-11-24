@@ -13,6 +13,6 @@ Desde Steam (modo Juego en Deck): añade el launcher con Ajustes, Add to Steam, 
 
 Para actualizar, extrae los archivos de la nueva versión sobre los de tu instalación. Si la actualización cambia el código del juego, el launcher te avisa: pulsa Set up otra vez para que vuelva a compilar pkp. Tus sombreadores y partidas guardadas se conservan.
 
-Comunidad y ayuda: https://discord.recompia.com
+Comunidad y ayuda: https://discord.gg/VyRcUUQNKH
 
 Licencias: consulta LICENSE.txt y la carpeta licenses/.
