@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+**Update.** Saves and shaders are kept; no game shaders are rebuilt.
+
+### Linux & Steam Deck
+- Fixed FSR 3 showing as unavailable in native Linux releases.
+
 ## 0.17.5 (build U: Urchin Hotfix a1)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (new game hook points for storage box tabs; saves and shaders are kept, no shader is translated again). On Android, install the new APK over the old one: the app builds the game library again once (faster phone code), and saves, settings and shaders are kept.
