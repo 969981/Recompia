@@ -1,5 +1,7 @@
-// Zonith's Home: its logo, one button that does the next right thing (Install, Update, Play: zonith-model.js heroAction) and its newest
-// releases. Play opens Zonith's own setup window, which builds the game from the player's files and starts it.
+// Zonith's Home: its logo, one button that does the next right thing (Install, Update, Set up, Play: zonith-model.js heroAction) and its
+// newest releases. Set up opens Zonith's own setup window, which builds the game from the player's files in a folder the player picks;
+// Play starts that game. The setup window is another program and says nothing back on Windows, so while this page is shown it looks
+// for the built game again: when the launcher's window gets the focus back, and every few seconds while the button still asks for the setup.
 import './home.css';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
@@ -10,6 +12,7 @@ import { formatDate, highlights } from '../markdown.js';
 import { busy, heroAction, notesOf, versionOf } from '../zonith-model.js';
 
 const CARDS = 3;
+const LOOK_MS = 4000;
 
 function releaseCard(r, z) {
   const date = formatDate(r.date);
@@ -29,6 +32,7 @@ export function render(el, ctx) {
       <div class="hero-actions">
         <button class="btn primary play" id="primary" data-hero-play></button>
         <button class="btn big on-art" id="cancel" data-act="cancel" hidden>${icon('x')}${esc(t('Cancel'))}</button>
+        <button class="btn big on-art icon-only" id="setup" data-act="setup" hidden aria-label="${esc(t('Set up'))}" title="${esc(t('Set up'))}">${icon('wrench')}</button>
         <button class="btn big on-art icon-only" id="folder" data-act="folder" hidden aria-label="${esc(t('Open folder'))}" title="${esc(t('Open folder'))}">${icon('folder-open')}</button>
       </div>
       <div class="hero-progress" id="progress" hidden><span class="hero-progress-fill" id="fill"></span></div>
@@ -55,13 +59,18 @@ export function render(el, ctx) {
     button.setAttribute('aria-busy', String(a.busy));
 
     part('cancel').hidden = !busy(z);
+    // the way back into the setup once the button plays: another language or game version, a repair
+    part('setup').hidden = a.run !== 'play';
+    part('setup').disabled = s.zonithStarting;
     part('folder').hidden = !z?.installed || busy(z);
     const job = busy(z) ? z.job : null;
     part('progress').hidden = !job;
     if (job) part('fill').style.width = `${Math.max(2, Math.min(100, job.pct ?? 0))}%`;
     // one short line: what is on this PC, else what the button needs to know
     const from = z?.installed ? versionOf(z.installed.tag) : '';
+    const built = z?.game?.ready ? versionOf(z.game.release) : '';   // the release that built the game, behind the setup's after an update
     part('sub').textContent = a.run === 'download' && from && z.latest ? `${from}  →  ${versionOf(z.latest.tag)}`
+      : a.run === 'setup' && built && built !== from ? `${built}  →  ${from}`
       : from && !busy(z) ? t('Version {version}', { version: from }) : a.hint;
 
     patch(part('news'), z ? notesOf(z).slice(0, CARDS).map((r) => releaseCard(r, z)).join('') : '');
@@ -73,14 +82,26 @@ export function render(el, ctx) {
     if (b.id === 'primary') {
       const run = b.dataset.run;
       if (run === 'play') return store.zonithPlay();
+      if (run === 'setup') return store.zonithSetup();
       if (run === 'download') return store.zonithDownload();
       if (run === 'retry') return store.refreshZonith(true);
     }
     if (b.dataset.tag) return ctx.go('zonith-news', { tag: b.dataset.tag });
     if (b.dataset.act === 'cancel') return store.zonithCancel();
+    if (b.dataset.act === 'setup') return store.zonithSetup();
     if (b.dataset.act === 'folder') api.zonithOpenDir().catch((err) => toast(errText(err), 'error'));
   });
 
   ctx.on(draw);
   draw(store.state);
+
+  const look = () => store.refreshZonith(false);
+  const timer = setInterval(() => {
+    if (!document.hidden && heroAction(store.state.zonith).run === 'setup') look();
+  }, LOOK_MS);
+  window.addEventListener('focus', look);
+  return () => {
+    clearInterval(timer);
+    window.removeEventListener('focus', look);
+  };
 }

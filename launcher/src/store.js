@@ -9,6 +9,7 @@ import { keptLine, updatedLine } from './mods-model.js';
 import { canInstall, canUpdate, gamePhase, needsFinish, taskOf } from './action.js';
 import { askOnlineOnce } from './online.js';
 import { feedNativePad } from './gamepad-nav.js';
+import { playable } from './zonith-model.js';
 
 const subs = new Set();
 let autoFinishDone = false;   // `updated` is acted on once
@@ -70,9 +71,10 @@ async function onSetupEvent(p) {
 async function onZonithProgress(p) {
   set({ zonith: { ...(store.state.zonith ?? {}), job: p } }, 'zonith');
   if (['download', 'unpack'].includes(p.state)) return;
-  if (p.state === 'done') toast(t('Zonith is ready to play'), 'ok');
   if (p.state === 'error') toast(p.message || t('The Zonith download did not finish'), 'error');
   await store.refreshZonith(false);
+  // a first download leaves the game to set up, and an update leaves the setup to run on it: the button says so
+  if (p.state === 'done' && playable(store.state.zonith)) toast(t('Zonith is ready to play'), 'ok');
 }
 
 export const store = {
@@ -115,6 +117,7 @@ export const store = {
       on('unpack-progress', (p) => store.state.unpack && set({ unpack: p }, 'task')),
       on('zonith-progress', onZonithProgress),
       on('zonith-game', (p) => store.state.zonith && set({ zonith: { ...store.state.zonith, running: p.state === 'running' } }, 'zonith')),
+      on('zonith-setup', () => store.refreshZonith(false)),   // the setup window closed (Linux): the game may be built now
       on('pad-state', feedNativePad),   // the launcher's own pad reader, for a webview with no Gamepad API (gamepad-nav.js)
       on('shader-storage-progress', (p) => store.state.repack && set({ repack: p }, 'task')),
       on('tauri://drag-enter', () => set({ dragging: true, dropped: null }, 'drop')),
@@ -258,13 +261,27 @@ export const store = {
     }
   },
 
-  /** Opens Zonith's own setup window, which builds the game from the player's files and starts it. Running and exited come as
-   *  zonith-game: on Windows the starter exits at once, so the exit can arrive before this call returns. */
+  /** Starts the game Zonith's setup built. Running and exited come as zonith-game. */
   async zonithPlay() {
     if (store.state.zonithStarting) return;
     set({ zonithStarting: true }, 'zonith');
     try {
       await api.zonithPlay();
+    } catch (e) {
+      toast(errText(e), 'error');
+      store.refreshZonith(false);   // the game moved or went since the last look
+    } finally {
+      set({ zonithStarting: false }, 'zonith');
+    }
+  },
+
+  /** Opens Zonith's own setup window, which builds the game from the player's files. The window is another program: the page looks
+   *  for the built game again while it is shown (pages/zonith.js). */
+  async zonithSetup() {
+    if (store.state.zonithStarting) return;
+    set({ zonithStarting: true }, 'zonith');
+    try {
+      await api.zonithSetup();
     } catch (e) {
       toast(errText(e), 'error');
     } finally {

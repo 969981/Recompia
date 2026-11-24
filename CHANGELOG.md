@@ -5,12 +5,14 @@
 **Update.** Saves and shaders are kept; no game shaders are rebuilt. On Android, install the new APK over the old one once; later versions update from inside the app.
 
 ### Gameplay
+- Fixed a co-op rebuilding kit bought by a teammate never appearing: the host now places it once its player is in the kit's area, only counts it as delivered when it is in the world, and a purchase with nothing left to give no longer holds back the ones after it
 - Fixed a co-op member who pressed the PC right after joining being stuck in place until the host's data arrived, and the member's shop rows and open areas staying empty while the host was in a menu or a talk
 
 ### Launcher
 - Fixed Cloud Islands (Experimental) failing for everyone, sign-in and play, after the account server's old address stopped working: the launcher signs in at the server's new address and connects to the server directly. A PC that was signed in stays signed in
 - Changed the Discord links in the launcher and the READMEs to the current invite
 - Changed online presence to paused: its server is gone, so the launcher sends nothing even when the switch is on. On an older launcher, switch presence off or update
+- Fixed Zonith's Play only opening Zonith's setup window, so the game had to be started from its own file: once the setup has built the game, **Play** starts the game itself. Until then the button says **Set up** (or **Finish update** after a Zonith update), and a small **Set up** button next to Play opens the setup window again. Open folder now opens the game's folder
 
 ### Linux & Steam Deck
 - Fixed FSR 3 showing as unavailable in native Linux releases.
