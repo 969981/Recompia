@@ -352,16 +352,19 @@ int hook_replay_viewports(::Ctx* c, uint64_t, void*) {
     return 0;
 }
 
-// The 16:9 internal size: the base rule (play_display.h internal_size), kept at 16:9 (the game's cameras and UI are authored for it) and,
-// unless a smaller size was asked for explicitly, at least the console's 1920x1080. On a handheld (nxrt/host_device.h) auto is the
+// The 16:9 internal size: fixed percentages use the console's 1920x1080 base (the launcher and in-game resolution choices), not the
+// window, which can still have its pre-fullscreen size at start. Fixed dimensions and auto use play_display.h internal_size. Unless a
+// smaller size was asked for explicitly, keep at least 1920x1080. On a handheld (nxrt/host_device.h) auto is the
 // window's size: a Steam Deck held ~40-50 fps in the world at 1920x1080 and shows 1280x800 anyway (Game Mode: a 1280x720 window).
 void pick_size(const play::DisplaySettings& d, int window_w, int window_h, int* out_w, int* out_h) {
     int w = kTableW, h = kTableH;
-    play::internal_size(d, window_w, window_h, &w, &h);
     const bool fixed = d.render_width > 0 && d.render_height > 0;
+    const bool percent = !fixed && d.render_scale > 0;
+    play::internal_size(d, percent ? kTableW : window_w, percent ? kTableH : window_h, &w, &h);
     h = std::min(h, static_cast<int>(static_cast<int64_t>(w) * 9 / 16));
     if (!fixed && ((d.render_scale <= 0 && !host_is_handheld()) || d.render_scale >= 100)) h = std::max(h, kTableH);
-    h = std::clamp(h / 18 * 18, 360, 4320);                          // 16:9 in whole pixels
+    // Percent presets approximate exact modes (67 = 720p, 133 = 1440p): choose the nearest 32x18 step, not the one below it.
+    h = std::clamp((percent ? static_cast<int>(std::lround(h / 18.0)) : h / 18) * 18, 360, 4320);
     *out_w = h * 16 / 9;
     *out_h = h;
 }

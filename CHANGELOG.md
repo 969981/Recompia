@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+**Update:** press **Update** in the launcher. No **Set up again** needed.
+
+### Graphics
+- Fixed render resolution depending on the startup window size: 133% now selects 1440p from the game's 1080p base, even when the game opens in a smaller window before switching to fullscreen. No shader rebuild is needed.
+
 ## 0.17.6 (build U: Urchin Hotfix a2)
 
 **Update:** press **Update** in the launcher. No **Set up again** needed. On Android, install the new APK over the old one once; later versions update from inside the app.
