@@ -19,6 +19,7 @@ void CmdState::begin_submit() {
     key_dummy_binding = 0;
     fs_tonemap = -1;
     fs_stretch = -1;
+    fs_square = -1;
 }
 // vkCmdBindIndexBuffer unless the same (buffer, offset, type) is already bound in this command buffer.
 static void bind_index_buffer(VkCommandBuffer cb, VkBuffer buf, VkDeviceSize off, VkIndexType type) {
@@ -85,6 +86,14 @@ VkRect2D scissor_rect(const int32_t* r) {
     return {{x, y}, {static_cast<uint32_t>(w), static_cast<uint32_t>(h)}};
 }
 
+VkViewport vk_viewport_of(float x, float y, float w, float h, uint32_t i) {
+    if (P.scale != 1.0f) { x *= P.scale; y *= P.scale; w *= P.scale; h *= P.scale; }
+    // Upper-left origin: window y is the image row from the top and NDC +y is the top edge of the rectangle (negative height).
+    // Lower-left origin (the GL convention): window y 0 is memory row 0 and NDC -y is the first row, so no flip.
+    const bool lower_left = S.window_origin == NVN_WINDOW_ORIGIN_MODE_LOWER_LEFT;
+    return lower_left ? VkViewport{x, y, w, h, S.dr[i][0], S.dr[i][1]} : VkViewport{x, y + h, w, -h, S.dr[i][0], S.dr[i][1]};
+}
+
 static void set_viewports_and_scissors() {
     VkCommandBuffer cb = F->cb;
     VkViewport vp[16];
@@ -93,14 +102,13 @@ static void set_viewports_and_scissors() {
     // write ViewportIndex, so every primitive goes to viewport 0 anyway (16 everywhere else, the most S.nvp holds)
     const uint32_t nvp = std::min<uint32_t>(S.nvp ? S.nvp : 1, device().properties().limits.maxViewports);
     for (uint32_t i = 0; i < nvp; ++i) {
-        float x = S.vp[i][0], y = S.vp[i][1], w = S.vp[i][2], h = S.vp[i][3];
-        if (!S.nvp) { x = 0; y = 0; w = static_cast<float>(P.extent.width); h = static_cast<float>(P.extent.height); }
-        else if (P.scale != 1.0f) { x *= P.scale; y *= P.scale; w *= P.scale; h *= P.scale; }
-        // Upper-left origin: window y is the image row from the top and NDC +y is the top edge of the rectangle (negative height).
-        // Lower-left origin (the GL convention): window y 0 is memory row 0 and NDC -y is the first row, so no flip.
-        const bool lower_left = S.window_origin == NVN_WINDOW_ORIGIN_MODE_LOWER_LEFT;
-        vp[i] = lower_left ? VkViewport{x, y, w, h, S.dr[i][0], S.dr[i][1]}
-                           : VkViewport{x, y + h, w, -h, S.dr[i][0], S.dr[i][1]};
+        if (!S.nvp) {
+            const bool lower_left = S.window_origin == NVN_WINDOW_ORIGIN_MODE_LOWER_LEFT;
+            const float w = static_cast<float>(P.extent.width), h = static_cast<float>(P.extent.height);
+            vp[i] = lower_left ? VkViewport{0, 0, w, h, S.dr[i][0], S.dr[i][1]} : VkViewport{0, h, w, -h, S.dr[i][0], S.dr[i][1]};
+        } else {
+            vp[i] = vk_viewport_of(S.vp[i][0], S.vp[i][1], S.vp[i][2], S.vp[i][3], i);
+        }
         if (i < S.nsc) sc[i] = scissor_rect(S.sc[i]);
         else sc[i] = {{0, 0}, P.extent};
         if constexpr (facts::kPhone)
@@ -431,6 +439,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
         g_cmd.pl = prog_layout(stages);
         g_cmd.fs_tonemap = -1;
         g_cmd.fs_stretch = -1;
+        g_cmd.fs_square = -1;
     }
     if (g_trace_hooks) trace_note_fs();
     const ProgLayout* pl = g_cmd.pl;
@@ -731,6 +740,7 @@ void do_draw_elements(const P_DrawElements& p) {
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), true, static_cast<int>(p.type), &topo)) { counters().draws_skipped.fetch_add(1); return; }
     if (g_trace) trace_indexed(p);
+    if (square_quad_viewport(p)) { g_cmd.dirty |= kDynVp; g_cmd.dsh.nvp = 0; }   // nvn_replay_square.cpp: this draw only; the game's viewport again at the next draw (also after an early return below)
     const uint32_t isz = index_size_bytes(static_cast<int>(p.type));
     const PrimConversion conv = prim_conversion(static_cast<int>(p.mode));
     const uint8_t* src = host_ptr(p.index_address);

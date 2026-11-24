@@ -8,6 +8,7 @@
 //   scene_stretch    none: no scene upscaler (a scene below its targets' size keeps the game's own stretch)
 //   loop_guards      none: no compute loop gets its count limited ([nvn] loop_guard has nothing to do)
 //   ui_after_picture false: the game's 2D cannot be hidden (nxrt/ui_layer.h; a mod's ui_visible is not offered)
+//   square_quad_fs   none: no quad is made square
 // Header-only and free of Vulkan, so game.h users that do not link the graphics back end can include it.
 #pragma once
 #include <cstdint>
@@ -88,6 +89,10 @@ struct Render {
     // The lowest [upscale] scene_scale percent the game's picture stays correct at (automatic resolution and a game's settings rows go no
     // lower). 25 = the key's own limit.
     int scene_scale_min = 25;
+    // A square image (an iris wipe's mask) that the game sizes in fractions of its 2D canvas with a fixed 16:9 ratio, as a quad in canvas
+    // units drawn with this fragment shader (its cache hash): on a canvas of another shape it comes out stretched. The replay draws it
+    // square (src/gfx/nvn/nvn_replay_square.cpp).
+    const char* square_quad_fs = nullptr;
 };
 
 }  // namespace nxrt::game
