@@ -1,4 +1,4 @@
-# source-sha256: 5cbb87d01e3e7fefcc22735bcc5a27585b9aca77f56d6fbef640c1799de09fb6
+# source-sha256: d6310ed7d7eb81d86b916c15f73219d3a4906f290a306160f96e58d37ce17989
 Esta es una traducción automática del texto en inglés; puede contener errores. El texto en inglés es la versión definitiva.
 
 Recompia @VERSION@ para Linux, SteamOS y Steam Deck
