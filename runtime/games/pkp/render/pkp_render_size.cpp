@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include "nxrt/config.h"
 #include "nxrt/extras.h"
 #include "nxrt/gfx_tuning.h"
 #include "nxrt/hooks.h"
@@ -32,13 +33,76 @@
 #include "nxrt/memory.h"
 #include "nxrt/platform_facts.h"
 #include "play_display.h"
+#include "render/pkp_phone_res.h"
 
 namespace nxrt::games::pkp::play_detail {
 
 // ---- render resolution ----
+// Phones: a scene below the game's lowest level (level 0, half the targets). Every reader of the level sizes goes through the getters
+// below, so level 0 answers the smaller size while it is set (percent of the targets per side, 0 = off) and the level and the size the
+// manager holds still agree. Measured clean on the desktop down to 25 % of the targets.
+inline std::atomic<int>& sub_level_pct() {
+    static std::atomic<int> pct{0};
+    return pct;
+}
+// A phone's resolution (render/pkp_phone_res.h): the ceiling the targets were made at, the highest percent at all and the screen, set
+// once at start (phone_res_install).
+std::atomic<int> g_ph_ceiling{100}, g_ph_max{100}, g_ph_win_w{0}, g_ph_win_h{0};
+
+// The render scale of a phone's targets (tw x th at scale 1) and, the first time, [pkp] resolution from the keys before it. The live
+// percent then picks the scene's part of those targets (phone_scene_pct). The targets are made at the whole screen, so every percent is
+// live: measured on the desktop (a near-square window), a scene part of larger targets cost no more GPU time than targets of the scene's own size at
+// 62 % (50.7 / 49.0 against 49.7 ms a frame, within the runs' spread), and targets made small cost much more (25 % as targets at a 0.28
+// scale: 50 to 100 ms a frame; as 25 % of screen-scale targets: 19 ms). Under [gfx] present_scale (the low-memory profile's 75, the swapchain's share
+// of the screen) they are made at the player's percent instead, at least 50 % and at most that share, to keep memory (about 140 bytes per
+// pixel of the targets: a 4-megapixel screen is about 560 MiB of them); a higher percent then applies at the next start.
+float phone_res_install(const play::DisplaySettings& d, int window_w, int window_h, int tw, int th, int base_w) {
+    const int top = static_cast<int>(std::clamp<int64_t>(config_get_int("gfx", "present_scale", 100), 25, 100));
+    g_ph_max.store(top);
+    g_ph_win_w.store(window_w);
+    g_ph_win_h.store(window_h);
+    if (settings::get_int(settings::Key::Resolution) <= 0) {
+        // [display] render_scale (percent of the game's targets, auto = 100) x [upscale] scene_scale, as a share of the screen: the same
+        // pixels as before, on the targets' width before they took the screen's (base_w: a near-square inner screen at 70 and 100 is
+        // 1344 of 1920, so 62 % of that screen's width)
+        const int rs = d.render_scale > 0 ? d.render_scale : 100, ss = extras::upscale_scene_scale_player();
+        const int pct = std::clamp(static_cast<int>(std::lround(rs * ss / 100.0 * base_w / std::max(1, window_w))), kPhoneResMin, 100);
+        settings::set_int(settings::Key::Resolution, pct);
+        NXLOG_I(kTag, "resolution: %d%% of the screen, from [display] render_scale %d and [upscale] scene_scale %d (the keys before [pkp] resolution)", pct, rs, ss);
+    }
+    if (settings::get_int(settings::Key::SceneUpscaler) == 2) {   // bicubic, no longer offered: the Upscaler row shows it as SGSR
+        settings::set_int(settings::Key::SceneUpscaler, 1);
+        NXLOG_I(kTag, "scene upscaler: bicubic (an earlier build's 2) is now SGSR");
+    }
+    const double per_pct = static_cast<double>(window_w) / std::max(1, tw) / 100.0;   // render scale per percent of the screen
+    const int lowest = static_cast<int>(std::ceil(0.25 / per_pct - 1e-6));
+    const int ceiling = top >= 100 ? 100 : std::clamp(phone_res_setting(), std::min(std::max(lowest, 50), top), top);
+    g_ph_ceiling.store(ceiling);
+    const float scale = static_cast<float>(ceiling * per_pct);
+    NXLOG_I(kTag, "resolution: %d%% of the %dx%d screen (live from %d to %d %%%s); the %dx%d targets are made at %d %% of it (scale %.3f)", phone_res_value(),
+            window_w, window_h, kPhoneResMin, ceiling, ceiling < top ? ", higher from the next start" : "", tw, th, ceiling, static_cast<double>(scale));
+    return scale;
+}
+
+// The scene's percent of the targets for [pkp] resolution, lowered by the phone's dynamic resolution when it is on. [upscale]
+// scene_scale_watch, a test aid, wins over the setting with a percent of the screen too.
+int phone_scene_pct(bool dyn) {
+    const int c = g_ph_ceiling.load(std::memory_order_relaxed), w = extras::scene_scale_watch();
+    const int cap = w > 0 ? std::clamp(w, std::min(kPhoneResMin, c), c) : phone_res_value();
+    const int pct = dynres_pct(cap, dyn);
+    gfx::Tuning& tu = gfx::tuning();   // the frame rate counter's resolution line
+    tu.res_pct.store(pct, std::memory_order_relaxed);
+    tu.res_cap.store(cap, std::memory_order_relaxed);
+    tu.res_dynamic.store(dyn, std::memory_order_relaxed);
+    return std::clamp(static_cast<int>(std::lround(pct * 100.0 / c)), 1, 100);
+}
+
 uint32_t level_size(int level, bool width) {
     const int full = width ? st().w.load(std::memory_order_relaxed) : st().h.load(std::memory_order_relaxed);
     if (level == kFullLevel) return static_cast<uint32_t>(full);
+    if constexpr (facts::kPhone)
+        if (const int sub = sub_level_pct().load(std::memory_order_relaxed); level == 0 && sub > 0)
+            return std::max<uint32_t>(2, static_cast<uint32_t>(std::lround(full * sub / 100.0)) & ~1u);
     // the game's own table: levels 0..29 are 960x540 + 32x18 per level (scaled with the new top), 31..33 are 1440p, 4K, 8K (kept)
     static constexpr int kHighW[3] = {2560, 3840, 7680}, kHighH[3] = {1440, 2160, 4320};
     if (level > 33) return static_cast<uint32_t>(full);              // the game's own out-of-range answer is level 30's
@@ -75,8 +139,13 @@ std::atomic<float> g_vp_kx{1.0f}, g_vp_ky{1.0f};
 
 int hook_copy_params(::Ctx* c, uint64_t, void*) {
     State& s = st();
-    const bool dyn = s.dynres.load(std::memory_order_relaxed);
-    const int pct = std::clamp(extras::upscale_scene_scale(), 25, 100);
+    // a phone runs its own dynamic resolution (pkp_dynres.cpp): its percent is written like a fixed one, over the game's own pick
+    const bool dyn = !facts::kPhone && s.dynres.load(std::memory_order_relaxed);
+    const int pct = [&] {
+        if constexpr (facts::kPhone) return phone_scene_pct(s.dynres.load(std::memory_order_relaxed));
+        else return std::clamp(extras::upscale_scene_scale(), 25, 100);
+    }();
+    if constexpr (facts::kPhone) sub_level_pct().store(pct < 50 ? pct : 0, std::memory_order_relaxed);   // below level 0: level_size
     if (g_scene_pct.exchange(pct, std::memory_order_relaxed) != pct)
     {
         // the game's sizes, and the pixels the back end renders them at ([display] render_scale)
@@ -118,12 +187,12 @@ int hook_copy_params(::Ctx* c, uint64_t, void*) {
     // the level and the size the manager holds then agree, as when the game's own dynamic resolution picks them. Writing a size between levels
     // with the top level left in place drew some passes at the wrong scale (a floating band of sky on the cliff, a grid on the ground at 50 %).
     // The game's table starts at 50 % (level 0); level 0 itself (exactly half the targets) still drew the sky band and the ground rectangles
-    // on desktop, level 1 (51.7 %) and above did not, so the lowest level used is 1. ponytail: cause of the level-0 case not found; lift the
-    // floor once it is.
+    // on desktop, level 1 (51.7 %) and above did not, so the lowest level used is 1. The cause (fix_rect, below: the game's height-derived
+    // rect missed at levels whose height loses a row, level 0 among them) is handled on phones, which use level 0 too.
     // Phones only (facts::kPhone): elsewhere the percent the player chose is the size, as before (a 33 % or 50 % upscaler preset keeps its
     // pixel count), with the top level left in place.
     const bool by_level = facts::kPhone && pct < 100;
-    const int lvl = !by_level ? kFullLevel : std::clamp(static_cast<int>(std::lround((pct * kTableW / 100.0 - 960.0) / 32.0)), 1, kFullLevel - 1);
+    const int lvl = !by_level ? kFullLevel : std::clamp(static_cast<int>(std::lround((pct * kTableW / 100.0 - 960.0) / 32.0)), 0, kFullLevel - 1);
     for (int i = 0; i < views; ++i) {
         const uint64_t v = mgr + i * kViewStride;
         const uint32_t mw = rd<uint32_t>(v + kMaxW), mh = rd<uint32_t>(v + kMaxH);
@@ -207,7 +276,12 @@ void fix_rect(::Ctx* c, uint64_t rect, uint64_t ctx = 0) {
     const double kx = g_vp_kx.load(std::memory_order_relaxed), ky = g_vp_ky.load(std::memory_order_relaxed);
     if ((kx >= 1.0 && ky >= 1.0) || !g_frac_vp_on.load(std::memory_order_relaxed)) return;
     const int32_t nw = static_cast<int32_t>(std::lround(tw * kx)), nh = static_cast<int32_t>(std::lround(th * ky));
-    if ((r[0] == nw && r[1] == nh) || !matches(kx, ky)) return;
+    // Phones also accept the height fraction on both sides (matches(ky, ky)): the game derives some scene viewports' width from the
+    // height fraction (ky x 1920, cut to whole pixels: 1342 at level 12 on 1920-wide near-square targets, where the part is 1344 wide). On targets
+    // whose level heights lose a row to the even rounding (every fourth level at that height, level 0 included) that width misses the kx
+    // one by 2 px, past the tolerance: the pass kept its 1080-frame rect (1342x755, the water pass traced on the desktop) and
+    // drew a shrunken copy of the scene over the picture, with dashed edges along the geometry.
+    if ((r[0] == nw && r[1] == nh) || !(matches(kx, ky) || (facts::kPhone && matches(ky, ky)))) return;
     if (g_frac_vp_fixes.fetch_add(1, std::memory_order_relaxed) == 0)
         NXLOG_I(kTag, "scene viewport: %dx%d (%.3f x %.3f of the 1920x1080 frame) made %dx%d of the %dx%d target", r[0], r[1], kx, ky, nw, nh, tw, th);
     r[0] = nw;
@@ -327,3 +401,19 @@ void install_render_size_hooks(uint64_t base) {
 }
 
 }  // namespace nxrt::games::pkp::play_detail
+
+namespace nxrt::games::pkp {
+
+int phone_res_ceiling() { return play_detail::g_ph_ceiling.load(std::memory_order_relaxed); }
+int phone_res_max() { return play_detail::g_ph_max.load(std::memory_order_relaxed); }
+int phone_res_setting() {
+    const int top = phone_res_max(), v = static_cast<int>(settings::get_int(settings::Key::Resolution));
+    return std::clamp(v > 0 ? v : top, kPhoneResMin, top);
+}
+int phone_res_value() { return std::min(phone_res_setting(), phone_res_ceiling()); }
+void phone_res_pixels(int pct, int* w, int* h) {
+    *w = static_cast<int>(std::lround(play_detail::g_ph_win_w.load(std::memory_order_relaxed) * pct / 100.0)) & ~1;
+    *h = static_cast<int>(std::lround(play_detail::g_ph_win_h.load(std::memory_order_relaxed) * pct / 100.0)) & ~1;
+}
+
+}  // namespace nxrt::games::pkp

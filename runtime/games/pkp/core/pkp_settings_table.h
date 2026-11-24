@@ -119,6 +119,10 @@ inline constexpr Spec kSpecs[] = {
     // Read by the network services at start (game::Info::report_online, pkp_game.cpp). On by default so events that need a connection
     // start on their date; online services other than the clock and nifm answers still fail.
     b(OnlineEvents, "online_events", true, "The game is told it has an internet connection, so events that need one the first time (Apples to Applin) can start. Nothing is sent: online services still fail."),
+    live(i(Resolution, "resolution", 0, 0, 100, "On a phone, the 3D picture's resolution in percent of the screen per side, 15 to 100 (0: worked out once from [display] render_scale and [upscale] scene_scale, the keys before it).")),
+    live(s(DynamicResolutionMode, "dynamic_resolution_mode", "gpu", "gpu thermal", "On a phone with Dynamic Resolution: gpu follows the GPU's time per frame; thermal also caps the resolution by the phone's thermal headroom (dynamic_resolution_headroom, same section), so the GPU can run at lower clocks before the phone throttles.")),
+    live(d(DynamicResolutionHeadroom, "dynamic_resolution_headroom", 0.85, 0.5, 0.95, "With dynamic_resolution_mode = thermal: the thermal headroom to hold (1.0 = the severe throttling status; about 0.033 per degree C); the device's light-throttling threshold minus 0.03 when lower.")),
+    live(s(DynamicResolutionState, "dynamic_resolution_state", "", "", "Written by a phone's Dynamic Resolution: what it learned (the settled percent, its floor, the thermal cap) for one screen, mode, Resolution, upscaler and frame cap, so the next start begins there. Cleared by deleting it."))
 };
 static_assert(sizeof(kSpecs) / sizeof(kSpecs[0]) == static_cast<size_t>(Count), "one Spec per Key");
 

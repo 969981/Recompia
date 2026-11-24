@@ -28,6 +28,7 @@
 #include "nxrt/config.h"
 #include "nxrt/gauge.h"
 #include "nxrt/log.h"
+#include "nxrt/platform_facts.h"
 #include "nxrt/qpc.h"
 
 namespace nxrt {
@@ -283,7 +284,11 @@ void session_end() {
 namespace diag {
 
 void perf_frame(uint64_t t) {
-    if (!perf::enabled()) return;
+    if (!perf::enabled()) {
+        // a phone still counts frames: the back end's GPU time per frame (the game's dynamic resolution) is summed by frame_index()
+        if constexpr (facts::kPhone) rep().frame_n.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
     Report& r = rep();
     const uint64_t ph[4] = {hitch_phase_total(kHpRenderReplay), hitch_phase_total(kHpRenderGpuWait), hitch_phase_total(kHpRenderAcquire),
                             hitch_phase_total(kHpGameBackpressure) + hitch_phase_total(kHpGameSyncWait) + hitch_phase_total(kHpGameWait)};

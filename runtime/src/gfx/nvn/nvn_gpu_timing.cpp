@@ -19,8 +19,10 @@
 
 #include "nxrt/config.h"
 #include "nxrt/ftrace.h"
+#include "nxrt/gfx_tuning.h"
 #include "nxrt/log.h"
 #include "nxrt/perf_report.h"
+#include "nxrt/platform_facts.h"
 #include "vk_gauges.h"
 
 namespace nxrt::nvn::be::gpu::timing {
@@ -40,6 +42,14 @@ struct SlotTiming {
 };
 
 enum class Sample { Idle, Waiting, Recording, Closed };
+
+// A phone: GPU time per frame for the game's dynamic resolution (gfx::Tuning::gpu_frame_us): the union of each submission's timestamp
+// pair, as the report's busy time, summed per frame; a frame is published when the first submission of a later one is collected.
+struct PhoneBusy {
+    bool on = false;
+    uint64_t end = 0, frame = 0, ns = 0;   // busy end (ticks), the frame being summed, its sum so far
+};
+PhoneBusy g_pb;
 
 struct Timing {
     gfx::Device* dev = nullptr;
@@ -125,7 +135,11 @@ void init(gfx::Device& dev, uint32_t slots) {
     t->trace_exec = ft::on();
     t->report_exec = perf::enabled() && dev.properties().deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && dev.timestamps_supported();
     t->trace_passes = ft::on() && config_get_bool("prof", "gpu_passes", false);
-    if ((t->trace_exec || t->report_exec) && !make_pool(*t, slots * 2, &t->qpool)) t->trace_exec = t->report_exec = false;
+    if constexpr (facts::kPhone) g_pb.on = dev.timestamps_supported();
+    if ((t->trace_exec || t->report_exec || (facts::kPhone && g_pb.on)) && !make_pool(*t, slots * 2, &t->qpool)) {
+        t->trace_exec = t->report_exec = false;
+        if constexpr (facts::kPhone) g_pb.on = false;
+    }
     if (t->trace_passes && !make_pool(*t, slots * kGpMax, &t->gpool)) t->trace_passes = false;
     t->sampling = t->report_exec && !t->trace_passes;
     perf::set_gpu_timing(t->report_exec);
@@ -160,7 +174,10 @@ void begin(VkCommandBuffer cb, uint32_t i) {
         s.gp_labels.clear();
         pass_stamp(cb, i, "(start)", 0);
     }
-    if (t->qpool) {
+    bool stamp = t->qpool != VK_NULL_HANDLE;
+    // a phone stamps for the game's dynamic resolution only while it is on (or for the trace and the report)
+    if constexpr (facts::kPhone) stamp = stamp && (t->trace_exec || t->report_exec || gfx::tuning().res_dynamic.load(std::memory_order_relaxed));
+    if (stamp) {
         vkCmdResetQueryPool(cb, t->qpool, i * 2, 2);
         vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, t->qpool, i * 2);
         s.timed = true;
@@ -195,6 +212,23 @@ void collect(uint32_t i, uint64_t serial, uint64_t queued) {
                 const double ns = static_cast<double>(ts[1] - ts[0]) * t->period;
                 ft::event(z, s.cpu_t0, s.cpu_t0 + static_cast<uint64_t>(ns), static_cast<uint32_t>(serial));
                 if (queued) ft::event(zq, queued, queued + static_cast<uint64_t>(ns), static_cast<uint32_t>(serial));
+            }
+            if constexpr (facts::kPhone) {
+                if (g_pb.on) {
+                    if (ts[1] < g_pb.end) g_pb.end = ts[0];
+                    const uint64_t from = std::max(ts[0], g_pb.end);
+                    const uint64_t busy = ts[1] > from ? static_cast<uint64_t>(static_cast<double>(ts[1] - from) * t->period) : 0;
+                    g_pb.end = std::max(g_pb.end, ts[1]);
+                    if (s.frame != g_pb.frame) {
+                        if (g_pb.ns) {
+                            gfx::tuning().gpu_frame_us.store(static_cast<uint32_t>(std::min<uint64_t>(g_pb.ns / 1000, UINT32_MAX)), std::memory_order_relaxed);
+                            gfx::tuning().gpu_frames.fetch_add(1, std::memory_order_relaxed);
+                        }
+                        g_pb.frame = s.frame;
+                        g_pb.ns = 0;
+                    }
+                    g_pb.ns += busy;
+                }
             }
             if (t->report_exec) {
                 if (ts[1] < t->busy_end) t->busy_end = ts[0];      // a counter of fewer than 64 bits wrapped (timestampValidBits)

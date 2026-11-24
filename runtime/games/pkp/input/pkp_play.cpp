@@ -24,6 +24,7 @@
 #include "nxrt/jc2_mouse.h"
 #include "nxrt/log.h"
 #include "nxrt/memory.h"
+#include "nxrt/platform_facts.h"
 
 namespace nxrt::games::pkp::play_detail {
 
@@ -48,6 +49,7 @@ void install_render(uint64_t base, const play::DisplaySettings& d, int window_w,
     int w = kTableW, h = kTableH;
     pick_size(d, window_w, window_h, &w, &h);
     s.dynres.store(d.dynamic_resolution);
+    if constexpr (facts::kPhone) g_dyn_fps_cap.store(d.fps_cap);
     {
         // [hdr]: the host's HDR scene pipeline (src/gfx/extras): float post targets, and the composite pass's LUT tone map (cbComposite,
         // g_tHdrLut: a log shaper into a 32^3 grade that clips flat at 1 from scene 0.85-1.1) runs as an HDR variant whose highlights climb
@@ -86,6 +88,17 @@ void install_render(uint64_t base, const play::DisplaySettings& d, int window_w,
         else gh = static_cast<int>(std::lround(kTableW / wd.aspect)) & ~1;
         gw = std::clamp(gw, 640, 8192);
         gh = std::clamp(gh, 360, 8192);
+        const int base_w = gw;   // the 16:9-derived width, the one [display] render_scale was a percent of
+        if constexpr (facts::kPhone) {
+            // A phone whose screen is larger than these targets (a foldable's near-square inner screen, wider than the 1920-wide targets): targets of the
+            // screen's own size, rendered at scale 1, so a share of the screen is a whole number of pixels. At a render scale above 1,
+            // 50 % came out one pixel short of half the screen per side (the level heights round to even before the scale), a ratio of
+            // just over 2 at which a temporal upscaler's sample phase drifts across the screen (SGSR 2's X pattern); now it is exactly half.
+            if (!fixed_size && !(d.aspect > 0) && window_w >= gw && window_h >= gh) {
+                gw = window_w & ~1;
+                gh = window_h & ~1;
+            }
+        }
         game_target_memory(base, &gw, &gh);
         s.w.store(gw);
         s.h.store(gh);
@@ -112,6 +125,7 @@ void install_render(uint64_t base, const play::DisplaySettings& d, int window_w,
             scale = host_is_handheld() ? std::min(1.0f, std::min(static_cast<float>(window_h) / gh, static_cast<float>(window_w) / gw)) : 1.0f;
         }
         else scale = static_cast<float>(std::clamp(d.render_scale, 25, 400)) / 100.0f;
+        if constexpr (facts::kPhone) scale = phone_res_install(d, window_w, window_h, gw, gh, base_w);   // [pkp] resolution
         gfx::tuning().render_scale.store(scale);
         NXLOG_I(kTag, "aspect %.4f (%s, window %dx%d): %dx%d game targets at scale %.3f, 3D view %s, UI kept 16:9 and centred, dynamic resolution %s",
                 wd.aspect, d.aspect > 0 ? "[display] aspect" : "auto", window_w, window_h, gw, gh, scale,
@@ -138,6 +152,7 @@ void install_render(uint64_t base, const play::DisplaySettings& d, int window_w,
         // the console's resolution (see above): the game's targets are not enlarged to the window, the present pass upscales
         else if (d.render_scale <= 0) scale = host_is_handheld() ? std::min(1.0f, static_cast<float>(window_h) / kTableH) : 1.0f;
         else scale = static_cast<float>(std::clamp(d.render_scale, 25, 400)) / 100.0f;
+        if constexpr (facts::kPhone) scale = phone_res_install(d, window_w, window_h, kTableW, kTableH, kTableW);   // [pkp] resolution
         gfx::tuning().render_scale.store(scale);
         NXLOG_I(kTag, "aspect 16:9 (%s, window %dx%d): letterboxed on other window shapes", d.aspect > 0 ? "[display] aspect" : "auto", window_w, window_h);
         NXLOG_I(kTag, "render resolution: 1920x1080 targets at scale %.3f (window %dx%d, [display] render_scale %s), dynamic resolution %s", scale,
@@ -148,6 +163,7 @@ void install_render(uint64_t base, const play::DisplaySettings& d, int window_w,
     game_target_memory(base, &w, &h);
     s.w.store(w);
     s.h.store(h);
+    if constexpr (facts::kPhone) gfx::tuning().render_scale.store(phone_res_install(d, window_w, window_h, w, h, w));   // [pkp] resolution
     install_render_size_hooks(base);
     s.render_installed = true;
     NXLOG_I(kTag, "render resolution %dx%d (window %dx%d, scale %d%%%s%s), dynamic resolution %s", w, h, window_w, window_h, d.render_scale,
@@ -155,7 +171,10 @@ void install_render(uint64_t base, const play::DisplaySettings& d, int window_w,
             d.dynamic_resolution ? "on" : "off");
 }
 
-void settings_changed(const play::Settings& set) { st().dynres.store(set.display.dynamic_resolution); }
+void settings_changed(const play::Settings& set) {
+    st().dynres.store(set.display.dynamic_resolution);
+    if constexpr (facts::kPhone) g_dyn_fps_cap.store(set.display.fps_cap);
+}
 
 void install(const FeatureInstall& in) {
     State& s = st();

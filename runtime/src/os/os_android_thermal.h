@@ -4,7 +4,7 @@
 //
 // status: Android's own thermal status (AThermal_getCurrentThermalStatus: 0 none, 1 light, 2 moderate, 3 severe, 4 critical,
 // 5 emergency, 6 shutdown), the level that makes the system lower the clocks; not a temperature.
-// headroom: AThermal_getThermalHeadroom(0) (API 31): the share of the thermal envelope in use, 1.0 = the SEVERE threshold; not a
+// headroom: AThermal_getThermalHeadroom(0) (API 31) from the one poller (nxrt/thermal.h): the share of the thermal envelope in use, 1.0 = the SEVERE threshold; not a
 // temperature either. skin_c / battery_c: real temperatures in degrees C where a sensor can be read: a thermal zone whose type names
 // the skin sensor (usually blocked for apps by SELinux: then unknown), and the battery (power_supply sysfs, else the sticky
 // ACTION_BATTERY_CHANGED intent's EXTRA_TEMPERATURE through JNI, which every app may read).

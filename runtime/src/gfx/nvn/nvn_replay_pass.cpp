@@ -2,6 +2,7 @@
 // Render passes of the replay: dynamic rendering begun lazily on the current targets, ended with or without a barrier (tracked barriers).
 #include "nvn_replay_internal.h"
 #include "nxrt/diag.h"
+#include "nxrt/platform_facts.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -140,6 +141,7 @@ void end_pass(bool to_pass) {
     g_bar.pass_unsafe = false;
     g_cmd.bound_pipeline = VK_NULL_HANDLE;
     g_cmd.dirty = kAllDirty;
+    if constexpr (facts::kPhone) edge_guard_after_pass();   // nvn_replay_edge.cpp
 }
 
 // A pass is about to use `t` as an attachment in `layout`. An earlier pass that ended without a barrier wrote it, and no layout change

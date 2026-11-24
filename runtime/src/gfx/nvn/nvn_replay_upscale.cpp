@@ -7,6 +7,8 @@
 #include "extras/sgsr_spatial.h"
 
 #include "nxrt/game_render.h"
+#include "nxrt/gfx_tuning.h"
+#include "nxrt/platform_facts.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -56,9 +58,18 @@ void temporal_gbuffer_note() {
 // The game's scene covers only part of its targets (extras::scene_fraction, the game's [upscale] scene_scale, #116): the part of a scene
 // image of size `scene` that holds it, and the size of the image the draw that reads it then needs, out / fraction, so that its own lookup
 // at uv * fraction lands on the upscaled result in that image's top-left out-sized corner. False: the whole image is the scene.
-static bool scene_part(VkExtent2D scene, VkExtent2D out, VkExtent2D* part, VkExtent2D* out_tex) {
+static bool scene_part(VkExtent2D scene, VkExtent2D out, VkExtent2D* part, VkExtent2D* out_tex, const Texture* scene_tex = nullptr) {
     float fx = 1.0f, fy = 1.0f;
     extras::scene_fraction(&fx, &fy);
+    if constexpr (facts::kPhone) {
+        // the part this frame drew (the published fraction can belong to the next frame: under dynamic resolution one frame per step
+        // enlarged the wrong part)
+        uint32_t pw = 0, ph = 0;
+        if (scene_tex && frame_scene_part(scene_tex, scene.width, scene.height, &pw, &ph)) {
+            fx = pw >= scene.width ? 1.0f : static_cast<float>(pw) / static_cast<float>(scene.width);
+            fy = ph >= scene.height ? 1.0f : static_cast<float>(ph) / static_cast<float>(scene.height);
+        }
+    }
     if (fx >= 1.0f && fy >= 1.0f) return false;
     part->width = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(scene.width * fx)), 1, scene.width);
     part->height = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(scene.height * fy)), 1, scene.height);
@@ -201,6 +212,14 @@ void tonemap_for_draw(const ProgLayout& pl) {
     }
 }
 
+// A phone: what the frame rate counter's resolution line shows (gfx::Tuning::res_*): the scene part, the output, the upscaler.
+static void publish_res(VkExtent2D scene, VkExtent2D out, int upscaler) {
+    gfx::Tuning& tu = gfx::tuning();
+    tu.res_scene_px.store((scene.width << 16) | (scene.height & 0xffff), std::memory_order_relaxed);
+    tu.res_out_px.store((out.width << 16) | (out.height & 0xffff), std::memory_order_relaxed);
+    tu.res_upscaler.store(upscaler, std::memory_order_relaxed);
+}
+
 // The game's scene stretch (game::SceneStretch, #571): the first such draw after the tone map that enlarges, its one 2D colour input no
 // larger than its target. Copies of the same shader that shrink (the game's own reductions) and later copies are left alone.
 // Nearest (#232): the input is sampled with the nearest sampler (clamp to edge), so the stretch shows the scene's own pixels.
@@ -211,6 +230,15 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
     // [gfx] scene_upscale (sgsr / bicubic, live through scene_upscale_watch) also serves this stretch: under the game's dynamic resolution
     // (a scene percent below 100) the scene part is enlarged here, not at the composite (scene_sharpen_for_draw)
     extras::SgsrSpatial* cheap = extras::scene_cheap_upscaler(&device());
+    if constexpr (facts::kPhone) {
+        if (g_su.stretch_armed && !extras::scene_upscale_wanted() && !cheap && S.ncolor > 0 && S.color_tex[0] && tex_gpu(S.color_tex[0].get())) {
+            float fx = 1.0f, fy = 1.0f;   // no upscaler: the game's own stretch enlarges the scene part of a target-sized image
+            extras::scene_fraction(&fx, &fy);
+            const VkExtent3D e = tex_image_extent(S.color_tex[0].get(), 0);
+            publish_res(VkExtent2D{static_cast<uint32_t>(std::lround(e.width * fx)), static_cast<uint32_t>(std::lround(e.height * fy))},
+                        VkExtent2D{e.width, e.height}, 0);
+        }
+    }
     if (!g_su.stretch_armed || (!extras::scene_upscale_wanted() && !cheap) || S.ncolor == 0 || !S.color_tex[0]) return;
     Texture* target = S.color_tex[0].get();
     if (!tex_gpu(target)) return;
@@ -243,7 +271,8 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
         // the scene is either a smaller image or the top-left part of a full-size one (scene_part)
         VkExtent2D part{se.width, se.height}, out_tex{};
         const VkExtent2D out{te.width, te.height};
-        if (!scene_part(part, out, &part, &out_tex) && se.width >= te.width && se.height >= te.height) {
+        if (!scene_part(part, out, &part, &out_tex, r.tex) && se.width >= te.width && se.height >= te.height) {
+            if constexpr (facts::kPhone) publish_res(VkExtent2D{se.width, se.height}, out, 0);
             static bool told_whole = false;
             if (!told_whole) {
                 told_whole = true;
@@ -252,6 +281,7 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
             return;
         }
         if (part.width >= te.width && part.height >= te.height) return;
+        if constexpr (facts::kPhone) publish_res(part, out, cheap ? (std::string(extras::scene_upscale_name()) == "sgsr" ? 1 : 2) : 0);
         extras::SpatialUpscaler* su = cheap ? static_cast<extras::SpatialUpscaler*>(cheap) : extras::scene_upscaler(&device(), part, out);
         if (!su) return;
         end_pass();                                                           // compute work cannot run inside a render pass
@@ -259,6 +289,27 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
         tex_transition(r.tex, *F, tex_sampled_layout(r.tex));
         VkImageView src = tex_sampled_view(r.tex, make_request(b, r));
         if (!src) return;
+        if constexpr (facts::kPhone) {
+            // A phone: SGSR / bicubic enlarge the scene part straight into the stretch's target and the game's draw is skipped. The draw reads
+            // its input at uv x fraction, so handing it the result needed an image of out / fraction (at 15 %: an RGBA16F image 6.7 times the screen per side, 1.4 GB,
+            // made when the Resolution was lowered: a phone was killed for memory); this needs one of the target's size.
+            if (cheap && (part.width < se.width || part.height < se.height)) {
+                VkImageView up = cheap->upscale(F->cb, src, part, VkExtent2D{se.width, se.height}, out, false, 1.0f, 0.0f, out);
+                shadow_invalidate();
+                memory_barrier(F->cb);
+                if (up && tex_blit_from(target, *F, cheap->image(), VK_FORMAT_R16G16B16A16_SFLOAT, out)) {
+                    memory_barrier(F->cb);
+                    g_su.skip_draw = true;
+                    static bool told_phone = false;
+                    if (!told_phone) {
+                        told_phone = true;
+                        NXLOG_I(kTag, "scene upscale: %s on the scene stretch %s, %ux%u -> %ux%u, written into its target (the draw is skipped)",
+                                extras::scene_upscale_name(), S.stage[kFragment]->hash.c_str(), part.width, part.height, out.width, out.height);
+                    }
+                }
+                return;   // without the blit the game's own stretch draws (bilinear)
+            }
+        }
         VkImageView up = su->upscale(F->cb, src, part, VkExtent2D{se.width, se.height}, out, false, 1.0f, extras::upscale_sharpness(), out_tex);
         shadow_invalidate();
         if (up) {
@@ -268,8 +319,8 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
         static bool told = false;
         if (!told) {
             told = true;
-            NXLOG_I(kTag, "scene upscale: %s on the scene stretch %s, %ux%u -> %ux%u", extras::upscale_mode() == extras::UpscaleMode::Nis ? "NIS" : "FSR 1",
-                    S.stage[kFragment]->hash.c_str(), part.width, part.height, out.width, out.height);
+            NXLOG_I(kTag, "scene upscale: %s on the scene stretch %s, %ux%u -> %ux%u", cheap ? extras::scene_upscale_name()
+                    : extras::upscale_mode() == extras::UpscaleMode::Nis ? "NIS" : "FSR 1", S.stage[kFragment]->hash.c_str(), part.width, part.height, out.width, out.height);
         }
         return;
     }

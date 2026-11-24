@@ -28,6 +28,7 @@ public:
     VkImageView upscale(VkCommandBuffer cb, VkImageView src, VkExtent2D in_view, VkExtent2D in_tex, VkExtent2D out, bool linear_hdr, float prescale,
                         float sharpness, VkExtent2D out_tex = {}) override;
     uint32_t frames() const { return frames_; }
+    VkImage image() const { return img_.image; }   // the last result (R16G16B16A16_SFLOAT, GENERAL layout)
 
     static constexpr uint32_t kSetRing = 16;
 

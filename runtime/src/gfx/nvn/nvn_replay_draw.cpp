@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Draws of the replay: pipeline keys, dynamic state and its shadow, begin_draw, primitive conversion, direct, indirect and feedback draws.
 #include "nvn_replay_internal.h"
+#include "nxrt/platform_facts.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -102,6 +103,8 @@ static void set_viewports_and_scissors() {
                            : VkViewport{x, y + h, w, -h, S.dr[i][0], S.dr[i][1]};
         if (i < S.nsc) sc[i] = scissor_rect(S.sc[i]);
         else sc[i] = {{0, 0}, P.extent};
+        if constexpr (facts::kPhone)
+            if (i == 0) edge_guard_note(x, y, w, h, sc[0]);   // nvn_replay_edge.cpp
     }
     if (bind_coalesce_on()) {
         // compare the whole arrays (the unused tail is zero) and the count
@@ -454,6 +457,8 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
         else if (colour && g_cmd.fs_stretch == 2) scene_sharpen_for_draw(*pl);
         else if (colour && g_cmd.fs_stretch > 0) scene_stretch_for_draw(*pl);
         else g_su.clear();
+        if constexpr (facts::kPhone)
+            if (g_su.skip_draw) { g_su.skip_draw = false; return false; }   // the scene upscale wrote this draw's target
     }
     if (g_copies.fb_seen || (g_cmd.dirty & (kDesc | kPipe))) feedback_prepare(*pl);
     bool pass_ok;

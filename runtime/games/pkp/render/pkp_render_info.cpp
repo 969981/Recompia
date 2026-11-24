@@ -3,6 +3,7 @@
 #include <volk.h>
 
 #include "nxrt/game_render.h"
+#include "nxrt/platform_facts.h"
 #include "core/pkp_game.h"
 
 namespace nxrt::games::pkp {
@@ -62,8 +63,12 @@ constexpr game::LoopGuard kLoopGuards[] = {
 // The composite (fs 8526214507533768, uniform cbComposite, one input: the tone map's output) draws the picture into the window texture;
 // under [gfx] ui_native with a render scale it enlarges it.
 // The lowest dynamic-resolution level that renders correctly is level 1 (51.7 % of the targets; level 0, exactly half, shows a floating
-// band and rectangles: pkp_render_size.cpp); automatic resolution and the phone's Resolution row stay at or above it.
-constexpr int kSceneScaleMin = 52;
+// band and rectangles: pkp_render_size.cpp); automatic resolution and the phone's Resolution row stay at or above it. On phones fix_rect
+// also matches the game's height-derived scene rects, which is what level 0 (like every level whose height loses a row) needed: measured
+// clean on the desktop on near-square targets with that match. Below level 0 phones answer a smaller level 0 (pkp_render_size.cpp level_size), measured
+// clean on the desktop at 40, 33 and 25 % of the targets; a phone's Resolution row goes down to 15 % of the screen through it
+// (pkp_render_size.cpp phone_scene_pct).
+constexpr int kSceneScaleMin = facts::kPhone ? 25 : 52;
 constexpr game::SceneStretch kSceneStretch[] = {{"c4664b38f6a87835", false}, {"8526214507533768", true}};
 
 constexpr game::Render kRender = {&kReadbackDefer, &kCamera, kToneMaps, sizeof kToneMaps / sizeof kToneMaps[0],

@@ -124,6 +124,13 @@ extern std::atomic<uint64_t> g_set_vp_fixes;
 void install_render_size_hooks(uint64_t base);
 void pick_size(const play::DisplaySettings& d, int window_w, int window_h, int* out_w, int* out_h);
 void game_target_memory(uint64_t base, int* w, int* h);
+// a phone's resolution (render/pkp_phone_res.h): the targets' render scale at start, and the scene's live percent of them
+extern std::atomic<int> g_ph_ceiling, g_ph_max, g_ph_win_w, g_ph_win_h;
+float phone_res_install(const play::DisplaySettings& d, int window_w, int window_h, int tw, int th, int base_w);
+int phone_scene_pct(bool dyn);
+// a phone's dynamic resolution (render/pkp_dynres.cpp): the percent of the screen for this frame, at most cap (the player's Resolution)
+extern std::atomic<int> g_dyn_fps_cap;   // the frame cap it budgets for ([display] fps_limit; 0 or less: the refresh rate)
+int dynres_pct(int cap, bool on);
 
 // ---- render targets created at a literal size (pkp_render_targets.cpp) ----
 enum class TargetFix : uint8_t { Off, Screen, All };

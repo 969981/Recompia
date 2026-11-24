@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // What covers the picture while the game loads ends at or near the old 16:9 edges (#534): the loading screen layout's full-width quads
 // (two black ones over the strip's scenery, and the strip's sky and ground under it) and the black quad the game fades the picture
-// with before and after it. On a wider or taller canvas the scene showed beside them.
+// with before and after it. On a wider or taller canvas the scene showed beside them. The game sizes the layout to the canvas: on one
+// wider than 1920 and taller than 16:9 (a phone's screen-sized targets) every pane is the authored one times the canvas width / 1920, so
+// the authored sizes and positions are matched at that scale.
 #include "render/pkp_loading_backdrop.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <string_view>
@@ -21,6 +24,13 @@ using layout::kDrawPane;
 using layout::kQuadGeometry;
 constexpr size_t kWorldY = 13;
 constexpr float kAuthoredHalfWidth = 960.f, kAuthoredHalfHeight = 540.f;
+
+// The game's scale of the authored 1920x1080 layout on this canvas (it fits the canvas), and a match at it: the game rounds each scaled
+// size to whole pixels (a scaled half height such as 668.25 is drawn 668.5), so a half size is within half a pixel of it.
+float layout_scale() {
+    return std::min(play_ui_canvas_width() / (kAuthoredHalfWidth * 2.f), play_ui_canvas_height() / (kAuthoredHalfHeight * 2.f));
+}
+bool same(float v, float authored, float scale) { return std::fabs(v - authored * scale) <= 0.51f; }
 
 bool named(uint64_t pane, std::string_view name) {
     if (!pane || rd<uint16_t>(pane + layout::kPaneNameLen) != name.size()) return false;
@@ -67,8 +77,9 @@ int extend_backdrop(::Ctx* c, uint64_t addr, void*) {
     const float local_x = c->v[2].f32[0];
     float& local_y = c->v[3].f32[0];
     if (local_y != 0.f) return 0;
-    const bool fade = half_width == kFadeHalfWidth && half_height == kFadeHalfHeight;
-    if (!fade && half_width != kAuthoredHalfWidth) return 0;
+    const float scale = layout_scale();
+    const bool fade = same(half_width, kFadeHalfWidth, scale) && same(half_height, kFadeHalfHeight, scale);
+    if (!fade && !same(half_width, kAuthoredHalfWidth, scale)) return 0;
 
     const uint64_t draw = rd<uint64_t>(c->x[31] + layout::kQuadPictureDraw);
     const uint64_t pane = rd<uint64_t>(draw + kDrawPane);
@@ -84,19 +95,19 @@ int extend_backdrop(::Ctx* c, uint64_t addr, void*) {
     }
     const Backdrop* quad = nullptr;
     for (const Backdrop& b : kBackdrops)
-        if (half_height == b.half_height && named(pane, b.name)) quad = &b;
+        if (same(half_height, b.half_height, scale) && named(pane, b.name)) quad = &b;
     if (!quad) return 0;
     const uint64_t group = rd<uint64_t>(pane + layout::kPaneParent);
     if (!named(group, "Null_ani_all")) return 0;
 
     const float* matrix = centred_world(pane);
-    if (!matrix || !(std::fabs(matrix[kWorldY] - quad->world_y) <= 0.5f)) return 0;
+    if (!matrix || !(std::fabs(matrix[kWorldY] - quad->world_y * scale) <= 0.5f * scale)) return 0;
     const bool black = quad->outward != 0.f;
     if (black) g_group.store(group, std::memory_order_relaxed);
     else if (group != g_group.load(std::memory_order_relaxed)) return 0;
 
     const float canvas_half_height = play_ui_canvas_height() * 0.5f;
-    if (black && canvas_half_height > kAuthoredHalfHeight) {   // taller canvas: move only the outer edge
+    if (black && canvas_half_height > kAuthoredHalfHeight * scale) {   // taller canvas: move only the outer edge
         const float outer_edge = quad->outward * matrix[kWorldY] + half_height;
         const float extra_half = (canvas_half_height - outer_edge) * 0.5f;
         half_height += extra_half;
@@ -104,7 +115,7 @@ int extend_backdrop(::Ctx* c, uint64_t addr, void*) {
     }
     // Wider canvas: the quad is centred on it (world x 0 above, local x 0), so both side edges move out and the centre stays.
     const float canvas_half_width = play_ui_canvas_width() * 0.5f;
-    if (canvas_half_width > kAuthoredHalfWidth && local_x == 0.f) half_width = canvas_half_width;
+    if (canvas_half_width > kAuthoredHalfWidth * scale && local_x == 0.f) half_width = canvas_half_width;
     return 0;
 }
 

@@ -686,6 +686,7 @@ void replay_end_submit(Frame& f) {
 }
 
 void replay_shutdown() {
+    frame_parts_reset();
     g_xfb.shutdown();
     g_q.shutdown();
     g_dbg_depth = 0;

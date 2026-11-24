@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Terminal
@@ -276,7 +277,7 @@ private fun Running(vm: AppViewModel, job: BuildState) {
     HealthStrip()
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         RcButton(stringResource(if (job.run == RunState.CANCELLING) R.string.ui_stopping else R.string.ui_pause),
-            vm::cancelJob, Modifier.initialFocus(), icon = Icons.Rounded.Close, enabled = job.run == RunState.RUNNING)
+            vm::cancelJob, Modifier.initialFocus(), icon = Icons.Rounded.Pause, enabled = job.run == RunState.RUNNING)
     }
     Text(stringResource(R.string.ui_build_background), style = MaterialTheme.typography.bodySmall, color = Rc.text3)
     LogLines(job)
