@@ -45,6 +45,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -97,7 +98,10 @@ fun CoopEntry(saves: List<Coop.Profile>, onOpen: () -> Unit) {
         saves.isEmpty() -> stringResource(R.string.ui_coop_home_none)
         else -> stringResource(R.string.ui_coop_home_many, saves.size)
     }
-    NavRow(Icons.Rounded.Group, stringResource(R.string.ui_coop_group), onOpen, detail = detail)
+    // the same card as Home's Controls card (HomeScreen ControllerCard), so it stands out from the menu rows below
+    GlassCard(Modifier.fillMaxWidth(), strong = false, padding = 6.dp) {
+        NavRow(Icons.Rounded.Group, stringResource(R.string.ui_coop_group), onOpen, detail = detail, background = Color.Transparent)
+    }
 }
 
 /** Home's second button under Play: starts the only co-op save (Start as Auto), or opens Co-op to choose one of several. */
