@@ -412,6 +412,11 @@ extern nxrt::GaugeCounter g_gauge_pipeline_binds;
 // After ensure_pass: true while the 2D is hidden and this draw is part of it (vertex inputs, colour target 0 a presented texture). One
 // relaxed atomic load while nothing is hidden.
 bool ui_skip_draw(const ShaderInfo* vs);
+// The first picture: a blended draw into a presented texture (2D over the picture: a loading screen's sprite, a menu) has run. A game's
+// boot frames that only run opaque full-screen passes into it (black) do not count. The app's loading screen goes at the next present
+// (note_frame_for_loading, nxrt::os::app::kPicture). Render thread; note_first_2d is called only while g_drew_2d is false.
+extern bool g_drew_2d;
+void note_first_2d();
 void ui_shutdown();   // replay_shutdown: the presented textures are let go
 // ---- frame trace and debug aids (nvn_replay_trace.cpp) ---------------------------------------------------------------------------
 // Their state is private to the trace module. The draw and dispatch paths test one flag per site (both false in play) and call in.

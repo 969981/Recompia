@@ -26,13 +26,25 @@ void replay_note_presented(Texture* t) {
 
 namespace replay {
 
-bool ui_skip_draw(const ShaderInfo* vs) {
-    if (!ui_layer::hidden()) return false;
-    if (!vs || vs->refl.vertex_inputs().empty() || S.ncolor == 0 || !S.color_tex[0] || g_xfb.active) return false;
+// This draw's colour target 0 is one of the textures the game presents.
+static bool into_presented() {
+    if (S.ncolor == 0 || !S.color_tex[0]) return false;
     Texture* target = S.color_tex[0].get();
     for (const Ref<Texture>& r : g_presented.tex)
         if (shares_image(target, r.get())) return true;
     return false;
+}
+
+bool ui_skip_draw(const ShaderInfo* vs) {
+    if (!ui_layer::hidden()) return false;
+    if (!vs || vs->refl.vertex_inputs().empty() || g_xfb.active) return false;
+    return into_presented();
+}
+
+bool g_drew_2d = false;
+
+void note_first_2d() {
+    if ((S.color.blend_enable_mask & 1) && into_presented()) g_drew_2d = true;
 }
 
 void ui_shutdown() { g_presented = Presented(); }
