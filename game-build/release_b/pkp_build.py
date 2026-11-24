@@ -1117,7 +1117,7 @@ def link(runner, lib, out, env):
     elif LINUX:
         # Zig targeting x86_64-linux-gnu or aarch64-linux-gnu. The exe finds libpkp_rt.so next to itself (-rpath $ORIGIN, the
         # ELF equivalent of @executable_path). The main thread's 128 MiB stack (the Windows /STACK, the Mach-O -stack_size) comes
-        # from the runtime raising RLIMIT_STACK before main (os_posix.cpp raise_main_stack): glibc ignores the PT_GNU_STACK size
+        # from the runtime raising RLIMIT_STACK before main (os_posix_thread.cpp raise_main_stack): glibc ignores the PT_GNU_STACK size
         # below for the main thread.
         # --strip-debug: Zig's Linux output carries full DWARF (1.4 GB against 278 MB stripped); the symbol table stays, so the
         # crash reporter's host frames still resolve.
