@@ -29,6 +29,7 @@ export const api = {
   cloudSigninCancel: () => invoke('cloud_signin_cancel'),
   cloudSignOut: () => invoke('cloud_sign_out'),
   cloudAccountPage: () => invoke('cloud_account_page'),
+  cloudPasskeyBegin: () => invoke('cloud_passkey_begin'),   // a new passkey for a signed-in account (cloud_passkey.rs)
   openLicensesDir: () => invoke('open_licenses_dir'),
   openGameFile: (args) => invoke('open_game_file', args),   // { name }
   openGameDir: () => invoke('open_game_dir'),

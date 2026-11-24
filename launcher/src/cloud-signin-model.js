@@ -1,5 +1,6 @@
 // What the online account sign-in says: Home's account chip and the sign-in screen it opens, the one the launcher also starts on
 // (pages/welcome.js), from the state cloud_signin.rs sends: { state: off | signed_out | waiting | signed_in | expired, default_method, device_name, account_name?,
+// needs_passkey? (signed in, but the account's passkeys died with the server's old address: cloud_passkey.rs),
 // method?, phase?: { phase: starting | browser | phone | finishing, url?, user_code?, qr_svg?, fingerprint?, expires_in? }, error? }.
 // Pure: no DOM and no Tauri (icons come in as a function, pictures as URLs), so node scripts/test-cloud-signin-model.mjs runs it.
 import { t } from './i18n.js';
@@ -11,11 +12,14 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 export const shown = (st) => !!st && !!st.state && st.state !== 'off';
 
 /**
- * Whether the launcher starts on the welcome screen (pages/welcome.js) before Home: Cloud Islands are on, this device is signed out or
- * its sign-in expired, and the player has not pressed Skip since the last sign-in or sign-out (`skipped`: launcher.json
- * signin_skipped).
+ * Whether the launcher starts on the welcome screen (pages/welcome.js) before Home: Cloud Islands are on, this device is signed out,
+ * its sign-in expired or its account needs a new passkey, and the player has not pressed Skip since the last sign-in or sign-out
+ * (`skipped`: launcher.json signin_skipped).
  */
-export const welcomeAtStart = (st, skipped) => shown(st) && ['signed_out', 'expired'].includes(st.state) && !skipped;
+export const welcomeAtStart = (st, skipped) => shown(st) && (['signed_out', 'expired'].includes(st.state) || needsPasskey(st)) && !skipped;
+
+/** Signed in, and the account needs a new passkey: this device is the only way into it until it has one. */
+export const needsPasskey = (st) => st?.state === 'signed_in' && st.needs_passkey === true;
 
 /** m:ss */
 export const countdown = (seconds) => {
@@ -42,7 +46,7 @@ export const safeQr = (svg, mark = '') => {
 export function chip(st, icon) {
   if (!shown(st)) return '';
   const [cls, name, label] = {
-    signed_in: ['ok', 'user-check', t('Signed in: {name}', { name: st.account_name })],
+    signed_in: needsPasskey(st) ? ['warn', 'key-round', t('Set up a new passkey')] : ['ok', 'user-check', t('Signed in: {name}', { name: st.account_name })],
     expired: ['warn', 'circle-alert', t('Sign in again')],
     waiting: ['', 'loader-circle', t('Signing in…')],
   }[st.state] ?? ['', 'log-in', t('Sign in')];
@@ -86,10 +90,11 @@ const browserBlock = (icon, ph, device) =>
  * is Skip, remembered) and Home's account chip opens it (`chip`: its way out is Back, nothing remembered). step: choose (the two ways
  * in, the platform's default first and primary; it says so when the sign-in expired, or right after Sign out with `note`
  * 'signed-out'), phone, browser, busy (starting, finishing), done (signed in at start: the screen goes on to Home by itself),
- * account (signed in, from the chip: who, Sign out, the account page), off (no portal: straight on to Home). The way out is on every
- * step but done. `mark`: the picture for the middle of the QR code (Recompia's mark). Buttons carry data-signin: browser | phone
+ * account (signed in, from the chip: who, Sign out, the account page), passkey (signed in, but the account needs a new passkey: why,
+ * and the button for it; no Sign out, which would lock the account; `note` 'passkey-opened' once the browser has the page), off (no
+ * portal: straight on to Home). The way out is on every step but done. `mark`: the picture for the middle of the QR code (Recompia's mark). Buttons carry data-signin: browser | phone
  * (start that way), back (stop waiting, choose again), skip (on to Home, remembered), leave (Back to Home), sign-out, account (the
- * account page). The way out (skip or leave) is also marked data-pad-back: a controller's B presses it, as Esc does (gamepad-nav.js).
+ * account page), new-passkey. The way out (skip or leave) is also marked data-pad-back: a controller's B presses it, as Esc does (gamepad-nav.js).
  */
 export function welcome(st, icon, mark = '', { chip = false, note = '' } = {}) {
   const device = st?.device_name || t('this device');
@@ -101,6 +106,15 @@ export function welcome(st, icon, mark = '', { chip = false, note = '' } = {}) {
   if (!shown(st)) return { step: 'off', body: '', actions: out };
   if (st.state === 'signed_in') {
     const who = (name) => `<p class="signin-who">${icon(name)}<span>${esc(t('Signed in as {name}', { name: st.account_name }))}</span></p>`;
+    if (needsPasskey(st)) {
+      return {
+        step: 'passkey',
+        body: `${who('user-check')}<p>${esc(t('The server moved to a new address, and your old passkey does not work there. Set up a new passkey to keep your account.'))}</p>
+          <p class="signin-how">${esc(t('Until then, do not sign out: this {device} is your only way in.', { device }))}</p>${
+          note === 'passkey-opened' ? busy(icon, t('Finish in your browser: create the new passkey there.')) : ''}`,
+        actions: btn('new-passkey', t('Set up a new passkey'), 'primary', icon('key-round')) + out,
+      };
+    }
     if (!chip) return { step: 'done', body: `${who('circle-check')}<p>${esc(t('Taking you to the launcher…'))}</p>`, actions: '' };
     return {
       step: 'account',

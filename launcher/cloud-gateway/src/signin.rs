@@ -197,20 +197,20 @@ fn dec(s: &str) -> Option<String> {
 
 // --- the portal's JSON API ------------------------------------------------------------------------------------------
 
-struct Portal {
+pub(crate) struct Portal {
     base: String,
     agent: ureq::Agent,
 }
 
 /// A refusal with the portal's own words (`{"error": ...}`), or a connection failure.
 #[derive(Debug)]
-enum Fault {
+pub(crate) enum Fault {
     Status(u16, String),
     Network(String),
 }
 
 impl Fault {
-    fn text(&self) -> String {
+    pub(crate) fn text(&self) -> String {
         match self {
             Fault::Status(_, m) => m.clone(),
             Fault::Network(m) => m.clone(),
@@ -219,13 +219,18 @@ impl Fault {
 }
 
 impl Portal {
-    fn new(base: &str) -> Result<Portal, String> {
+    pub(crate) fn new(base: &str) -> Result<Portal, String> {
         // certificates are checked against the Mozilla roots ureq carries (webpki-roots); redirects are not followed
         let agent = ureq::AgentBuilder::new().timeout(HTTP_TIMEOUT).redirects(0).user_agent("recompia-launcher").build();
         Ok(Portal { base: check_portal(base)?, agent })
     }
 
-    fn post(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, Fault> {
+    /// The portal's address as `check_portal` leaves it: also its origin.
+    pub(crate) fn base(&self) -> &str {
+        &self.base
+    }
+
+    pub(crate) fn post(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, Fault> {
         let answer = self.agent.post(&format!("{}{path}", self.base)).set("Content-Type", "application/json").send_string(&body.to_string());
         let (status, text) = match answer {
             Ok(r) => (r.status(), r.into_string().map_err(|e| Fault::Network(format!("the portal's answer was cut off: {e}")))?),

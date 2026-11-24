@@ -6,6 +6,7 @@ mod branding;
 mod branding_cmds;
 mod child_lines;
 mod cloud_account;
+mod cloud_passkey;
 mod cloud_signin;
 mod cli;
 mod config;
@@ -188,6 +189,7 @@ fn main() {
             cloud_signin::cloud_signin_cancel,
             cloud_signin::cloud_sign_out,
             cloud_signin::cloud_account_page,
+            cloud_passkey::cloud_passkey_begin,
             open::open_licenses_dir,
             config::save_config,
             readiness::get_overview,

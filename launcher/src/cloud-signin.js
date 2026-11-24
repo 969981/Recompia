@@ -35,7 +35,7 @@ export async function welcomeOwed() {
     console.warn('get_config', e);
     return false;
   }
-  if (st.state === 'signed_in' && skipped) rememberSkip(false);
+  if (st.state === 'signed_in' && !st.needs_passkey && skipped) rememberSkip(false);   // a Skip of the new-passkey screen stays
   return welcomeAtStart(st, skipped);
 }
 

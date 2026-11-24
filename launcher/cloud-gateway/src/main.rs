@@ -4,14 +4,15 @@
 //! the gateway prints at start.
 
 use recompia_cloud_gateway::signin::{self, Method, Phase};
-use recompia_cloud_gateway::{device, start, Options, DEFAULT_PLAIN_PORT, DEFAULT_TLS_PORT};
+use recompia_cloud_gateway::{device, recover, start, Options, DEFAULT_PLAIN_PORT, DEFAULT_TLS_PORT};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-const USAGE: &str = "recompia-cloud-gateway [run] [--home <device folder>] [--tls-port <n>] [--plain-port <n>] [--ca-out <file.der>]
+const USAGE: &str = "recompia-cloud-gateway [run] [--home <device folder>] [--server <address>] [--tls-port <n>] [--plain-port <n>] [--ca-out <file.der>]
 recompia-cloud-gateway signin --portal <https://...> [--home <device folder>] [--method browser|phone] [--no-open]
 recompia-cloud-gateway status [--home <device folder>]
 recompia-cloud-gateway signout [--home <device folder>]
+recompia-cloud-gateway recover --portal <https://...> [--home <device folder>] [--no-open]
 
   run           the gateway (the default). It starts signed in or not, and picks up a sign-in or sign-out in the
                 device folder by itself, without a restart
@@ -19,13 +20,17 @@ recompia-cloud-gateway signout [--home <device folder>]
                 Windows), phone = scan a QR code and type the short code on a phone (default elsewhere)
   status        who this device is signed in as
   signout       removes this device's sign-in from the device folder (remove the device on the portal to revoke it)
+  recover       a new passkey for this device's account when its old ones stopped working (the portal moved to
+                another address): opens the portal's one-time page for it in this PC's browser
 
   --home        the device folder (launcher.json, device.crt, device.key, ingress-ca.pem);
                 default: where the server's launcher.py link command puts it
+  --server      run: the server's address, dialled instead of the host the sign-in stored (the port and the
+                certificate name stay the sign-in's)
   --tls-port    127.0.0.1 port for the game's TLS connections (default 18443, 0 = any free port)
   --plain-port  127.0.0.1 port for the island file (default 18444, 0 = any free port)
   --ca-out      where to write the certificate the game must trust; default: recompia-gateway-ca.der in --home
-  --no-open     signin: print the address instead of opening a browser";
+  --no-open     signin, recover: print the address instead of opening a browser";
 
 fn stamp() -> String {
     let s = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) % 86400;
@@ -48,7 +53,7 @@ fn main() {
     };
     let mut args = std::env::args().skip(1).peekable();
     let command = match args.peek().map(String::as_str) {
-        Some("run" | "signin" | "status" | "signout") => args.next().unwrap_or_default(),
+        Some("run" | "signin" | "status" | "signout" | "recover") => args.next().unwrap_or_default(),
         _ => "run".to_string(),
     };
     let (mut portal, mut method, mut open) = (None, signin::default_method(), true);
@@ -57,6 +62,7 @@ fn main() {
         let port = |v: String| v.parse::<u16>().unwrap_or_else(|_| fail(format!("{v} is not a port")));
         match a.as_str() {
             "--home" => opt.device_dir = PathBuf::from(value()),
+            "--server" => opt.server = Some(value()),
             "--tls-port" => opt.tls_port = port(value()),
             "--plain-port" => opt.plain_port = port(value()),
             "--ca-out" => opt.ca_file = Some(PathBuf::from(value())),
@@ -76,6 +82,7 @@ fn main() {
     match command.as_str() {
         "signin" => sign_in(&portal.unwrap_or_else(|| fail("signin needs --portal".into())), opt.device_dir, method, open),
         "status" => status(&opt.device_dir),
+        "recover" => new_passkey(&portal.unwrap_or_else(|| fail("recover needs --portal".into())), &opt.device_dir, open),
         "signout" => match device::remove(&opt.device_dir) {
             Ok(()) => println!("Signed out on this device. To revoke it, remove the device on the account page too."),
             Err(e) => {
@@ -111,6 +118,25 @@ fn status(dir: &std::path::Path) {
             println!("{state} as {who} (account {}, device {}, portal {})", s.account, s.device, s.portal);
         }
         Err(_) => println!("signed out"),
+    }
+}
+
+fn new_passkey(portal: &str, dir: &std::path::Path, open: bool) {
+    match recover::link(portal, dir) {
+        Ok(None) => println!("This device's account needs no new passkey."),
+        Ok(Some(url)) if open => {
+            println!("{} opening the page for the new passkey in the browser", stamp());
+            if let Err(e) = open_browser(&url) {
+                fail(e)
+            }
+        }
+        // the address is the proof itself: for this PC's own browser only
+        Ok(Some(url)) => println!("{} open this address on this PC to make the new passkey (it works once, for a short time):
+{url}", stamp()),
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1)
+        }
     }
 }
 
