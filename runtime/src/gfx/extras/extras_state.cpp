@@ -12,6 +12,7 @@
 #include "nxrt/log.h"
 #include "nxrt/text.h"
 #include "extras/hdr_math.h"
+#include "extras/temporal.h"
 
 namespace nxrt::extras {
 namespace {
@@ -159,6 +160,18 @@ UpscaleMode upscale_mode() {
         m = g_upscale_mode.load(std::memory_order_relaxed);
     }
     return static_cast<UpscaleMode>(m);
+}
+
+bool upscale_mode_available(UpscaleMode m) {
+    switch (upscale_mode_enabled(m)) {
+        case UpscaleMode::Off:
+        case UpscaleMode::Fsr1:
+        case UpscaleMode::Nearest: return true;
+        case UpscaleMode::Fsr3: return temporal_ffx_available();
+        case UpscaleMode::Dlss:
+        case UpscaleMode::Dlaa: return temporal_dlss_available();
+        default: return false;
+    }
 }
 
 float upscale_sharpness() { return g_upscale_sharp.load(std::memory_order_relaxed); }

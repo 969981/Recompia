@@ -35,11 +35,15 @@ struct HdrSettings {
 // Nis: NVIDIA Image Scaling v1.0.3 (spatial, any GPU). Fsr3, Dlss, Dlaa: temporal (Dlaa = DLSS at the input size).
 // Nearest: no filter, the low-res picture is enlarged with nearest-neighbour sampling (#232).
 enum class UpscaleMode : uint8_t { Off = 0, Fsr1, Fsr3, Dlss, Xess, Nis, Dlaa, Nearest };
-// ponytail: FSR 3, DLSS, DLAA, NIS and XeSS are switched off until they are reworked (#232): a file that names one runs as Off.
-// Re-enable one by returning it here (and listing it in the F1 page and the launcher again).
+// ponytail: NIS and XeSS are switched off until they are reworked (#232): a file that names one runs as Off. Re-enable one by returning it here
+// (and listing it in the F1 page and the launcher again). FSR 3, DLSS and DLAA are back after the #232 fix; whether this machine has one is
+// upscale_mode_available (a mode without its SDK runs as Off).
 inline UpscaleMode upscale_mode_enabled(UpscaleMode m) {
-    return m == UpscaleMode::Fsr1 || m == UpscaleMode::Nearest ? m : UpscaleMode::Off;
+    return m == UpscaleMode::Nis || m == UpscaleMode::Xess ? UpscaleMode::Off : m;
 }
+// The mode can run here: Off and the spatial ones always; FSR 3 when the FidelityFX API is found (temporal_ffx_available: its DLLs on Windows);
+// DLSS / DLAA when the Streamline DLLs are found (the GPU check runs when the renderer starts them). The settings rows list these.
+bool upscale_mode_available(UpscaleMode m);
 // Temporal quality preset: the input scale per side (native 1, quality 1/1.5, balanced 1/1.7, performance 1/2, ultra performance 1/3); Custom
 // keeps scene_scale. The scale only takes effect where the game renders the scene below its output (scene_scale); otherwise the temporal
 // upscalers run at the input size (native anti-aliasing).
