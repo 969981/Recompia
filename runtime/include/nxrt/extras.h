@@ -142,6 +142,7 @@ struct PictureLive {
 };
 PictureLive picture_live();
 void set_picture_live(const PictureSettings& p);   // only the live copy; set_settings() also sets it
+void set_upscale_sharpness_live(float v);   // only the live [upscale] sharpness (a settings row's preview); set_settings() also sets it
 void set_scene_scale_live(int pct);                // only the live [upscale] scene_scale (a settings row's preview); set_settings() also sets it
 
 // ---- HDR runtime state ---------------------------------------------------------------------------------------------------------

@@ -110,6 +110,7 @@ Settings settings() {
     return g_settings;
 }
 
+void set_upscale_sharpness_live(float v) { g_upscale_sharp.store(std::clamp(v, 0.0f, 1.0f)); }
 void set_scene_scale_live(int pct) { g_scene_scale.store(std::clamp(pct, 25, 100)); }
 
 void set_settings(const Settings& in) {
