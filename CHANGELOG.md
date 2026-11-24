@@ -9,7 +9,8 @@
 - Fixed a co-op member who pressed the PC right after joining being stuck in place until the host's data arrived, and the member's shop rows and open areas staying empty while the host was in a menu or a talk
 
 ### Launcher
-- Fixed Cloud Islands (Experimental) failing for everyone, sign-in and play, after the account server's old address stopped working: the launcher signs in at the server's new address and connects to the server directly. A PC that was signed in stays signed in
+- Fixed Cloud Islands (Experimental) failing for everyone, sign-in and play, after the account server's old address stopped working: the launcher signs in at the server's new address and connects to the server directly. A PC that was signed in stays signed in.
+- Added **Set up a new passkey** for Cloud Islands accounts made before 24 November, whose passkeys stopped working when the server's address changed: on a PC that is still signed in, Home and the account screen offer it, and it opens a one-time page that gives the account a new passkey. Sign out is hidden on that PC until the account has one, because signing out would lock the account. With no signed-in PC left, ask on Discord for a recovery link
 - Changed the Discord links in the launcher and the READMEs to the current invite
 - Changed online presence to paused: its server is gone, so the launcher sends nothing even when the switch is on. On an older launcher, switch presence off or update
 - Fixed Zonith's Play only opening Zonith's setup window, so the game had to be started from its own file: once the setup has built the game, **Play** starts the game itself. Until then the button says **Set up** (or **Finish update** after a Zonith update), and a small **Set up** button next to Play opens the setup window again. Open folder now opens the game's folder

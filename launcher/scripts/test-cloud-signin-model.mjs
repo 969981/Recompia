@@ -1,5 +1,5 @@
 // Tests for what the online account sign-in says (src/cloud-signin-model.js). Run: node scripts/test-cloud-signin-model.mjs   (exit 1 on a failure)
-import { chip, countdown, safeQr, shown, welcome, welcomeAtStart } from '../src/cloud-signin-model.js';
+import { chip, countdown, needsPasskey, safeQr, shown, welcome, welcomeAtStart } from '../src/cloud-signin-model.js';
 
 let bad = 0;
 const check = (ok, what) => { if (!ok) { console.log(`FAIL ${what}`); bad++; } };
@@ -82,6 +82,18 @@ const cOld = welcome({ ...base, state: 'expired' }, icon, '', { chip: true });
 check(cOld.body.includes('expired') && cOld.body.includes('data-signin="phone"') && ways(cOld) === 'sign-out leave', 'chip expired: Sign out, Back');
 check(ways(welcome({ ...base, state: 'expired' }, icon)) === 'sign-out skip', 'start expired: Sign out, Skip');
 check(welcome({ ...base, state: 'off' }, icon, '', { chip: true }).step === 'off', 'chip with Cloud Islands off: back to Home');
+
+// signed in, but the account's passkeys died with the server's old address: the chip warns, the launcher starts on the screen, and the
+// card offers the new passkey and no Sign out (which would lock the account), at start and from the chip
+const stuck = { ...base, state: 'signed_in', account_name: 'Ana', needs_passkey: true };
+check(needsPasskey(stuck) && !needsPasskey({ ...stuck, needs_passkey: false }) && !needsPasskey({ ...base, state: 'expired', needs_passkey: true }), 'a new passkey is needed only while signed in');
+check(chip(stuck, icon).includes('class="chip on-art warn"') && chip(stuck, icon).includes('Set up a new passkey'), 'chip: asks for the new passkey');
+check(welcomeAtStart(stuck, false) && !welcomeAtStart(stuck, true) && !welcomeAtStart({ ...stuck, needs_passkey: false }, false), 'start: the new-passkey screen until Skip');
+const sStuck = welcome(stuck, icon);
+const cStuck = welcome(stuck, icon, '', { chip: true });
+check(sStuck.step === 'passkey' && cStuck.step === 'passkey' && cStuck.body.includes('Signed in as Ana') && cStuck.body.includes('do not sign out: this Windows PC'), 'new passkey: who and why');
+check(ways(sStuck) === 'new-passkey skip' && ways(cStuck) === 'new-passkey leave', 'new passkey: its button and the way out, no Sign out');
+check(!cStuck.body.includes('Finish in your browser') && welcome(stuck, icon, '', { chip: true, note: 'passkey-opened' }).body.includes('Finish in your browser: create the new passkey there.'), 'new passkey: says where to finish once the page is open');
 
 check(countdown(0) === '0:00' && countdown(61.4) === '1:01' && countdown(-5) === '0:00', 'countdown');
 

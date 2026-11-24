@@ -63,7 +63,7 @@ export function render(host, ctx) {
       deadline = Date.now() + (st?.phase?.expires_in ?? 0) * 1000;
       if (v.step === 'done' && !done) done = setTimeout(() => leave(false), DONE_MS);
       // Enter signs in the usual way; signed in, Enter goes Back
-      if (v.step === 'choose' || v.step === 'account') root.querySelector('.welcome-card .btn.primary, .welcome-card [data-signin="leave"]')?.focus({ preventScroll: true });
+      if (v.step === 'choose' || v.step === 'account' || v.step === 'passkey') root.querySelector('.welcome-card .btn.primary, .welcome-card [data-signin="leave"]')?.focus({ preventScroll: true });
     }
     const left = root.querySelector('#signin-left');
     if (left) left.textContent = countdown((deadline - Date.now()) / 1000);
@@ -87,6 +87,10 @@ export function render(host, ctx) {
       note = 'signed-out';
       return watch.run(() => api.cloudSignOut().then((s) => { rememberSkip(false); return s; }));
     }
+    if (act === 'new-passkey') {
+      note = 'passkey-opened';
+      return watch.run(() => api.cloudPasskeyBegin());
+    }
     if (act === 'account') return api.cloudAccountPage().catch((err) => toast(errText(err), 'error'));
     if (act === 'skip' || act === 'leave') leave(act === 'skip');
   });
@@ -94,7 +98,7 @@ export function render(host, ctx) {
   const onKey = (e) => {
     if (e.key !== 'Escape' || document.querySelector('dialog[open]')) return;
     if (chip) leave(false);
-    else if (st?.state !== 'signed_in') leave(true);
+    else if (st?.state !== 'signed_in' || st.needs_passkey) leave(true);
   };
   document.addEventListener('keydown', onKey);
   watch.poll();

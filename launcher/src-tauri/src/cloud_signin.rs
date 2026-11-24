@@ -46,7 +46,7 @@ fn setup(app: &AppHandle) -> Setup {
 }
 
 /// What the sign-in screen shows. Always: `state`, `default_method`, `device_name`. Signed in or expired: `account_name`
-/// (falling back to the account id), `not_after` (Unix seconds). Waiting: `method` and the phase (`phase.phase` is
+/// (falling back to the account id), `not_after` (Unix seconds); signed in: `needs_passkey` (cloud_passkey.rs). Waiting: `method` and the phase (`phase.phase` is
 /// starting | browser | phone | finishing; phone has `url`, `user_code`, `qr_svg` (an SVG made here), `fingerprint`,
 /// `expires_in`). After a failure: `error`. An unusable portal address: `portal_error`.
 fn state(s: &Setup) -> Value {
@@ -79,7 +79,10 @@ fn state(s: &Setup) -> Value {
             let mut v = base(if signin::expired(sum.not_after) { "expired" } else { "signed_in" });
             v["account_name"] = json!(if sum.account_name.is_empty() { &sum.account } else { &sum.account_name });
             v["not_after"] = json!(sum.not_after);
-            v["other_portal"] = json!(!sum.portal.is_empty() && sum.portal.trim_end_matches('/') != portal);
+            let other = !sum.portal.is_empty() && sum.portal.trim_end_matches('/') != portal;
+            v["other_portal"] = json!(other);
+            // its old passkeys died with the portal's old address: cloud_passkey.rs
+            v["needs_passkey"] = json!(!signin::expired(sum.not_after) && crate::cloud_passkey::needed(&s.dir, portal, &sum.device, other));
             v
         }
         Err(_) => base("signed_out"),
@@ -88,6 +91,16 @@ fn state(s: &Setup) -> Value {
         v["error"] = json!(e);
     }
     v
+}
+
+/// The portal and the device folder, for a command that needs both: an error while Cloud Islands are off.
+pub fn portal_and_dir(app: &AppHandle) -> Result<(String, std::path::PathBuf), String> {
+    let s = setup(app);
+    match s.portal {
+        Some(Ok(p)) => Ok((p, s.dir)),
+        Some(Err(e)) => Err(e),
+        None => Err("Cloud Islands are switched off (Settings > Game > Online).".into()),
+    }
 }
 
 #[tauri::command]

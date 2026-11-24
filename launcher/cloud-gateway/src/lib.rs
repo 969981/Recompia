@@ -23,6 +23,7 @@
 
 pub mod certs;
 pub mod device;
+pub mod recover;
 pub mod signin;
 
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};

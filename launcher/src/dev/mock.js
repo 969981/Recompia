@@ -182,6 +182,7 @@ function accountState() {
     mockAccount = 'signed_in';
   }
   if (mockAccount === 'signed_out') return { ...base, state: 'signed_out' };
+  if (mockAccount === 'needs_passkey') return { ...base, state: 'signed_in', account_name: 'Island Tester', needs_passkey: true, not_after: Math.floor(Date.now() / 1000) + 90 * 86400 };
   return { ...base, state: mockAccount, account_name: 'Island Tester', not_after: Math.floor(Date.now() / 1000) + (mockAccount === 'expired' ? -86400 : 90 * 86400) };
 }
 // the builds the launcher offers, as list_builds returns them, for a launcher that is 0.8.1-beta.6
@@ -590,6 +591,7 @@ function handle(cmd, args) {
     case 'cloud_signin_cancel': mockSignin = null; return accountState();
     case 'cloud_sign_out': mockSignin = null; mockAccount = 'signed_out'; return accountState();
     case 'cloud_account_page': console.info('[mock] open the account page'); return null;
+    case 'cloud_passkey_begin': console.info('[mock] open the new passkey page'); setTimeout(() => { mockAccount = 'signed_in'; }, 6000); return accountState();
     case 'steam_remove': mockSteam[`${args.target}_added`] = 0; return 'Removed it from Steam. Start Steam again.';
     case 'backup_status': return { settings: { minutes: 0, keep: 10, on_exit: true }, count: mockBackups.length, bytes: mockBackups.reduce((n, b) => n + b.bytes, 0), last: mockBackups[0] ?? null };
     case 'backup_list': return structuredClone(mockBackups);
