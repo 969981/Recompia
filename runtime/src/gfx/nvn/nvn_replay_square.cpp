@@ -17,7 +17,7 @@ namespace replay {
 
 namespace {
 constexpr int kFormatRgb32F = 34;     // the 2D vertex: x, y, z in canvas units
-constexpr uint32_t kMaxIndices = 64;  // a quad is 6
+constexpr uint32_t kMaxIndices = 6;   // one quad
 
 bool is_square_fs(const ShaderInfo* fs) {
     if (g_cmd.fs_square < 0) {
@@ -53,6 +53,10 @@ bool square_quad_viewport(const P_DrawElements& p) {
     }
     const float w = hi[0] - lo[0], h = hi[1] - lo[1];
     if (!(w > 0.f) || !(h > 0.f) || std::fabs(w - h) <= 0.01f * std::max(w, h)) return false;   // square already (16:9)
+    // Only a square the 16:9 sizing distorted: its height over width is the canvas's shape over 16:9. Other quads drawn with the same
+    // shader (button labels, text) have shapes of their own and are left alone; squaring them stretched the text.
+    const float distortion = (S.vp[0][3] / S.vp[0][2]) * (16.0f / 9.0f);
+    if (std::fabs(h / w - distortion) > 0.01f * distortion) return false;
     // the canvas is drawn at one scale on both axes (P.scale), so canvas units are square on screen
     float x = 0.f, y = 0.f, vw = S.vp[0][2], vh = S.vp[0][3];
     const float cx = (lo[0] + hi[0]) * 0.5f, cy = (lo[1] + hi[1]) * 0.5f;
