@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Zonith, the launcher's second game. The launcher keeps Zonith's own setup app up to date and starts it; that app sets the game up
-//! and plays it. This file is the pure part: the release list, which release this platform installs, what the launcher downloaded
-//! (`<data>/zonith/current.json`) and the progress the page shows. The commands are zonith_cmds.rs.
+//! Zonith, the launcher's second game. The launcher keeps Zonith's own setup app up to date and opens it to build the game from the
+//! player's files; once the game is built the launcher starts the game itself. This file is the pure part: the release list, which
+//! release this platform installs, what the launcher downloaded (`<data>/zonith/current.json`), the game the setup built (`read_game`)
+//! and the progress the page shows. The commands are zonith_cmds.rs.
 
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Unauthenticated: until the repository is public this answers 404, which is "not public yet".
 pub const RELEASES_URL: &str = "https://api.github.com/repos/Dittobyte/Zonith/releases?per_page=20";
@@ -194,6 +195,56 @@ impl ZonithProgress {
 /// The file Zonith's setup writes at the top of every game folder it installs (docs/installer.md).
 pub const INSTALL_MARKER: &str = "totk-install.json";
 
+/// The game's file in the install folder.
+pub const GAME_EXE: &str = if cfg!(windows) { "totk.exe" } else { "totk" };
+
+/// The game Zonith's setup built, as its own files tell it (Zonith docs/installer.md, "Starting the game from another program").
+#[derive(Clone, Debug, PartialEq)]
+pub struct Game {
+    /// the install folder
+    pub dir: PathBuf,
+    /// the Zonith release whose setup last finished on it ("0.5.1")
+    pub release: String,
+    /// the game is built: a setup run finished and the game's file is there
+    pub ready: bool,
+}
+
+/// The file Zonith's setup records its last install folder in: `%LOCALAPPDATA%\TotK Recomp\setup.json` on Windows, elsewhere
+/// `$XDG_STATE_HOME/totk-recomp/setup.json` (default `~/.local/state`). TOTK_SETUP_RECENT names another file, for the setup and for us.
+pub fn recent_file() -> Option<PathBuf> {
+    let var = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(p) = var("TOTK_SETUP_RECENT") {
+        return Some(p);
+    }
+    if cfg!(windows) {
+        return Some(var("LOCALAPPDATA")?.join("TotK Recomp").join("setup.json"));
+    }
+    let state = var("XDG_STATE_HOME").or_else(|| Some(var("HOME")?.join(".local").join("state")))?;
+    Some(state.join("totk-recomp").join("setup.json"))
+}
+
+/// The install the setup last ran on: `dest` of `recent`, when that folder holds an INSTALL_MARKER. The setup records the folder when
+/// the player presses Start, so it may be unfinished: `ready` needs the game's file and the marker's `complete` not false (true once a
+/// setup run finished; a marker from Zonith 0.5.1 or older has no such entry, and there the game's file alone decides).
+pub fn read_game(recent: &Path) -> Option<Game> {
+    let json = |p: &Path| serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(p).ok()?).ok();
+    let dir = PathBuf::from(json(recent)?.get("dest")?.as_str()?);
+    if !dir.is_absolute() {
+        return None;
+    }
+    let state = json(&dir.join(INSTALL_MARKER))?;
+    let release = state.get("release").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let complete = state.get("complete").and_then(|v| v.as_bool()).unwrap_or(true);
+    let ready = complete && dir.join(GAME_EXE).is_file();
+    Some(Game { dir, release, ready })
+}
+
+/// The downloaded setup is newer than the release that built the game: the setup has to run on it once more ("v0.5.2" against "0.5.1").
+/// A release that is no version (a development build's) is never stale.
+pub fn game_stale(release: &str, setup_tag: &str) -> bool {
+    crate::releases::is_newer(setup_tag, release)
+}
+
 /// A game Zonith's setup installed somewhere inside `dir` (its INSTALL_MARKER), without following links.
 pub fn holds_install(dir: &Path) -> bool {
     let mut todo = vec![dir.to_path_buf()];
@@ -300,6 +351,34 @@ mod tests {
         assert_eq!(read_current(&dir), Some(Current { tag: "v0.5.0".into(), asset: asset.into() }));
         std::fs::write(dir.join(CURRENT_FILE), "not json").unwrap();
         assert!(read_current(&dir).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_game_the_setup_built() {
+        let dir = std::env::temp_dir().join(format!("zonith-game-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let game = dir.join("TotK");
+        std::fs::create_dir_all(&game).unwrap();
+        let recent = dir.join("setup.json");
+        assert!(read_game(&recent).is_none(), "the setup never ran");
+        std::fs::write(&recent, json!({"format": 1, "dest": game.to_str().unwrap()}).to_string()).unwrap();
+        assert!(read_game(&recent).is_none(), "the folder holds no install");
+        let marker = |v: serde_json::Value| std::fs::write(game.join(INSTALL_MARKER), v.to_string()).unwrap();
+        marker(json!({"format": 1, "release": "0.5.1", "steps": {}}));
+        assert_eq!(read_game(&recent), Some(Game { dir: game.clone(), release: "0.5.1".into(), ready: false }), "no game file yet");
+        std::fs::write(game.join(GAME_EXE), b"x").unwrap();
+        assert!(read_game(&recent).unwrap().ready, "0.5.1 and older: the game's file decides");
+        marker(json!({"format": 1, "release": "0.5.2", "complete": false, "steps": {}}));
+        assert!(!read_game(&recent).unwrap().ready, "the game's file is there, the first install did not finish");
+        marker(json!({"format": 1, "release": "0.5.2", "complete": true, "steps": {}}));
+        assert!(read_game(&recent).unwrap().ready);
+        std::fs::write(&recent, json!({"dest": "TotK"}).to_string()).unwrap();
+        assert!(read_game(&recent).is_none(), "a relative folder is nobody's");
+        std::fs::write(&recent, "not json").unwrap();
+        assert!(read_game(&recent).is_none());
+        assert!(game_stale("0.5.1", "v0.5.2") && !game_stale("0.5.2", "v0.5.2") && !game_stale("0.5.3", "v0.5.2"));
+        assert!(!game_stale("", "v0.5.2") && !game_stale("unknown", "v0.5.2"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

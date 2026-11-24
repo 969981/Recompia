@@ -283,6 +283,7 @@ fn main() {
             zonith_cmds::zonith_status,
             zonith_cmds::zonith_download,
             zonith_cmds::zonith_cancel,
+            zonith_cmds::zonith_setup,
             zonith_cmds::zonith_play,
             zonith_cmds::zonith_open_dir,
             pad::pad_poll,

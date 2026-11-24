@@ -1,9 +1,12 @@
 // Zonith, the pure part: what its Home's main button does and what its rail tile says, from zonith_status (src-tauri/src/zonith.rs) and
-// the last zonith-progress. The launcher fetches Zonith's newest release, keeps it up to date and opens its setup window, which builds
-// the game from the player's files and starts it. No DOM and no Tauri here, so node scripts/test-zonith-model.mjs runs it.
+// the last zonith-progress. The launcher fetches Zonith's newest release (its setup app) and keeps it up to date. The setup window builds
+// the game from the player's files; once it has, Play starts the game itself. No DOM and no Tauri here, so node
+// scripts/test-zonith-model.mjs runs it.
 //
 // status: { supported, releases: [{ tag, name, date, body, url, prerelease }], latest: { tag, name, date, url, asset, size } | null,
-//           release_error: 'not_public' | 'offline' | null, installed: { tag, path } | null, update, job: progress | null, running }
+//           release_error: 'not_public' | 'offline' | null, installed: { tag, path } | null (the setup app),
+//           game: { path, release, ready, stale } | null (what the setup built: ready = playable, stale = built by an older setup),
+//           update, job: progress | null, running }
 // progress: { state: 'download' | 'unpack' | 'done' | 'error' | 'cancelled', done, total, pct, message }
 import { t } from './i18n.js';
 
@@ -15,9 +18,13 @@ export const versionOf = (tag) => String(tag ?? '').replace(/^v(?=\d)/i, '');
 
 const pctOf = (job) => (job?.pct == null ? null : Math.max(0, Math.min(100, Math.round(job.pct))));
 
+/** The game is built by the setup the launcher holds: Play starts it. */
+export const playable = (z) => !!z?.installed && !!z.game?.ready && !z.game.stale;
+
 /**
- * The Home's main button: { label, icon, run: 'play' | 'download' | 'retry' | null, disabled, busy, hint }. `hint`: one short line under it
- * (the size of a download, why it is off), or ''.
+ * The Home's main button: { label, icon, run: 'play' | 'setup' | 'download' | 'retry' | null, disabled, busy, hint }. `hint`: one short line
+ * under it (the size of a download, why it is off), or ''. With the setup app here, the game decides: built by this setup, Play; built by
+ * an older one, the setup runs on it once more (Finish update); not built yet, Set up. `setup` opens Zonith's setup window.
  */
 export function heroAction(z) {
   if (!z) return { label: t('Loading'), icon: 'loader-circle', run: null, disabled: true, busy: true, hint: '' };
@@ -31,7 +38,8 @@ export function heroAction(z) {
   if (z.installed && z.update && z.latest) {
     return { label: t('Update'), icon: 'download', run: 'download', disabled: false, busy: false, hint: sizeLine(z.latest.size) };
   }
-  if (z.installed) return { label: t('Play'), icon: 'play', run: 'play', disabled: false, busy: false, hint: '' };
+  if (playable(z)) return { label: t('Play'), icon: 'play', run: 'play', disabled: false, busy: false, hint: '' };
+  if (z.installed) return { label: z.game?.ready ? t('Finish update') : t('Set up'), icon: 'wrench', run: 'setup', disabled: false, busy: false, hint: '' };
   if (z.latest) return { label: t('Install'), icon: 'download', run: 'download', disabled: false, busy: false, hint: sizeLine(z.latest.size) };
   if (z.release_error === 'not_public') return { label: t('Coming soon'), icon: 'clock', run: null, disabled: true, busy: false, hint: t('Zonith is not out yet. It shows up here the day it is.') };
   return { label: t('Try again'), icon: 'refresh-cw', run: 'retry', disabled: false, busy: false, hint: t('Could not reach GitHub to find Zonith.') };
@@ -49,7 +57,7 @@ export function sizeLine(bytes) {
 export function zonithBadge(z) {
   if (!z || !z.supported) return null;
   if (busy(z)) { const pct = pctOf(z.job); return { text: pct == null ? '...' : `${pct}%`, busy: true }; }
-  if (z.installed && z.update) return { text: t('Update') };
+  if (z.installed && (z.update || (z.game?.ready && z.game.stale))) return { text: t('Update') };
   if (!z.installed && z.latest) return { text: t('New') };
   return null;
 }

@@ -697,8 +697,12 @@ function handle(cmd, args) {
     case 'zonith_status': return structuredClone(zonithStatus());
     case 'zonith_download': zonithDownload(); return null;
     case 'zonith_cancel': zStop = true; return null;
+    case 'zonith_setup':
+      if (!zInstalled) throw 'Zonith is not downloaded yet.';
+      sleep(6000).then(() => { zGame = { path: Z_GAME, release: zInstalled.tag.slice(1), ready: true }; });   // the setup window built the game
+      return null;
     case 'zonith_play':
-      if (!zInstalled) throw 'Zonith is not on this PC yet.';
+      if (!zGame?.ready) throw 'Zonith is not set up yet. Set it up first.';
       zRunning = true; emit('zonith-game', { state: 'running' });
       sleep(2500).then(() => { zRunning = false; emit('zonith-game', { state: 'exited', code: 0 }); });
       return null;
@@ -710,7 +714,9 @@ function handle(cmd, args) {
   }
 }
 
-// Zonith (zonith.rs). &z=<new|installed|update|soon|offline> picks its state; new (the default): out, not on this PC yet.
+// Zonith (zonith.rs). &z=<new|setup|installed|stale|update|soon|offline> picks its state; new (the default): out, not on this PC yet.
+// setup: its setup app is here, the game not built yet (Set up builds it after a few seconds); installed: the game is built; stale: the
+// setup app is newer than the game (Finish update); update: a newer setup app is out.
 const zScenario = params.get('z') || 'new';
 const Z_BODY = `The first Zonith release.
 
@@ -724,7 +730,10 @@ const Z_BODY = `The first Zonith release.
 - A crash on AMD GPUs when the game wrote back small render targets during a frame.`;
 const zRelease = (tag, date, body = Z_BODY) => ({ tag, name: `Zonith ${tag.slice(1)}`, date, body, url: `https://github.com/Dittobyte/Zonith/releases/tag/${tag}`, prerelease: false });
 const Z_RELEASES = [zRelease('v0.5.1', '2026-11-26T18:00:00Z', `### Fixed\n- Stutter when the sky islands stream in on the Steam Deck.\n- The setup keeps your DLSS choice.`), zRelease('v0.5.0', '2026-11-19T03:33:51Z')];
-let zInstalled = { installed: { tag: 'v0.5.1', path: 'C:/Users/Player/AppData/Local/Recompia/zonith/v0.5.1' }, update: { tag: 'v0.5.0', path: 'C:/Users/Player/AppData/Local/Recompia/zonith/v0.5.0' } }[zScenario] ?? null;
+const Z_SETUP = { tag: 'v0.5.1', path: 'C:/Users/Player/AppData/Local/Recompia/zonith/v0.5.1' };
+let zInstalled = { setup: Z_SETUP, installed: Z_SETUP, stale: Z_SETUP, update: { tag: 'v0.5.0', path: 'C:/Users/Player/AppData/Local/Recompia/zonith/v0.5.0' } }[zScenario] ?? null;
+const Z_GAME = 'C:/Games/Zonith';
+let zGame = { installed: { path: Z_GAME, release: '0.5.1', ready: true }, stale: { path: Z_GAME, release: '0.5.0', ready: true }, update: { path: Z_GAME, release: '0.5.0', ready: true } }[zScenario] ?? null;
 let zJob = null;
 let zRunning = false;
 let zStop = false;
@@ -737,6 +746,7 @@ function zonithStatus() {
     latest: soon || offline ? null : zLatest(),
     release_error: soon ? 'not_public' : offline ? 'offline' : null,
     installed: zInstalled,
+    game: zGame && { ...zGame, stale: !!zInstalled && zGame.release !== zInstalled.tag.slice(1) },
     update: !!zInstalled && !soon && !offline && zInstalled.tag !== 'v0.5.1',
     job: zJob,
     running: zRunning,
