@@ -351,7 +351,12 @@ pub fn zonith_play(app: AppHandle) -> Result<(), String> {
         return Err("Zonith is already running.".into());
     }
     #[cfg(windows)]
-    let mut cmd = Command::new(&exe);
+    let mut cmd = {
+        use std::os::windows::process::CommandExt;
+        let mut c = Command::new(&exe);
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: the game is a console program, and its console stays out of sight (as play.rs)
+        c
+    };
     #[cfg(not(windows))]
     let mut cmd = crate::host::command(&exe);
     let mut child = match cmd.current_dir(&game.dir).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
