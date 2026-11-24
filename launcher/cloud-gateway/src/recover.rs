@@ -9,8 +9,8 @@
 //! browser makes the account one new passkey. The portal grants nothing else, and nothing at all to an account that
 //! can sign in.
 //!
-//! The key never leaves this device: only the certificate and the signature are sent. A portal without recovery
-//! answers 404, which counts as "no new passkey needed".
+//! The key never leaves this device: only the certificate and the signature are sent. A portal that does not answer,
+//! or has no recovery (404), leaves the question open: it is an error here, never "no new passkey needed".
 
 use crate::device;
 use crate::signin::{Fault, Portal};
@@ -31,7 +31,6 @@ fn begin(portal: &Portal, dir: &Path) -> Result<Option<Begun>, Fault> {
     let certificate = device::certificate_pem(dir).map_err(Fault::Network)?;
     let answer = match portal.post("/api/recover/device/begin", &serde_json::json!({ "certificate": certificate })) {
         Ok(a) => a,
-        Err(Fault::Status(404, _)) => return Ok(None),
         Err(e) => return Err(e),
     };
     if answer.get("needed").and_then(|n| n.as_bool()) != Some(true) {

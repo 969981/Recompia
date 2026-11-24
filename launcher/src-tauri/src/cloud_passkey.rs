@@ -18,8 +18,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
-/// While a new passkey is needed, how often the portal is asked again (the player may just have made it).
-const AGAIN: Duration = Duration::from_secs(8);
+/// While a new passkey is needed, how often the portal is asked again (the player may just have made it). The portal
+/// counts these per address, and a household shares one.
+const AGAIN: Duration = Duration::from_secs(20);
 /// After the portal could not be reached.
 const RETRY: Duration = Duration::from_secs(60);
 
