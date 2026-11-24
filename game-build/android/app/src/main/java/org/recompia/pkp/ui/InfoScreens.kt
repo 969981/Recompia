@@ -100,7 +100,22 @@ fun LogsScreen(onBack: () -> Unit) {
 }
 
 /** Markdown links read as their text in plain text. */
-private fun plain(md: String) = md.replace(Regex("""\[([^\]]+)]\([^)]+\)"""), "$1").replace("**", "").replace("`", "")
+/** Markdown with its soft line wraps joined: a line inside a paragraph (or a bullet's continuation) goes onto the line before it with one
+ *  space, its indent dropped; blank lines, headings, bullets, numbered items and table rows keep their own lines. The docs are wrapped at
+ *  a fixed width, so shown line by line they broke mid-sentence. */
+fun unwrapMarkdown(md: String): String {
+    val starts = Regex("""^\s*([-*+] |\d+[.)] |#|\||>|```)""")
+    val out = mutableListOf<String>()
+    for (raw in md.replace("\r", "").lines()) {
+        val prev = out.lastOrNull()
+        if (raw.isNotBlank() && prev != null && prev.isNotBlank() && !prev.trimStart().startsWith("#") && !prev.trimStart().startsWith("|") &&
+            !starts.containsMatchIn(raw)) out[out.size - 1] = prev.trimEnd() + " " + raw.trim()
+        else out += raw
+    }
+    return out.joinToString("\n")
+}
+
+private fun plain(md: String) = unwrapMarkdown(md).replace(Regex("""\[([^\]]+)]\([^)]+\)"""), "$1").replace("**", "").replace("`", "")
     .replace(Regex("""(?m)^#+\s*"""), "").replace(Regex("""(?m)^- """), "\u2022 ")
 
 @Composable

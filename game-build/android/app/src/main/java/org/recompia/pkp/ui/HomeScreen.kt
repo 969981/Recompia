@@ -66,6 +66,7 @@ fun HomeScreen(vm: AppViewModel, nav: NavHostController) {
     ArtBackground(sharp = true) {
         val hero: @Composable ColumnScope.() -> Unit = { Hero(vm, ui, job, nav, coop) }
         val more: @Composable ColumnScope.() -> Unit = {
+            UpdateCard { nav.navigate(Routes.UPDATE) }
             HeapNotice(ui)
             CoopEntry(coop) { nav.navigate(Routes.COOP) }
             ControllerCard()

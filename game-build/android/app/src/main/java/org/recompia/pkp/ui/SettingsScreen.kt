@@ -38,7 +38,7 @@ private val writer = Executors.newSingleThreadExecutor()
 fun writeSetting(row: SettingsModel.Row, value: String) = writer.execute { runCatching { SettingsModel.write(row, value) } }
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onUpdate: () -> Unit) {
     val ctx = LocalContext.current
     val groups = remember { SettingsModel.groups(ctx) }
     var values by remember { mutableStateOf(runCatching { SettingsModel.read(groups) }.getOrDefault(emptyMap())) }
@@ -53,6 +53,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             CameraCard()
             LinkPlayCard()
             GpuDriverCard()
+            UpdateSettingsCard(onUpdate)
         },
     ) {
         groups.drop(2).forEach { GroupCard(it, values, set) }
