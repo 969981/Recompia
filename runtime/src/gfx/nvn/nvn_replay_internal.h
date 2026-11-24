@@ -780,7 +780,6 @@ struct SceneOverride {   // owner: nvn_replay_upscale.cpp
     bool stretch_armed = false;
     const Texture* chain = nullptr;   // after a 1:1 copy of the scene: the copy's target, the only input the re-armed stretch may read
     bool skip_draw = false;        // a phone: the scene upscale wrote the stretch's target itself (scene_stretch_for_draw), the draw is skipped
-    const Texture* chain = nullptr;   // after a 1:1 copy of the scene: the copy's target, the only input the re-armed stretch may read
     bool nearest(const Texture* t) const {
         for (uint32_t i = 0; i < near_n; ++i) if (near[i] == t) return true;
         return false;
