@@ -3,7 +3,7 @@
 </h1>
 
 <p align="center">
-  <b>A cozy life-simulation and sandbox builder with fantastical creatures (Switch 2, title ID 0400A3A01EE4C000, version 2.0.1a), recompiled to run natively on Windows, Linux, & Mac with multiplayer support.</b>
+  <b>A cozy life-simulation and sandbox builder with fantastical creatures (Switch 2, title ID 0400A3A01EE4C000, version 2.0.1a), recompiled to run natively on Windows, Linux, Mac & Android with multiplayer support.</b>
 </p>
 
 <p align="center">
@@ -15,6 +15,7 @@
   <a href="https://github.com/Dittobyte/Recompia/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDittobyte%2Fpokopia%2Fbadges%2Ftesting.json&label=testing&labelColor=1b2740" alt="Latest Testing build"></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078d6?logo=windows&logoColor=white&labelColor=1b2740" alt="Platform: Windows 10/11">
   <img src="https://img.shields.io/badge/platform-Linux%20AppImage-e95420?logo=linux&logoColor=white&labelColor=1b2740" alt="Platform: Linux AppImage">
+  <img src="https://img.shields.io/badge/platform-Android%20arm64-3ddc84?logo=android&logoColor=white&labelColor=1b2740" alt="Platform: Android arm64">
   <a href="https://github.com/Dittobyte/Recompia/commits/main"><img src="https://img.shields.io/github/last-commit/Dittobyte/Recompia/main?label=last%20commit&color=58a6ff&labelColor=1b2740" alt="Last commit on main"></a>
   <a href="https://github.com/Dittobyte/Recompia/issues"><img src="https://img.shields.io/github/issues/Dittobyte/Recompia?label=open%20issues&color=db61a2&labelColor=1b2740" alt="Open issues"></a>
 </p>
@@ -22,6 +23,7 @@
 <p align="center">
   <a href="https://github.com/Dittobyte/Recompia/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Windows-d8b46a?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Windows"></a>
   <a href="https://github.com/Dittobyte/Recompia/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Linux_(AppImage)-e95420?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Linux (AppImage)"></a>
+  <a href="https://github.com/Dittobyte/Recompia/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87_Download-latest_for_Android_(APK)-3ddc84?style=for-the-badge&labelColor=1b2740" alt="Download the latest release for Android (APK)"></a>
 </p>
 
 <p align="center">
@@ -89,6 +91,13 @@
 - Runs natively on SteamOS, with handheld speed-ups (about 26 to 53 fps on a Steam Deck and 55 to 75 fps on a Legion Go S, measured by players).
 - The launcher runs on Linux and SteamOS too: see [Linux, SteamOS and the Steam Deck](#linux-steamos-and-the-steam-deck).
 
+### Android phones and tablets
+- **One APK for arm64 phones and tablets** (Android 11 or later, Vulkan 1.3). It holds no game files: the game is built on the phone from your own dump, with no PC needed.
+- **Touch controls or a controller.** The touch controls hide by themselves when a USB or Bluetooth controller is connected. Drag on an empty part of the screen to turn the camera.
+- **Phone defaults chosen for you:** the resolution, frame rate limit and memory settings fit the phone's GPU and memory on the first start. You can change them in the app's **Settings**.
+- **Co-op and Link Play** work on the phone too: see [Playing together](#playing-together).
+- Set up and play: see [Android](#android).
+
 ### Graphics
 - **Play at any resolution**, 4K and above. Lower **Render scale** if it runs slowly.
 - **Quality presets** (Switch 2, High, Ultra) set how far you can see and how sharp textures are.
@@ -99,6 +108,8 @@
 
 ### In-game settings
 Press **F1** in the game to change graphics, controls and sound (volume, output device, mute when the window is in the background). Most changes apply straight away.
+
+On Android, open the game's pause menu, then **Settings**: the phone's display rows are on the **Display** tab (see [Android settings](#android-settings)).
 
 ## Quick start
 
@@ -119,6 +130,45 @@ Nothing runs through Proton or Wine: the launcher, the game, the shader translat
 If `Recompia.AppImage` does not start on a system without FUSE, run `./Recompia.AppImage --appimage-extract-and-run`.
 
 To start from Steam (Game Mode on the Deck): add the launcher to Steam, either in the launcher's Settings (Steam, Add to Steam) or in Desktop Mode with **Add a Non-Steam Game**, picking `Recompia.AppImage` and leaving the launch options empty. The shortcut opens the launcher, which checks for updates; then press Play. More detail, and what was tested, in [launcher/README.md](launcher/README.md#linux-steamos-the-steam-deck-bazzite-other-distributions).
+
+### Android
+
+**What you need:**
+- An arm64 phone or tablet with Android 11 or later and Vulkan 1.3. It was tested on a Snapdragon 8 Gen 3 (Adreno 750). The included Mesa Turnip driver lists Adreno 6xx, 7xx and 8xx GPUs (Snapdragon 8 Gen 1 to 8 Gen 3 and 8 Elite). 12 GB of RAM is recommended; phones with less get a [low memory profile](#common-problems). Phones with other GPUs (Exynos, Mali and others) use the phone's own driver and cautious defaults, and are far less tested.
+- Your own decrypted dump of the game, as folders: the same folder the PC launcher takes (`base` and `updates`, or `exefs` and `romfs`). About 7.3 GB. The app never downloads game data and includes no game files.
+- Free space: about 7.3 GB for the game files, 2.6 GB while the game is built (0.6 GB stay) and 6.6 GB for the shaders. Translating the shaders on the phone needs 12 GB free when it starts.
+
+**Set up:**
+1. Download `Recompia-<version>-android-arm64.apk` from the [latest release](https://github.com/Dittobyte/Recompia/releases/latest) and open it on the phone. Allow your browser or file manager to install apps if Android asks.
+2. Copy your dump to the phone: connect it to the PC with a USB cable, choose **File transfer** on the phone, and copy the whole folder into the phone's `Download` folder. A microSD card or a USB drive works too. Copy in binary mode: a text-mode FTP copy damages the files.
+3. Open Recompia and press **Get started**. On **Storage access**, press **Allow storage access** and allow access to all files: the app reads your dump where it is and keeps its own data in `/sdcard/Recompia`.
+4. On **Game files**, a dump in `Download` or at the top of the phone's storage is listed under **Found on this phone**. Otherwise press **Choose a folder** and pick it. The files are checked and read where they are, nothing is copied. (A folder the app cannot read in place is offered as a copy into `/sdcard/Recompia/dump` instead.)
+5. On **Build**, press **Start building**. The game is built on the phone from your files: about 45 minutes on a Snapdragon 8 Gen 3 phone on a charger, longer on slower or hot phones. Keep the phone plugged in and somewhere cool. The build goes on with the app closed, and **Pause** keeps finished work.
+6. On phones with an Adreno GPU, the **Graphics driver** step comes next: press **Use the included Turnip driver**. The phone's own driver shows a black picture in this game.
+7. On **Shaders**, press **Translate on this phone** (about 1.5 to 2 hours on the same phone; it can be paused). Or, if you have Recompia on a PC, copy its `shader_cache` folder (without its `corpus` folder) to `/sdcard/Recompia/shader_cache` and press **Import a shader cache from a PC install**: that skips the long translation.
+8. Press **Play**.
+
+**How to get your game files onto the phone** on the app's Home has the same steps.
+
+#### Touch controls and controllers
+
+- **Touch controls** show when no controller is connected. The menu button on screen opens the touch menu: **Hide touch controls**, **Edit layout** (drag a control to move it; tap one, then **Smaller** or **Bigger**), **Exit to Recompia** and **Back to the game**.
+- Drag on an empty part of the screen to turn the camera; a short tap there goes to the game. Sensitivity and inverted axes are in the app's **Settings**, **Touch camera**.
+- **Controllers** over USB or Bluetooth work. The touch controls hide while one is connected (**Hide when a controller is connected** in **Settings**).
+- Opacity, size, vibration and **Reset touch layout** are in the app's **Settings**, **Touch controls**.
+
+#### Android settings
+
+The app's **Settings** has the display, touch controls, gameplay, Link Play and GPU driver settings; most apply the next time the game starts. In the game, the pause menu's **Settings** has these on the **Display** tab:
+
+| Setting | What it does |
+|---|---|
+| **Maximum Resolution** | The highest resolution of the 3D picture (100% is 1920 x 1080). Takes effect at the next start. The first start picks 70% on Snapdragon 8 Gen 2 and newer with the Turnip driver, 50% elsewhere. |
+| **Resolution** | The 3D picture's resolution, from the maximum down to about half of it. Menus and text stay sharp. Changes at once: lower it if the phone gets hot or slow. |
+| **Upscaler** | **SGSR** (Snapdragon Game Super Resolution, the default) or **Bicubic** sharpen the enlarged 3D picture, menus stay sharp. **FSR 1** sharpens the whole picture and costs more frame rate. **Off** stretches it. |
+| **Frame Rate Limit** | Each choice is a whole number of the screen's refreshes. 30 by default; lower runs cooler and steadier. |
+
+**Dynamic Resolution** (on the **Graphics** tab, off by default) lets the game lower its resolution by itself when the GPU falls behind.
 
 ## Mods and translations
 
@@ -156,6 +206,10 @@ Your saves, settings and shaders stay.
 
 Copy the `save` folder somewhere first if you want a backup. A save that a newer version wrote may not load in an older one.
 
+**Android:** download the new `Recompia-<version>-android-arm64.apk` from the [latest release](https://github.com/Dittobyte/Recompia/releases/latest) and install it over the app you have. Your saves, settings, shader cache and game files in `/sdcard/Recompia` stay. If Home then shows **Set up again**, press it: the new version brings new build tools or a new game interface, so the game is built again on the phone. Saves and shaders are kept.
+
+**Android, from 0.16 to 0.17.0:** the 0.17.0 APK has a lower version number for Android than the 0.16 APKs, so Android refuses to install it over 0.16. Until a release with the fix ([#898](https://github.com/Dittobyte/Recompia/pull/898)) is out, uninstall 0.16 first, then install 0.17.0. Uninstalling keeps everything in `/sdcard/Recompia` (saves, shader cache, `pkp.ini` and `controls.ini`), but removes what the app keeps inside itself: the built game, the GPU driver and the touch controls' settings and layout. The setup then runs again: allow storage access, pick your game files, build the game again and, on Adreno phones, choose the Turnip driver again. The shader cache is found where it is.
+
 ## Playing together
 
 Link Play puts several players on one island. Cross-play works with players of the parent project on game version **2.0.1**. Players on game 1.0.5 cannot join.
@@ -191,6 +245,8 @@ Changes apply the next time the game starts.
 
 Link Play: joining and walking around together work. See [docs/multiplayer](docs/multiplayer/README.md) for how it works and the `pkp.ini` keys.
 
+**On Android.** Link Play is in the app's **Settings**, **Link Play**: **Same network** or **Internet**, as above. Phones do not find hosts on the network by themselves: to visit on the same network, type the host's address; to host, leave it empty. Over the internet, rooms on the relay show up in **Visit a Friend**. Changes apply the next time the game starts. Co-op is the **Recompia: Co-op** card on Home: join with the invite the co-op save's creator shares (the short code `XXX-XXX`, valid for 6 hours, or the long `PKCOOP1.` text), or make a new co-op save there and invite others. Everyone plays through the save's relay, and a new co-op save starts with a new game.
+
 ## Common problems
 
 - **The window is black, or the game stutters a lot, on the first launch.** The game makes some shaders while it runs. The launcher translates the ones it has seen before every start and again after you quit, so the first runs are rough and later ones are better. Give it a minute and keep playing. If the setup stopped half way, open **Game files** and press **Set up** to continue. It keeps finished work.
@@ -211,6 +267,13 @@ Link Play: joining and walking around together work. See [docs/multiplayer](docs
 - **Link Play: "Communication error" (9005) when you visit.** You are both playing copies of the same save, so both have the same player ID. Each player needs their own save.
 - **The controller is not detected.** Open the game with F1 and look at the **Gamepad** line on the Controls page. It says "No gamepad open" when the game sees none. Connect it before you press **Play**, then try the other cable or port. Close other programs that may be holding the pad.
 
+**On Android:**
+- **The picture is black on a phone with an Adreno GPU.** The phone's own driver shows a black picture in this game. In the app's **Settings**, **GPU driver**, choose **Use the included Turnip driver**. If the game no longer starts or looks wrong with a driver, choose **Use the system driver** there.
+- **The phone has less than 12 GB of memory** (8 GB phones, for example). The app uses a low memory profile: lower shadow and texture sizes, a lower output resolution, and about 5 GB of free storage as extra memory for the game. With less free storage than that, the game starts without it and may be less stable: Home says so. Free some space for the best results.
+- **The phone gets hot, or the frame rate drops after a while.** Phones slow down when they get hot. Lower **Resolution** in the game's **Settings**, **Display** (it changes at once), or the **Frame Rate Limit**. Set the frame rate counter's **Counter Detail** to **Full** to see how hot the phone is and how busy the GPU and CPU are. The build and the shader translation are long, heavy jobs: keep the phone plugged in and somewhere cool, and the app warns when it gets warm.
+- **The build stopped when the app was closed by the system.** Open the app and press **Continue building**: finished work is kept.
+- **Game files will not work.** The **Game files** step says what is wrong (an older version, the base game without the update, files missing or damaged while copying) and how to fix it, as on PC. Each of `base` or `updates/<version>` needs `exefs` and `romfs`. **Show details** lists what is missing.
+
 If it is none of these, see [Reporting problems](#reporting-problems).
 
 ## Where your saves, logs and settings are
@@ -227,6 +290,20 @@ All of these are in the game folder: the folder with `Recompia.exe` and `pkp.exe
 | Unpacked `.nup` or `.nx` | `nup_dump`, if you picked a `.nup` or `.nx` (its add-ons, if any, in `nup_dump/aoc`) |
 | Launcher settings | `%APPDATA%\org.pkp-recomp.launcher\launcher.json` (your dump folder and game folder) |
 
+**On Android** they are in `/sdcard/Recompia` (the phone's internal storage, folder `Recompia`):
+
+| What | Where |
+|---|---|
+| Saves | `save` (co-op saves in `coop-saves`). **Saves** on Home exports them as a zip for a PC, or imports a zip of a save folder from a PC. |
+| Settings | `pkp.ini` and `controls.ini`. The touch controls' settings and layout are kept inside the app. |
+| Log | `logs/pkp.log`. **Logs** on Home shows the latest logs and can share them or save a copy. |
+| Translated shaders | `shader_cache` (about 6.6 GB) |
+| Build files | `build` (the build's work folder) |
+| Copied game files | `dump`, only if the app copied your dump. Otherwise it reads your dump where it is. |
+| Built game and GPU driver | inside the app, removed when it is uninstalled |
+
+**Storage** on Home shows what each takes and can delete the build files, the shader cache, a copied dump or the saves.
+
 Never attach game files, the `build` or `shader_cache` folders, or saves to an issue. `pkp.log` is enough.
 
 ## Community
@@ -235,7 +312,7 @@ Questions, bug help, testing and chat: join the [Recompia Discord](https://disco
 
 ## Reporting problems
 
-[Open an issue](https://github.com/Dittobyte/Recompia/issues/new/choose) with `pkp.log` from the session where it happened, your GPU and your Windows version (on Linux: your distribution, the Proton version and the device).
+[Open an issue](https://github.com/Dittobyte/Recompia/issues/new/choose) with `pkp.log` from the session where it happened, your GPU and your Windows version (on Linux: your distribution, the Proton version and the device; on Android: the chipset, the Android version and the GPU driver, with the log shared from **Logs** in the app).
 
 **Linux, SteamOS and Linux handhelds:** I (Jerban) look after the Linux side, so Linux bugs get fixed and sent out quickly through the one-click updater. Sorry for the frequent updates, and thanks for your patience. Please keep reporting Linux bugs, always with your logs: `pkp.log`, and `setup.log` for problems with Set up (see [Where your saves, logs and settings are](#where-your-saves-logs-and-settings-are)). Anything outside Linux is reviewed by Josh first.
 
