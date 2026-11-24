@@ -433,7 +433,7 @@ std::atomic<int64_t> g_lod_eval_ns{0};                       // when it was made
 // cached per bias), while a temporal mode ran in the last half second. [upscale] lod_bias_auto = false: none.
 float temporal_lod_bias() {
     static const bool on = config_get_bool("upscale", "lod_bias_auto", true);
-    if (!on) return 0.0f;
+    if (!on || g_lod_eval_ns.load(std::memory_order_relaxed) == 0) return 0.0f;   // no temporal pass has run: no clock read per sampler
     const int64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
     if (now - g_lod_eval_ns.load(std::memory_order_relaxed) > 500000000) return 0.0f;
     return g_lod_ratio.load(std::memory_order_relaxed);
