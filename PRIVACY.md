@@ -23,6 +23,7 @@ Questions about privacy: legal.recompia@gmail.com
 |---|---|---|---|
 | Update check | GitHub | Every launcher start, and the Check for updates button | Cannot be disabled in the launcher; block the launcher in your firewall |
 | Update download | GitHub | Only when you press Update | Do not press it |
+| Android app update check | GitHub | When the app opens, at most every 6 hours, and the Check now button | Settings > Updates, Check for updates automatically |
 | Link Play, same network | Other PCs on your network | Only when you host or visit in the game | Link Play page, Same network off; or Off |
 | Link Play, internet | The public relay (the Recompia maintainers) | Only after you pick Internet on the Link Play page and host or visit | Pick Same network or Off on the Link Play page |
 | Public IP lookup | ipify, icanhazip | Only for an internet host with an own relay or address | Do not use that option |
@@ -47,6 +48,10 @@ Questions about privacy: legal.recompia@gmail.com
 - Kept: GitHub's own logs are governed by GitHub's privacy statement. The launcher keeps the last release list on your PC.
 - Turn it off: the launcher has no switch for the start-up check. You can block it in your firewall; the launcher then works without
   update information.
+- Android app: when it opens, at most every 6 hours, the app asks `api.github.com` for the same list with `Recompia-Android` and its
+  version as the user agent, and keeps the release it offers in its own storage (`update/Releases.kt`). Pressing Update downloads the
+  APK and SHA256SUMS.txt from the release page and checks the APK before Android installs it (`update/Updater.kt`). Turn the check
+  off in **Settings > Updates** (Check for updates automatically); Check now still asks when you press it.
 
 ## Link Play (playing together)
 

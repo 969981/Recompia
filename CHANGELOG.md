@@ -2,10 +2,13 @@
 
 ## Unreleased
 
-**Update.** Saves and shaders are kept; no game shaders are rebuilt.
+**Update.** Saves and shaders are kept; no game shaders are rebuilt. On Android, install the new APK over the old one once; later versions update from inside the app.
 
 ### Linux & Steam Deck
 - Fixed FSR 3 showing as unavailable in native Linux releases.
+
+### Android
+- Added updates from inside the app: Home shows when a new release is out, with its notes, and **Update** downloads the APK from the official release page, checks it against the release's checksum and installs it (Android confirms the first one). **Settings > Updates** has **Check for updates automatically** (on) and **Check now**
 
 ## 0.17.5 (build U: Urchin Hotfix a1)
 
