@@ -2,10 +2,8 @@
 
 ## Unreleased
 
-**Update:** press **Update** in the launcher. No **Set up again** needed.
-
 ### Graphics
-- Fixed render resolution depending on the startup window size: 133% now selects 1440p from the game's 1080p base, even when the game opens in a smaller window before switching to fullscreen. No shader rebuild is needed.
+- Fixed render resolution percentages depending on the startup window size instead of the game's base resolution, leaving the scene at a lower resolution after switching to fullscreen.
 
 ## 0.17.6 (build U: Urchin Hotfix a2)
 
