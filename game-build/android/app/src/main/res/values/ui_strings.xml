@@ -110,7 +110,7 @@
     <string name="ui_build_body">The game is built on this phone from your files. Finished work is kept: if the build stops, it continues where it left off.</string>
     <string name="ui_rebuild_title">Set up again</string>
     <string name="ui_rebuild_body">This app brings a new game runtime interface or new build tools, so the game is built again. Your saves and shaders are kept.</string>
-    <string name="ui_build_time_note">About 45 minutes on a Galaxy Z Fold 6 on a charger, longer on slower or hot phones. The time left is shown once it can be measured.</string>
+    <string name="ui_build_time_note">About 45 minutes on a Snapdragon 8 Gen 3 phone on a charger, longer on slower or hot phones. The time left is shown once it can be measured.</string>
     <string name="ui_build_no_tools">The on-device build tools are not part of this version of the app yet. Import a game library built on a PC instead.</string>
     <string name="ui_build_start">Start building</string>
     <string name="ui_build_fake">Test build (debug app only, builds nothing)</string>
@@ -379,7 +379,7 @@
     <string name="ui_gpu_home_missing">No custom GPU driver: the game shows a black picture with this phone’s own driver.</string>
     <string name="ui_gpu_home_fix">Set up the GPU driver</string>
     <string name="ui_gpu_none_pill">GPU driver missing</string>
-    <string name="ui_supported">Guidance, not a guarantee: tested on the Galaxy Z Fold 6 (Snapdragon 8 Gen 3, Adreno 750). The included Mesa Turnip driver lists Adreno 6xx, 7xx and 8xx GPUs (Snapdragon 8 Gen 1 to 8 Gen 3 and 8 Elite). 12 GB of RAM recommended. Phones with other GPUs (Exynos, Mali and others) use their system driver and are untested.</string>
+    <string name="ui_supported">Guidance, not a guarantee: tested on Snapdragon 8 Gen 3 (Adreno 750). The included Turnip driver supports Snapdragon 8 Gen 1 to 8 Elite. 12 GB of RAM recommended. Other GPUs (Exynos, Mali) use the phone\'s own driver and are less tested.</string>
     <string name="ui_shaders_debug_small">Translate with the real tool, test size (debug app only, uses the romfs pkp.ini names)</string>
     <string name="ui_shaders_title">Set up shaders</string>
     <string name="ui_shaders_paused">Shader translation paused</string>
@@ -388,7 +388,7 @@
     <string name="ui_shaders_done">Shaders ready</string>
     <string name="ui_shaders_or">Or, without a PC</string>
     <string name="ui_shaders_translate">Translate on this phone</string>
-    <string name="ui_shaders_translate_note">About 1.5 to 2 hours on a Galaxy Z Fold 6 on a charger. Needs 12 GB free at the start (%1$s free now); 6.6 GB stay used afterwards. It can be paused and continues where it stopped.</string>
+    <string name="ui_shaders_translate_note">About 1.5 to 2 hours on a Snapdragon 8 Gen 3 phone on a charger. Needs 12 GB free at the start (%1$s free now); 6.6 GB stay used afterwards. It can be paused and continues where it stopped.</string>
     <string name="ui_shaders_err_no_tool">The shader translator is not part of this version of the app. Import the shader cache from a PC install instead.</string>
     <string name="ui_shaders_err_space">Not enough free space to translate shaders: %1$s GB more are needed at the start, %2$s GB are free. Free up space or import the cache from a PC.</string>
     <string name="ui_shaders_fake">Test shader translation (debug app only, does nothing)</string>
