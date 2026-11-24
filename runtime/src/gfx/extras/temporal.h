@@ -73,6 +73,8 @@ bool temporal_frame_matrices(float vpu[16], float ivpu[16], float vpj[16], float
 float temporal_lod_bias();   // log2(render / output width) in quarter steps while a temporal mode upscales (see temporal.cpp)
 uint32_t temporal_jitter_phase_count();
 bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint32_t height, uint64_t frame);
+// The same frame jitter on a column-major view-projection of the scene (false: jitter off).
+bool temporal_jitter_matrix(float* f, uint32_t width, uint32_t height, uint64_t frame);
 // The tone-map draw: colour (view in SHADER_READ_ONLY_OPTIMAL) and depth (depth-aspect view, layout depth_layout) of the scene, the part of
 // them that is upscaled being `render` from texel 0, 0; depth_neg_one: NVN depth mode NEAR_IS_MINUS_W (NDC z = 2 d - 1). Returns the result
 // (`out` large, in the top-left of an image of out_tex when that is larger; GENERAL layout, readable by fragment shaders after the recorded

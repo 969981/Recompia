@@ -76,9 +76,14 @@ constexpr game::SceneStretch kSceneStretch[] = {{"c4664b38f6a87835", false}, {"8
 // 16:9-derived canvas of a near-square screen (square at 16:9), an upright egg; wider screens squash it.
 constexpr const char* kSquareQuadFs = "eaa545bbb9251212";
 
+// The target marker's ground tiles (the dashed outline where a move or a placed item lands): drawn before the camera block is bound, from
+// their own projection block (game::Render::jitter_decal_vs / _fs).
+constexpr const char* kMarkerVs = "8ef279a6af886a66";
+constexpr const char* kMarkerFs = "bd95575680cf77b1";
+
 constexpr game::Render kRender = {&kReadbackDefer, &kCamera, kToneMaps, sizeof kToneMaps / sizeof kToneMaps[0],
                                   kLoopGuards, sizeof kLoopGuards / sizeof kLoopGuards[0], true, kSceneStretch, sizeof kSceneStretch / sizeof kSceneStretch[0], kSceneScaleMin,
-                                  kSquareQuadFs};
+                                  kSquareQuadFs, kMarkerVs, kMarkerFs};
 
 }  // namespace
 

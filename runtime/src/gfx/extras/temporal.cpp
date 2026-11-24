@@ -338,13 +338,11 @@ double radical_inverse(uint32_t i, uint32_t base) {
 
 // The game's own jitter does not reach the G-buffer camera (see temporal.h), so the runtime jitters it: Halton(2, 3), 8 phases at native
 // size and ceil(8 * ratio^2) when upscaling (at most 64), +-0.5 px (see below).
-bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint32_t height, uint64_t frame) {
-    static const int mode = static_cast<int>(config_get_int("upscale", "jitter", 1));   // 0 never, 1 when the projection has no jitter of its own
-    const game::CameraBlock* cb = temporal_camera_block();
-    if (mode == 0 || !cb || !words || n_words < camera_words(*cb) || width < 16 || height < 16) return false;
-    Camera c;
-    if (!parse_camera(*cb, words, n_words, c)) return false;
-    if (std::fabs(c.jit[0]) * width > 0.01 || std::fabs(c.jit[1]) * height > 0.01) return false;   // already jittered (by the game)
+// This frame's jitter on a column-major view-projection (ndc.x += jx, ndc.y += jy): the camera block's, and any other projection the
+// frame's scene is drawn with (the marker draws, nvn_replay_upscale.cpp marker_jitter). False: the jitter is off.
+bool temporal_jitter_matrix(float* f, uint32_t width, uint32_t height, uint64_t frame) {
+    static const int mode = static_cast<int>(config_get_int("upscale", "jitter", 1));
+    if (mode == 0 || !f || width < 16 || height < 16) return false;
     const uint32_t phases = temporal_jitter_phase_count();
     const uint32_t idx = static_cast<uint32_t>(frame % phases) + 1;
     // +-0.5 px on both axes. Copies of the camera's view-projection and its inverse sit in other blocks; with only the camera
@@ -354,17 +352,28 @@ bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint
     static const bool one_sided = config_get_str("upscale", "jitter_range", "full") == "pos";
     const double hx = radical_inverse(idx, 2), hy = radical_inverse(idx, 3);
     const double jx = (one_sided ? 0.02 + 0.98 * hx : 2.0 * hx - 1.0) / width, jy = (one_sided ? -(0.02 + 0.98 * hy) : 2.0 * hy - 1.0) / height;
-    float f[16];
-    std::memcpy(f, words + cb->view_proj, sizeof f);
     for (int col = 0; col < 4; ++col) {   // column-major: ndc.x += jx, ndc.y += jy (clip x += jx * w)
         f[col * 4 + 0] = static_cast<float>(f[col * 4 + 0] + jx * f[col * 4 + 3]);
         f[col * 4 + 1] = static_cast<float>(f[col * 4 + 1] + jy * f[col * 4 + 3]);
     }
-    std::memcpy(words + cb->view_proj, f, sizeof f);
     static std::atomic<bool> logged{false};
     if (!logged.exchange(true))
         NXLOG_I(kTag, "jitter injected into the scene camera (Halton 2/3, %u phases, %ux%u): first %+.4f %+.4f px", phases, width, height,
                 jx * width * 0.5, -jy * height * 0.5);
+    return true;
+}
+
+bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint32_t height, uint64_t frame) {
+    static const int mode = static_cast<int>(config_get_int("upscale", "jitter", 1));   // 0 never, 1 when the projection has no jitter of its own
+    const game::CameraBlock* cb = temporal_camera_block();
+    if (mode == 0 || !cb || !words || n_words < camera_words(*cb) || width < 16 || height < 16) return false;
+    Camera c;
+    if (!parse_camera(*cb, words, n_words, c)) return false;
+    if (std::fabs(c.jit[0]) * width > 0.01 || std::fabs(c.jit[1]) * height > 0.01) return false;   // already jittered (by the game)
+    float f[16];
+    std::memcpy(f, words + cb->view_proj, sizeof f);
+    if (!temporal_jitter_matrix(f, width, height, frame)) return false;
+    std::memcpy(words + cb->view_proj, f, sizeof f);
     return true;
 }
 
