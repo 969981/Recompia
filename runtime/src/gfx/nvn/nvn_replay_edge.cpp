@@ -13,6 +13,7 @@
 // stood 66 to 75 above the columns 64 to 128 px in (blue minus the mean of red and green), 4 to 6 with the guard. Phones only: elsewhere no pass reaches here (facts::kPhone at the callers).
 #include "nvn_replay_internal.h"
 
+#include "nxrt/ab_switch.h"
 #include "nxrt/config.h"
 
 namespace nxrt::nvn::be::gpu {
@@ -26,6 +27,33 @@ Edge g_edge;                     // the current pass's viewports (render thread)
 bool edge_guard_on() {
     static const bool on = config_get_bool("gfx", "edge_guard", true);
     return on;
+}
+
+bool edge_lazy_on() {
+    static const bool on = config_get_bool("gfx", "edge_lazy", true);
+    return on && diag::ab("edge_lazy", true);
+}
+
+struct Guard {
+    Ref<Texture> tex;
+    TexGpu* g = nullptr;
+    Target tg;
+    uint32_t vw = 0, vh = 0, W = 0, H = 0;
+};
+std::vector<Guard> g_lazy;       // [gfx] edge_lazy: guards not recorded yet, one per image
+uint64_t g_lazy_saved = 0, g_lazy_done = 0;
+
+// The last column and row of the part (vw x vh) of target tg into the next kBand columns and rows (outside a pass, after a barrier).
+void copy_band(Texture* t, const Target& tg, uint32_t vw, uint32_t vh, uint32_t W, uint32_t H) {
+    tex_transition(t, *F, VK_IMAGE_LAYOUT_GENERAL);
+    const VkImageSubresourceLayers sub{VK_IMAGE_ASPECT_COLOR_BIT, tg.level, tg.layer, tg.layers};
+    VkImageCopy r[2 * kBand];
+    uint32_t n = 0;
+    for (uint32_t k = 0; k < kBand && vw + k < W; ++k)   // the last column into the columns right of the part
+        r[n++] = {sub, {static_cast<int32_t>(vw - 1), 0, 0}, sub, {static_cast<int32_t>(vw + k), 0, 0}, {1, vh, 1}};
+    for (uint32_t k = 0; k < kBand && vh + k < H; ++k)   // the last row into the rows below it
+        r[n++] = {sub, {0, static_cast<int32_t>(vh - 1), 0}, sub, {0, static_cast<int32_t>(vh + k), 0}, {vw, 1, 1}};
+    if (n) vkCmdCopyImage(F->cb, tex_image(t), VK_IMAGE_LAYOUT_GENERAL, tex_image(t), VK_IMAGE_LAYOUT_GENERAL, n, r);
 }
 
 }  // namespace
@@ -48,6 +76,7 @@ uint32_t g_parts_next = 0;
 void frame_parts_reset() {   // before the textures and the device go (replay_shutdown)
     for (FramePart& f : g_parts) f = FramePart();
     g_parts_next = 0;
+    g_lazy.clear();
 }
 
 bool frame_scene_part(const Texture* t, uint32_t w, uint32_t h, uint32_t* pw, uint32_t* ph) {
@@ -85,23 +114,89 @@ void edge_guard_after_pass() {
         NXLOG_I(kTag, "edge guard: the scene part's last column and row repeated %u px past it (first: %ux%u of a %ux%u target; [gfx] edge_guard)",
                 kBand, vw, vh, W, H);
     }
+    if (edge_lazy_on()) {    // [gfx] edge_lazy: wait until the target is used another way (see edge_touch)
+        for (uint32_t i = 0; i < P.ncolor && i < 8; ++i) {
+            Texture* t = P.color[i].tex;
+            if (!t || !tex_gpu(t) || tex_is_depth(t)) continue;
+            Guard gd{Ref<Texture>::share(t), tex_gpu(t), P.color[i], vw, vh, W, H};
+            bool replaced = false;
+            for (Guard& o : g_lazy) if (o.g == gd.g) { o = gd; replaced = true; ++g_lazy_saved; }
+            if (!replaced) g_lazy.push_back(gd);
+        }
+        touch_hook_sync();
+        return;
+    }
     memory_barrier(F->cb);
     g_bar.pending.clear();
     for (uint32_t i = 0; i < P.ncolor && i < 8; ++i) {
         const Target& tg = P.color[i];
         Texture* t = tg.tex;
         if (!t || !tex_gpu(t) || tex_is_depth(t)) continue;
-        tex_transition(t, *F, VK_IMAGE_LAYOUT_GENERAL);
-        const VkImageSubresourceLayers sub{VK_IMAGE_ASPECT_COLOR_BIT, tg.level, tg.layer, tg.layers};
-        VkImageCopy r[2 * kBand];
-        uint32_t n = 0;
-        for (uint32_t k = 0; k < kBand && vw + k < W; ++k)   // the last column into the columns right of the part
-            r[n++] = {sub, {static_cast<int32_t>(vw - 1), 0, 0}, sub, {static_cast<int32_t>(vw + k), 0, 0}, {1, vh, 1}};
-        for (uint32_t k = 0; k < kBand && vh + k < H; ++k)   // the last row into the rows below it
-            r[n++] = {sub, {0, static_cast<int32_t>(vh - 1), 0}, sub, {0, static_cast<int32_t>(vh + k), 0}, {vw, 1, 1}};
-        if (n) vkCmdCopyImage(F->cb, tex_image(t), VK_IMAGE_LAYOUT_GENERAL, tex_image(t), VK_IMAGE_LAYOUT_GENERAL, n, r);
+        copy_band(t, tg, vw, vh, W, H);
     }
     memory_barrier(F->cb);
+}
+
+// ---- [gfx] edge_lazy (phones, default on; A/B name "edge_lazy") -----------------------------------------------------------------
+// The guard of a target is recorded when the target is next used another way (a layout change: sampled, copied, cleared on its own, its
+// image remade; g_tex_touch_hook), before a pass that may write past its part (edge_before_begin), or at the end of the command buffer,
+// instead of after every pass into it. A target drawn by several passes in a row (the G-buffer, the lighting buffers) is then guarded
+// once, after the last of them, without the two full barriers and the layout changes in between. Same result: a pass that keeps to the
+// part (every draw's viewport and scissor inside it; one that does not is ended there) cannot write the band, and every reader of the
+// band comes after the guard.
+bool edge_lazy_pending() { return !g_lazy.empty(); }
+
+static void run_guards(std::vector<Guard>& list) {
+    if (list.empty()) return;
+    std::vector<Guard> run;
+    run.swap(list);                       // before the transitions below: their touch hook must not see these again
+    touch_hook_sync();
+    memory_barrier(F->cb);
+    g_bar.pending.clear();
+    for (const Guard& gd : run)
+        if (tex_gpu(gd.tex.get()) == gd.g) copy_band(gd.tex.get(), gd.tg, gd.vw, gd.vh, gd.W, gd.H);
+    memory_barrier(F->cb);
+    g_lazy_done += run.size();
+}
+
+void edge_touch(TexGpu* g) {
+    std::vector<Guard> due;
+    for (size_t k = 0; k < g_lazy.size();) {
+        if (g_lazy[k].g == g) { due.push_back(g_lazy[k]); g_lazy.erase(g_lazy.begin() + static_cast<std::ptrdiff_t>(k)); }
+        else ++k;
+    }
+    run_guards(due);
+}
+
+void edge_flush_all() { run_guards(g_lazy); }
+
+bool edge_before_begin(Texture* t, const VkRect2D& area, bool known, VkRect2D* keep, bool clears) {
+    if (g_lazy.empty() || !t) return false;
+    TexGpu* g = tex_gpu(t);
+    for (size_t k = 0; k < g_lazy.size(); ++k) {
+        const Guard& gd = g_lazy[k];
+        if (gd.g != g) continue;
+        if (clears) {                     // the pass clears the whole target, band included: the guard has nothing left to do
+            g_lazy.erase(g_lazy.begin() + static_cast<std::ptrdiff_t>(k));
+            touch_hook_sync();
+            return false;
+        }
+        const VkRect2D part{{0, 0}, {gd.vw, gd.vh}};
+        if (known && area.offset.x >= 0 && area.offset.y >= 0 && area.offset.x + area.extent.width <= gd.vw && area.offset.y + area.extent.height <= gd.vh) {
+            if (!keep->extent.width) *keep = part;   // the pass keeps to the part: the guard can wait
+            else *keep = {{0, 0}, {std::min(keep->extent.width, gd.vw), std::min(keep->extent.height, gd.vh)}};
+            return false;
+        }
+        edge_touch(g);
+        return true;
+    }
+    return false;
+}
+
+void edge_lazy_stats(uint64_t* saved, uint64_t* done) {
+    *saved = g_lazy_saved;
+    *done = g_lazy_done;
+    g_lazy_saved = g_lazy_done = 0;
 }
 
 }  // namespace replay

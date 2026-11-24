@@ -186,6 +186,10 @@ struct Pass {
     VkRenderingAttachmentInfo att_c[8] = {};
     VkRenderingAttachmentInfo att_d = {}, att_s = {};
     VkRenderingInfo ri = {};
+    // [gfx] edge_lazy (phones): the area the draw that began the pass can write (area_known), and the area every later draw and clear must
+    // keep to because a guard of an attachment was left waiting (keep; zero size: none)
+    VkRect2D area = {}, keep = {};
+    bool area_known = false;
 };
 bool clear_fold_on();
 void pass_flush();                                                   // records a deferred vkCmdBeginRendering (no-op otherwise)
@@ -823,6 +827,16 @@ void scene_sharpen_for_draw(const ProgLayout& pl);   // [gfx] scene_sharpen at t
 // part repeated past it
 void edge_guard_note(float x, float y, float w, float h, const VkRect2D& scissor);
 void edge_guard_after_pass();
+// [gfx] edge_lazy: a guard waits for the target's next other use; touch_hook_sync() (nvn_replay_pass.cpp) keeps g_tex_touch_hook set
+// while clear_carry or edge_lazy hold anything. edge_before_begin: before a pass begins on t, whose first draw can write `area` (known:
+// the pass was begun by a draw): a waiting guard of t is left waiting when the area is inside t's part (keep narrows to the part), else
+// recorded now (true: t is in GENERAL then); clears: the pass begins t with LOAD_OP_CLEAR, which makes the guard moot.
+bool edge_lazy_pending();
+void edge_touch(TexGpu* g);
+void edge_flush_all();
+bool edge_before_begin(Texture* t, const VkRect2D& area, bool known, VkRect2D* keep, bool clears);
+void edge_lazy_stats(uint64_t* saved, uint64_t* done);
+void touch_hook_sync();
 // A phone: the scene part (image pixels) of colour target t (w x h) as the frame being replayed drew it (the last pass into it); false:
 // no such pass seen
 bool frame_scene_part(const Texture* t, uint32_t w, uint32_t h, uint32_t* pw, uint32_t* ph);
