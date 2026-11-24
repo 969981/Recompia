@@ -71,6 +71,13 @@ private:
     void on_frame(uint32_t src, const uint8_t* p, size_t n, int64_t now);
     // The member's connection is over: a leave if it had joined, and its id is refused from now on (tell: send it a goodbye).
     void drop_peer(int node, const char* why, bool tell, int64_t now);
+    // The member's state goes (its stream, its queued messages) and a leave is reported if it had joined; its id is not refused, so
+    // its next frame finds it again as a new member.
+    void forget_peer(int node, const char* why);
+    // After losing a member while this process stays in the session (#827): a new connection id for this process. The member that
+    // dropped us refuses our old id, and we refuse its old one; under the new id the two meet again on the next HELLO. Every other
+    // member sees the new id as a new connection and starts its stream to us afresh, so ours to each of them starts afresh too.
+    void renew_conn(int64_t now);
     bool tick(int64_t now);   // timers, queued messages, acknowledgements; true while a stream has work
     void send_frame(uint32_t dst, uint8_t kind, uint32_t peer_conn, const uint8_t* body, size_t n, int64_t now);
     void send_hello(int node, Peer& pe, int64_t now);

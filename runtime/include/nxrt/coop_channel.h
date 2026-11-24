@@ -43,7 +43,9 @@
 //               drained before its member's first message, a leave after its last.
 //   Failure     A member silent for kPeerTimeoutMs (keepalives every 500 ms), a BYE, a new connection id on its address or a
 //               malformed frame from it is reported as a leave; what it had in flight is dropped both ways. A member we drop is sent a
-//               BYE, and its connection id is refused (answered with BYE) until it comes back with a new one. When this process leaves
+//               BYE, and its connection id is refused (answered with BYE) until it comes back with a new one. A process that loses a
+//               member while it stays in the session takes a new connection id itself (the member refuses its old one too) and meets
+//               every member again under it: a gap longer than kPeerTimeoutMs is a leave and a join, not a split. When this process leaves
 //               the session (its virtual address goes away or the backend's socket dies) every member leaves, and the channel joins
 //               the next session on its own while it stays open. Messages to a member that has not joined (or left) are refused.
 //   Loopback    A message to our own node (the authority sending to the authority) goes through the same queue and drain() as every

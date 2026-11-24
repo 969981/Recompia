@@ -7,6 +7,7 @@
 ### Gameplay
 - Fixed a co-op rebuilding kit bought by a teammate never appearing: the host now places it once its player is in the kit's area, only counts it as delivered when it is in the world, and a purchase with nothing left to give no longer holds back the ones after it
 - Fixed a co-op member who pressed the PC right after joining being stuck in place until the host's data arrived, and the member's shop rows and open areas staying empty while the host was in a menu or a talk
+- Fixed co-op players drifting apart for minutes after a short network gap (#827): one 6 s silence used to leave everyone looking connected while nothing was shared, and story steps finished meanwhile reached nobody. Now the players drop and rejoin each other within a few seconds, and the join shares the story again
 
 ### Launcher
 - Fixed Cloud Islands (Experimental) failing for everyone, sign-in and play, after the account server's old address stopped working: the launcher signs in at the server's new address and connects to the server directly. A PC that was signed in stays signed in
