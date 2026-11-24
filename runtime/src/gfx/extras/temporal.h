@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Temporal upscaling / anti-aliasing of the 3D scene: AMD FSR 3.1 (FidelityFX API, temporal_ffx.cpp), NVIDIA DLSS / DLAA (Streamline,
-// temporal_dlss.cpp), both SDKs loaded at run time (nothing is linked). The pass runs at the frame's first scene enlargement (nvn_replay_upscale.cpp temporal_deferred): on the HDR
+// temporal_dlss.cpp), both SDKs loaded at run time (nothing is linked), and Snapdragon Game Super Resolution 2 (temporal_sgsr2.cpp, plain
+// Vulkan compute, every platform). The pass runs at the frame's first scene enlargement (nvn_replay_upscale.cpp temporal_deferred): on the HDR
 // scene at the tone map when nothing enlarges it, else on the display-referred scene at the game's scene stretch or window composite.
 //
 // Inputs (docs/S14.md, "Temporal upscaling"):
@@ -77,6 +78,8 @@ bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint
 // (`out` large, in the top-left of an image of out_tex when that is larger; GENERAL layout, readable by fragment shaders after the recorded
 // barrier) or null (nothing recorded: the draw keeps its own input).
 // hdr: the colour is the scene before the tone map (else display-referred).
+// The image temporal_evaluate last returned a view of (R16G16B16A16_SFLOAT, GENERAL layout); null before the first result.
+VkImage temporal_output_image();
 VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView color, VkImageView depth, VkImageLayout depth_layout, VkExtent2D render,
                               VkExtent2D out, bool depth_neg_one, VkExtent2D out_tex = {}, bool hdr = true);
 // Forgets the camera kept this frame (the draw that was to use it never came), so the next frame's G-buffer gives its own.
@@ -86,6 +89,7 @@ void temporal_drop_camera();
 // gfx_device: the gfx::Device. Null when the SDK cannot be loaded or the GPU does not support it (logged once).
 TemporalBackend* temporal_ffx(void* gfx_device);
 TemporalBackend* temporal_dlss(void* gfx_device, bool dlaa);
+TemporalBackend* temporal_sgsr2(void* gfx_device);   // built everywhere
 // True when the backend's DLLs can be found (for the F1 page; does not load anything).
 bool temporal_ffx_available();
 bool temporal_dlss_available();

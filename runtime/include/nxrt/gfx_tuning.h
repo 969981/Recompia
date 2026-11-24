@@ -42,7 +42,7 @@ struct Tuning {
     std::atomic<uint64_t> gpu_frames{0};
     // A phone's live 3D resolution for the frame rate counter (detail Full): the game layer's percent of the screen this frame, the
     // player's Resolution and whether its dynamic resolution runs; the back end's scene part and output in pixels (w << 16 | h) and the
-    // upscaler that enlarged it (0 none, 1 SGSR, 2 bicubic). 0 = not known yet (or not a phone).
+    // upscaler that enlarged it (0 none, 1 SGSR, 2 bicubic, 3 SGSR 2). 0 = not known yet (or not a phone).
     std::atomic<int> res_pct{0}, res_cap{0}, res_upscaler{0};
     std::atomic<bool> res_dynamic{false};
     std::atomic<int> res_dr_cap{0};        // the thermal cap of the phone's dynamic resolution (percent of the screen), 0 when none

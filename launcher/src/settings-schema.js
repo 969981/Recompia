@@ -473,6 +473,7 @@ export const SECTIONS = [
             options: [
               { value: 'off', label: t('Off') }, { value: 'nearest', label: t('Nearest (sharp pixels)') }, { value: 'fsr1', label: t('FSR 1') },
               { value: 'fsr3', label: t('FSR 3') }, { value: 'dlss', label: t('DLSS') }, { value: 'dlaa', label: t('DLAA') },
+              { value: 'sgsr2', label: t('SGSR 2 (temporal)') },
             ],
           },
           {

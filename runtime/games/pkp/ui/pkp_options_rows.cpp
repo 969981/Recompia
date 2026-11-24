@@ -107,12 +107,15 @@ void res_set(S&, int pos) {   // the game ini at once: the scene follows from th
     gfx::tuning().res_pct.store(phone_res_value(), std::memory_order_relaxed);
 }
 constexpr Row live_row(Row r) { r.live = true; return r; }
-// A phone's one Upscaler row: Off or SGSR ([pkp] scene_upscaler: the 3D picture alone, enlarged in one step to the screen; menus native).
-// The choice also clears [upscale] mode (FSR 1 of older builds, no longer offered on a phone). Applies at once.
-int phone_upscaler_get(const S&) { return settings::get_int(settings::Key::SceneUpscaler) != 0 ? 1 : 0; }
+// A phone's one Upscaler row: Off, SGSR ([pkp] scene_upscaler) or SGSR 2 ([upscale] mode sgsr2, temporal): the 3D picture alone, enlarged
+// in one step to the screen; menus native. Each choice clears the other key (and FSR 1 of older builds). Applies at once.
+int phone_upscaler_get(const S& s) {
+    if (s.extras.upscale.mode == extras::UpscaleMode::Sgsr2) return 2;
+    return settings::get_int(settings::Key::SceneUpscaler) != 0 ? 1 : 0;
+}
 void phone_upscaler_set(S& s, int v) {
-    s.extras.upscale.mode = extras::UpscaleMode::Off;
-    settings::set_int(settings::Key::SceneUpscaler, v);   // the game ini, like a key row
+    s.extras.upscale.mode = v == 2 ? extras::UpscaleMode::Sgsr2 : extras::UpscaleMode::Off;
+    settings::set_int(settings::Key::SceneUpscaler, v == 1 ? 1 : 0);   // the game ini, like a key row
 }
 
 constexpr int kWidths[] = {1280, 1600, 1920, 2560, 3840}, kHeights[] = {720, 900, 1080, 1440, 2160};
@@ -183,7 +186,7 @@ const std::vector<extras::UpscaleMode>& upscalers() {
     static const std::vector<extras::UpscaleMode> v = [] {
         std::vector<extras::UpscaleMode> r;
         for (extras::UpscaleMode m : {extras::UpscaleMode::Off, extras::UpscaleMode::Nearest, extras::UpscaleMode::Fsr1, extras::UpscaleMode::Fsr3,
-                                      extras::UpscaleMode::Dlss, extras::UpscaleMode::Dlaa})
+                                      extras::UpscaleMode::Dlss, extras::UpscaleMode::Dlaa, extras::UpscaleMode::Sgsr2})
             if (extras::upscale_mode_available(m)) r.push_back(m);
         return r;
     }();
@@ -197,6 +200,7 @@ const char* upscaler_text(int v, char*, size_t) {
         case extras::UpscaleMode::Fsr3: return "FSR 3";
         case extras::UpscaleMode::Dlss: return "DLSS";
         case extras::UpscaleMode::Dlaa: return "DLAA";
+        case extras::UpscaleMode::Sgsr2: return "SGSR 2";
         default: return "Off";
     }
 }
@@ -250,14 +254,17 @@ constexpr Row kDisplay[] = {
     when(choice("Dynamic Resolution Mode", "GPU Time: lower the resolution when the GPU falls behind. Heat: also hold it below what keeps the phone from throttling, so the GPU can run cooler.",
                 {"GPU Time", "Heat"}, 2, [](const S&) { return settings::get_str(settings::Key::DynamicResolutionMode) == "thermal" ? 1 : 0; },
                 [](S&, int v) { settings::set_str(settings::Key::DynamicResolutionMode, v ? "thermal" : "gpu"); }), nxrt::host_is_phone),
-    when(choice("Upscaler", "Sharpens the enlarged 3D picture with SGSR (Snapdragon Game Super Resolution); menus stay sharp.", {"Off", "SGSR"}, 2,
-                phone_upscaler_get, phone_upscaler_set), nxrt::host_is_phone),
 };
 
 const Row kPerformance[] = {
-    when(dynamic("Upscaler", "How the picture is enlarged from a lower resolution. FSR 3 and DLSS build a sharper picture from several frames (DLSS and DLAA apply after a restart).",
+    when(dynamic("Upscaler", "How the picture is enlarged from a lower resolution. FSR 3, DLSS and SGSR 2 build a sharper picture from several frames (DLSS and DLAA apply after a restart).",
                  upscaler_text, upscaler_max, upscaler_get, upscaler_set), not_phone),
-    when(number("Sharpness", "How much FSR 1 and FSR 3 sharpen the picture.", 0, 20, "%.2f", 0, 0.05, ROW_STEP(extras.upscale.sharpness, 0.0, 0.05)), not_phone),
+    when(number("Sharpness", "How much FSR 1, FSR 3 or SGSR 2 sharpens the picture.", 0, 20, "%.2f", 0, 0.05, ROW_STEP(extras.upscale.sharpness, 0.0, 0.05)), not_phone),
+    // a phone's Upscaler and its Sharpness sit here too, at the same place as the desktop's (the Display tab keeps Resolution)
+    when(choice("Upscaler", "Sharpens the enlarged 3D picture: SGSR (Snapdragon Game Super Resolution), or SGSR 2, which builds detail over several "
+                "frames; menus stay sharp.", {"Off", "SGSR", "SGSR 2"}, 3, phone_upscaler_get, phone_upscaler_set), nxrt::host_is_phone),
+    when(live_row(number("Sharpness", "How much SGSR 2 sharpens its picture; SGSR does not use it. Higher is crisper, and fine detail can shimmer more.", 0,
+                         20, "%.2f", 0, 0.05, ROW_STEP(extras.upscale.sharpness, 0.0, 0.05))), nxrt::host_is_phone),
     when(number("Scene Resolution", "Renders the 3D scene smaller and keeps the menus sharp. 100% turns it off.", 25, 100, "%.0f%%", 0, 1, ROW_INT(extras.upscale.scene_scale)), not_phone),
     names("Anti-Aliasing", "Smooths jagged edges of the 3D scene. The menus are not filtered.", kAaNames, 5,
           [](const S& s) { return static_cast<int>(s.extras.upscale.aa); },

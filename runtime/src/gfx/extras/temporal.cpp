@@ -2,6 +2,7 @@
 // Temporal upscaling: the camera from the G-buffer uniform block, the input pass (motion vectors, depth and colour copies) and the
 // backend call (temporal.h).
 #include "extras/temporal.h"
+#include "extras/fsr1_spatial.h"
 
 #include <algorithm>
 #include <atomic>
@@ -287,6 +288,7 @@ const char* mode_name(UpscaleMode m) {
         case UpscaleMode::Fsr3: return "FSR 3";
         case UpscaleMode::Dlss: return "DLSS";
         case UpscaleMode::Dlaa: return "DLAA";
+        case UpscaleMode::Sgsr2: return "SGSR 2";
         default: return "?";
     }
 }
@@ -421,6 +423,7 @@ bool temporal_camera_ready() {
 }
 
 namespace {
+VkImage g_result_image = VK_NULL_HANDLE;                    // the image temporal_evaluate's last view belongs to (its output, or the sharpened copy)
 std::atomic<float> g_lod_ratio{0.0f};                        // log2(render / output width) of the last evaluation (0: native)
 std::atomic<int64_t> g_lod_eval_ns{0};                       // when it was made
 }  // namespace
@@ -434,6 +437,12 @@ float temporal_lod_bias() {
     const int64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
     if (now - g_lod_eval_ns.load(std::memory_order_relaxed) > 500000000) return 0.0f;
     return g_lod_ratio.load(std::memory_order_relaxed);
+}
+
+VkImage temporal_output_image() {
+    State& s = st();
+    std::lock_guard<std::mutex> lk(s.mu);
+    return g_result_image ? g_result_image : s.output.img.image;
 }
 
 VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView color, VkImageView depth, VkImageLayout depth_layout, VkExtent2D render,
@@ -463,10 +472,14 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
         }
         return VK_NULL_HANDLE;
     }
-    TemporalBackend* be = mode == UpscaleMode::Fsr3 ? temporal_ffx(gfx_device) : temporal_dlss(gfx_device, mode == UpscaleMode::Dlaa);
+    TemporalBackend* be = mode == UpscaleMode::Sgsr2 ? temporal_sgsr2(gfx_device) : mode == UpscaleMode::Fsr3 ? temporal_ffx(gfx_device)
+                                                                                     : temporal_dlss(gfx_device, mode == UpscaleMode::Dlaa);
     if (!be) return VK_NULL_HANDLE;
-    if (!ensure(s, s.color, render, VK_FORMAT_R16G16B16A16_SFLOAT, "temporal colour") || !ensure(s, s.depth, render, VK_FORMAT_R32_SFLOAT, "temporal depth") ||
-        !ensure(s, s.motion, render, VK_FORMAT_R16G16_SFLOAT, "temporal motion") || !ensure(s, s.output, VkExtent2D{std::max(out.width, out_tex.width), std::max(out.height, out_tex.height)}, VK_FORMAT_R16G16B16A16_SFLOAT,
+    // The render-size images are made at the largest render size so far and used as a sub-rect (the backends take the render size), so a
+    // lower render size (dynamic resolution, a Resolution step) neither waits for the GPU nor loses the history.
+    const VkExtent2D in_ext{std::max(render.width, s.max_render.width), std::max(render.height, s.max_render.height)};
+    if (!ensure(s, s.color, in_ext, VK_FORMAT_R16G16B16A16_SFLOAT, "temporal colour") || !ensure(s, s.depth, in_ext, VK_FORMAT_R32_SFLOAT, "temporal depth") ||
+        !ensure(s, s.motion, in_ext, VK_FORMAT_R16G16_SFLOAT, "temporal motion") || !ensure(s, s.output, VkExtent2D{std::max(out.width, out_tex.width), std::max(out.height, out_tex.height)}, VK_FORMAT_R16G16B16A16_SFLOAT,
                 "temporal output"))
         return VK_NULL_HANDLE;
 
@@ -641,6 +654,20 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     g_lod_ratio.store(static_cast<float>(std::min(0.0, std::floor(std::log2(std::min(1.0, static_cast<double>(render.width) / out.width)) * 4.0 + 0.5) / 4.0 + 0.5)),
                       std::memory_order_relaxed);
     g_lod_eval_ns.store(std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count(), std::memory_order_relaxed);
+    g_result_image = s.output.img.image;
+    // SGSR 2 has no sharpening of its own (SGSR 1 sharpens its edges, FSR 3 has RCAS built in): RCAS on its result, [upscale] sharpness
+    if (mode == UpscaleMode::Sgsr2 && f.sharpness > 0.0f) {
+        static Fsr1Spatial* const sharp = new Fsr1Spatial();   // lives as long as the device (not destroyed at exit)
+        if (!sharp->initialised()) sharp->init(dev);
+        if (sharp->initialised()) {
+            const VkImageView v = sharp->sharpen(cb, s.output.img.view, out, VkExtent2D{std::max(out.width, out_tex.width), std::max(out.height, out_tex.height)}, hdr,
+                                                f.sharpness);
+            if (v) {
+                g_result_image = sharp->result_image();
+                return v;
+            }
+        }
+    }
     return s.output.img.view;
 }
 

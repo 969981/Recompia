@@ -390,6 +390,7 @@ export default {
   'DLSS': 'DLSS',
   'DLAA': 'DLAA',
   'Nearest (sharp pixels)': '最近鄰（銳利像素）',
+  'SGSR 2 (temporal)': 'SGSR 2（時域）',
   'Upscaling quality': '放大品質',
   'Native': '原生',
   'Balanced': '平衡',

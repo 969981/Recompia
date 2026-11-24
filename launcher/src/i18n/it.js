@@ -390,6 +390,7 @@ export default {
   'DLSS': 'DLSS',
   'DLAA': 'DLAA',
   'Nearest (sharp pixels)': 'Più vicino (pixel nitidi)',
+  'SGSR 2 (temporal)': 'SGSR 2 (temporale)',
   'Upscaling quality': 'Qualità dell\'upscaling',
   'Native': 'Nativa',
   'Balanced': 'Bilanciata',

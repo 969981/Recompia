@@ -32,6 +32,10 @@ public:
                         VkExtent2D out_tex = {}) override;
     // A cheap scene sharpen ([gfx] scene_sharpen): a bilinear enlarge of src (in TRANSFER_SRC_OPTIMAL; in_view from texel 0, 0) to out
     // by a blit, then RCAS (linear_hdr and prescale as in upscale). Same result contract as upscale. About a quarter of EASU's cost.
+    // RCAS alone on src (a view of an image in GENERAL layout, out large from texel 0, 0), e.g. a temporal upscaler's result; the result is
+    // out large in an image of max(out, out_tex) (result_image()).
+    VkImageView sharpen(VkCommandBuffer cb, VkImageView src, VkExtent2D out, VkExtent2D out_tex, bool linear_hdr, float sharpness);
+    VkImage result_image() const { return rcas_img_.img.image; }
     VkImageView sharpen_enlarged(VkCommandBuffer cb, VkImage src, VkExtent2D in_view, VkExtent2D out, bool linear_hdr, float prescale, float sharpness,
                                  VkExtent2D out_tex = {});
     uint32_t frames() const { return frames_; }
@@ -45,7 +49,7 @@ private:
         bool initialised = false;
     };
     bool ensure_target(Target& t, VkExtent2D e, const char* name);
-    void rcas_pass(VkCommandBuffer cb, float perceptual, VkExtent2D out, float prescale, float sharpness);
+    void rcas_pass(VkCommandBuffer cb, float perceptual, VkExtent2D out, float prescale, float sharpness, VkImageView src = VK_NULL_HANDLE);
     void free_target(Target& t);
 
     gfx::Device* dev_ = nullptr;

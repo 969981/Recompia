@@ -3,6 +3,10 @@
 #   sgsr     Snapdragon Game Super Resolution 1 (Qualcomm, BSD-3-Clause, third_party/qualcomm_sgsr, unmodified), the mobile single-pass
 #            version with edge direction: its functions and main() are wrapped into a compute shader (one invocation per output pixel).
 #   bicubic  Catmull-Rom (16 texels as 9 bilinear taps), for comparison.
+#   sgsr2    Snapdragon Game Super Resolution 2 (same source and licence, third_party/qualcomm_sgsr/v2, unmodified), the 2-pass compute
+#            version (convert, upscale) for extras/temporal_sgsr2.cpp. Edited here, at generation time: Vulkan bindings in one set (the
+#            ES files number samplers and images separately), the velocity input is the temporal input pass's motion (UV units, previous
+#            minus current, not SGSR's encoded clip-space velocity) and a reversed-Z depth is flipped to forward Z as it is gathered.
 # Run: python -I scripts/gen_sgsr_shaders.py   (glslc or glslangValidator, and spirv-val: env GLSLC / GLSLANG / SPIRV_VAL, else PATH)
 import os, re, shutil, struct, subprocess, sys, tempfile
 
@@ -75,6 +79,88 @@ void main() {
 """
 
 
+sgsr2_dir = os.path.join(root, "third_party", "qualcomm_sgsr", "v2")
+# The parameter block of both passes (std140), SGSR 2's field order; ours: inputScale (in the padding after jitterOffset: the render size
+# over the size of the render-size images, which may be larger, a sub-rect; read by the UV edits below) and depthInverted (appended).
+SGSR2_PARAMS = """layout(set = 0, binding = 0, std140) uniform Params {
+    uvec2 renderSize;
+    uvec2 displaySize;
+    vec2 %s;
+    vec2 displaySizeRcp;
+    vec2 jitterOffset;
+    vec2 inputScale;
+    vec4 clipToPrevClip[4];
+    float preExposure;
+    float cameraFovAngleHor;
+    float cameraNear;
+    float MinLerpContribution;
+    uint %s;
+    uint reset;
+    uint depthInverted;
+} params;
+"""
+SGSR2_CONVERT_DECL = """layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+""" + SGSR2_PARAMS % ("ViewportSizeInverse", "bSameCamera") + """layout(set = 0, binding = 1) uniform highp sampler2D InputColor;
+layout(set = 0, binding = 2) uniform highp sampler2D InputDepth;
+layout(set = 0, binding = 3) uniform highp sampler2D InputVelocity;
+layout(set = 0, binding = 4, rgba16f) uniform writeonly mediump image2D MotionDepthClipAlphaBuffer;
+layout(set = 0, binding = 5, r32ui) uniform writeonly highp uimage2D YCoCgColor;
+"""
+SGSR2_UPSCALE_DECL = """layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+""" + SGSR2_PARAMS % ("renderSizeRcp", "sameCameraFrmNum") + """layout(set = 0, binding = 1) uniform highp sampler2D PrevHistoryOutput;
+layout(set = 0, binding = 2) uniform highp sampler2D MotionDepthClipAlphaBuffer;
+layout(set = 0, binding = 3) uniform highp usampler2D YCoCgColor;
+layout(set = 0, binding = 4, rgba16f) uniform writeonly mediump image2D SceneColorOutput;
+layout(set = 0, binding = 5, rgba16f) uniform writeonly mediump image2D HistoryOutput;
+"""
+
+
+def edit(text, old, new):
+    if text.count(old) != 1:
+        sys.stderr.write("SGSR 2 source changed: %r found %d times\n" % (old, text.count(old)))
+        sys.exit(1)
+    return text.replace(old, new)
+
+
+def sgsr2_glsl(name, decl):
+    src = open(os.path.join(sgsr2_dir, name)).read().replace("\r\n", "\n")
+    src = edit(src, "#version 320 es", "#version 450")
+    i = src.index("layout(local_size_x")
+    j = src.index("} params;", i) + len("} params;")
+    src = src[:i] + decl + src[j:]
+    if name == "sgsr2_convert.comp":
+        src = edit(src, "\tvec4 bottomRight = textureGather(InputDepth,(gatherCoord+v14), 0);\n",
+                   "\tvec4 bottomRight = textureGather(InputDepth,(gatherCoord+v14), 0);\n"
+                   "    if (params.depthInverted != 0u) { topleft = 1.0 - topleft; topRight = 1.0 - topRight; bottomLeft = 1.0 - bottomLeft; bottomRight = 1.0 - bottomRight; }\n")
+        src = edit(src, "if (EncodedVelocity.x > 0.0)", "if (true)")
+        src = edit(src, "motion = decodeVelocityFromTexture(EncodedVelocity.xy);", "motion = -2.0 * EncodedVelocity.xy;   // ours: UV, previous minus current")
+        # the inputs may be larger than the render size (a sub-rect, kept across render size changes): gathers in image UV, clamped to it
+        src = edit(src, "    vec2 ViewportUV = gatherCoord + vec2(0.5) * ViewportSizeInverse;\n",
+                   "    vec2 ViewportUV = gatherCoord + vec2(0.5) * ViewportSizeInverse;\n"
+                   "    vec2 texInv = ViewportSizeInverse * params.inputScale;\n"
+                   "    vec2 texMax = (vec2(params.renderSize) - vec2(1.0)) * texInv;\n"
+                   "    gatherCoord = vec2(gl_GlobalInvocationID.xy) * texInv;\n")
+        src = edit(src, "vec2 v10 = vec2(ViewportSizeInverse.x*2.0, 0.0);", "vec2 v10 = vec2(texInv.x*2.0, 0.0);")
+        src = edit(src, "vec2 v12 = vec2(0.0, ViewportSizeInverse.y*2.0);", "vec2 v12 = vec2(0.0, texInv.y*2.0);")
+        src = edit(src, "vec2 v14 = vec2(ViewportSizeInverse.x*2.0, ViewportSizeInverse.y*2.0);", "vec2 v14 = vec2(texInv.x*2.0, texInv.y*2.0);")
+        for v in ("v10", "v12", "v14"):
+            src = edit(src, "textureGather(InputDepth,(gatherCoord+%s), 0)" % v, "textureGather(InputDepth, min(gatherCoord+%s, texMax), 0)" % v)
+    if name == "sgsr2_upscale.comp":   # the same sub-rect for the render-size inputs (mda, YCoCg)
+        src = edit(src, "textureLod(MotionDepthClipAlphaBuffer, Jitteruv, 0.0)",
+                   "textureLod(MotionDepthClipAlphaBuffer, min(Jitteruv * params.inputScale, (vec2(params.renderSize) - vec2(0.5)) * params.renderSizeRcp * params.inputScale), 0.0)")
+        src = edit(src, "    ivec2 InputPosBtmRight = ivec2(1) + InputPos;\n", "    ivec2 InputPosBtmRight = min(ivec2(1) + InputPos, ivec2(params.renderSize) - ivec2(1));\n")
+        src = edit(src, "    vec2 gatherCoord = vec2(InputPos) * params.renderSizeRcp;\n",
+                   "    vec2 texRcp = params.renderSizeRcp * params.inputScale;\n"
+                   "    vec2 texMax = (vec2(params.renderSize) - vec2(1.0)) * texRcp;\n"
+                   "    vec2 gatherCoord = min(vec2(InputPos) * texRcp, texMax);\n")
+        src = edit(src, "gatherCoord + vec2(params.renderSizeRcp.x, 0.0)", "min(gatherCoord + vec2(texRcp.x, 0.0), texMax)")
+        src = edit(src, "gatherCoord + vec2(0.0, params.renderSizeRcp.y)", "min(gatherCoord + vec2(0.0, texRcp.y), texMax)")
+        src = edit(src, "gatherCoord + vec2(params.renderSizeRcp.x, params.renderSizeRcp.y)", "min(gatherCoord + texRcp, texMax)")
+    note = ("// Snapdragon Game Super Resolution 2, 2-pass compute: Copyright (c) 2024, Qualcomm Innovation Center, Inc.\n"
+            "// SPDX-License-Identifier: BSD-3-Clause (third_party/qualcomm_sgsr/v2/LICENSE); edited by scripts/gen_sgsr_shaders.py.\n")
+    return src.replace("#version 450\n", "#version 450\n" + note, 1)
+
+
 def tool(env, *names):
     if os.environ.get(env):
         return os.environ[env]
@@ -110,6 +196,8 @@ def compile_glsl(name, text, tmp):
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         shaders = [("kSgsrComp", compile_glsl("sgsr", sgsr_glsl(), tmp)), ("kBicubicComp", compile_glsl("bicubic", BICUBIC, tmp))]
+        sgsr2 = [("kSgsr2ConvertComp", compile_glsl("sgsr2_convert", sgsr2_glsl("sgsr2_convert.comp", SGSR2_CONVERT_DECL), tmp)),
+                 ("kSgsr2UpscaleComp", compile_glsl("sgsr2_upscale", sgsr2_glsl("sgsr2_upscale.comp", SGSR2_UPSCALE_DECL), tmp))]
     lines = ["// Generated by scripts/gen_sgsr_shaders.py: do not edit. SGSR 1: Copyright (c) 2025, Qualcomm Innovation Center, Inc.,",
              "// BSD-3-Clause (third_party/qualcomm_sgsr/LICENSE)."]
     for name, words in shaders:
@@ -119,6 +207,19 @@ def main():
         lines.append("};")
     open(out_path, "w", newline="\n").write("\n".join(lines) + "\n")
     print("wrote %s (%s)" % (out_path, ", ".join("%s %d words" % (n, len(w)) for n, w in shaders)))
+    lines = ["// Generated by scripts/gen_sgsr_shaders.py: do not edit. SGSR 2: Copyright (c) 2024, Qualcomm Innovation Center, Inc.,",
+             "// BSD-3-Clause (third_party/qualcomm_sgsr/v2/LICENSE). 2-pass compute, both: local size 8 x 8; set 0, binding 0 the std140",
+             "// parameter block (Sgsr2Params in temporal_sgsr2.cpp). Convert: 1 colour, 2 depth, 3 motion (combined image samplers), 4 rgba16f",
+             "// motion / depth clip / alpha, 5 r32ui YCoCg (storage). Upscale: 1 previous history, 2 motion / depth clip / alpha, 3 YCoCg (combined",
+             "// image samplers), 4 rgba16f output, 5 rgba16f history (storage)."]
+    for name, words in sgsr2:
+        lines.append("static const uint32_t %s[] = {" % name)
+        for i in range(0, len(words), 10):
+            lines.append("    " + ", ".join("0x%08x" % w for w in words[i:i + 10]) + ",")
+        lines.append("};")
+    out2 = os.path.join(root, "src", "gfx", "extras", "sgsr2_shaders.inc")
+    open(out2, "w", newline="\n").write("\n".join(lines) + "\n")
+    print("wrote %s (%s)" % (out2, ", ".join("%s %d words" % (n, len(w)) for n, w in sgsr2)))
 
 
 if __name__ == "__main__":

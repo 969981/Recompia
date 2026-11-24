@@ -42,7 +42,7 @@ bool tsr_jitter(uint32_t* words, size_t n_words) {
 }
 
 // The temporal pass ran in the frame before (temporal_run gave a result): only then is the camera jittered (tsr_cam_copy), so a frame
-// that is shown without the pass (no camera found, the stretch never came, the mode just switched on) is never a raw jittered frame.
+// that is shown without the pass (no camera found, the stretch never came, the mode just switched on) is not a raw jittered frame (only the first frame without the pass can be, the one that shows it lost).
 static bool g_tsr_live = false;
 bool tsr_cam_copy(uint64_t addr, uint32_t* words) {
     if (!g_tsr_live || g_tsr.bytes > kTsrMaxWords * 4 || !gw_settled_fast(addr, g_tsr.bytes) || out_overlaps(addr, g_tsr.bytes)) return false;
@@ -379,7 +379,7 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
         if (tsr) {   // the temporal pass: the scene (part), straight to this target's size (temporal_deferred)
             VkExtent2D part{se.width, se.height}, out_tex{};
             const VkExtent2D out{te.width, te.height};
-            scene_part(part, out, &part, &out_tex, r.tex);
+            scene_part(part, out, &part, &out_tex, r.tex);   // the part this frame drew (the published fraction can be the next frame's)
             if (part.width >= out.width && part.height >= out.height) {      // a 1:1 copy: a later stretch may still enlarge the scene
                 g_su.stretch_armed = true;
                 g_su.chain = target;                                          // ... read from this copy
@@ -391,7 +391,27 @@ void scene_stretch_for_draw(const ProgLayout& pl) {
             tex_ensure_current(r.tex, *F);
             tex_transition(r.tex, *F, tex_sampled_layout(r.tex));
             VkImageView src = tex_sampled_view(r.tex, make_request(b, r));
-            VkImageView up = temporal_run(r.tex, src, part, out, out_tex, false);
+            // A phone: the result at the target's size, blitted 1:1 into the target with the game's draw skipped (as the spatial path below):
+            // the draw reads its input at uv x fraction, which needed an image of out / fraction (at 15 % on a near-square phone screen: 1.4 GB)
+            const bool blit = facts::kPhone && (out_tex.width > out.width || out_tex.height > out.height);
+            VkImageView up = temporal_run(r.tex, src, part, out, blit ? out : out_tex, false);
+            if constexpr (facts::kPhone) publish_res(part, out, up ? 3 : 0);
+            if (blit) {
+                if (up) {
+                    memory_barrier(F->cb);
+                    if (tex_blit_from(target, *F, extras::temporal_output_image(), VK_FORMAT_R16G16B16A16_SFLOAT, out)) {
+                        memory_barrier(F->cb);
+                        g_su.skip_draw = true;
+                        static bool told_blit = false;
+                        if (!told_blit) {
+                            told_blit = true;
+                            NXLOG_I(kTag, "temporal: %ux%u -> %ux%u written into the scene stretch's target (the draw is skipped)", part.width, part.height,
+                                    out.width, out.height);
+                        }
+                    }
+                }
+                return;   // without the blit the game's own stretch draws
+            }
             if (up) {
                 g_su.tex = r.tex;
                 g_su.view = up;
