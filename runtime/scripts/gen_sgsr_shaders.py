@@ -146,6 +146,11 @@ def sgsr2_glsl(name, decl):
         for v in ("v10", "v12", "v14"):
             src = edit(src, "textureGather(InputDepth,(gatherCoord+%s), 0)" % v, "textureGather(InputDepth, min(gatherCoord+%s, texMax), 0)" % v)
     if name == "sgsr2_upscale.comp":   # the same sub-rect for the render-size inputs (mda, YCoCg)
+        # The moving five-tap signed filter can sum to nearly zero at some jitter phases.
+        # Limit its bias so the color normalization has a positive denominator across the pixel.
+        src = edit(src, "    kernelbias *= 0.5f;\n",
+                   "    kernelbias *= 0.5f;\n"
+                   "    if (params.sameCameraFrmNum == 0u) kernelbias = min(kernelbias, 0.65);\n")
         src = edit(src, "textureLod(MotionDepthClipAlphaBuffer, Jitteruv, 0.0)",
                    "textureLod(MotionDepthClipAlphaBuffer, min(Jitteruv * params.inputScale, (vec2(params.renderSize) - vec2(0.5)) * params.renderSizeRcp * params.inputScale), 0.0)")
         src = edit(src, "    ivec2 InputPosBtmRight = ivec2(1) + InputPos;\n", "    ivec2 InputPosBtmRight = min(ivec2(1) + InputPos, ivec2(params.renderSize) - ivec2(1));\n")

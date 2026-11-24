@@ -6,6 +6,7 @@
 #include "extras/smaa_scene.h"
 #include "extras/sgsr_spatial.h"
 
+#include "nxrt/game.h"
 #include "nxrt/game_render.h"
 #include "nxrt/gfx_tuning.h"
 #include "nxrt/platform_facts.h"
@@ -44,6 +45,33 @@ bool tsr_jitter(uint32_t* words, size_t n_words) {
 // The temporal pass ran in the frame before (temporal_run gave a result): only then is the camera jittered (tsr_cam_copy), so a frame
 // that is shown without the pass (no camera found, the stretch never came, the mode just switched on) is not a raw jittered frame (only the first frame without the pass can be, the one that shows it lost).
 static bool g_tsr_live = false;
+// The game's jitter decal pass (game::Render::jitter_decal_vs / _fs): drawn with depth test and write before the frame's camera block is
+// bound, from a projection block of its own (slot 0 of the vertex stage, a view-projection in floats 0..15). Left unjittered while the
+// ground is drawn jittered, the ground won the depth test at some jitter phases and the decal flickered under a temporal upscaler; that
+// projection now gets the same frame jitter.
+bool marker_draw(int stage, int slot, uint64_t size) {
+    if (stage != kVertex || slot != 0 || size < 64 || !g_tsr_live || !S.stage[kVertex] || !S.stage[kFragment]) return false;
+    const game::Render* gr = game::info().render;
+    return gr && gr->jitter_decal_vs && gr->jitter_decal_fs && S.stage[kVertex]->hash == gr->jitter_decal_vs &&
+           S.stage[kFragment]->hash == gr->jitter_decal_fs;
+}
+
+bool marker_jitter(float* vp) {
+    Texture* depth = S.depth_tex.get();
+    if (!g_tsr_live || !depth || !tex_gpu(depth)) return false;
+    const VkExtent3D e = tex_image_extent(depth, 0);
+    float fx = 1.0f, fy = 1.0f;
+    extras::scene_fraction(&fx, &fy);   // the scene's viewport is that part of the target, as for the camera (tsr_jitter)
+    const uint32_t w = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(e.width * fx)));
+    const uint32_t h = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(e.height * fy)));
+    static bool told = false;
+    if (!told) {
+        told = true;
+        NXLOG_I(kTag, "temporal: the game's decal projection gets the frame jitter too (%ux%u)", w, h);
+    }
+    return extras::temporal_jitter_matrix(vp, w, h, g_tsr_frame);
+}
+
 bool tsr_cam_copy(uint64_t addr, uint32_t* words) {
     if (!g_tsr_live || g_tsr.bytes > kTsrMaxWords * 4 || !gw_settled_fast(addr, g_tsr.bytes) || out_overlaps(addr, g_tsr.bytes)) return false;
     std::memcpy(words, host_ptr(addr), g_tsr.bytes);

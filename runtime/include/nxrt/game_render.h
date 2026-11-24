@@ -93,6 +93,12 @@ struct Render {
     // units drawn with this fragment shader (its cache hash): on a canvas of another shape it comes out stretched. The replay draws it
     // square (src/gfx/nvn/nvn_replay_square.cpp).
     const char* square_quad_fs = nullptr;
+    // A decal pass the game draws into the 3D picture with depth test and write before the frame's camera block is bound, from a projection
+    // block of its own (vertex stage slot 0, a view-projection in floats 0..15), with this vertex and fragment shader (cache hashes). Under a
+    // temporal upscaler that projection gets the frame's jitter too (src/gfx/nvn/nvn_replay_upscale.cpp marker_draw), or the jittered ground
+    // wins the depth test at some jitter phases and the decal flickers.
+    const char* jitter_decal_vs = nullptr;
+    const char* jitter_decal_fs = nullptr;
 };
 
 }  // namespace nxrt::game
