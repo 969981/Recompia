@@ -180,7 +180,7 @@ private data class Section(val title: String, val lines: List<String>)
 private fun sections(md: String): List<Section> {
     val out = mutableListOf<Section>()
     var title = ""; var lines = mutableListOf<String>()
-    for (l in md.replace("\r", "").lines()) {
+    for (l in unwrapMarkdown(md).lines()) {
         if (l.startsWith("#")) { if (title.isNotEmpty() || lines.any { it.isNotBlank() }) out += Section(title, lines); title = l.trimStart('#').trim(); lines = mutableListOf() }
         else lines += l
     }
