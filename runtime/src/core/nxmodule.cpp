@@ -19,6 +19,7 @@
 #include "nxrt/gauge.h"
 #include "nxrt/log.h"
 #include "nxrt/module.h"
+#include "nxrt/platform_facts.h"
 
 namespace nxrt {
 namespace {
@@ -216,6 +217,10 @@ const char* import_name(uint32_t import_id) {
 uint64_t import_resolve(uint32_t import_id) {
     Entry* e = by_index(NX_IMPORT_MODULE(import_id));
     uint32_t sym = NX_IMPORT_SYM(import_id);
+    if constexpr (facts::kPhone) {   // the answer first (one load): the symbol's name, another cache line, is read on a miss only
+        if (e && sym < e->ncache)
+            if (uint64_t hit = e->cache[sym].load(std::memory_order_acquire)) return hit;
+    }
     if (!e || sym >= e->ncache || !e->nx->syms[sym].name) return 0;
     uint64_t hit = e->cache[sym].load(std::memory_order_acquire);
     if (hit) return hit;
@@ -236,7 +241,7 @@ uint64_t import_resolve(uint32_t import_id) {
 }
 
 void import_cache_invalidate() {
-    std::lock_guard<std::mutex> lk(g_lock);
+    std::lock_guard<std::mutex> lk(g_lock); ImportEpochBump<> bump;   // after the change, under the lock
     invalidate_caches_locked();
 }
 

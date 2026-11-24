@@ -9,12 +9,15 @@
 // copied by value (raw bytes of the guest object), because the game reuses its structs right after the call. Memory
 // addresses (NVNbufferAddress) are stored as given; the replay resolves them against the pool registry at submit time.
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <mutex>
+#include <type_traits>
 #include <vector>
 
 #include "nvn_core.h"
+#include "nxrt/platform_facts.h"
 
 namespace nxrt::nvn::be {
 
@@ -114,6 +117,32 @@ struct P_CallCommands { uint32_t count, copy; };                                
 
 // ---- lists --------------------------------------------------------------------------------------------------------------------
 struct RecHeader { uint16_t op; uint16_t flags; uint32_t size; };
+
+// The command buffer's lock is taken on every NVN command the game records (thousands a frame, on one game thread; the replay never
+// takes it). Phones (facts::kPhone) use a lock whose uncontended path is one compare-and-swap and one swap inlined (a futex-style
+// three-state lock over std::atomic wait / notify) instead of pthread_mutex_lock / unlock through the PLT: those two were 12 % of the
+// recording thread on a Tensor G2 (Mali-G710). Desktop builds keep std::mutex (CbLock is std::mutex there).
+class CbFastLock {
+    std::atomic<uint32_t> s_{0};   // 0 free, 1 locked, 2 locked with (possible) waiters
+public:
+    void lock() {
+        uint32_t c = 0;
+        if (s_.compare_exchange_strong(c, 1, std::memory_order_acquire, std::memory_order_relaxed)) return;
+        if (c != 2) c = s_.exchange(2, std::memory_order_acquire);
+        while (c != 0) {
+            s_.wait(2, std::memory_order_relaxed);
+            c = s_.exchange(2, std::memory_order_acquire);
+        }
+    }
+    bool try_lock() {
+        uint32_t c = 0;
+        return s_.compare_exchange_strong(c, 1, std::memory_order_acquire, std::memory_order_relaxed);
+    }
+    void unlock() {
+        if (s_.exchange(0, std::memory_order_release) == 2) s_.notify_one();
+    }
+};
+using CbLock = std::conditional_t<facts::kPhone, CbFastLock, std::mutex>;
 
 struct CommandBuffer;
 // Console command / control memory model (api_cmdbuf.cpp): charges one record of the buffer being recorded, before it is
@@ -218,7 +247,7 @@ struct CommandBuffer : Obj {
     std::vector<uint64_t> handles;                   // handles of the lists recorded here (released at Finalize)
     Device* device = nullptr;
     std::string label;
-    std::mutex lock;
+    CbLock lock;
 };
 
 // Made-up command memory addresses of the overflow rings (above any GPU address a pool can have; one 64 GiB slot per buffer).

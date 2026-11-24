@@ -495,8 +495,8 @@ void prepare_texel_buffers(const ProgLayout& pl) {
             continue;
         }
         if (!barrier) {
-            end_pass();                 // a full barrier: earlier writes to the source land before the copy reads them
-            memory_barrier(F->cb);
+            if constexpr (facts::kPhone) end_pass_full_barrier(); else end_pass();   // a full barrier: earlier writes to the source land before the copy reads them
+            if constexpr (!facts::kPhone) memory_barrier(F->cb);
             barrier = true;
         }
         const VkBufferCopy c = {br.offset, 0, bytes};

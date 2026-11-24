@@ -26,6 +26,7 @@ Texture::~Texture() {
 }
 
 namespace gpu {
+void (*g_tex_touch_hook)(Frame& f, TexGpu* g) = nullptr;
 
 namespace tex {
 std::atomic<uint64_t> g_live_images{0};
@@ -398,6 +399,7 @@ static float attachment_scale(const Texture& t) {
 // ---- barriers and copies ----------------------------------------------------------------------------------------------------
 void move_layout(Frame& f, TexGpu& g, VkImageLayout to, int write_level) {
     if (g.layout == to) return;
+    if (g_tex_touch_hook) g_tex_touch_hook(f, &g);
     if (!read_only_layout(to)) bump_gen(g, write_level);
     // A 3D image created with 2D_ARRAY_COMPATIBLE: without maintenance9 the layer range of a barrier means all depth slices.
     const uint32_t layer_count = g.type == VK_IMAGE_TYPE_3D ? VK_REMAINING_ARRAY_LAYERS : g.layers;
@@ -585,6 +587,7 @@ float tex_scale_wanted(Texture* t) {
 // and its views are destroyed after the frames that use them.
 bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
     TexGpu* g = tex_or_null(t);
+    // (the carried-clear hook runs below, once the image is really remade)
     if (!g || g->scale == to) return false;
     if (to != 1.0f && (g->scale_blocked || g->transcoded || is_block_format(g->format))) return false;
     Shape s = shape_of(*t);
@@ -593,6 +596,7 @@ bool tex_rescale(Texture* t, Frame& f, float to, const char* why) {
         g->scale_blocked = true;
         return false;
     }
+    if (g_tex_touch_hook) g_tex_touch_hook(f, g);   // [nvn] clear_carry: a carried clear of the image goes first
     if (to != 1.0f) {
         s.base.width = scaled_side(s.base.width, to);
         s.base.height = scaled_side(s.base.height, to);
@@ -734,6 +738,7 @@ bool tex_enable_feedback_loop(Texture* t, Frame& f) {
     if (!device().features().attachment_feedback_loop || g->sparse || g->depth || s.samples > 1 || g->type != VK_IMAGE_TYPE_2D ||
         !(g->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) || !(g->usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
         return false;
+    if (g_tex_touch_hook) g_tex_touch_hook(f, g);   // [nvn] clear_carry: a carried clear of the image goes first
     const VkImageUsageFlags nu = g->usage | VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT;
     gfx::Image ni;
     std::string err;

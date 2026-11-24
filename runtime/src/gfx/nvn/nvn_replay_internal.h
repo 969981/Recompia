@@ -21,6 +21,8 @@
 #include <unordered_set>
 
 #include "nxrt/config.h"
+#include "nxrt/ab_switch.h"
+#include "nxrt/platform_facts.h"
 #include "nxrt/frame_limiter.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/gauge.h"
@@ -176,7 +178,21 @@ struct Pass {
     uint16_t clears_first = 0;  // [prof] pass_stats: ClearColor / ClearDepthStencil before the pass's first draw, and after it
     uint16_t clears_mid = 0;
     uint16_t dclears = 0;       // ... of them, depth clears through vkCmdClearAttachments (Turnip: LRZ off until a LOAD_OP_CLEAR)
+    // [nvn] clear_fold: the pass is open but vkCmdBeginRendering is not recorded yet (deferred), so full-area clears before the first
+    // draw become LOAD_OP_CLEAR of the begin (pass_fold_clear_*). pass_flush() records the begin; end_pass() of a pass never begun
+    // records nothing unless a clear was folded into it ([nvn] clear_carry: not even then, the clear waits for the next pass).
+    bool deferred = false;
+    bool folded = false;
+    VkRenderingAttachmentInfo att_c[8] = {};
+    VkRenderingAttachmentInfo att_d = {}, att_s = {};
+    VkRenderingInfo ri = {};
 };
+bool clear_fold_on();
+void pass_flush();                                                   // records a deferred vkCmdBeginRendering (no-op otherwise)
+bool pass_fold_clear_color(uint32_t slot, const VkClearColorValue& v, const VkClearRect& r);
+bool pass_fold_clear_ds(VkImageAspectFlags aspect, const VkClearDepthStencilValue& v, const VkClearRect& r);
+bool ensure_pass_for_clear();                                        // ensure_pass for a clear: a deferred begin stays deferred
+void pending_clears_flush_all();                                     // [nvn] clear_carry: every carried clear recorded now (submission end)
 // [prof] pass_stats: per-frame inventory of the render passes (how they begin, clears, empty passes, feedback loops, discards).
 // 0 off (default), 1 one summary line per 300 presents, 2 also every pass of one frame in that window. Render thread only.
 int pass_stats_level();
@@ -443,6 +459,83 @@ inline void gstamp(const char* label) {
     if (gpass_on()) gpass_stamp(*F, label, 0);
 }
 void end_pass(bool to_pass = false);
+// Phones (A/B name "barrier_dedupe", default on): end_pass() and then a full memory barrier, without the second barrier when end_pass already
+// ended with one (it does whenever it closes a pass or flushes pending pass writes): two full barriers back to back are one.
+template <bool kOn = facts::kPhone>
+void end_pass_full_barrier() {
+    if (diag::ab("barrier_dedupe", true) && (P.open || !g_bar.pending.empty())) {
+        end_pass();
+        return;
+    }
+    end_pass();
+    memory_barrier(F->cb);
+}
+// Phones, [nvn] barrier_bits (default on: measured on a Tensor G2, full barriers -58 %, passes -25 %, GPU Mcycles -8.8 %; A/B name "barrier_bits"): the game's nvnCommandBufferBarrier, about 133 a frame
+// outdoors (census: 0x3 ORDER_PRIMITIVES|ORDER_FRAGMENTS 69, 0x10 INVALIDATE_TEXTURE 51, 0x8 ORDER_INDIRECT_DATA 5, 0x12 4, 0x21 3,
+// 0x11 1; about 63 with a pass open, 70 with none), each ending the pass with full barriers.
+// With a pass open whose draws wrote only their attachments:
+// - ordering only (ORDER_PRIMITIVES, ORDER_FRAGMENTS(_TILED), INVALIDATE_ZCULL): the pass stays open, nothing is recorded (attachment writes
+//   follow primitive order inside a render pass; a draw that samples an attachment goes through its own feedback handling);
+// - with texture / descriptor invalidation: the pass ends as a tracked pass (its attachment writes are resolved at their next use).
+// With no pass open and no pass writes pending, from what was recorded since the last full barrier (vk_work_track.h: every memory-writing
+// command of any recording site marks its kind):
+// - nothing: no barrier (any bits);
+// - transfers only, ordering and texture / descriptor invalidation: a barrier from the transfers to every reading stage but the attachment
+//   stages (an image a transfer wrote changes layout before it is an attachment: that transition orders it);
+// - ORDER_INDIRECT_DATA (with ordering): all writes to the indirect reads (and the compute that fixes up indirect arguments) only.
+// Anything else (INVALIDATE_SHADER, compute, storage or draw work, a pass with storage writes): the full barrier as before.
+template <bool kOn = facts::kPhone>
+void barrier_op(uint32_t bits) {
+    constexpr uint32_t kOrderBits = 0x1 | 0x2 | 0x4 | 0x80;       // ORDER_PRIMITIVES, ORDER_FRAGMENTS, ORDER_FRAGMENTS_TILED, INVALIDATE_ZCULL
+    constexpr uint32_t kTexBits = 0x10 | 0x40;                    // INVALIDATE_TEXTURE, INVALIDATE_TEXTURE_DESCRIPTOR
+    constexpr uint32_t kIndirect = 0x8;                           // ORDER_INDIRECT_DATA
+    static const bool cfg = config_get_bool("nvn", "barrier_bits", true);
+    if (!g_bar.tracked || g_bar.pass_unsafe || !diag::ab("barrier_bits", cfg)) return end_pass_full_barrier();
+    if (P.open) {
+        if ((bits & ~(kOrderBits | kTexBits)) != 0) return end_pass_full_barrier();
+        static nxrt::GaugeCounter kept("nvn.cnt.barrier_pass_kept");   // game barriers that left the pass open (breaks avoided)
+        if ((bits & kTexBits) == 0) {                             // ordering only: keep the pass
+            kept.add(1);
+            return;
+        }
+        // [nvn] barrier_tex_keep (default on: measured, full barriers 70 -> 57 a frame, picture correct; A/B name "tex_keep"): texture invalidation inside a pass whose draws wrote only
+        // their attachments keeps the pass too. What a later draw could read of this pass's writes is its attachments, and a draw that
+        // samples one takes the existing paths whatever the barrier: a colour attachment goes through the feedback copy or loop
+        // (feedback_prepare, is_color_feedback), the depth attachment makes the draw's pass read-only (samples_depth_target), and both
+        // checks run whenever the draw's bindings change (and on every draw while a feedback draw was seen).
+        static const bool tex_keep_cfg = config_get_bool("nvn", "barrier_tex_keep", true);
+        if (diag::ab("tex_keep", tex_keep_cfg)) {
+            kept.add(1);
+            return;
+        }
+        end_pass(true);
+        return;
+    }
+    if (!g_bar.pending.empty()) return end_pass_full_barrier();  // earlier passes' writes waiting for a barrier: as before
+    const uint32_t k = gfx::work_kinds().load(std::memory_order_relaxed);
+    if (k == 0) return;                                          // no work since the last full barrier
+    VkMemoryBarrier2 m = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    if ((bits & ~(kOrderBits | kTexBits)) == 0 && k == gfx::kWorkTransfer) {
+        m.srcStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        m.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        m.dstStageMask = VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                         VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        m.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_UNIFORM_READ_BIT |
+                          VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_2_INDEX_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT |
+                          VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    } else if ((bits & ~(kOrderBits | kIndirect)) == 0 && (bits & kIndirect)) {
+        m.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        m.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+        m.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        m.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    } else {
+        return end_pass_full_barrier();
+    }
+    VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.memoryBarrierCount = 1;
+    di.pMemoryBarriers = &m;
+    vkCmdPipelineBarrier2(F->cb, &di);                           // scoped: the work kinds stay as they were (not a full barrier)
+}
 void prepare_texel_buffers(const ProgLayout& pl);   // draws: GPU copies of uniform texel buffers at offsets the GPU cannot view (nvn_replay_bind.cpp)
 float attach_targets(bool fix);
 bool ensure_pass(bool depth_ro = false, uint8_t fbl = 0);
