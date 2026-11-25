@@ -267,6 +267,9 @@ entryhook 0x710011b214
 entryhook 0x71001240dc
 entryhook 0x710043d3e0
 entryhook 0x710012c734
+#   Seamless co-op, the story flags (pkp_coop_story_flags.cpp): contents action 0xbbd 0x710012c46c (x0 = its words: u8 the flag at
+#   +4, u32 1 to set at +8; reached only through the contents action table)
+entryhook 0x710012c46c
 #   Seamless co-op, catch-up (pkp_coop_catchup.cpp): the item of a character's reward list 0x71003bcbc0 (comp, &u16 item, &u16 count;
 #   only called through the reward command table 0x7103485400)
 entryhook 0x71003bcbc0
@@ -444,12 +447,19 @@ midhook 0x7100fab940
 #   Seamless co-op, the party answers (pkp_coop_party_answers.cpp): one line per row of pkp_coop_party_table.inc, ascending. An
 #   entry hook per fact row (a condition handler that checks one player for what the party has), a midhook per off row (the
 #   instruction after the `bl` whose result decides a refusal a session does not have, or after the `bl` that counted an item in
-#   this player's bag: quest condition 0x11 at 0x710011d118, contents conditions 0x7da / 0x7e4 at 0x7100126e44 / 0x7100126f58)
+#   this player's bag: quest condition 0x11 at 0x710011d118, contents conditions 0x7da / 0x7e4 at 0x7100126e44 / 0x7100126f58,
+#   the request checker's two counts for request type 0xd at 0x7100614028 / 0x7100614560), an entry hook per predicate row (the
+#   game's own-creature test 0x7100284ef4: x0 the creature's component, x30 the caller), a midhook per leader row (the compare
+#   of a creature's leader with this player in the move-in talk option, 0x71004dbcbc: w8 the leader, w9 this player)
 midhook 0x710011d118
 midhook 0x7100126e44
 midhook 0x7100126f58
 entryhook 0x71001273a0
 entryhook 0x7100127480
+entryhook 0x7100284ef4
+midhook 0x71004dbcbc
+midhook 0x7100614028
+midhook 0x7100614560
 midhook 0x71007b09d4
 midhook 0x71007b0a14
 midhook 0x71007b0cfc
@@ -801,6 +811,9 @@ entryhook 0x71002a1ed4
 #   (x0 the message; only caller the receive entry 0x7100547980, whose w21 is the sender's member index), whose leave arm takes
 #   the creature from whoever leads it: refused when the asker is not its leader
 entryhook 0x71005519bc
+#   Seamless co-op, the escorts (pkp_coop_follow.cpp): the story's own leave 0x7100659bf8 (mgr, &leader id, &creature id; callers
+#   0x71002a1f44 and the escort end 0x7100617d98) releases an escort; the leave 0x7100659588 (declared under journal roles) keeps one
+entryhook 0x7100659bf8
 #   Seamless co-op, a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp): in script callback slot 195
 #   0x71004ae68c, the `bl 0x77ecb0` after its store of the talk record's +0x10 outside Cloud Island (w23 = the chara)
 midhook 0x71004ae7e8

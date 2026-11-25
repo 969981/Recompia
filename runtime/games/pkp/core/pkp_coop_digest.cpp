@@ -9,7 +9,8 @@
 //   - with them (StateFull), the member logs every entry that differs (the authority's value and its own) and sends the first
 //     kReportMax of them to the authority (StateReport), which writes them in its own log: a host's log alone shows which member lacks what.
 // The digest writes nothing back. The domains it only watches are carried by their own parts: the area levels (domain 8) by
-// pkp_coop_levels.cpp, the open areas (domain 11) by story record 9 (pkp_coop_records.cpp); a difference that stays is a real fault.
+// pkp_coop_levels.cpp, the open areas (domain 11) by story record 9 (pkp_coop_records.cpp), the homes (domain 13) by the game's own
+// replication, the story flags (domain 12) by pkp_coop_story_flags.cpp; a difference that stays is a real fault.
 // Every look writes a line (j.sync digest) when a domain's own hash changed, on every process, so logs can also be compared by hand.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
@@ -38,6 +39,7 @@ constexpr Domain kDomains[] = {
     {1, "quests", &quest_states}, {2, "abilities", &abilities}, {3, "dex", &dex},         {4, "habitats", &habitats},
     {5, "recipes", &recipes},     {6, "unlocks", &unlocks},     {7, "scenes", &scenes},       {8, "area levels", &area_levels},
     {9, "gates", &gates},         {10, "trainer level", &trainer_level}, {11, "open areas", &open_areas},
+    {12, "story flags", &story_flags}, {13, "homes", &homes},
 };
 constexpr size_t kCount = sizeof kDomains / sizeof kDomains[0];
 
@@ -254,6 +256,9 @@ void reset() { st() = State{}; }
 // Island's byte for its stage, the mirror on a visitor, else the own copy), so a member that does not show the host's level differs.
 // Gates: gate id -> the byte the getter 0x5c0504 reads here (the visitor mirror on a visitor, else m_gateHistory), non-zero only.
 // Trainer level: m_trainerLevel, the rank the gates ask for (own save on every process, no visitor copy).
+// Story flags: m_storyCtrlFlag, the 20 bits contents condition 0x32 reads and contents action 0xbbd writes (own save).
+// Homes: character index -> (kind << 8) | stage of the home record the game reads here (kSaveHome: the mirror on a visitor, which
+// the game's own replication kind 0xb fills), kinds 1..3 only.
 bool area_levels(Entries& out) {
     const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
     const uint64_t g = guest::rd<uint64_t>(base() + layout::kGameState);
@@ -283,6 +288,30 @@ bool trainer_level(Entries& out) {
     const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
     if (!r || !guest::ok(r + layout::kSaveTrainerLevel, 1)) return false;
     out.push_back({0, guest::rd<uint8_t>(r + layout::kSaveTrainerLevel)});
+    return true;
+}
+
+bool story_flags(Entries& out) {
+    const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
+    uint8_t b[layout::kStoryFlagBytes];
+    if (!r || !guest::read(r + layout::kSaveStoryFlags, b, sizeof b)) return false;
+    for (uint32_t n = 1; n <= layout::kStoryFlagMax; ++n)
+        if (b[n >> 3] >> (n & 7) & 1) out.push_back({n, 1});
+    return true;
+}
+
+bool homes(Entries& out) {
+    const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
+    const uint64_t g = guest::rd<uint64_t>(base() + layout::kGameState);
+    if (!r || !g) return false;
+    const bool visitor = guest::rd<uint8_t>(g + layout::kStateSession) & layout::kSessionVisitor;
+    const uint64_t at = r + (visitor ? layout::kSaveHomeMirror : layout::kSaveHome);
+    if (!guest::ok(at, layout::kHomeCount * layout::kHomeSize)) return false;
+    for (uint32_t i = 0; i < layout::kHomeCount; ++i) {
+        const uint8_t kind = guest::rd<uint8_t>(at + i * layout::kHomeSize + layout::kHomeKind);
+        if (kind < 1 || kind > 3) continue;
+        out.push_back({i, static_cast<uint32_t>(kind) << 8 | guest::rd<uint8_t>(at + i * layout::kHomeSize + layout::kHomeStage)});
+    }
     return true;
 }
 

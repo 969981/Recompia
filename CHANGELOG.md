@@ -11,6 +11,13 @@
 - Fixed a co-op teammate's action playing its scene for the host too: a teammate who pressed a story gate or object and got its message no longer makes the same message appear on the host's screen
 - Fixed co-op story steps that wait on a teammate's action being lost while the host was in a menu or a talk for a long time
 - Changed co-op story and quest checks of "has this item" to count the item when any one player holds it; items are still taken only from the bag of the player who gives them
+- Fixed co-op story creatures only ever following the host: a creature the story sends along now follows the player who asked for it, and every player's game knows it
+- Fixed a co-op story creature being lost before its step was done: only the story itself ends its follow now, not a gate, a trip, parting ways, the creature's mood or a teammate's game; if its player leaves, it follows the host
+- Changed a co-op creature request that only asks you to have two items: it is ready when players of the session hold them, not only when you do
+- Changed a co-op creature request that asks you to bring an item: any player can hand it in while a teammate holds the item (the item stays with that teammate)
+- Fixed a co-op teammate not being treated as a friend of the town's creatures: the talk option to move a creature into a house, the talk lines for creatures you befriended and their friendship values now work for every player, not only the host
+- Changed the co-op talk option to move a creature into a house: any player can offer it while the creature follows any player, not only the player it follows
+- Fixed co-op story flags being kept per player: a flag a story step sets for one player is now set for the whole group, so hint scenes at gates and a creature's story steps no longer differ between players
 
 ## 0.17.6 (build U: Urchin Hotfix a2)
 

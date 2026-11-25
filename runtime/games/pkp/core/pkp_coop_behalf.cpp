@@ -17,6 +17,8 @@
 //   player: play scene 2000 (it queues on this process's first event slot), the warps 0x4a6 / 0x4ab and the push 0xe74 (each on
 //   this process's own player). While a remembered record runs, on the authority, they do not run (the handlers return nothing the
 //   interpreter reads: it steps by the action's own length).
+// A record a member's notice queued with no copy of its own having run is remembered too, with nothing held back: who queued the
+// record that runs now is what the escorts ask (running(), pkp_coop_follow.cpp).
 // A record is forgotten once it is no longer queued, or after kKeep seconds.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
@@ -42,7 +44,8 @@ constexpr size_t kMost = 16;
 
 struct Quiet {
     uint64_t record;
-    uint8_t origin;   // the member whose own copy ran
+    uint8_t origin;   // the member whose notice queued it
+    bool quiet;       // that member's own copy ran: the actions on the acting player are not made here
     double at;
     bool logged;
 };
@@ -50,6 +53,7 @@ struct Quiet {
 struct State {
     std::vector<Quiet> quiet;
     int posting = -1;       // the member whose notice the feed is posting now (-1: none)
+    bool taken = false;     // and a record on that member's process took it
     uint64_t running = 0;   // the record whose actions run now
 };
 State& st() {
@@ -65,7 +69,10 @@ Quiet* find(uint64_t record) {
 
 }  // namespace
 
-void begin(uint8_t origin) { st().posting = origin; }
+void begin(uint8_t origin, bool taken) {
+    st().posting = origin;
+    st().taken = taken;
+}
 void end() { st().posting = -1; }
 
 int on_record_queued(::Ctx* c) {
@@ -75,26 +82,31 @@ int on_record_queued(::Ctx* c) {
     if (from != kQueuedFromA && from != kQueuedFromB) return 0;
     uint64_t record = 0;
     if (!guest::read(c->x[1], record) || !guest::ok(record, kRecordFlags + 2) || find(record) || s.quiet.size() >= kMost) return 0;
-    s.quiet.push_back(Quiet{record, static_cast<uint8_t>(s.posting), qpc::seconds(), false});
+    s.quiet.push_back(Quiet{record, static_cast<uint8_t>(s.posting), s.taken, qpc::seconds(), false});
     return 0;
 }
 
 int on_record_run(::Ctx* c) {
-    State& s = st();
-    if (s.quiet.empty()) {
-        s.running = 0;
-        return 0;
-    }
     uint64_t record = 0;
-    s.running = guest::read(c->x[0], record) ? record : 0;
+    st().running = guest::read(c->x[0], record) ? record : 0;
     return 0;
+}
+
+bool running(Run* out) {
+    const State& s = st();
+    if (!guest::ok(s.running, kRecordFlags + 2)) return false;
+    out->entry = guest::rd<uint32_t>(s.running + kRecordContent);
+    out->id = guest::rd<uint32_t>(s.running + kRecordId);
+    const Quiet* q = find(s.running);
+    out->origin = q ? q->origin : -1;
+    return true;
 }
 
 int on_actor_action(::Ctx*) {
     State& s = st();
     if (s.quiet.empty() || !s.running || !link::in_session() || !link::is_authority()) return 0;
     Quiet* q = find(s.running);
-    if (!q) return 0;
+    if (!q || !q->quiet) return 0;
     if (!q->logged) {
         q->logged = true;
         NXLOG_I(kTag, "Co-op feed: content entry %u record %u runs here for node %u, whose own copy ran: its scene, warp and push are "
@@ -106,6 +118,7 @@ int on_actor_action(::Ctx*) {
 
 void tick() {
     State& s = st();
+    s.running = 0;   // a frame's records have run: a release outside a record is nobody's relay
     if (s.quiet.empty()) return;
     if (!link::in_session() || !link::is_authority()) {
         s = State{};

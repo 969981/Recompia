@@ -60,6 +60,8 @@ constexpr Route kRoutes[] = {
     {wire::Type::StockState, Path::FromAuthority, &stock::on_state_message},
     {wire::Type::ShopRows, Path::FromAuthority, &shoprows::on_rows_message},
     {wire::Type::AreaLevels, Path::FromAuthority, &levels::on_levels_message},
+    {wire::Type::StoryFlags, Path::FromAuthority, &storyflags::on_flags_message},
+    {wire::Type::StoryFlagSet, Path::ToAuthority, &storyflags::on_set_message},
     {wire::Type::PartyBags, Path::FromAuthority, &party::on_bags_message},
     {wire::Type::EventHistory, Path::Shared, &events::on_history_message},
     {wire::Type::StoryLines, Path::Shared, &events::on_lines_message},
@@ -96,6 +98,8 @@ constexpr Route kRoutes[] = {
     {wire::Type::DepositState, Path::FromAuthority, &deposit::on_state_message},
     // a story follow on a member
     {wire::Type::StoryFollow, Path::ToAuthority, &follow::on_ask_message},
+    {wire::Type::EscortRelease, Path::ToAuthority, &follow::on_release_message},
+    {wire::Type::PartyEscorts, Path::FromAuthority, &follow::on_record_message},
     // the shared save
     {wire::Type::SaveHave, Path::ToAuthority, &savecopy::on_have_message},
     {wire::Type::SaveOffer, Path::FromAuthority, &savecopy::on_offer_message},
@@ -201,6 +205,7 @@ void on_member(const ch::MemberEvent& e) {
         digest::on_session_change();
         records::on_session_change();
         levels::on_session_change();
+        storyflags::on_session_change();
         skits::on_session_change();
         NXLOG_I(kTag, "Co-op: %s the session's channel as node %d%s", e.joined ? "in" : "out of", e.node, e.authority ? " (the authority)" : "");
         if (e.joined && e.authority != (role() == CoopRole::Host))
@@ -224,10 +229,12 @@ void on_member(const ch::MemberEvent& e) {
         bags::on_member_joined(e.node);
         records::on_member_joined();
         levels::on_member_joined();
+        storyflags::on_member_joined();
         skits::on_member_joined();
         friendship::on_member_joined(e.node);
     }
     party::on_member_change(e.node, e.joined);
+    follow::on_member_change(e.node, e.joined);
     NXLOG_I(kTag, "Co-op: node %d %s the session%s", e.node, e.joined ? "joined" : "left", e.authority ? " (the authority)" : "");
 }
 

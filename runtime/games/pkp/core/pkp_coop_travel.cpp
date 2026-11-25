@@ -22,6 +22,10 @@
 // A No (or a player who does not answer) leaves everyone where they are: the move is cancelled.
 // The host's own map travel is vanilla already (StartPoll(5), then the departure on a yes), and the Dream Island trips (0xbd5a0 from
 // 0x99ae98 / 0x99bea8) run as they are: neither reaches 0xbda20.
+// The group's followers are released when an agreed move is made (pkp_coop_follow.cpp), which is before the stage changes: at once
+// for a filed move, a passage's walk earlier for a gate, the departure event earlier for the host's map trip. From the release
+// the group is departing (moving()), until the trip record has run a stage change (its phase is below kRecordReady while one
+// runs) and is idle again, or until none began in kDepartWait (kPassageWait while a gate's passage is walked): called off.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_coop_wire.h"
 #include "core/pkp_guest.h"
@@ -68,6 +72,8 @@ constexpr double kPassedFor = 15.0;   // a passed poll lets its stage's move thr
 constexpr double kOpenWait = 2.0;     // the host's own poll did not open by then: the move it held is dropped
 constexpr double kAskAgain = 10.0;    // the same stage is not asked about again this soon (a step that tries every frame)
 constexpr double kGoWait = 5.0;       // a decided move waits this long for the trip record to be ready
+constexpr double kDepartWait = 30.0;  // a departure whose stage change did not begin by then was called off
+constexpr double kPassageWait = 60.0; // the same while a gate's passage is walked (4 to 16 s of walking, then its exit files the move)
 
 // A poll as last seen open (the struct is cleared once it ends, so its facts are kept while it runs). Its result is taken once, at
 // the result state (the host writes +8 before it sets the state, 0x582480); the move is made once the poll ended, as vanilla's
@@ -118,6 +124,9 @@ struct State {
     uint8_t asked_stage = 0;    // the stage this player last asked about, and when
     double asked_at = -1e9;
     uint8_t walk_stage = 0;     // the stage whose gate the host entered after a poll (or alone): its exit is the group's move
+    bool departing = false;     // the group's followers were released for a move whose stage change has not finished
+    bool changing = false;      // that stage change was seen running
+    double departing_since = 0.0;
     bool replaying = false;     // the hook's own call of the index move or the gate entry: let it run
 };
 State& st() {
@@ -194,12 +203,34 @@ uint8_t gate_stage(::Ctx* c, uint64_t trigger, uint32_t* index) {
     return stage <= kMaxStage ? stage : 0;
 }
 
+// The agreed move is being made: the group's followers leave now, and the group is departing until the stage change is over.
+void depart(::Ctx* c, State& s) {
+    follow::release_for_move(c);
+    s.departing = true;
+    s.changing = false;
+    s.departing_since = qpc::seconds();
+}
+
+// Ends the departure once its stage change has run, or when none began in time.
+void watch_departure(State& s, uint64_t gm) {
+    if (!s.departing) return;
+    if (guest::rd<uint32_t>(gm + kTripRecord) < kRecordReady) {
+        s.changing = true;
+        return;
+    }
+    const double waited = qpc::seconds() - s.departing_since;
+    if (!s.changing && waited <= (s.walk_stage ? kPassageWait : kDepartWait)) return;
+    if (!s.changing)
+        NXLOG_I(kTag, "Co-op travel: no stage change began %.0f s after the group's followers were released; the move was called off", waited);
+    s.departing = false;
+}
+
 // A poll that passed, once it ended: the host makes the move when vanilla does not make it by itself.
 void on_passed(::Ctx* c, State& s, const Seen& p) {
     if (!is_host()) return;
     if (p.requester == own_slot()) {
         if (!s.held.on || s.held.stage != p.target) {   // the host's own map trip or script poll: vanilla moves
-            follow::release_for_move(c);
+            depart(c, s);
             return;
         }
         s.go = Go{true, s.held, p.requester, qpc::seconds()};
@@ -231,7 +262,7 @@ void make_move(::Ctx* c, State& s, uint64_t gm) {
             return;
         }
         s.walk_stage = g.what.stage;
-        follow::release_for_move(c);
+        depart(c, s);
         s.replaying = true;
         guest::call(c, base() + kGateEntry, g.what.trigger, 0, 0, 0, 0, scratch(c));
         s.replaying = false;
@@ -247,7 +278,7 @@ void make_move(::Ctx* c, State& s, uint64_t gm) {
     }
     const Go g = s.go;
     s.go = Go{};
-    follow::release_for_move(c);
+    depart(c, s);
     if (g.what.kind == Kind::Index) {
         s.replaying = true;
         guest::call(c, base() + kMoveByIndex, gm + kTripRecord, g.what.index, g.what.w2, 0, 0, scratch(c));
@@ -394,7 +425,14 @@ void tick(::Ctx* c) {
         s.held = Held{};
     }
     if (s.walk_stage && current_stage(gm) == s.walk_stage) s.walk_stage = 0;   // arrived: the walk is over
+    watch_departure(s, gm);
     make_move(c, s, gm);
+}
+
+bool moving() {
+    if (st().departing) return true;
+    const uint64_t gm = game_state();
+    return gm && guest::rd<uint32_t>(gm + kTripRecord) < kRecordReady;
 }
 
 void reset() { st() = State{}; }
