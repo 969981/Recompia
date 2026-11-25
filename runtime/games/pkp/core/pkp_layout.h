@@ -363,5 +363,10 @@ constexpr uint32_t kErrorSessionLost = 0x80401103;
 // player (never sent); list kPartyOwnList every follower of this process's own player (0x373f58 returns it).
 constexpr uint64_t kPartyManager = 0x35659f8, kPartyLists = 8, kPartyListSize = 0x28;
 constexpr uint64_t kPartySlotLists = 4, kPartyStoryList = 9, kPartyOwnList = 10;
+// The follow rows: one per character in the player's own save (save root + kFollowRows, index = the character's save index, the
+// u32 at its party block +0xc; an index of kFollowRowCount or more reads row 0), byte kFollowRowStory the story's mark of a
+// follower. A visiting game reads the host's rows in its mirror (kFollowRowsVisiting), Cloud Island its own copy.
+constexpr uint64_t kFollowRows = 0x23c3d0, kFollowRowsVisiting = 0x16fefd8, kFollowRowSize = 0x10, kFollowRowStory = 0xa;
+constexpr uint32_t kFollowRowCount = 0x41a;
 
 }  // namespace nxrt::games::pkp::layout
