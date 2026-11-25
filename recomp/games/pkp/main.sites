@@ -586,6 +586,16 @@ entryhook 0x710045d5a0
 entryhook 0x7100132f00
 # the contents notifier (x0 scheduler, x1 list, w2, w3): the notice kind at scheduler +0x11aae0 and its payload
 entryhook 0x71001353a0
+# the contents condition evaluator's default case (`ldr w8, [x19]`, x20 = the condition's words): a kind it has no case for
+midhook 0x7100125e7c
+#   Seamless co-op, a record run for a member whose own copy ran (pkp_coop_behalf.cpp, pkp_coop_feed.cpp): the scheduler's run
+#   queue insert 0x71001350c0 (x1 the run slot), a queued record's run 0x7100131200 (x0 the run slot), and the content actions on
+#   the acting player besides play scene: the warps 0x710012af00 / 0x710012b108 and the push 0x710012dbb8
+entryhook 0x71001350c0
+entryhook 0x7100131200
+entryhook 0x710012af00
+entryhook 0x710012b108
+entryhook 0x710012dbb8
 # event runner state 4 (x0 runner): the end writes of an event (played bit, rows, story bus, notices)
 entryhook 0x710047e140
 # ---- end of journal events ----

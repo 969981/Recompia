@@ -8,6 +8,8 @@
 - Fixed a co-op story step that needs a creature brought through an area gate: pressing the gate no longer makes the creature stop following (followers leave when the group moves to the next area), and the step counts the creature when it follows any player in the session, not only the one who presses the gate
 - Fixed the co-op host being refused at area gates and on the map while a story creature follows it: the group's move is voted on as it is for a teammate
 - Changed co-op story checks of "is this creature following" to count every player's followers, so a creature's talk no longer flips between two lines depending on who looks
+- Fixed a co-op teammate's action playing its scene for the host too: a teammate who pressed a story gate or object and got its message no longer makes the same message appear on the host's screen
+- Fixed co-op story steps that wait on a teammate's action being lost while the host was in a menu or a talk for a long time
 
 ## 0.17.6 (build U: Urchin Hotfix a2)
 

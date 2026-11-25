@@ -54,6 +54,8 @@
 //   pkp_coop_friendship.cpp a member's friendship gains with a creature made on the authority (the group's), its records shown to all
 //   pkp_coop_challenges.cpp what a member does counts toward the group's challenges (its shop buys)
 //   pkp_coop_feed.cpp     what a member's player did to a creature (talked to it), posted to the authority's contents scheduler
+//   pkp_coop_behalf.cpp   a record the authority runs for a member's notice, when the member's own copy ran: without the actions
+//                         on the acting player (its scene, warp, push)
 //   pkp_coop_newcomer.cpp a member's first talk with a new creature (it moves in) made on the authority, as the host's own talk
 //   pkp_coop_doors.cpp    the session's doors in the menus: the PC's Link Play screen makes no session call, the pause menu never
 //                         sends a teammate home or rejects one; Save and Quit stays
@@ -749,12 +751,31 @@ int on_fed(::Ctx* c);
 // posts, so a member's of the same event is not posted twice. From one of the two "object used" notifiers (0x135d80, 0x135cf4): on a
 // member in the session the notice is queued for the authority. The game's own code runs everywhere (returns 0).
 int on_notice(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0x1350c0, a record put into the scheduler's run queue. On a member, called from the notifier
+// of a notice just queued for the authority: that event is marked as taken by a record here. Returns 0.
+int on_record_queued(::Ctx* c);
 // The message (pkp_coop_link.cpp): a member's creature event, posted on the authority at a safe moment.
 void on_event_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // Sends a member's events and posts the authority's received ones (once a frame, after the channel's handlers).
 void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace feed
+// ---- the authority's run of a record for a member whose own copy ran (pkp_coop_behalf.cpp) ----
+namespace behalf {
+// The feed, around its post of a member's notice that a record on the member's process took: the records the notifier queues
+// between the two are run for that member.
+void begin(uint8_t origin);
+void end();
+// The hook sites (pkp_coop.cpp), each returns 0 but the last. Entry 0x1350c0: a record queued by the notifier between begin and
+// end is remembered. Entry 0x131200: the record whose actions run from now. Entries 0x12b544 (before the contents scenes' own
+// look), 0x12af00, 0x12b108, 0x12dbb8, the actions on the acting player (play scene, the two warps, the push): on the authority,
+// while a remembered record runs, the action does not run (returns 1).
+int on_record_queued(::Ctx* c);
+int on_record_run(::Ctx* c);
+int on_actor_action(::Ctx* c);
+void tick();    // once a frame: a remembered record that is no longer queued is forgotten
+void reset();
+}  // namespace behalf
 // ---- a gimmick press a story content took instead of the use (pkp_coop_owner.cpp) ----
 namespace owner {
 // The hook sites (pkp_coop.cpp): midhooks at the `tbz w0` after a use posts its press to the contents (0x765b54) in five gimmick
