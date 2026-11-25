@@ -10,8 +10,7 @@
 //     kReportMax of them to the authority (StateReport), which writes them in its own log: a host's log alone shows which member lacks what.
 // The digest writes nothing back. The domains it only watches are carried by their own parts: the area levels (domain 8) by
 // pkp_coop_levels.cpp, the open areas (domain 11) by story record 9 (pkp_coop_records.cpp), the homes (domain 13) by the game's own
-// replication, the story flags (domain 12) by pkp_coop_story_flags.cpp; a difference that stays is a real fault. The move uses (domain 14) are carried by nothing: each player's own count,
-// watched to see how far they drift.
+// replication, the story flags (domain 12) by pkp_coop_story_flags.cpp; a difference that stays is a real fault.
 // Every look writes a line (j.sync digest) when a domain's own hash changed, on every process, so logs can also be compared by hand.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
@@ -40,7 +39,7 @@ constexpr Domain kDomains[] = {
     {1, "quests", &quest_states}, {2, "abilities", &abilities}, {3, "dex", &dex},         {4, "habitats", &habitats},
     {5, "recipes", &recipes},     {6, "unlocks", &unlocks},     {7, "scenes", &scenes},       {8, "area levels", &area_levels},
     {9, "gates", &gates},         {10, "trainer level", &trainer_level}, {11, "open areas", &open_areas},
-    {12, "story flags", &story_flags}, {13, "homes", &homes},           {14, "move uses", &move_uses},
+    {12, "story flags", &story_flags}, {13, "homes", &homes},
 };
 constexpr size_t kCount = sizeof kDomains / sizeof kDomains[0];
 
@@ -259,8 +258,7 @@ void reset() { st() = State{}; }
 // Trainer level: m_trainerLevel, the rank the gates ask for (own save on every process, no visitor copy).
 // Story flags: m_storyCtrlFlag, the 20 bits contents condition 0x32 reads and contents action 0xbbd writes (own save).
 // Homes: character index -> (kind << 8) | stage of the home record the game reads here (kSaveHome: the mirror on a visitor, which
-// the game's own replication kind 0xb fills), kinds 1..3 only. Move uses: move id -> the count contents condition 0x8ac reads
-// (m_pokeSkillHistory, own save).
+// the game's own replication kind 0xb fills), kinds 1..3 only.
 bool area_levels(Entries& out) {
     const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
     const uint64_t g = guest::rd<uint64_t>(base() + layout::kGameState);
@@ -314,14 +312,6 @@ bool homes(Entries& out) {
         if (kind < 1 || kind > 3) continue;
         out.push_back({i, static_cast<uint32_t>(kind) << 8 | guest::rd<uint8_t>(at + i * layout::kHomeSize + layout::kHomeStage)});
     }
-    return true;
-}
-
-bool move_uses(Entries& out) {
-    const uint64_t r = guest::rd<uint64_t>(base() + layout::kSaveRoot);
-    if (!r || !guest::ok(r + layout::kSaveMoveUses, (layout::kMoveMax + 1) * layout::kMoveSize)) return false;
-    for (uint32_t id = 1; id <= layout::kMoveMax; ++id)
-        if (const uint32_t n = guest::rd<uint32_t>(r + layout::kSaveMoveUses + id * layout::kMoveSize)) out.push_back({id, n});
     return true;
 }
 

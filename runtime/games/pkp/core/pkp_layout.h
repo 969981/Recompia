@@ -41,9 +41,6 @@ constexpr uint32_t kStoryFlagMax = 20;
 // The home record per character index (0x20 bytes: +8 u8 its kind 1..3, +0xc u8 its stage); a visitor reads the copy of the host's.
 constexpr uint64_t kSaveHome = 0x8b860, kSaveHomeMirror = 0x154e468, kHomeSize = 0x20, kHomeKind = 8, kHomeStage = 0xc;
 constexpr uint32_t kHomeCount = 0x41a;
-// m_pokeSkillHistory per move id 1..0x3c (8 bytes): +0 u32 the times it was used (+4 bit 0 learned: pkp_coop_unlocks.cpp).
-constexpr uint64_t kSaveMoveUses = 0x6d82ec, kMoveSize = 8;
-constexpr uint32_t kMoveMax = 0x3c;
 // A creature's friend record, through its component (a resident's part + 0x2ca0; a talk target with none has the stand-in).
 constexpr uint64_t kNoComponent = 0x3567db0;     // main + : the stand-in component
 constexpr uint64_t kHasParents = 0x285100;       // (comp) -> bit 0: its record (as this process selects it) has a parents user id
