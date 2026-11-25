@@ -96,6 +96,8 @@ constexpr Route kRoutes[] = {
     {wire::Type::DepositState, Path::FromAuthority, &deposit::on_state_message},
     // a story follow on a member
     {wire::Type::StoryFollow, Path::ToAuthority, &follow::on_ask_message},
+    {wire::Type::EscortRelease, Path::ToAuthority, &follow::on_release_message},
+    {wire::Type::PartyEscorts, Path::FromAuthority, &follow::on_record_message},
     // the shared save
     {wire::Type::SaveHave, Path::ToAuthority, &savecopy::on_have_message},
     {wire::Type::SaveOffer, Path::FromAuthority, &savecopy::on_offer_message},
@@ -228,6 +230,7 @@ void on_member(const ch::MemberEvent& e) {
         friendship::on_member_joined(e.node);
     }
     party::on_member_change(e.node, e.joined);
+    follow::on_member_change(e.node, e.joined);
     NXLOG_I(kTag, "Co-op: node %d %s the session%s", e.node, e.joined ? "joined" : "left", e.authority ? " (the authority)" : "");
 }
 

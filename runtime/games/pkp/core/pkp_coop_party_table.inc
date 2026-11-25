@@ -53,10 +53,16 @@ PKP_PARTY_OFF(0x7b09d4, 0x4b1558, 1, 0x36000280u, "area gate", "a follower never
 // ---- moving to another area while a story follower is attached ----
 // The game refuses an area gate (0x7b0c50 results 2 / 3, scenes 0xa7f / 0xa80; the same test in the gate object 0x7cc180 and its
 // "can start" 0x7ccb50) and a move from the map page (0xfbacd0) while the story's follower list (party manager list 9) holds a
-// creature. That list is this process's own and only the authority's ever fills (a member's story follow is made on the authority,
-// pkp_coop_follow.cpp), so the refusal bound the host alone while any member's press or map ask moved the whole group, the host
-// and its follower included; and the player has no way to end it (the release by hand, 0x2df220, walks the invited followers
-// only). In a session the move is the group's: nobody is refused.
+// creature. That list is this process's own and no other process sees it, so the refusal bound the host alone while any member's
+// press or map ask moved the whole group, the host and its follower included; and the player has no way to end it (the release
+// by hand, 0x2df220, walks the invited followers only). In a session the move is the group's: nobody is refused. A session's
+// story follower is an escort and is not in that list (pkp_coop_follow.cpp); the list holds a creature only between the game's
+// own restore of a saved story follower and the escort's first attach.
+// The other readers of that list get no row. Each is a refusal of the same kind and reads "none" in a session: the follow
+// talk's offer while a story follower is with the player (talk conditions 0x4e / 0x51; the leader's five places bound it), the
+// island trip's offers while one character is the story's follower (0x116dc0; false on every visitor already), the map page's
+// wording of the refusals above. "Is this creature the story's follower" is not asked there but through the creature's story
+// mark, which every process sets for an escort (pkp_coop_escort_marks.cpp).
 PKP_PARTY_OFF(0x7b0cfc, 0x4e7a40, 0, 0x7100041fu, "story follower", "an area gate opens for the host while a story follower is with it, as it does for a teammate")
 PKP_PARTY_OFF(0x7cc76c, 0x4e7a40, 0, 0x7100041fu, "story follower", "the same refusal of the gate object's press (first copy)")
 PKP_PARTY_OFF(0x7cc890, 0x4e7a40, 0, 0x7100041fu, "story follower", "the same, second copy")

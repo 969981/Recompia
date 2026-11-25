@@ -260,7 +260,7 @@ bool post(::Ctx* c, const Event& e) {
     const uint64_t sched = guest::ok(gm, kScheduler + 8) ? guest::rd<uint64_t>(gm + kScheduler) : 0;
     if (sched && e.kind == kEndedKind) {   // no character: the event's own notifier (on_notice remembers the post)
         const Ender& n = kEnders[e.arg];
-        if (e.taken) behalf::begin(e.origin);
+        behalf::begin(e.origin, e.taken);
         guest::call(c, base() + n.entry, sched, e.data);
         behalf::end();
         NXLOG_I(kTag, "Co-op feed: node %u's end of %s %u posted to the contents here", e.origin, n.name, e.data);
@@ -268,7 +268,7 @@ bool post(::Ctx* c, const Event& e) {
     }
     if (sched && e.kind == kUsedKind) {   // no character either: the notifier the member's process called
         const uint8_t mode = mode_of(e.arg);
-        if (e.taken) behalf::begin(e.origin);
+        behalf::begin(e.origin, e.taken);
         const uint64_t ran = mode ? guest::call(c, base() + kUsedMode, sched, use_of(e.arg), e.data, mode)
                                   : guest::call(c, base() + kUsedNotice, sched, use_of(e.arg), e.data);
         behalf::end();
