@@ -126,6 +126,9 @@
 //   ---- the Environment Levels (pkp_coop_levels.cpp) ----
 //   AreaLevels  +2 u8 count n (32), n bytes: the authority's own level of each stage 0..31   (when a member joins, when a level
 //               changes and every 30 s)
+//   ---- the story flags (pkp_coop_story_flags.cpp) ----
+//   StoryFlags   +2 u32 the authority's 20 story flags (bit n: flag n)   (when they change, when a member joins and every 30 s)
+//   StoryFlagSet +2 u8 flag n (1..20): a record of the origin's player set it   (a member to the authority)
 //   ---- the escorts (pkp_coop_follow.cpp); the ask is StoryFollow, whose flag byte carries the asker's session slot + 1 in bits
 //   1..3 (bit 0 the attach's flag, the only bit an older reader takes) ----
 //   PartyEscorts +2 u8 count n, then n times: u16 the creature's data id, u8 its leader's session slot, u8 its leader's node, u16
@@ -244,6 +247,9 @@ enum class Type : uint32_t {
     // ---- the escorts (pkp_coop_follow.cpp) ----
     PartyEscorts = 68,
     EscortRelease = 69,
+    // ---- the story flags (pkp_coop_story_flags.cpp) ----
+    StoryFlags = 70,
+    StoryFlagSet = 71,
 };
 
 // Builds one payload: the header, then the fields in order.

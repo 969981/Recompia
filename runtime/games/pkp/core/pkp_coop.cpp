@@ -58,6 +58,8 @@ enum class Site : uintptr_t {
     AbilityStep,      // the story-line step action that sets or clears an ability: a clear likewise
     NameEntry,        // event-script command 0x44, the name entry: after the talker's, every other member enters a name of their own
     ScriptItems,      // event-script command 0xbea, items given by a script: replayed for every member
+    StoryFlag,        // contents action 0xbbd, a story flag set or cleared: a member's set is asked of the authority, its clear is
+                      // the authority's to make (pkp_coop_story_flags.cpp)
     RewardItem,       // the item of a character's reward list (its talk reward): replayed for every member likewise; a member's
                       // reward talk runs the list on the host, so without this the member never got the item
     MaskStart,        // the permission-mask builder starts: its arguments are set so every stage type builds the full mask
@@ -243,6 +245,7 @@ constexpr CoopSite kSites[] = {
     {{0x10c0d0, kPacibsp, true}, Site::AbilityStep},
     {{0x43d3e0, kPacibsp, true}, Site::NameEntry},
     {{0x12c734, 0x79400808u, true}, Site::ScriptItems},      // ldrh w8, [x0, #4]
+    {{0x12c46c, 0x39401009u, true}, Site::StoryFlag},        // ldrb w9, [x0, #4]
     {{0x3bcbc0, 0xaa0203e8u, true}, Site::RewardItem},       // mov x8, x2
     {{0xb0f74, 0xaa0003f3u, false}, Site::MaskStart},        // mov x19, x0
     {{0xb1030, 0xf2c0002du, false}, Site::MaskPattern},      // movk x13, #1, lsl #32
@@ -437,6 +440,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::TalkKind: return coop::talk::on_talk_kind(c);
         case Site::NameEntry: return coop::catchup::on_name_entry(c);
         case Site::ScriptItems: return coop::catchup::on_script_items(c);
+        case Site::StoryFlag: return coop::storyflags::on_flag_action(c);
         case Site::RewardItem: return coop::catchup::on_reward_item(c);
         case Site::GiverCheck: return coop::requests::on_giver_check(c);
         case Site::GoalCount: return coop::outcomes::on_goal_count(c);
@@ -636,6 +640,7 @@ void game_frame(::Ctx* c) {
     coop::digest::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::records::tick(s.in_game.load(std::memory_order_relaxed));
     coop::levels::tick();
+    coop::storyflags::tick();
     coop::skits::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::answers::tick();
     coop::party::tick();
@@ -701,6 +706,7 @@ void remove() {   // the registry has removed the hooks
     coop::session::reset();
     coop::records::reset();
     coop::levels::reset();
+    coop::storyflags::reset();
     coop::skits::reset();
     coop::answers::reset();
     coop::party::reset();

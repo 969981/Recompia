@@ -267,6 +267,9 @@ entryhook 0x710011b214
 entryhook 0x71001240dc
 entryhook 0x710043d3e0
 entryhook 0x710012c734
+#   Seamless co-op, the story flags (pkp_coop_story_flags.cpp): contents action 0xbbd 0x710012c46c (x0 = its words: u8 the flag at
+#   +4, u32 1 to set at +8; reached only through the contents action table)
+entryhook 0x710012c46c
 #   Seamless co-op, catch-up (pkp_coop_catchup.cpp): the item of a character's reward list 0x71003bcbc0 (comp, &u16 item, &u16 count;
 #   only called through the reward command table 0x7103485400)
 entryhook 0x71003bcbc0

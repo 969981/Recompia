@@ -54,6 +54,8 @@
 //                         records, sent to every member)
 //   pkp_coop_party_answers.cpp the party answers: at the listed checks of one player (pkp_coop_party_table.inc) every process
 //                         answers for the party, and a refusal a session has no reason for does not refuse
+//   pkp_coop_story_flags.cpp the story flags (contents condition 0x32): set by any player's record, cleared by the authority's, the
+//                         authority's in every member's save
 //   pkp_coop_friendship.cpp a member's friendship gains with a creature made on the authority (the group's), its records shown to all
 //   pkp_coop_challenges.cpp what a member does counts toward the group's challenges (its shop buys)
 //   pkp_coop_feed.cpp     what a member's player did to a creature (talked to it), posted to the authority's contents scheduler
@@ -691,6 +693,20 @@ void on_session_change();   // this process joined or left: the copy forgotten, 
 void on_member_joined();    // another member joined: the levels are sent again
 void reset();
 }  // namespace levels
+// ---- the story flags (pkp_coop_story_flags.cpp): the 20 flags the content records set and test are the group's ----
+namespace storyflags {
+// The hook site (pkp_coop.cpp): entry 0x12c46c, contents action 0xbbd (x0 = its words). On a member that has the authority's
+// flags a set runs and is asked of the authority (returns 0), a clear does not run (returns 1). 0 everywhere else.
+int on_flag_action(::Ctx* c);
+// The messages (pkp_coop_link.cpp): a member keeps the authority's flags; the authority sets the flag a member's record set.
+void on_flags_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_set_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// The authority sends its flags at a join, on a change and every so often; a member writes them into its save (once a frame).
+void tick();
+void on_session_change();   // this process joined or left: the copy forgotten, the flags sent again
+void on_member_joined();    // another member joined: the flags are sent again
+void reset();
+}  // namespace storyflags
 // ---- the story talks (pkp_coop_skits.cpp): each character's story talk, its bubble and the objective that follows it ----
 namespace skits {
 // The message (pkp_coop_link.cpp): a member keeps the authority's story talks.

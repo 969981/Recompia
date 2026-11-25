@@ -10,7 +10,7 @@
 //     kReportMax of them to the authority (StateReport), which writes them in its own log: a host's log alone shows which member lacks what.
 // The digest writes nothing back. The domains it only watches are carried by their own parts: the area levels (domain 8) by
 // pkp_coop_levels.cpp, the open areas (domain 11) by story record 9 (pkp_coop_records.cpp), the homes (domain 13) by the game's own
-// replication; a difference that stays is a real fault. The move uses (domain 14) are carried by nothing: each player's own count,
+// replication, the story flags (domain 12) by pkp_coop_story_flags.cpp; a difference that stays is a real fault. The move uses (domain 14) are carried by nothing: each player's own count,
 // watched to see how far they drift.
 // Every look writes a line (j.sync digest) when a domain's own hash changed, on every process, so logs can also be compared by hand.
 #include "core/pkp_coop_internal.h"

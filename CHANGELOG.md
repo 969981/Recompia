@@ -17,6 +17,7 @@
 - Changed a co-op creature request that asks you to bring an item: any player can hand it in while a teammate holds the item (the item stays with that teammate)
 - Fixed a co-op teammate not being treated as a friend of the town's creatures: the talk option to move a creature into a house, the talk lines for creatures you befriended and their friendship values now work for every player, not only the host
 - Changed the co-op talk option to move a creature into a house: any player can offer it while the creature follows any player, not only the player it follows
+- Fixed co-op story flags being kept per player: a flag a story step sets for one player is now set for the whole group, so hint scenes at gates and a creature's story steps no longer differ between players
 
 ## 0.17.6 (build U: Urchin Hotfix a2)
 
