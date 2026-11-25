@@ -5,7 +5,7 @@
 **Update:** press **Update** in the launcher, then **Set up again** once (new hook sites; saves and shaders are kept, no shader is rebuilt). Everyone in a co-op session needs this version: an older build cannot join a newer one.
 
 ### Gameplay
-- Fixed a co-op story step that needs a creature brought through an area gate: the gate no longer makes the creature stop following, and the step counts the creature when it follows any player in the session, not only the one who presses the gate
+- Fixed a co-op story step that needs a creature brought through an area gate: pressing the gate no longer makes the creature stop following (followers leave when the group moves to the next area), and the step counts the creature when it follows any player in the session, not only the one who presses the gate
 - Fixed the co-op host being refused at area gates and on the map while a story creature follows it: the group's move is voted on as it is for a teammate
 - Changed co-op story checks of "is this creature following" to count every player's followers, so a creature's talk no longer flips between two lines depending on who looks
 

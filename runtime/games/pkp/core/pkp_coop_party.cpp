@@ -66,6 +66,15 @@ bool follows(::Ctx* c, uint32_t data, bool* own) {
     });
 }
 
+size_t invited(uint16_t* ids, size_t most) {
+    size_t n = 0;
+    any_follower([&](uint64_t id, bool own) {
+        if (!own && n < most) ids[n++] = guest::rd<uint16_t>(id);
+        return false;
+    });
+    return n;
+}
+
 bool follower_ability(::Ctx* c, uint32_t ability, bool* own) {
     const uint8_t want = static_cast<uint8_t>(ability);
     if (static_cast<uint8_t>(want - 1) >= kAbilityMax) return false;

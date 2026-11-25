@@ -21,7 +21,6 @@
 // The pkp_coop.cpp site table includes this file too (each row one Site::RoleAnswer midhook).
 
 // ---- TABLE rows ----
-PKP_ROLE_ROW(0x7b0a40, IsVisitor, 0x360006c0u, "area gate", "a follower that cannot come through an area gate gets the gate's own question, as the host's does, not a release with no word and no passage")
 PKP_ROLE_ROW(0x7596cc, IsVisitor, 0x37000300u, "effects", "this gimmick plays its type effect when it changes state (fx 0x25 / 0x27 / 0x3e)")
 PKP_ROLE_ROW(0x7fca2c, IsVisitor, 0x370005a0u, "effects", "the cell effect after a use of this gimmick plays")
 PKP_ROLE_ROW(0x7fd1ac, IsVisitor, 0x370005a0u, "effects", "this gimmick cell effect plays")

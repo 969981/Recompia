@@ -699,6 +699,9 @@ namespace party {
 // *own: it is one of this process's own player's followers (written only when true is returned).
 bool follows(::Ctx* c, uint32_t data, bool* own);
 bool follower_ability(::Ctx* c, uint32_t ability, bool* own);
+// The actor ids of the creatures the session's players invited to follow them (every slot's list), at most `most`; the count.
+constexpr size_t kInvitedMost = 20;   // 4 lists of 5
+size_t invited(uint16_t* ids, size_t most);
 // The hook sites (pkp_coop.cpp), one per row of pkp_coop_party_table.inc (site: its main offset). A fact row's entry hook: in a
 // session the party's answer is written and the handler does not run (returns 1). An off row's midhook after a `bl`: in a session
 // x0 becomes the answer that does not refuse (returns 0). Both return 0 untouched outside a session.
@@ -846,6 +849,9 @@ int on_party_request(::Ctx* c);
 // The message (pkp_coop_link.cpp): a member's story follow, made on the authority at a safe moment unless the creature follows a
 // player there already.
 void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// The authority, when the group's agreed move to another area is made (pkp_coop_travel.cpp): every player's invited followers
+// leave their leaders through the game's own leave. Nothing on a member or outside a session.
+void release_for_move(::Ctx* c);
 // Sends a member's asks; the authority makes the waiting ones (once a frame, after the channel's handlers).
 void tick(::Ctx* c, bool in_game);
 void reset();

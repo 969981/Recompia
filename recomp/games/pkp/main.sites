@@ -416,7 +416,6 @@ midhook 0x71004c03e4
 midhook 0x7100630fcc
 midhook 0x710063e450
 midhook 0x71007596cc
-midhook 0x71007b0a40
 midhook 0x71007fca2c
 midhook 0x71007fd1ac
 midhook 0x71007fd6b0
@@ -447,7 +446,7 @@ midhook 0x7100fab940
 #   instruction after the `bl` whose result decides a refusal a session does not have)
 entryhook 0x71001273a0
 entryhook 0x7100127480
-midhook 0x710049bba0
+midhook 0x71007b09d4
 midhook 0x71007b0a14
 midhook 0x71007b0cfc
 midhook 0x71007cc76c

@@ -31,13 +31,16 @@
 PKP_PARTY_FACT(0x1273a0, Follows, 0xd503237fu, "followers", "a story step that asks whether a creature is following counts the creature when it follows any player (condition 0x87a)")
 PKP_PARTY_FACT(0x127480, FollowerAbility, 0xd503237fu, "followers", "a story step that asks for a follower with an ability counts every player's followers (condition 0x87c)")
 
-// ---- an area gate and the followers of the player who presses it (0x7b0690, the scripted entry 0x49bb60) ----
-// Online, the game lets no town creature through a gate with its leader: the press stops, the host's is asked and its followers are
-// released before the entry, a visitor's are released with no word and no passage. A session is always online, so a step that
-// needs a creature brought through a gate could not be done. In a session the gate follows its offline rule: only a follower that
-// cannot come along (0x4b1558) stops the press. (The visitor branch itself is the role table's row 0x7b0a40.)
-PKP_PARTY_OFF(0x7b0a14, 0x257e44, 0, 0x3607fd80u, "area gate", "pressing an area gate no longer releases the creatures following the player")
-PKP_PARTY_OFF(0x49bba0, 0x207b0, 0, 0x36001420u, "area gate", "the gate's own question about a follower no longer releases every follower before the passage")
+// ---- an area gate and the followers of the player who presses it (the walk in 0x7b0690, 0x7b09a0..0x7b0a24) ----
+// The press stops at the first invited follower the walk picks: online any town creature, offline one that cannot come along
+// (0x4b1558, which answers "cannot" for every town creature on a visitor). The host is then asked (event 0xe5f, whose end releases
+// its followers and enters); a visitor's followers are released with no word and no passage. A session is always online, so a
+// step that needs a creature brought through a gate could not be done, and the creature stopped following at the press.
+// In a session the walk picks nobody: the press goes to the gate's entry, where the group is asked (pkp_coop_travel.cpp). The
+// group's invited followers leave when the agreed move is made, not at a press (pkp_coop_follow.cpp release_for_move). With
+// both rows the question event and the visitor branch are not reached from a press in a session.
+PKP_PARTY_OFF(0x7b0a14, 0x257e44, 0, 0x3607fd80u, "area gate", "pressing an area gate no longer releases the creatures following the player (the online rule)")
+PKP_PARTY_OFF(0x7b09d4, 0x4b1558, 1, 0x36000280u, "area gate", "a follower never stops the press at an area gate: the group is asked, and followers leave when the group moves")
 
 // ---- moving to another area while a story follower is attached ----
 // The game refuses an area gate (0x7b0c50 results 2 / 3, scenes 0xa7f / 0xa80; the same test in the gate object 0x7cc180 and its

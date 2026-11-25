@@ -32,6 +32,10 @@ inline uint64_t deref(uint64_t a) {
     return read(a, p) ? p : 0;
 }
 
+// Scratch below the game thread's stack, for a call's small by-pointer arguments (free at the frame tick and inside a hook, where
+// the game's frame is above it): the value to pass as a call's sp, with the arguments from + 0x10 up.
+inline uint64_t scratch(::Ctx* c) { return (c->x[31] - 0x100) & ~uint64_t{0xf}; }
+
 // Runs the guest function at `fn` (absolute) on `c` with x0..x(N-1) = args (missing ones 0) and, when sp is nonzero, that stack pointer.
 // Registers past x(N-1) keep the caller's values. The whole context is restored afterwards; returns x0.
 template <size_t N>

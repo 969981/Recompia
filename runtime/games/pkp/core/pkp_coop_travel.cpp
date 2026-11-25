@@ -146,8 +146,7 @@ uint8_t palette_flag() {
     return guest::ok(r + kPaletteFlag, 1) ? (guest::rd<uint8_t>(r + kPaletteFlag) >> 1) & 1 : 0;
 }
 
-// Scratch below the game thread's stack (free at the frame tick and inside a hook, where the game's frame is above it).
-uint64_t scratch(::Ctx* c) { return (c->x[31] - 0x100) & ~uint64_t{0xf}; }
+using guest::scratch;
 
 // The host opens the area poll in requester's name; the target goes by pointer (a u32 on the scratch stack, the stack pointer below
 // it). 0x580a98 names only a stage whose bit is set in R + kPollStages (0x5810b4: a clear bit refuses kind 1), which is the case for
@@ -196,10 +195,13 @@ uint8_t gate_stage(::Ctx* c, uint64_t trigger, uint32_t* index) {
 }
 
 // A poll that passed, once it ended: the host makes the move when vanilla does not make it by itself.
-void on_passed(State& s, const Seen& p) {
+void on_passed(::Ctx* c, State& s, const Seen& p) {
     if (!is_host()) return;
     if (p.requester == own_slot()) {
-        if (!s.held.on || s.held.stage != p.target) return;   // the host's own map trip or script poll: vanilla moves
+        if (!s.held.on || s.held.stage != p.target) {   // the host's own map trip or script poll: vanilla moves
+            follow::release_for_move(c);
+            return;
+        }
         s.go = Go{true, s.held, p.requester, qpc::seconds()};
         s.held = Held{};
         return;
@@ -229,6 +231,7 @@ void make_move(::Ctx* c, State& s, uint64_t gm) {
             return;
         }
         s.walk_stage = g.what.stage;
+        follow::release_for_move(c);
         s.replaying = true;
         guest::call(c, base() + kGateEntry, g.what.trigger, 0, 0, 0, 0, scratch(c));
         s.replaying = false;
@@ -244,6 +247,7 @@ void make_move(::Ctx* c, State& s, uint64_t gm) {
     }
     const Go g = s.go;
     s.go = Go{};
+    follow::release_for_move(c);
     if (g.what.kind == Kind::Index) {
         s.replaying = true;
         guest::call(c, base() + kMoveByIndex, gm + kTripRecord, g.what.index, g.what.w2, 0, 0, scratch(c));
@@ -380,7 +384,7 @@ void tick(::Ctx* c) {
     }
     if (s.seen.open && (!area || state >= kStateEnd)) {
         // Ended (or replaced): a yes is carried out now; a poll whose result was not seen leaves a held move off.
-        if (s.seen.decided && s.seen.yes) on_passed(s, s.seen);
+        if (s.seen.decided && s.seen.yes) on_passed(c, s, s.seen);
         else if (!s.seen.decided && s.held.on && s.seen.requester == own_slot()) s.held = Held{};
         s.seen = area ? Seen{true, true, false, state, s.seen.requester, s.seen.target} : Seen{};   // a lingering end is not re-run
     }

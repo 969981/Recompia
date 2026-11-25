@@ -752,7 +752,7 @@ void gate_follower_walk(::Ctx* c) {   // mid 0x7b09b0: x0 = the presser's invite
     Rec rec(kArea, "gate follower walk 0x7b09b0");
     rec.in("%s", in.c_str());
     rec.out("%s", n == 0 ? "none: the entry 0x7b0d80" : "online a town creature stops the press, offline one that cannot come; else the entry 0x7b0d80");
-    if (n && session_byte()) rec.note("in a co-op session the offline rule holds (the party answers)");
+    if (n && session_byte()) rec.note("in a co-op session no follower stops the press (the party answers)");
     rec.step();
 }
 

@@ -36,6 +36,11 @@
 // creature's leader in its own world and detaches it from that player, so a teammate's routine leave took a creature that followed
 // the host or another teammate (story followers that stopped following). The rule: a leave only ever takes a creature from the
 // player who asked.
+// The group's move to another area. The game clears every party list when the stage changes (0xb6320 -> 0x655dc0) but that is
+// no leave: a creature's follow mark in the save (its record's byte +9, 0x3f0ef0) would stay, and online the game never takes a
+// town creature through (it releases them at the gate's press). The party table keeps the press from releasing anyone; the leave
+// is made here instead, on the authority, for every player's invited followers, with the game's own 0x2a1dc0, when the agreed
+// move is made (pkp_coop_travel.cpp). Story followers are not touched.
 //   0x5519bc (entry hook), on the authority in the session: called only by the receive entry 0x547980 (slot 16, return 0x547ab8),
 //   whose w21 is the sender's KTGL member id - 1 (0x5479fc), the game's member index (SESSION-RE). The asker's player is the
 //   session player character (player manager +0x30..+0x48) whose member index (u8 +0x5a38, vt+0x4a8 0x66725c) is that; the
@@ -59,6 +64,8 @@ namespace {
 
 constexpr const char* kTag = "pkp";
 constexpr uint64_t kAttach = 0x2a1ed4;      // (&u16 npc actor id, w1 flag): attach to the local player (0x659280)
+constexpr uint64_t kLeave = 0x2a1dc0;       // (w0 0, &u16 npc actor id, w2 0, w3 1) -> the creature leaves whoever leads it (0x659588,
+                                            // w3: the "busy" refusal 0x16d40 is not asked), as the game's map move calls it (0xbd784)
 constexpr uint64_t kFirstOf = 0x28cc60;     // (player manager, data id) -> the first live resident of that data id, or 0
 constexpr uint64_t kActorById = 0x281360;   // (player manager, &u16 actor id) -> the actor, or 0
 constexpr uint64_t kDataIdOf = 0x27d848;    // (&u16 actor id) -> u16 the character's data id
@@ -277,6 +284,19 @@ int on_party_request(::Ctx* c) {
     r.repeats = 0;
     r.line_at = now;
     return 1;
+}
+
+void release_for_move(::Ctx* c) {
+    if (!link::in_session() || !link::is_authority()) return;
+    uint16_t ids[party::kInvitedMost];
+    const size_t n = party::invited(ids, party::kInvitedMost);
+    if (!n) return;
+    const uint64_t sp = guest::scratch(c);
+    for (size_t i = 0; i < n; ++i) {
+        guest::wr<uint16_t>(sp + 0x10, ids[i]);
+        guest::call(c, base() + kLeave, 0, sp + 0x10, 0, 1, 0, sp);
+    }
+    NXLOG_I(kTag, "Co-op follow: the group moves to another area; its %zu invited followers were released first", n);
 }
 
 void on_ask_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
