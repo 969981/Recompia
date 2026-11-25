@@ -45,8 +45,11 @@ struct CoopLaunch {
 // 9: a story follower is an escort of the player who asked, kept in the authority's record and at the follower's leave
 // (pkp_coop_follow.cpp), and marked as the story's follower in the rows every player's game reads (pkp_coop_escort_marks.cpp); a
 // build without it would attach the story's follower to its own player, release an escort at any leave and not mark it.
+// 10: a creature's request that only asks to have two items counts any one player's bag for each (pkp_coop_party_table.inc,
+// request type 0xd); a build without it answers for its own bag alone, so the request would be ready on one process and not on
+// another.
 // The launcher knows the "Recompia co-op rules" prefix.
-inline constexpr const char* kCoopRules = "Recompia co-op rules 9";
+inline constexpr const char* kCoopRules = "Recompia co-op rules 10";
 
 // Pure: the launch's co-op facts from the settings' text. False when a value is missing or malformed, with the reason in *why.
 bool coop_launch_parse(const std::string& role, const std::string& group, const std::string& member, CoopLaunch* out, const char** why);

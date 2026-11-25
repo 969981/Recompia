@@ -307,7 +307,9 @@ constexpr CoopSite kSites[] = {
 #define PKP_PARTY_FACT(entry, fact, word, tag, what) {{entry, word, true}, Site::PartyFact},
 #define PKP_PARTY_OFF(ret, callee, answer, word, tag, what) {{ret, word, false}, Site::PartyOff},
 #define PKP_PARTY_COUNT(ret, callee, item_sp, n_reg, op_reg, word, tag, what) {{ret, word, false}, Site::PartyCount},
+#define PKP_PARTY_COUNT_OF(ret, callee, item_sp, kind_reg, kinds, word, tag, what) {{ret, word, false}, Site::PartyCount},
 #include "core/pkp_coop_party_table.inc"
+#undef PKP_PARTY_COUNT_OF
 #undef PKP_PARTY_COUNT
 #undef PKP_PARTY_OFF
 #undef PKP_PARTY_FACT

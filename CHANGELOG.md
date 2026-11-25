@@ -13,6 +13,8 @@
 - Changed co-op story and quest checks of "has this item" to count the item when any one player holds it; items are still taken only from the bag of the player who gives them
 - Fixed co-op story creatures only ever following the host: a creature the story sends along now follows the player who asked for it, and every player's game knows it
 - Fixed a co-op story creature being lost before its step was done: only the story itself ends its follow now, not a gate, a trip, parting ways, the creature's mood or a teammate's game; if its player leaves, it follows the host
+- Changed a co-op creature request that only asks you to have two items: it is ready when players of the session hold them, not only when you do
+- Changed a co-op creature request that asks you to bring an item: any player can hand it in while a teammate holds the item (the item stays with that teammate)
 
 ## 0.17.6 (build U: Urchin Hotfix a2)
 
