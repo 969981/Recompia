@@ -726,9 +726,12 @@ void bags_tick();    // once a frame: the authority follows the bag records and 
 void bags_reset();
 // The hook sites (pkp_coop.cpp), one per row of pkp_coop_party_table.inc (site: its main offset). A fact row's entry hook: in a
 // session the party's answer is written and the handler does not run (returns 1). An off row's midhook after a `bl`: in a session
-// x0 becomes the answer that does not refuse (returns 0). Both return 0 untouched outside a session.
+// x0 becomes the answer that does not refuse (returns 0). A count row's midhook after the `bl` that counts an item in this
+// player's bag: in a session x0 becomes the count the party's answer is made from (returns 0). All return 0 untouched outside a
+// session.
 int on_fact(::Ctx* c, uint64_t site);
 int on_off(::Ctx* c, uint64_t site);
+int on_count(::Ctx* c, uint64_t site);
 void tick();    // once a frame: the marks of the rows logged this session clear when the session closes
 void reset();
 }  // namespace party

@@ -39,8 +39,11 @@ struct CoopLaunch {
 // player's gate press would still release the followers. 7: a member's event of kind 2 or 14 says whether a record of its own took
 // the notice (pkp_coop_feed.cpp kTakenFlag, a bit of the event's argument); an authority without it reads the bit as part of the
 // argument and drops the event, so the story's records waiting on a member's scene end or press would not run for the group.
+// 8: a story or quest check of "has this item" counts any one player's bag (pkp_coop_party_table.inc count rows, from the
+// authority's PartyBags); a build without it answers for its own bag alone, so the two would run a story record on one process
+// and not on the other.
 // The launcher knows the "Recompia co-op rules" prefix.
-inline constexpr const char* kCoopRules = "Recompia co-op rules 7";
+inline constexpr const char* kCoopRules = "Recompia co-op rules 8";
 
 // Pure: the launch's co-op facts from the settings' text. False when a value is missing or malformed, with the reason in *why.
 bool coop_launch_parse(const std::string& role, const std::string& group, const std::string& member, CoopLaunch* out, const char** why);

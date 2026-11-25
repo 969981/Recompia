@@ -7,7 +7,14 @@
 // returns. So the leaf answers "some player has it", and a script's negated use reads "no player has it" with no work here.
 // A leaf runs on every process for its own records, so in a session each process gives the same answer.
 // An off row is a midhook after one `bl`: x0 holds the callee's answer and nothing has read it yet; the hook writes the answer that
-// does not refuse. The instruction before each off row is checked the first time the row is reached (`bl` to its callee); a row
+// does not refuse. A count row is a midhook after the `bl` that counted an item in this player's bag: x0 holds that count, the
+// item is on the handler's stack and the wanted number and the compare are in registers. The hook leaves x0, or writes the count
+// of another player (pkp_coop_party_bags.cpp) that the game's own compare then reads:
+//   at least / more than n, at most / fewer than n   the largest count any one player holds. Counts are never added up across
+//                                                    bags: nothing could take a pooled amount from one bag. "At most" and "fewer"
+//                                                    are the absence tests: they pass only when they pass for every player
+//   exactly n                                        this player's own when it is n, else a teammate's that is n
+// The instruction before each off or count row is checked the first time the row is reached (`bl` to its callee); a row
 // that fails is left off for the run and logged once. The first changed answer of each row in a session is logged (tag + site).
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
@@ -29,19 +36,27 @@ constexpr const char* kTag = "pkp";
 
 enum class Fact : uint8_t { Follows, FollowerAbility, None };
 
+constexpr uint8_t kAtLeast = 0xff;   // a count row's compare register: none, the site compares "at least n"
+
 struct Row {
     uint64_t site;     // main offset of the hooked instruction
-    Fact fact;         // a fact row's fact; None: an off row
-    uint64_t callee;   // an off row's callee (main offset)
+    Fact fact;         // a fact row's fact; None: an off or a count row
+    uint64_t callee;   // an off or count row's callee (main offset)
     uint64_t answer;   // an off row's answer
     const char* tag;
+    bool count = false;    // a count row
+    uint8_t item_sp = 0;   // sp + : the u32 whose low 13 bits are the item id
+    uint8_t n_reg = 0;     // the register holding the wanted number
+    uint8_t op_reg = 0;    // the register holding the compare (0 more than, 1 at least, 2 exactly, 3 at most, 4 fewer), or kAtLeast
 };
 
 // The rows as the table lists them, then one sentinel past every address.
 constexpr Row kListed[] = {
 #define PKP_PARTY_FACT(entry, fact, word, tag, what) {entry, Fact::fact, 0, 0, tag},
 #define PKP_PARTY_OFF(ret, callee, answer, word, tag, what) {ret, Fact::None, callee, answer, tag},
+#define PKP_PARTY_COUNT(ret, callee, item_sp, n_reg, op_reg, word, tag, what) {ret, Fact::None, callee, 0, tag, true, item_sp, n_reg, op_reg},
 #include "core/pkp_coop_party_table.inc"
+#undef PKP_PARTY_COUNT
 #undef PKP_PARTY_OFF
 #undef PKP_PARTY_FACT
     {~0ull, Fact::None, 0, 0, nullptr},
@@ -70,6 +85,7 @@ constexpr bool well_formed() {
         const Row& r = kRows[i];
         if (r.site % 4 != 0 || r.site < 4) return false;
         if (r.fact == Fact::None && (r.callee % 4 != 0 || r.callee == 0)) return false;
+        if (r.count && (r.n_reg > 30 || (r.op_reg > 30 && r.op_reg != kAtLeast))) return false;
     }
     return true;
 }
@@ -80,6 +96,7 @@ enum : uint8_t { kUnchecked = 0, kGood = 1, kBad = 2 };
 struct State {
     std::atomic<uint8_t> checked[kRowCount + 1] = {};   // off rows: kUnchecked / kGood / kBad, once per run
     std::atomic<bool> logged[kRowCount + 1] = {};       // this session's first changed answer written
+    std::atomic<uint8_t> satisfier[kRowCount + 1] = {}; // a count row: the node whose bag last gave the answer (wire::kNobody: none)
     bool was_open = false;                              // game thread (tick)
 };
 State& st() {
@@ -105,6 +122,20 @@ bool check(const Row& r) {
 }
 
 constexpr uint64_t kCondArg = 8;   // a condition's words: + this, its first argument (u32)
+constexpr uint32_t kItemId = 0x1fff;   // an item word's id
+enum : uint32_t { kMore = 0, kLeast = 1, kExactly = 2, kMost = 3, kFewer = 4 };   // the compare of contents kinds 0x7e4 / 0x7da
+
+// The row is good to answer: its callee checked once per run.
+bool good(const Row& r) {
+    State& s = st();
+    const size_t i = static_cast<size_t>(&r - kRows.data());
+    uint8_t v = s.checked[i].load(std::memory_order_acquire);
+    if (v == kUnchecked) {
+        v = check(r) ? kGood : kBad;
+        s.checked[i].store(v, std::memory_order_release);
+    }
+    return v == kGood;
+}
 
 }  // namespace
 
@@ -127,21 +158,42 @@ int on_fact(::Ctx* c, uint64_t site) {
 int on_off(::Ctx* c, uint64_t site) {
     if (!link::in_session()) return 0;
     const Row* r = find(site);
-    if (!r || r->fact != Fact::None) return 0;
-    State& s = st();
-    const size_t i = static_cast<size_t>(r - kRows.data());
-    uint8_t v = s.checked[i].load(std::memory_order_acquire);
-    if (v == kUnchecked) {
-        v = check(*r) ? kGood : kBad;
-        s.checked[i].store(v, std::memory_order_release);
-    }
-    if (v != kGood) return 0;
+    if (!r || r->fact != Fact::None || r->count || !good(*r)) return 0;
     const uint64_t was = c->x[0];
     c->x[0] = r->answer;
     if (was != r->answer && first_log(*r))
         NXLOG_I(kTag, "Co-op party: %s at main+0x%llx does not refuse in a session (0x%llx, the game's 0x%llx)", r->tag,
                 static_cast<unsigned long long>(r->site), static_cast<unsigned long long>(r->answer),
                 static_cast<unsigned long long>(was));
+    return 0;
+}
+
+int on_count(::Ctx* c, uint64_t site) {
+    if (!link::in_session()) return 0;
+    const Row* r = find(site);
+    if (!r || !r->count || !good(*r)) return 0;
+    uint32_t word = 0;
+    if (!guest::read(c->x[31] + r->item_sp, word)) return 0;
+    const uint32_t id = word & kItemId, own = static_cast<uint32_t>(c->x[0]) & 0xffff;
+    const uint32_t n = static_cast<uint32_t>(c->x[r->n_reg]);
+    const uint32_t op = r->op_reg == kAtLeast ? static_cast<uint32_t>(kLeast) : static_cast<uint32_t>(c->x[r->op_reg]);
+    State& s = st();
+    const size_t i = static_cast<size_t>(r - kRows.data());
+    uint8_t node = wire::kNobody;
+    uint32_t pick = own;
+    if (op == kExactly) {
+        if (own != n && teammate_holds(id, n, &node)) pick = n;
+    } else if (op <= kFewer) {
+        const uint32_t most = teammates_most(id, &node);
+        if (most > own) pick = most;
+        else node = wire::kNobody;
+    }
+    s.satisfier[i].store(pick != own ? node : static_cast<uint8_t>(wire::kNobody), std::memory_order_relaxed);
+    if (pick == own) return 0;
+    c->x[0] = pick;
+    if (first_log(*r))
+        NXLOG_I(kTag, "Co-op party: %s at main+0x%llx counts item %u in the party's bags (node %u holds %u, this player %u; wanted %u, "
+                "compare %u)", r->tag, static_cast<unsigned long long>(r->site), id, node, pick, own, n, op);
     return 0;
 }
 
