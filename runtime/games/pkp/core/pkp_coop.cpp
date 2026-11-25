@@ -144,6 +144,7 @@ enum class Site : uintptr_t {
     PartyFact,        // a condition handler listed in pkp_coop_party_table.inc that checks one player for what the party has (a
                       // creature following): in a session it answers for every player
     PartyOff,         // a refusal listed there whose reason a session does not have: in a session it does not refuse
+    PartyCount,       // a count of an item in this player's bag listed there: in a session any one player's bag counts
     // ---- the creature jobs (pkp_coop_jobs.cpp) ----
     JobTick,          // the item-making tick's IsMine test: the authority also ticks a job on a creature a member holds, which
                       // otherwise no process ticks
@@ -303,7 +304,9 @@ constexpr CoopSite kSites[] = {
     // ---- the party answers (pkp_coop_party_answers.cpp): an entry hook per fact row, a midhook (after its `bl`) per off row ----
 #define PKP_PARTY_FACT(entry, fact, word, tag, what) {{entry, word, true}, Site::PartyFact},
 #define PKP_PARTY_OFF(ret, callee, answer, word, tag, what) {{ret, word, false}, Site::PartyOff},
+#define PKP_PARTY_COUNT(ret, callee, item_sp, n_reg, op_reg, word, tag, what) {{ret, word, false}, Site::PartyCount},
 #include "core/pkp_coop_party_table.inc"
+#undef PKP_PARTY_COUNT
 #undef PKP_PARTY_OFF
 #undef PKP_PARTY_FACT
     // the creature jobs (pkp_coop_jobs.cpp)
@@ -462,6 +465,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::RoleAnswer: return coop::answers::on_answer(c, addr - st().base);
         case Site::PartyFact: return coop::party::on_fact(c, addr - st().base);
         case Site::PartyOff: return coop::party::on_off(c, addr - st().base);
+        case Site::PartyCount: return coop::party::on_count(c, addr - st().base);
         case Site::JobTick: return coop::jobs::on_job_tick(c);
         case Site::FriendGain: return coop::friendship::on_add_points(c);
         case Site::FriendFlag: return coop::friendship::on_flag_17a(c);
@@ -618,6 +622,7 @@ void game_frame(::Ctx* c) {
     coop::skits::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::answers::tick();
     coop::party::tick();
+    coop::party::bags_tick();
     coop::friendship::tick(c);
     coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::behalf::tick();
@@ -682,6 +687,7 @@ void remove() {   // the registry has removed the hooks
     coop::skits::reset();
     coop::answers::reset();
     coop::party::reset();
+    coop::party::bags_reset();
     coop::jobs::reset();
     coop::owner::reset();
     coop::newcomer::reset();

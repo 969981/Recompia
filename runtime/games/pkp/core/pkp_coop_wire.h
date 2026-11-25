@@ -126,6 +126,10 @@
 //   ---- the Environment Levels (pkp_coop_levels.cpp) ----
 //   AreaLevels  +2 u8 count n (32), n bytes: the authority's own level of each stage 0..31   (when a member joins, when a level
 //               changes and every 30 s)
+//   ---- the party's bags (pkp_coop_party_bags.cpp) ----
+//   PartyBags   +2 u8 players p, then p times: u8 the player's node, u8 kinds k, k times {u16 item id, u16 how many}   (the
+//               authority's sums of every present player's bag record; when one changes, at most every 2 s, and when a member
+//               joins or leaves)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -229,6 +233,8 @@ enum class Type : uint32_t {
     ShopRows = 65,
     // ---- the Environment Levels (pkp_coop_levels.cpp) ----
     AreaLevels = 66,
+    // ---- the party's bags (pkp_coop_party_bags.cpp) ----
+    PartyBags = 67,
 };
 
 // Builds one payload: the header, then the fields in order.

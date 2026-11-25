@@ -443,7 +443,11 @@ midhook 0x7100fab940
 #   ---- end of the role answers ----
 #   Seamless co-op, the party answers (pkp_coop_party_answers.cpp): one line per row of pkp_coop_party_table.inc, ascending. An
 #   entry hook per fact row (a condition handler that checks one player for what the party has), a midhook per off row (the
-#   instruction after the `bl` whose result decides a refusal a session does not have)
+#   instruction after the `bl` whose result decides a refusal a session does not have, or after the `bl` that counted an item in
+#   this player's bag: quest condition 0x11 at 0x710011d118, contents conditions 0x7da / 0x7e4 at 0x7100126e44 / 0x7100126f58)
+midhook 0x710011d118
+midhook 0x7100126e44
+midhook 0x7100126f58
 entryhook 0x71001273a0
 entryhook 0x7100127480
 midhook 0x71007b09d4

@@ -10,7 +10,7 @@
 // session, is switched off for everyone (a PKP_PARTY_OFF row). A plain "am I the visitor / the host" test is a row of
 // pkp_coop_role_table.inc, not of this table.
 //
-// One row per site (pkp_coop_party_answers.cpp sorts them at compile time and refuses a site listed twice). Two kinds:
+// One row per site (pkp_coop_party_answers.cpp sorts them at compile time and refuses a site listed twice). Three kinds:
 //   PKP_PARTY_FACT(entry, fact, word, tag, what)        a leaf of one of the game's condition evaluators, replaced whole
 //     entry   main offset of the handler's first instruction (an entry hook: the handler does not run in a session)
 //     fact    the party fact that answers it (pkp_coop_party.cpp): Follows, FollowerAbility
@@ -19,12 +19,20 @@
 //             that instruction, so x0 is still the callee's answer and whatever reads it next reads `answer`
 //     callee  main offset of the function called (checked the first time the row is reached)
 //     answer  the value that does not refuse
+//   PKP_PARTY_COUNT(ret, callee, item_sp, n_reg, op_reg, word, tag, what)  a count of an item in this player's bag
+//     ret     main offset of the instruction after the `bl callee` that counted; the midhook runs there, x0 the count
+//     item_sp the handler's stack offset of the item word (its low 13 bits the id)
+//     n_reg   the register that holds the wanted number
+//     op_reg  the register that holds the compare (0 more than, 1 at least, 2 exactly, 3 at most, 4 fewer), or 0xff where the
+//             site only compares "at least"
+//     Only for a check that takes nothing: a check whose pass is followed by a take of the item from the checked bag (a request's
+//     hand-in, a give in a talk) gets no row until the take can be made from the bag that passed.
 //   word      the instruction word at the site, checked with every co-op site before the hooks are armed
 //   tag       the system, short (shown in the log line the first time the row changes an answer in a session)
 //   what      what changes for the players
 // Every row needs its `entryhook` / `midhook 0x71<site>` line in recomp/games/pkp/main.sites (the co-op party answer block).
 //
-// The pkp_coop.cpp site table includes this file too (each row one Site::PartyFact or Site::PartyOff hook).
+// The pkp_coop.cpp site table includes this file too (each row one Site::PartyFact, Site::PartyOff or Site::PartyCount hook).
 
 // ---- a creature follows a player: the party's followers, not only this process's player's ----
 // Contents conditions (the story's and the quests' scripts, evaluator 0x12483c; x0 = the condition's words, x8 = the u32 result).
@@ -54,3 +62,13 @@ PKP_PARTY_OFF(0x7cc76c, 0x4e7a40, 0, 0x7100041fu, "story follower", "the same re
 PKP_PARTY_OFF(0x7cc890, 0x4e7a40, 0, 0x7100041fu, "story follower", "the same, second copy")
 PKP_PARTY_OFF(0x7ccba8, 0x4da0e0, 0, 0x52000008u, "story follower", "the gate object's passage can start while a story follower is with the host")
 PKP_PARTY_OFF(0xfbacfc, 0x4da0e0, 0, 0x360000a0u, "story follower", "the map page lets the host travel to another area while a story follower is with it")
+
+// ---- a player has an item: any one player's bag (pkp_coop_party_bags.cpp) ----
+// Contents conditions 0x7e4 (0x126ebc: the item, the wanted number and the compare, counted with 0x2e9d74 on this process's
+// player) and 0x7da (0x126db8: the same over the save's bag holder, 0x5b253c), and quest condition type 0x11 (in 0x11ccb8: at
+// least n). None of them is followed by a take: no contents action or quest effect takes an item. Not here: contents condition
+// 0x7e5 (a count by item category), the request checker's bag types (their hand-in takes the items) and the talk scripts' item
+// tests (each belongs to a give or a hand-over).
+PKP_PARTY_COUNT(0x126f58, 0x2e9d74, 0x18, 21, 22, 0x710012dfu, "bag", "a story step that asks for an item counts it in any one player's bag (condition 0x7e4)")
+PKP_PARTY_COUNT(0x126e44, 0x5b253c, 0x08, 20, 21, 0x710012bfu, "bag", "the same for the story's other item test (condition 0x7da)")
+PKP_PARTY_COUNT(0x11d118, 0x2e9d74, 0x18, 20, 0xff, 0x6b20229fu, "bag", "a quest that waits for an item is met when any one player holds it (quest condition 0x11)")
