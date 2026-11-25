@@ -15,6 +15,7 @@
 - Fixed a co-op story creature being lost before its step was done: only the story itself ends its follow now, not a gate, a trip, parting ways, the creature's mood or a teammate's game; if its player leaves, it follows the host
 - Changed a co-op creature request that only asks you to have two items: it is ready when players of the session hold them, not only when you do
 - Changed a co-op creature request that asks you to bring an item: any player can hand it in while a teammate holds the item (the item stays with that teammate)
+- Fixed a co-op teammate not being treated as a friend of the town's creatures: the talk option to move a creature into a house, the talk lines for creatures you befriended and their friendship values now work for every player, not only the host
 
 ## 0.17.6 (build U: Urchin Hotfix a2)
 

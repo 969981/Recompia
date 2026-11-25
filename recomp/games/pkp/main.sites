@@ -445,12 +445,14 @@ midhook 0x7100fab940
 #   entry hook per fact row (a condition handler that checks one player for what the party has), a midhook per off row (the
 #   instruction after the `bl` whose result decides a refusal a session does not have, or after the `bl` that counted an item in
 #   this player's bag: quest condition 0x11 at 0x710011d118, contents conditions 0x7da / 0x7e4 at 0x7100126e44 / 0x7100126f58,
-#   the request checker's two counts for request type 0xd at 0x7100614028 / 0x7100614560)
+#   the request checker's two counts for request type 0xd at 0x7100614028 / 0x7100614560), an entry hook per predicate row (the
+#   game's own-creature test 0x7100284ef4: x0 the creature's component, x30 the caller)
 midhook 0x710011d118
 midhook 0x7100126e44
 midhook 0x7100126f58
 entryhook 0x71001273a0
 entryhook 0x7100127480
+entryhook 0x7100284ef4
 midhook 0x7100614028
 midhook 0x7100614560
 midhook 0x71007b09d4

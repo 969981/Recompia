@@ -14,6 +14,8 @@
 //                                                    bags: nothing could take a pooled amount from one bag. "At most" and "fewer"
 //                                                    are the absence tests: they pass only when they pass for every player
 //   exactly n                                        this player's own when it is n, else a teammate's that is n
+// A predicate row is an entry hook on a function many places call: on a member the fact answers it (x0 = 1, the function does
+// not run), except for the callers listed with the fact below, which keep the game's own answer.
 // The instruction before each off or count row is checked the first time the row is reached (`bl` to its callee); a row
 // that fails is left off for the run and logged once. The first changed answer of each row in a session is logged (tag + site).
 #include "core/pkp_coop_internal.h"
@@ -25,6 +27,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 
 #include "nxrt/log.h"
 
@@ -34,7 +37,17 @@ namespace {
 
 constexpr const char* kTag = "pkp";
 
-enum class Fact : uint8_t { Follows, FollowerAbility, None };
+enum class Fact : uint8_t { Follows, FollowerAbility, Owns, None };
+
+// 0x284ef4's callers (main + the return address of their call) that keep the game's answer on a member:
+//   0x3bb744  the friendship store 0x3bb660: "own" goes on to 0x3bb7a4 `bl 0x281360` and loads through its answer with no null
+//             check (an actor that is not loaded), and stores nothing on a visitor anyway (0x3bb838)
+//   0x3bc118  the meter store 0x3bc034: no effect either way (it returns at 0x3bc170 on a visitor)
+//   0x3b8ee8  0x3b88b4's second site and
+//   0x3b9500  0x3b91c0: steps of the talk-end walk 0x481e2c that the authority applies itself from the talk-end record
+//   0x23f2c8  the per-frame actor scan 0x23f000, which queues events on the local runner
+// The tail-call wrapper 0x23fb4c (callers 0x1bfec0, 0x29d910) is never reached on a member in a session.
+constexpr uint64_t kOwnsKept[] = {0x23f2c8, 0x3b8ee8, 0x3b9500, 0x3bb744, 0x3bc118};
 
 constexpr uint8_t kAnyKind = 0xff;   // a count row's kind register: none, the row answers whatever reached the site
 constexpr uint8_t kAtLeast = 0xff;   // a count row's compare register: none, the site compares "at least n"
@@ -56,6 +69,7 @@ struct Row {
 // The rows as the table lists them, then one sentinel past every address.
 constexpr Row kListed[] = {
 #define PKP_PARTY_FACT(entry, fact, word, tag, what) {entry, Fact::fact, 0, 0, tag},
+#define PKP_PARTY_PRED(entry, fact, word, tag, what) {entry, Fact::fact, 0, 0, tag},
 #define PKP_PARTY_OFF(ret, callee, answer, word, tag, what) {ret, Fact::None, callee, answer, tag},
 #define PKP_PARTY_COUNT(ret, callee, item_sp, n_reg, op_reg, word, tag, what) {ret, Fact::None, callee, 0, tag, true, item_sp, n_reg, op_reg},
 #define PKP_PARTY_COUNT_OF(ret, callee, item_sp, kind_reg, kinds, word, tag, what) \
@@ -64,6 +78,7 @@ constexpr Row kListed[] = {
 #undef PKP_PARTY_COUNT_OF
 #undef PKP_PARTY_COUNT
 #undef PKP_PARTY_OFF
+#undef PKP_PARTY_PRED
 #undef PKP_PARTY_FACT
     {~0ull, Fact::None, 0, 0, nullptr},
 };
@@ -148,7 +163,7 @@ bool good(const Row& r) {
 int on_fact(::Ctx* c, uint64_t site) {
     if (!link::in_session()) return 0;
     const Row* r = find(site);
-    if (!r || r->fact == Fact::None) return 0;
+    if (!r || r->fact == Fact::None || r->fact == Fact::Owns) return 0;
     const uint64_t cond = c->x[0], out = c->x[8];
     if (!guest::ok(cond + kCondArg, 4) || !guest::ok(out, 4)) return 0;   // not the evaluator's call: the game's handler
     const uint32_t arg = guest::rd<uint32_t>(cond + kCondArg);
@@ -159,6 +174,21 @@ int on_fact(::Ctx* c, uint64_t site) {
         NXLOG_I(kTag, "Co-op party: %s at main+0x%llx answers for the party (argument %u: true of a teammate, not of this player)",
                 r->tag, static_cast<unsigned long long>(r->site), arg);
     return 1;   // the handler's whole job is done
+}
+
+int on_pred(::Ctx* c, uint64_t site) {
+    // Many calls a frame: the cheap tests first.
+    if (!quests::member_rules()) return 0;
+    const Row* r = find(site);
+    if (!r || r->fact != Fact::Owns) return 0;
+    const uint64_t from = c->x[30] - base();
+    if (std::find(std::begin(kOwnsKept), std::end(kOwnsKept), from) != std::end(kOwnsKept)) return 0;
+    if (!owns(c, c->x[0])) return 0;
+    c->x[0] = 1;
+    if (first_log(*r))
+        NXLOG_I(kTag, "Co-op party: %s at main+0x%llx answers for the party (the creature has parents; asked from main+0x%llx)", r->tag,
+                static_cast<unsigned long long>(r->site), static_cast<unsigned long long>(from));
+    return 1;   // the function's whole job is done
 }
 
 int on_off(::Ctx* c, uint64_t site) {

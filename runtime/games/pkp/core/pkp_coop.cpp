@@ -145,6 +145,8 @@ enum class Site : uintptr_t {
                       // creature following): in a session it answers for every player
     PartyOff,         // a refusal listed there whose reason a session does not have: in a session it does not refuse
     PartyCount,       // a count of an item in this player's bag listed there: in a session any one player's bag counts
+    PartyPred,        // a predicate about one creature and this player listed there (the game's own-creature test): a member gets
+                      // the party's answer, except for the callers the row keeps
     // ---- the creature jobs (pkp_coop_jobs.cpp) ----
     JobTick,          // the item-making tick's IsMine test: the authority also ticks a job on a creature a member holds, which
                       // otherwise no process ticks
@@ -305,6 +307,7 @@ constexpr CoopSite kSites[] = {
 #undef PKP_ROLE_ROW
     // ---- the party answers (pkp_coop_party_answers.cpp): an entry hook per fact row, a midhook (after its `bl`) per off row ----
 #define PKP_PARTY_FACT(entry, fact, word, tag, what) {{entry, word, true}, Site::PartyFact},
+#define PKP_PARTY_PRED(entry, fact, word, tag, what) {{entry, word, true}, Site::PartyPred},
 #define PKP_PARTY_OFF(ret, callee, answer, word, tag, what) {{ret, word, false}, Site::PartyOff},
 #define PKP_PARTY_COUNT(ret, callee, item_sp, n_reg, op_reg, word, tag, what) {{ret, word, false}, Site::PartyCount},
 #define PKP_PARTY_COUNT_OF(ret, callee, item_sp, kind_reg, kinds, word, tag, what) {{ret, word, false}, Site::PartyCount},
@@ -312,6 +315,7 @@ constexpr CoopSite kSites[] = {
 #undef PKP_PARTY_COUNT_OF
 #undef PKP_PARTY_COUNT
 #undef PKP_PARTY_OFF
+#undef PKP_PARTY_PRED
 #undef PKP_PARTY_FACT
     // the creature jobs (pkp_coop_jobs.cpp)
     {{0x3b39a8, 0x36001540u, false}, Site::JobTick},         // tbz w0, #0, 0x3b3c50 (w0 = IsMine's answer)
@@ -472,6 +476,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::PartyFact: return coop::party::on_fact(c, addr - st().base);
         case Site::PartyOff: return coop::party::on_off(c, addr - st().base);
         case Site::PartyCount: return coop::party::on_count(c, addr - st().base);
+        case Site::PartyPred: return coop::party::on_pred(c, addr - st().base);
         case Site::JobTick: return coop::jobs::on_job_tick(c);
         case Site::FriendGain: return coop::friendship::on_add_points(c);
         case Site::FriendFlag: return coop::friendship::on_flag_17a(c);

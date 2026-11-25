@@ -44,6 +44,10 @@ constexpr uint32_t kHomeCount = 0x41a;
 // m_pokeSkillHistory per move id 1..0x3c (8 bytes): +0 u32 the times it was used (+4 bit 0 learned: pkp_coop_unlocks.cpp).
 constexpr uint64_t kSaveMoveUses = 0x6d82ec, kMoveSize = 8;
 constexpr uint32_t kMoveMax = 0x3c;
+// A creature's friend record, through its component (a resident's part + 0x2ca0; a talk target with none has the stand-in).
+constexpr uint64_t kNoComponent = 0x3567db0;     // main + : the stand-in component
+constexpr uint64_t kHasParents = 0x285100;       // (comp) -> bit 0: its record (as this process selects it) has a parents user id
+constexpr uint64_t kCloudIsland = 0x77ecb0;      // () -> bit 0: the stage is Cloud Island
 constexpr uint64_t kGameState = 0x3561710;       // the game state (stage, session)
 constexpr uint64_t kStateStage = 0x18;           // game state: u8, the stage the player is in
 constexpr uint64_t kStateSession = 0x90;         // game state: u8 Link Play session bits (kSession*); 0 offline

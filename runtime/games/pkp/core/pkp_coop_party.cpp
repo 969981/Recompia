@@ -13,6 +13,11 @@
 // The game's checks read list 10 alone, so each process knows only its own player's followers. The party's followers here are
 // list 10 and lists 0..3 together: everything this process knows. A teammate's story follower is in no list of this process.
 // An id is a follower when bit 11 is clear and (id >> 12) - 1 <= 3 (0x4e7a40's test).
+//
+// The town's creatures. A creature's friend record holds the user id of the player who befriended it (its parents, +0x8); the
+// game's own tests compare it with this process's user id (save root + 0x13d3a89). Outside Cloud Island only the host's game
+// writes parents, and a member reads its copy of the host's records, so on a member every creature of the group's town reads as
+// somebody else's. The party's answer: a creature that has parents is the group's (owns).
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -64,6 +69,15 @@ bool follows(::Ctx* c, uint32_t data, bool* own) {
         *own = mine;
         return true;
     });
+}
+
+bool owns(::Ctx* c, uint64_t comp) {
+    if (!quests::member_rules() || comp == base() + layout::kNoComponent) return false;
+    // The game's "online in the host's world" state, the one its own tests read before their role tests.
+    const uint64_t gm = guest::rd<uint64_t>(base() + layout::kGameState);
+    if (!gm || !guest::ok(gm + layout::kStateOwnBag, 1) || (guest::rd<uint8_t>(gm + layout::kStateOwnBag) & 1)) return false;
+    if (guest::call(c, base() + layout::kCloudIsland, 0) & 1) return false;
+    return guest::call(c, base() + layout::kHasParents, comp) & 1;
 }
 
 size_t invited(uint16_t* ids, size_t most) {

@@ -719,6 +719,10 @@ namespace party {
 // *own: it is one of this process's own player's followers (written only when true is returned).
 bool follows(::Ctx* c, uint32_t data, bool* own);
 bool follower_ability(::Ctx* c, uint32_t ability, bool* own);
+// The creature whose component is `comp` (a resident's part + 0x2ca0) is the group's own, on a member: this process is a member in
+// the session, outside Cloud Island, and the creature's record has parents. False on the authority and outside a session, where
+// the game's own test already is the answer.
+bool owns(::Ctx* c, uint64_t comp);
 // The actor ids of the creatures the session's players invited to follow them (every slot's list), at most `most`; the count.
 constexpr size_t kInvitedMost = 20;   // 4 lists of 5
 size_t invited(uint16_t* ids, size_t most);
@@ -737,9 +741,12 @@ void bags_reset();
 // x0 becomes the answer that does not refuse (returns 0). A count row's midhook after the `bl` that counts an item in this
 // player's bag: in a session x0 becomes the count the party's answer is made from (returns 0). All return 0 untouched outside a
 // session.
+// A predicate row's entry hook (x0 = the function's argument, x30 = its caller): on a member the party's answer 1 is returned and
+// the function does not run (returns 1), except for the callers the row keeps the game's answer for.
 int on_fact(::Ctx* c, uint64_t site);
 int on_off(::Ctx* c, uint64_t site);
 int on_count(::Ctx* c, uint64_t site);
+int on_pred(::Ctx* c, uint64_t site);
 void tick();    // once a frame: the marks of the rows logged this session clear when the session closes
 void reset();
 }  // namespace party
