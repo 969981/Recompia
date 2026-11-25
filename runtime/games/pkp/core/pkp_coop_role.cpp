@@ -27,6 +27,7 @@
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
+#include "core/pkp_site_check.h"
 
 #include <algorithm>
 #include <array>
@@ -157,12 +158,6 @@ static_assert(keeps_listed(), "pkp_coop_role_table.inc: a PKP_ROLE_KEEP names no
 
 constexpr uint64_t getter_at(Kind k) { return k == Kind::IsHost ? layout::kIsHost : layout::kIsVisitor; }
 
-// `bl` at main+at calls main+to.
-bool is_bl_to(uint32_t word, uint64_t at, uint64_t to) {
-    if ((word & 0xfc000000u) != 0x94000000u) return false;
-    const int64_t imm = static_cast<int64_t>(static_cast<int32_t>(word << 6) >> 6) * 4;   // imm26, sign-extended, in bytes
-    return at + static_cast<uint64_t>(imm) == to;
-}
 // `ldrb wReg, [xN, #0x90]` (unsigned offset, any base register). The mask keeps size/opc (31..22), imm12 (21..10) and Rt (4..0)
 // and drops only Rn (9..5).
 constexpr bool is_session_load(uint32_t word, uint8_t reg) {

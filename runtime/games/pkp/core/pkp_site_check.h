@@ -36,4 +36,14 @@ inline const HookSite* first_bad_site(uint64_t base, const HookSite* sites, size
 // holds another word (another game version or dump).
 inline bool site_missing_from_lift(const HookSite& site, uint32_t word) { return !site.entry && word == site.word; }
 
+// `bl` at main+at calls main+to (word: the instruction at main+at).
+constexpr bool is_bl_to(uint32_t word, uint64_t at, uint64_t to) {
+    if ((word & 0xfc000000u) != 0x94000000u) return false;
+    const int64_t imm = static_cast<int64_t>(static_cast<int32_t>(word << 6) >> 6) * 4;   // imm26, sign-extended, in bytes
+    return at + static_cast<uint64_t>(imm) == to;
+}
+// main+0x7b0a3c: bl 0x376c4.
+static_assert(is_bl_to(0x97e21b22u, 0x7b0a3c, 0x376c4) && !is_bl_to(0x97e21b22u, 0x7b0a40, 0x376c4) &&
+              !is_bl_to(0x17e21b22u, 0x7b0a3c, 0x376c4), "is_bl_to: a bl to that address only");
+
 }  // namespace nxrt::games::pkp
