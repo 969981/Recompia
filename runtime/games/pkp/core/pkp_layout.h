@@ -357,4 +357,11 @@ constexpr uint64_t kNetQualityLevel = 0xb336c, kNetQualityLoss = 0xb3378, kNetQu
 // Error 3103: KTGL_ONLINE_E_SESSIONP2P_NETWORK_LOST, the result 0x547278 shows when the session's network is gone.
 constexpr uint32_t kErrorSessionLost = 0x80401103;
 
+// The party manager PG = *(main + kPartyManager): the creatures following the players. Its lists start at PG + kPartyLists, each
+// kPartyListSize bytes (+0 the u16 actor ids, +8 u64 their count): lists 0..kPartySlotLists-1 the creatures each session player
+// invited, by the player's session slot (on every process); list kPartyStoryList the story's followers of this process's own
+// player (never sent); list kPartyOwnList every follower of this process's own player (0x373f58 returns it).
+constexpr uint64_t kPartyManager = 0x35659f8, kPartyLists = 8, kPartyListSize = 0x28;
+constexpr uint64_t kPartySlotLists = 4, kPartyStoryList = 9, kPartyOwnList = 10;
+
 }  // namespace nxrt::games::pkp::layout

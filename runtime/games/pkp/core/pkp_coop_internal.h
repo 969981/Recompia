@@ -24,6 +24,8 @@
 //   pkp_coop_unlocks.cpp  the moves and emotes any member learned, the areas visited, buildings built and area gates opened, unlocked
 //                         for every member
 //   pkp_coop_purchases.cpp what any member buys in a shop, given to every member (and to later joiners) too
+//   pkp_coop_purchase_world.cpp the world side of a purchase the game places in the world (the rebuilding kits): which entries, their
+//                         stage, and whether the object is there
 //   pkp_coop_money.cpp    the Life Coins of the challenges: each member claims its own at the PC, once, into its own coins
 //   pkp_coop_events.cpp   what an ended talk or scene leaves in the save (scenes played, conversations seen, story lines moved on)
 //                         kept by every member
@@ -46,9 +48,16 @@
 //   pkp_coop_levels.cpp   the authority's Environment Levels (the 32 area-level bytes), filled into every member's save at the join
 //   pkp_coop_role.cpp     the role answers: at the listed permission and display checks (pkp_coop_role_table.inc) a member gets the
 //                         host's answer from the game's role getters
+//   pkp_coop_party.cpp    the party facts: what the party as a whole has (the creatures following any player)
+//   pkp_coop_party_bags.cpp the party facts, the bags: how many of an item each player holds (the authority's sums of the bag
+//                         records, sent to every member)
+//   pkp_coop_party_answers.cpp the party answers: at the listed checks of one player (pkp_coop_party_table.inc) every process
+//                         answers for the party, and a refusal a session has no reason for does not refuse
 //   pkp_coop_friendship.cpp a member's friendship gains with a creature made on the authority (the group's), its records shown to all
 //   pkp_coop_challenges.cpp what a member does counts toward the group's challenges (its shop buys)
 //   pkp_coop_feed.cpp     what a member's player did to a creature (talked to it), posted to the authority's contents scheduler
+//   pkp_coop_behalf.cpp   a record the authority runs for a member's notice, when the member's own copy ran: without the actions
+//                         on the acting player (its scene, warp, push)
 //   pkp_coop_newcomer.cpp a member's first talk with a new creature (it moves in) made on the authority, as the host's own talk
 //   pkp_coop_doors.cpp    the session's doors in the menus: the PC's Link Play screen makes no session call, the pause menu never
 //                         sends a teammate home or rejects one; Save and Quit stays
@@ -61,6 +70,7 @@
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -292,6 +302,23 @@ void on_log_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);       
 void tick(::Ctx* c, bool in_game);
 void on_session_change();   // this process joined or left: what it lacks is asked again
 void reset();
+
+// The place class: purchases the game puts in the world next to the buyer, not in the bag (pkp_coop_purchase_world.cpp).
+namespace world {
+// The item (of a shop entry, with its item category) is placed in the world: the game's own test.
+bool is_place_class(::Ctx* c, uint32_t item, uint8_t category);
+// The stage the shop row belongs to (the stage its kit is placed in); 0 when the row cannot be read.
+uint8_t shop_area(::Ctx* c, uint16_t entry);
+// This process's player stands in that stage (and exists).
+bool in_stage(uint8_t area);
+// The occupied cabinet records of the world; added_since() says whether a record was occupied after the snapshot that was free before.
+struct Snapshot {
+    bool valid = false;
+    std::bitset<0x610> occupied;
+};
+Snapshot snapshot();
+bool added_since(const Snapshot& before);
+}  // namespace world
 }  // namespace purchases
 
 namespace stock {
@@ -411,6 +438,14 @@ void on_request_refused();
 // restore) can take it away; a loss in between is not credited (the header of pkp_coop_bags.cpp has the rule).
 void gain_begin(::Ctx* c);
 void gain_end(::Ctx* c);
+// The authority: the records it holds for the players now in the session, its own first (node, the record's sequence number, its
+// wire::kBagRecordSlots slot payloads; the pointers hold until the next tick). At most `most`; the count. 0 anywhere else.
+struct View {
+    int node;
+    uint64_t seq;
+    const uint64_t* slots;
+};
+size_t records(View* out, size_t most);
 // The hook sites (pkp_coop.cpp).
 int on_mirror_fill(::Ctx* c);   // entry 0x575644 (member index), the host at a join: the mirror fed from that member's record
 int on_bag_screen(::Ctx* c);    // entry 0xfeee78 (screen), the bag / container screen's frame: an apply waits while it is open
@@ -667,6 +702,39 @@ int on_answer(::Ctx* c, uint64_t site);
 void tick();    // once a frame: the marks of the rows logged this session clear when the session closes
 void reset();
 }  // namespace answers
+// ---- the party answers (pkp_coop_party.cpp the facts, pkp_coop_party_answers.cpp the hooks): what the party has, where the game
+// checks one player ----
+namespace party {
+// The facts (game thread, inside a hook). A creature follows some player of the session, as far as this process knows (its own
+// player's followers and every player's invited ones): a town creature whose data id is `data`, or any follower when `data` is
+// no data id (the game's condition 0x87a); a town creature with `ability` in one of its two ability slots (condition 0x87c).
+// *own: it is one of this process's own player's followers (written only when true is returned).
+bool follows(::Ctx* c, uint32_t data, bool* own);
+bool follower_ability(::Ctx* c, uint32_t ability, bool* own);
+// The actor ids of the creatures the session's players invited to follow them (every slot's list), at most `most`; the count.
+constexpr size_t kInvitedMost = 20;   // 4 lists of 5
+size_t invited(uint16_t* ids, size_t most);
+// The bags (pkp_coop_party_bags.cpp). The largest count of item `id` any other player of the session holds, as far as this
+// process knows (0: none; *node: that player's, written when the count is above 0); and whether one of them holds exactly
+// `exactly` of it (*node: that player's).
+uint32_t teammates_most(uint32_t id, uint8_t* node);
+bool teammate_holds(uint32_t id, uint32_t exactly, uint8_t* node);
+// The message (pkp_coop_link.cpp): the authority's sums of every player's bag. A member joined or left (the authority).
+void on_bags_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_member_change(int node, bool joined);
+void bags_tick();    // once a frame: the authority follows the bag records and sends the sums when they changed
+void bags_reset();
+// The hook sites (pkp_coop.cpp), one per row of pkp_coop_party_table.inc (site: its main offset). A fact row's entry hook: in a
+// session the party's answer is written and the handler does not run (returns 1). An off row's midhook after a `bl`: in a session
+// x0 becomes the answer that does not refuse (returns 0). A count row's midhook after the `bl` that counts an item in this
+// player's bag: in a session x0 becomes the count the party's answer is made from (returns 0). All return 0 untouched outside a
+// session.
+int on_fact(::Ctx* c, uint64_t site);
+int on_off(::Ctx* c, uint64_t site);
+int on_count(::Ctx* c, uint64_t site);
+void tick();    // once a frame: the marks of the rows logged this session clear when the session closes
+void reset();
+}  // namespace party
 // ---- the creature jobs (pkp_coop_jobs.cpp) ----
 namespace jobs {
 // Midhook 0x3b39a8 in the item-making tick: on the authority, a job on a creature a member holds is ticked too.
@@ -706,12 +774,31 @@ int on_fed(::Ctx* c);
 // posts, so a member's of the same event is not posted twice. From one of the two "object used" notifiers (0x135d80, 0x135cf4): on a
 // member in the session the notice is queued for the authority. The game's own code runs everywhere (returns 0).
 int on_notice(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0x1350c0, a record put into the scheduler's run queue. On a member, called from the notifier
+// of a notice just queued for the authority: that event is marked as taken by a record here. Returns 0.
+int on_record_queued(::Ctx* c);
 // The message (pkp_coop_link.cpp): a member's creature event, posted on the authority at a safe moment.
 void on_event_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 // Sends a member's events and posts the authority's received ones (once a frame, after the channel's handlers).
 void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace feed
+// ---- the authority's run of a record for a member whose own copy ran (pkp_coop_behalf.cpp) ----
+namespace behalf {
+// The feed, around its post of a member's notice that a record on the member's process took: the records the notifier queues
+// between the two are run for that member.
+void begin(uint8_t origin);
+void end();
+// The hook sites (pkp_coop.cpp), each returns 0 but the last. Entry 0x1350c0: a record queued by the notifier between begin and
+// end is remembered. Entry 0x131200: the record whose actions run from now. Entries 0x12b544 (before the contents scenes' own
+// look), 0x12af00, 0x12b108, 0x12dbb8, the actions on the acting player (play scene, the two warps, the push): on the authority,
+// while a remembered record runs, the action does not run (returns 1).
+int on_record_queued(::Ctx* c);
+int on_record_run(::Ctx* c);
+int on_actor_action(::Ctx* c);
+void tick();    // once a frame: a remembered record that is no longer queued is forgotten
+void reset();
+}  // namespace behalf
 // ---- a gimmick press a story content took instead of the use (pkp_coop_owner.cpp) ----
 namespace owner {
 // The hook sites (pkp_coop.cpp): midhooks at the `tbz w0` after a use posts its press to the contents (0x765b54) in five gimmick
@@ -797,8 +884,8 @@ void reset();
 // ---- a story follow on a member (pkp_coop_follow.cpp) ----
 namespace follow {
 // The hook site (pkp_coop.cpp): entry 0x2a1ed4, the contents' "follow this player" attach (command 0xdac mode 3, through 0x117b18).
-// On a member in the session the game's local-only attach does not run (returns 1) and the creature is sent to the authority; 0
-// elsewhere.
+// On a member in the session the game's local-only attach does not run (returns 1) and the creature is sent to the authority. On
+// the authority it does not run (returns 1) for a creature that follows another session player. 0 elsewhere.
 int on_story_follow(::Ctx* c);
 // The hook site (pkp_coop.cpp): entry 0x5519bc, the host's RequestPartyNPC handler. On the authority in the session a member's leave
 // of a creature another player leads is refused as handled (x0 = 0, returns 1); 0 elsewhere (the game's handler runs).
@@ -806,6 +893,9 @@ int on_party_request(::Ctx* c);
 // The message (pkp_coop_link.cpp): a member's story follow, made on the authority at a safe moment unless the creature follows a
 // player there already.
 void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// The authority, when the group's agreed move to another area is made (pkp_coop_travel.cpp): every player's invited followers
+// leave their leaders through the game's own leave. Nothing on a member or outside a session.
+void release_for_move(::Ctx* c);
 // Sends a member's asks; the authority makes the waiting ones (once a frame, after the channel's handlers).
 void tick(::Ctx* c, bool in_game);
 void reset();

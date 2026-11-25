@@ -44,7 +44,7 @@
   <a href="../../LEGAL.md">الشؤون القانونية</a> ·
   <a href="../../PRIVACY.md">الخصوصية</a> ·
   <a href="https://github.com/Dittobyte/Recompia/issues">المشكلات</a> ·
-  <a href="https://discord.recompia.com">Discord</a>
+  <a href="https://discord.gg/VyRcUUQNKH">Discord</a>
 </p>
 
 > [!IMPORTANT]
@@ -308,7 +308,7 @@ Link Play: الانضمام والتجول معاً يعملان. انظر [docs
 
 ## المجتمع
 
-للأسئلة والمساعدة في الأخطاء والاختبار والدردشة: انضم إلى [Recompia Discord](https://discord.recompia.com). يحتوي المشغّل أيضاً على زر **Join Discord** ضمن **Settings > About > Community**. الأخطاء التي تحتاج إلى إصلاح لا يزال يُبلغ عنها على [GitHub](https://github.com/Dittobyte/Recompia/issues/new/choose).
+للأسئلة والمساعدة في الأخطاء والاختبار والدردشة: انضم إلى [Recompia Discord](https://discord.gg/VyRcUUQNKH). يحتوي المشغّل أيضاً على زر **Join Discord** ضمن **Settings > About > Community**. الأخطاء التي تحتاج إلى إصلاح لا يزال يُبلغ عنها على [GitHub](https://github.com/Dittobyte/Recompia/issues/new/choose).
 
 ## الإبلاغ عن المشكلات
 

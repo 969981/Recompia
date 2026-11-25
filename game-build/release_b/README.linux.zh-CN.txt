@@ -13,6 +13,6 @@ Recompia @VERSION@，适用于 Linux、SteamOS 和 Steam Deck
 
 更新：把新版本解压覆盖到你的安装目录。如果更新改变了游戏代码，启动器会提示你：再点一次 Set up，它会重新编译 pkp。你的着色器和存档都会保留。
 
-社区与帮助：https://discord.recompia.com
+社区与帮助：https://discord.gg/VyRcUUQNKH
 
 许可证：见 LICENSE.txt 和 licenses/。

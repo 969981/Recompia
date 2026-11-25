@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Zonith's commands: its releases, downloading its setup app (and replacing an older one), and starting it. Zonith's setup app does
-//! the rest (setting the game up from the player's files, and playing it). The pure part is zonith.rs.
+//! Zonith's commands: its releases, downloading its setup app (and replacing an older one), opening it, and starting the game it
+//! built. Zonith's setup app sets the game up from the player's files in a folder the player picks; the launcher finds that folder
+//! through the setup's own records (zonith::read_game) and starts the game there. The pure part is zonith.rs.
 //!
 //! `<app local data>/zonith/`: `<tag>/` holds a release's setup (Windows: the zip and its unpacked TotK-Setup-windows/; Linux: the
 //! AppImage while it downloads, which then moves to the Zonith folder's top and stays there, because an install records
 //! `$APPIMAGE --rebuild` to rebuild the game), `current.json` names the one in use, `releases.json` is the last release list (shown
 //! offline). A game the player installed in here is never deleted by an update (zonith::remove_old).
-//! Events: `zonith-progress` (zonith::ZonithProgress) while a download runs, `zonith-game` { state: running | exited, code }.
+//! Events: `zonith-progress` (zonith::ZonithProgress) while a download runs, `zonith-game` { state: running | exited, code } for the
+//! game, `zonith-setup` when the setup app's process ends (Linux: its window closed; Windows: its starter, at once).
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -46,6 +48,15 @@ pub struct InstalledSetup {
     pub path: String,
 }
 
+/// The game the setup built (zonith::Game). `stale`: the downloaded setup is newer than the release that built it.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct GameStatus {
+    pub path: String,
+    pub release: String,
+    pub ready: bool,
+    pub stale: bool,
+}
+
 #[derive(Serialize)]
 pub struct ZonithStatus {
     pub supported: bool,
@@ -53,6 +64,7 @@ pub struct ZonithStatus {
     pub latest: Option<Latest>,
     pub release_error: Option<String>,
     pub installed: Option<InstalledSetup>,
+    pub game: Option<GameStatus>,
     pub update: bool,
     pub job: Option<ZonithProgress>,
     pub running: bool,
@@ -136,10 +148,16 @@ pub async fn zonith_status(app: AppHandle, refresh: Option<bool>) -> ZonithStatu
         latest: None,
         release_error: Some("offline".into()),
         installed: None,
+        game: None,
         update: false,
         job: None,
         running: false,
     })
+}
+
+/// The game Zonith's setup built, from the setup's own records.
+fn game() -> Option<zonith::Game> {
+    zonith::read_game(&zonith::recent_file()?)
 }
 
 fn installed(app: &AppHandle) -> Option<(Current, PathBuf)> {
@@ -154,6 +172,12 @@ fn status(app: &AppHandle, refresh: bool) -> ZonithStatus {
     let (list, release_error) = if zonith::SUPPORTED { releases(app, refresh) } else { (Vec::new(), None) };
     let latest = zonith::latest(&list, zonith::ASSET_SUFFIX);
     let installed = installed(app).map(|(c, d)| InstalledSetup { tag: c.tag, path: fwd(&d) });
+    let game = game().map(|g| GameStatus {
+        path: fwd(&g.dir),
+        stale: installed.as_ref().is_some_and(|i| zonith::game_stale(&g.release, &i.tag)),
+        release: g.release,
+        ready: g.ready,
+    });
     let update = match (&installed, &latest) {
         (Some(i), Some(l)) => zonith::update_available(&i.tag, &l.tag),
         _ => false,
@@ -164,6 +188,7 @@ fn status(app: &AppHandle, refresh: bool) -> ZonithStatus {
         latest,
         release_error,
         installed,
+        game,
         update,
         job: if job_running() { S.progress.lock().unwrap().clone() } else { None },
         running: S.game.load(SeqCst),
@@ -284,24 +309,57 @@ pub fn zonith_cancel() {
     }
 }
 
-/// Starts Zonith's setup app, which sets the game up and plays it. TotK-Setup.exe starts its window's Python and exits at once, so
-/// "exited" only means the starter ended.
+/// Opens Zonith's setup app, which builds the game from the player's files (the first time, after an update of the setup, or again
+/// for another language or game version). TotK-Setup.exe starts its window's Python and exits at once on Windows, so `zonith-setup`
+/// tells the page when the window closed only on Linux; the page asks for the status again while it waits (pages/zonith.js).
 #[tauri::command]
-pub fn zonith_play(app: AppHandle) -> Result<(), String> {
+pub fn zonith_setup(app: AppHandle) -> Result<(), String> {
     if job_running() {
         return Err("Zonith is downloading. Let it finish first.".into());
     }
+    if S.game.load(SeqCst) {
+        return Err("Zonith is running. Close the game first.".into());
+    }
     let (c, dir) = installed(&app).ok_or("Zonith is not downloaded yet.")?;
     let exe = zonith::app_path(&zonith_dir(&app)?, &c);
-    if S.game.swap(true, SeqCst) {
-        return Err("Zonith is already starting.".into());
-    }
     let cwd = exe.parent().map(Path::to_path_buf).unwrap_or(dir);
     #[cfg(windows)]
     let mut cmd = Command::new(&exe);
     #[cfg(not(windows))]
     let mut cmd = crate::host::command(&exe);
-    let mut child = match cmd.current_dir(&cwd).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
+    let mut child = cmd
+        .current_dir(&cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Could not open the Zonith setup: {e}"))?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+        let _ = app.emit("zonith-setup", ());
+    });
+    Ok(())
+}
+
+/// Starts the game Zonith's setup built, with its install folder as the working folder. The game is this process's child, so
+/// `zonith-game` says when it ended.
+#[tauri::command]
+pub fn zonith_play(app: AppHandle) -> Result<(), String> {
+    let game = game().filter(|g| g.ready).ok_or("Zonith is not set up yet. Set it up first.")?;
+    let exe = game.dir.join(zonith::GAME_EXE);
+    if S.game.swap(true, SeqCst) {
+        return Err("Zonith is already running.".into());
+    }
+    #[cfg(windows)]
+    let mut cmd = {
+        use std::os::windows::process::CommandExt;
+        let mut c = Command::new(&exe);
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: the game is a console program, and its console stays out of sight (as play.rs)
+        c
+    };
+    #[cfg(not(windows))]
+    let mut cmd = crate::host::command(&exe);
+    let mut child = match cmd.current_dir(&game.dir).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
         Ok(c) => c,
         Err(e) => {
             S.game.store(false, SeqCst);
@@ -309,8 +367,7 @@ pub fn zonith_play(app: AppHandle) -> Result<(), String> {
         }
     };
     let _ = app.emit("zonith-game", GameEvent { state: "running", code: None });
-    // TotK-Setup.exe hands over to its window's Python and exits at once on Windows, so minimising there would only flash the window
-    let minimize = cfg!(not(windows)) && load_config(&app).minimize_on_play;
+    let minimize = load_config(&app).minimize_on_play;
     let window = app.get_webview_window("main");
     if minimize {
         if let Some(w) = &window {
@@ -330,11 +387,13 @@ pub fn zonith_play(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Opens the game's folder once the setup made one, else the folder of the setup app.
 #[tauri::command]
 pub fn zonith_open_dir(app: AppHandle) -> Result<(), String> {
-    let dir = match installed(&app) {
-        Some((_, d)) => d,
-        None => zonith_dir(&app)?,
+    let dir = match (game().map(|g| g.dir).filter(|d| d.is_dir()), installed(&app)) {
+        (Some(d), _) => d,
+        (None, Some((_, d))) => d,
+        (None, None) => zonith_dir(&app)?,
     };
     if !dir.is_dir() {
         return Err("Zonith is not downloaded yet.".into());

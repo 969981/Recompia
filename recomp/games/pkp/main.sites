@@ -441,6 +441,23 @@ midhook 0x7100faa3e4
 midhook 0x7100faa3f8
 midhook 0x7100fab940
 #   ---- end of the role answers ----
+#   Seamless co-op, the party answers (pkp_coop_party_answers.cpp): one line per row of pkp_coop_party_table.inc, ascending. An
+#   entry hook per fact row (a condition handler that checks one player for what the party has), a midhook per off row (the
+#   instruction after the `bl` whose result decides a refusal a session does not have, or after the `bl` that counted an item in
+#   this player's bag: quest condition 0x11 at 0x710011d118, contents conditions 0x7da / 0x7e4 at 0x7100126e44 / 0x7100126f58)
+midhook 0x710011d118
+midhook 0x7100126e44
+midhook 0x7100126f58
+entryhook 0x71001273a0
+entryhook 0x7100127480
+midhook 0x71007b09d4
+midhook 0x71007b0a14
+midhook 0x71007b0cfc
+midhook 0x71007cc76c
+midhook 0x71007cc890
+midhook 0x71007ccba8
+midhook 0x7100fbacfc
+#   ---- end of the party answers ----
 #   Seamless co-op, creature jobs (pkp_coop_jobs.cpp): in the item-making tick 0x71003b38f0, the `tbz w0, #0` after the actor's
 #   IsMine (vt+0x478) that returns when another member holds the creature (x19 = the job component)
 midhook 0x71003b39a8
@@ -573,6 +590,16 @@ entryhook 0x710045d5a0
 entryhook 0x7100132f00
 # the contents notifier (x0 scheduler, x1 list, w2, w3): the notice kind at scheduler +0x11aae0 and its payload
 entryhook 0x71001353a0
+# the contents condition evaluator's default case (`ldr w8, [x19]`, x20 = the condition's words): a kind it has no case for
+midhook 0x7100125e7c
+#   Seamless co-op, a record run for a member whose own copy ran (pkp_coop_behalf.cpp, pkp_coop_feed.cpp): the scheduler's run
+#   queue insert 0x71001350c0 (x1 the run slot), a queued record's run 0x7100131200 (x0 the run slot), and the content actions on
+#   the acting player besides play scene: the warps 0x710012af00 / 0x710012b108 and the push 0x710012dbb8
+entryhook 0x71001350c0
+entryhook 0x7100131200
+entryhook 0x710012af00
+entryhook 0x710012b108
+entryhook 0x710012dbb8
 # event runner state 4 (x0 runner): the end writes of an event (played bit, rows, story bus, notices)
 entryhook 0x710047e140
 # ---- end of journal events ----
@@ -612,6 +639,10 @@ entryhook 0x71002c2480
 entryhook 0x71002c2e80
 # party NPC: a visitor sends RequestPartyNPC instead
 entryhook 0x7100659588
+# party invite (mgr, &leader id, &creature id): a visitor sends the join instead
+entryhook 0x7100657a20
+# the story's attach (mgr, &leader id, &creature id, flag): to this process's own player
+entryhook 0x7100659280
 # general progress type 3: returns on a visitor before counting
 entryhook 0x710062b3e0
 # general progress type 9: returns on a visitor before counting
@@ -673,6 +704,10 @@ entryhook 0x7100114970
 entryhook 0x71005c059c
 entryhook 0x7100463ae0
 entryhook 0x71007b0d80
+#   the gate and the presser's followers: the can-enter test 0x71007b0c50 (refuses on a story follower), and in 0x71007b0690 the
+#   `ldr x8, [x0, #8]` after `bl 0x710028ebb0` (x0 = the presser's invited followers, walked next)
+entryhook 0x71007b0c50
+midhook 0x71007b09b0
 # ---- end of journal travel ----
 
 # ---- journal services (pkp_journal_services*.cpp) ----

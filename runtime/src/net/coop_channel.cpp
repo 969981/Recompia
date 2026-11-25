@@ -224,11 +224,17 @@ void CoopChannel::session_down(const char* why) {
 void CoopChannel::drop_peer(int node, const char* why, bool tell, int64_t now) {
     auto it = peers_.find(node);
     if (it == peers_.end()) return;
-    const bool joined = it->second.joined;
     const uint32_t conn = it->second.conn;
-    peers_.erase(it);
     gone_[node] = {conn, now};
     if (tell) send_frame(ip_of(node), kBye, conn, nullptr, 0, now);
+    forget_peer(node, why);
+}
+
+void CoopChannel::forget_peer(int node, const char* why) {
+    auto it = peers_.find(node);
+    if (it == peers_.end()) return;
+    const bool joined = it->second.joined;
+    peers_.erase(it);
     NXLOG_I("net", "coop channel: node %d %s", node, why);
     if (!joined) return;
     std::lock_guard<std::mutex> lk(mu_);
@@ -241,6 +247,21 @@ void CoopChannel::drop_peer(int node, const char* why, bool tell, int64_t now) {
     item.node = node;
     item.authority = node == authority_;
     inbox_.push_back(std::move(item));
+}
+
+// Nothing else gives a process a new id while the session lives (my_conn_ was set in open_port only), so after a gap longer than
+// kPeerTimeoutMs a member and this process went on refusing each other until the session itself ended: 195 to 227 s in the logs of
+// #827, with story steps finished meanwhile shared with nobody. The members still here are forgotten, not refused: a stream kept across
+// the change would carry sequence numbers the member's new stream to us does not take (frames beyond its window, acks it ignores).
+void CoopChannel::renew_conn(int64_t now) {
+    uint32_t conn = 0;
+    while (!conn || conn == my_conn_) conn = static_cast<uint32_t>(rng_());
+    my_conn_ = conn;
+    std::vector<int> nodes;
+    for (const auto& [node, pe] : peers_) nodes.push_back(node);
+    for (const int node : nodes) forget_peer(node, "meets this process again under its new connection id");
+    last_bcast_ms_ = now - kHelloEveryMs;   // say HELLO on the next tick
+    NXLOG_I("net", "coop channel: new connection id after losing a member; the session goes on");
 }
 
 void CoopChannel::on_frame(uint32_t src, const uint8_t* p, size_t n, int64_t now) {
@@ -260,7 +281,10 @@ void CoopChannel::on_frame(uint32_t src, const uint8_t* p, size_t n, int64_t now
     }
     auto it = peers_.find(node);
     if (h.kind == kBye) {
-        if (it != peers_.end() && it->second.conn == h.conn) drop_peer(node, "left (goodbye)", false, now);
+        if (it != peers_.end() && it->second.conn == h.conn) {
+            drop_peer(node, "left (goodbye)", false, now);
+            renew_conn(now);   // it may still be in the session (it timed us out): meet again under a new id
+        }
         return;
     }
     if (it != peers_.end() && it->second.conn != h.conn) {
@@ -331,6 +355,7 @@ bool CoopChannel::tick(int64_t now) {
         else if (pe.joined && now - pe.last_tx_ms >= kKeepaliveMs) send_hello(node, pe, now);
     }
     for (const int node : dead) drop_peer(node, "timed out", true, now);
+    if (!dead.empty()) renew_conn(now);   // the session lives on: a member that comes back meets a new id, not a refused one
 
     std::deque<Pending> fresh;
     {

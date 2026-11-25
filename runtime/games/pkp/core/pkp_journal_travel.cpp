@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -690,6 +691,71 @@ void gate_entry(::Ctx* c) {
     rec.step();
 }
 
+// ---- the gate and the presser's followers (coop-v2 PARTY-CHECKS-RE) ----
+// 0x7b0c50(door), the gate's can-enter test: refuses (2 / 3, scenes 0xa7f / 0xa80) while the story's follower list of this process's
+// player holds one / more creatures. Then 0x7b0690 walks the presser's invited followers, the list 0x28ebb0 returns (x0 at 0x7b09b0):
+// online a town creature (0x286de4) stops the press, offline one that cannot come along (0x4b1558). Both lines name every creature.
+constexpr uint64_t kFollowerData = 0x27d848, kFollowerResident = 0x286de4, kFollowerCanCome = 0x4b1558, kFollowerMost = 64;
+
+// The followers of a party list (+0 the u16 actor ids, +8 their count), with the two tests the gate's walk makes when asked.
+std::string followers(::Ctx* c, uint64_t list, bool tests, uint32_t* count) {
+    std::string s;
+    *count = 0;
+    if (!guest::ok(list, 0x10)) return "no list";
+    const uint64_t ids = guest::rd<uint64_t>(list), n = guest::rd<uint64_t>(list + 8);
+    if (n > kFollowerMost || !guest::ok(ids, n * 2)) return fmt("list not readable (count %llu)", static_cast<unsigned long long>(n));
+    for (uint64_t i = 0; i < n; ++i) {
+        const uint64_t at = ids + i * 2;
+        const uint16_t id = guest::rd<uint16_t>(at);
+        if ((id & 0x800) || static_cast<uint32_t>((id >> 12) - 1) > 3) continue;
+        s += fmt("%sactor 0x%x data %u", (*count)++ ? ", " : "", id, static_cast<uint32_t>(guest::call(c, base() + kFollowerData, at) & 0xffff));
+        if (tests)
+            s += fmt(" (town creature %u, can come %u)", static_cast<uint32_t>(guest::call(c, base() + kFollowerResident, at) & 1),
+                     static_cast<uint32_t>(guest::call(c, base() + kFollowerCanCome, at) & 1));
+    }
+    return s.empty() ? "none" : s;
+}
+
+// One line per change of the text, and again after kRepeatEvery (a prompt may ask the same test every frame).
+bool followers_due(Dedupe& d, const std::string& text) {
+    const uint64_t key = std::hash<std::string>{}(text);
+    const double t = now();
+    if (d.have && key == d.key && t - d.last < kRepeatEvery) return false;
+    d.key = key;
+    d.have = true;
+    d.last = t;
+    return true;
+}
+
+void gate_can_enter(::Ctx* c) {   // entry 0x7b0c50
+    static Dedupe d;
+    const uint64_t pg = guest::deref(base() + layout::kPartyManager);
+    uint32_t n = 0;
+    const std::string story =
+        followers(c, pg ? pg + layout::kPartyLists + layout::kPartyStoryList * layout::kPartyListSize : 0, false, &n);
+    const std::string in = fmt("door=0x%llx session=0x%02x story followers: %s", static_cast<unsigned long long>(c->x[0]), session_byte(),
+                               story.c_str());
+    if (!followers_due(d, in)) return;
+    Rec rec(kArea, "gate can-enter 0x7b0c50");
+    rec.in("%s; from=0x%llx", in.c_str(), static_cast<unsigned long long>(lr(c)));
+    rec.out("%s", n == 0 ? "no story follower: no refusal from this test" : n == 1 ? "one story follower: the game refuses (scene 0xa7f)"
+                                                                                  : "story followers: the game refuses (scene 0xa80)");
+    if (n && session_byte()) rec.note("in a co-op session this refusal is off (the party answers)");
+    rec.step();
+}
+
+void gate_follower_walk(::Ctx* c) {   // mid 0x7b09b0: x0 = the presser's invited followers
+    static Dedupe d;
+    uint32_t n = 0;
+    const std::string in = fmt("session=0x%02x invited followers: %s", session_byte(), followers(c, c->x[0], true, &n).c_str());
+    if (!followers_due(d, in)) return;
+    Rec rec(kArea, "gate follower walk 0x7b09b0");
+    rec.in("%s", in.c_str());
+    rec.out("%s", n == 0 ? "none: the entry 0x7b0d80" : "online a town creature stops the press, offline one that cannot come; else the entry 0x7b0d80");
+    if (n && session_byte()) rec.note("in a co-op session no follower stops the press (the party answers)");
+    rec.step();
+}
+
 constexpr WatchSite kSites[] = {
     {{0xbd45c, 0xb9400008u, true}, &trip_home, "trip-home filer 0xbd45c"},
     {{0xbdc68, kPacibsp, true}, &trip_close, "close-connection filer 0xbdc68"},
@@ -721,6 +787,8 @@ constexpr WatchSite kSites[] = {
     {{0x5c059c, kPacibsp, true}, &gate_record, "gate record 0x5c059c"},
     {{0x463ae0, kPacibsp, true}, &gate_event, "opening event 0x463ae0"},
     {{0x7b0d80, kPacibsp, true}, &gate_entry, "gate entry 0x7b0d80"},
+    {{0x7b0c50, kPacibsp, true}, &gate_can_enter, "gate can-enter 0x7b0c50"},
+    {{0x7b09b0, 0xf9400408u, false}, &gate_follower_walk, "gate follower walk 0x7b09b0"},   // ldr x8, [x0, #8]
 };
 
 }  // namespace

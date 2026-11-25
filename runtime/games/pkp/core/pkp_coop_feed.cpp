@@ -74,6 +74,13 @@
 //   moment; one notice is one post, so a press is posted there as often as it was on the member. The authority's own notices are
 //   never sent, so nothing comes back to it. Every 0x135d80 notice on the authority (its player's, or a member's posted there) is
 //   also handed to the contents scenes (pkp_coop_contents.cpp), whose lost-scene rows include a press a lost record waited on.
+// Kinds 2 and 14 are posted on the member's own process too, and its own copy of a record may take the notice there (the notifier
+// puts it into the run queue with 0x1350c0, called from 0x1353a0 at 0x135528 / 0x135598). The event says so (kTakenFlag in its
+// argument): the member has then had what that record does to the acting player, and the authority's run of its copy leaves
+// those actions out (pkp_coop_behalf.cpp), so a member's press does not play its scene on the host's screen.
+//   0x1350c0 (entry hook), on a member, called from the notifier of the notice just queued: the event is marked taken.
+// The authority's queue: an event of kind 2 or 14 equal to one that waits is not queued twice (one post serves both; a held press
+// is often repeated), and an event that finds the queue full is lost with a log line.
 // The wire carries any creature event kind (wire::Type::CreatureEvent); a kind this build does not post is dropped by the authority.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
@@ -143,7 +150,11 @@ constexpr double kRecent = 30.0;            // the authority: the same kind 2 po
 constexpr size_t kPostedMax = 32;
 constexpr double kSendWait = 30.0;          // a member's event is sent at the latest this long after the talk started
 constexpr double kDrop = 120.0;             // an event the authority found no safe moment for (its own talks can be long)
-constexpr size_t kQueue = 16;
+constexpr size_t kQueue = 16;               // a member's events not sent yet
+constexpr size_t kWaiting = 64;             // the authority's received events not posted yet
+constexpr uint16_t kTakenFlag = 0x8000;     // kinds 2 and 14 on the wire: the sender's own record took the notice
+constexpr uint64_t kQueuedFromA = 0x13552c, kQueuedFromB = 0x13559c;   // the notifier 0x1353a0's two returns from 0x1350c0
+constexpr double kHeldLine = 5.0;   // the authority: a wait for a safe moment this long is logged when it ends
 
 struct Event {
     uint8_t kind;
@@ -152,6 +163,7 @@ struct Event {
     uint16_t arg;    // kind 1: 0; kind 29: the item, kFedFlag for 0x333be0's w2; kind 2: the field; kind 14: a | mode << kModeShift
     double at;
     uint8_t origin;  // the authority: the member's node
+    bool taken = false;   // kinds 2 and 14: the member's own record took the notice (kTakenFlag on the wire)
 };
 
 const char* what(uint8_t kind) { return kind == kFedKind ? "feed of" : kind == kEndedKind ? "end of" : "talk to"; }
@@ -168,6 +180,9 @@ struct State {
     std::vector<Event> outgoing;   // a member's events not sent yet
     std::vector<Event> incoming;   // the authority's received events not posted yet
     std::vector<Posted> posted;    // the authority's kind 2 posts of the last kRecent seconds
+    uint32_t lost = 0;             // the authority's received events lost to a full queue since the last line
+    bool noticing = false;         // a member, inside the notifier's call: the last outgoing event is this notice's
+    double held_at = 0.0;          // the authority: since when events wait with no safe moment to post (0: not waiting)
 };
 State& st() {
     static State s;
@@ -189,9 +204,11 @@ uint16_t member_data_id(::Ctx* c, uint64_t id) {
     return static_cast<uint16_t>(data - 1) < kDataIdMax ? data : 0;
 }
 
-void queue(uint8_t kind, uint16_t data, uint16_t arg) {
+bool queue(uint8_t kind, uint16_t data, uint16_t arg) {
     State& s = st();
-    if (s.outgoing.size() < kQueue) s.outgoing.push_back(Event{kind, stage(), data, arg, qpc::seconds(), link::self()});
+    if (s.outgoing.size() >= kQueue) return false;
+    s.outgoing.push_back(Event{kind, stage(), data, arg, qpc::seconds(), link::self()});
+    return true;
 }
 
 void send() {
@@ -202,14 +219,16 @@ void send() {
     for (const Event& e : s.outgoing) {
         if (talk::talking() && now - e.at < kSendWait) break;   // after this player's talk, in order
         if (!link::to_authority(wire::Type::CreatureEvent,
-                                wire::Writer(link::self()).u8(e.kind).u8(e.stage).u16(e.data).u16(e.arg).take()))
+                                wire::Writer(link::self()).u8(e.kind).u8(e.stage).u16(e.data)
+                                    .u16(static_cast<uint16_t>(e.arg | (e.taken ? kTakenFlag : 0))).take()))
             break;   // kept for the next frame
         if (e.kind == kEndedKind)
-            NXLOG_I(kTag, "Co-op feed: end of %s %u (stage %u), sent to the authority", kEnders[e.arg].name, e.data, e.stage);
+            NXLOG_I(kTag, "Co-op feed: end of %s %u (stage %u), sent to the authority%s", kEnders[e.arg].name, e.data, e.stage,
+                    e.taken ? " (a record here took it)" : "");
         else if (e.kind == kUsedKind)
             journal::Rec(journal::Area::Interact, "object use relay")
                 .in("object=%u use=%u mode=%u stage=%u", e.data, use_of(e.arg), mode_of(e.arg), e.stage)
-                .out("sent to the authority")
+                .out("sent to the authority%s", e.taken ? " (a record here took it)" : "")
                 .expect("the authority posts it to its contents");
         else
             NXLOG_I(kTag, "Co-op feed: %s character %u (stage %u, arg 0x%x), sent to the authority", what(e.kind), e.data, e.stage, e.arg);
@@ -241,14 +260,18 @@ bool post(::Ctx* c, const Event& e) {
     const uint64_t sched = guest::ok(gm, kScheduler + 8) ? guest::rd<uint64_t>(gm + kScheduler) : 0;
     if (sched && e.kind == kEndedKind) {   // no character: the event's own notifier (on_notice remembers the post)
         const Ender& n = kEnders[e.arg];
+        if (e.taken) behalf::begin(e.origin);
         guest::call(c, base() + n.entry, sched, e.data);
+        behalf::end();
         NXLOG_I(kTag, "Co-op feed: node %u's end of %s %u posted to the contents here", e.origin, n.name, e.data);
         return true;
     }
     if (sched && e.kind == kUsedKind) {   // no character either: the notifier the member's process called
         const uint8_t mode = mode_of(e.arg);
+        if (e.taken) behalf::begin(e.origin);
         const uint64_t ran = mode ? guest::call(c, base() + kUsedMode, sched, use_of(e.arg), e.data, mode)
                                   : guest::call(c, base() + kUsedNotice, sched, use_of(e.arg), e.data);
+        behalf::end();
         journal::Rec rec(journal::Area::Interact, "object use relay");
         rec.in("node=%u object=%u use=%u mode=%u", e.origin, e.data, use_of(e.arg), mode);
         if (mode) rec.out("posted here (0x135cf4)");
@@ -277,7 +300,10 @@ bool post(::Ctx* c, const Event& e) {
 
 void apply(::Ctx* c, bool in_game) {
     State& s = st();
-    if (s.incoming.empty()) return;
+    if (s.incoming.empty()) {
+        s.held_at = 0.0;
+        return;
+    }
     const uint8_t here = stage();
     const double now = qpc::seconds();
     for (size_t i = 0; i < s.incoming.size();) {
@@ -296,7 +322,19 @@ void apply(::Ctx* c, bool in_game) {
         }
         ++i;
     }
-    if (s.incoming.empty() || !session::can_walk(in_game) || talk::talking()) return;
+    if (s.incoming.empty()) {
+        s.held_at = 0.0;
+        return;
+    }
+    if (!session::can_walk(in_game) || talk::talking()) {
+        if (s.held_at == 0.0) s.held_at = now;
+        return;
+    }
+    if (s.held_at != 0.0 && now - s.held_at >= kHeldLine)
+        NXLOG_I(kTag, "Co-op feed: posting again after %.1f s with no safe moment; %zu events waited, %u were lost to the full queue",
+                now - s.held_at, s.incoming.size(), s.lost);
+    s.held_at = 0.0;
+    s.lost = 0;
     const Event e = s.incoming.front();
     s.incoming.erase(s.incoming.begin());
     if (e.kind == kEndedKind && posted_recently(e.arg, e.data)) {
@@ -305,6 +343,26 @@ void apply(::Ctx* c, bool in_game) {
     }
     if (!post(c, e))
         NXLOG_I(kTag, "Co-op feed: node %u's %s character %u dropped (no such character here)", e.origin, what(e.kind), e.data);
+}
+
+// The authority's queue is full: the event is lost. Logged for the first of a run; the count is in the line that ends the wait.
+void lose(State& s, uint8_t origin, uint8_t kind) {
+    if (s.lost++ == 0)
+        NXLOG_W(kTag, "Co-op feed: the queue of events to post here is full (%zu); node %u's event of kind %u is lost, and every one "
+                "after it until there is room", kWaiting, origin, kind);
+}
+
+// The authority takes a received event into its queue. An event's end or an object's use equal to one that waits is that one (a
+// record that took it there once counts for both); a talk or a feed is always its own.
+void wait(State& s, const Event& e) {
+    if (e.kind == kEndedKind || e.kind == kUsedKind)
+        for (Event& w : s.incoming)
+            if (w.kind == e.kind && w.stage == e.stage && w.data == e.data && w.arg == e.arg && w.origin == e.origin) {
+                w.taken = w.taken || e.taken;
+                return;
+            }
+    if (s.incoming.size() >= kWaiting) return lose(s, e.origin, e.kind);
+    s.incoming.push_back(e);
 }
 
 }  // namespace
@@ -346,14 +404,23 @@ void on_used(uint64_t sc, uint64_t list, uint64_t ret) {
     if (link::is_authority()) {
         if (!mode) contents::on_object_used(object, use);   // its own press or a member's posted here: a lost scene may wait on it
     } else if (quests::member_rules()) {
-        queue(kUsedKind, object, static_cast<uint16_t>(use | mode << kModeShift));
+        st().noticing = queue(kUsedKind, object, static_cast<uint16_t>(use | mode << kModeShift));
     }
 }
 
 }  // namespace
 
+int on_record_queued(::Ctx* c) {
+    State& s = st();
+    if (!s.noticing || s.outgoing.empty()) return 0;
+    const uint64_t from = c->x[30] - base();
+    if (from == kQueuedFromA || from == kQueuedFromB) s.outgoing.back().taken = true;
+    return 0;
+}
+
 int on_notice(::Ctx* c) {
     State& s = st();
+    s.noticing = false;
     if (!link::in_session()) return 0;
     const uint64_t sc = c->x[0];
     uint32_t kind = 0;
@@ -375,7 +442,7 @@ int on_notice(::Ctx* c) {
             if (p.size() >= kPostedMax) p.erase(p.begin());
             p.push_back(Posted{static_cast<uint16_t>(i), value, now});
         } else if (quests::member_rules()) {
-            queue(kEndedKind, value, static_cast<uint16_t>(i));
+            s.noticing = queue(kEndedKind, value, static_cast<uint16_t>(i));
         }
         return 0;   // the game's own notice runs here as well
     }
@@ -385,19 +452,17 @@ int on_notice(::Ctx* c) {
 void on_event_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
     State& s = st();
     const uint8_t kind = r.u8(), at = r.u8();
-    const uint16_t data = r.u16(), arg = r.u16();
+    const uint16_t data = r.u16();
+    uint16_t arg = r.u16();
     if (!r.ok()) return;
-    if (kind == kEndedKind) {
-        if (arg >= kEnderCount || static_cast<uint16_t>(data - 1) >= kEnders[arg].max || s.incoming.size() >= kQueue) return;
-        s.incoming.push_back(Event{kind, at, data, arg, qpc::seconds(), origin});
-        return;
-    }
-    if (kind == kUsedKind) {
-        if (static_cast<uint16_t>(data - 1) >= kObjectMax || static_cast<uint16_t>(use_of(arg) - 1) >= kUseMax ||
-            mode_of(arg) > kModeMax || s.incoming.size() >= kQueue)
+    if (kind == kEndedKind || kind == kUsedKind) {
+        const bool taken = arg & kTakenFlag;
+        arg &= static_cast<uint16_t>(~kTakenFlag);
+        if (kind == kEndedKind ? (arg >= kEnderCount || static_cast<uint16_t>(data - 1) >= kEnders[arg].max)
+                               : (static_cast<uint16_t>(data - 1) >= kObjectMax || static_cast<uint16_t>(use_of(arg) - 1) >= kUseMax ||
+                                  mode_of(arg) > kModeMax))
             return;
-        s.incoming.push_back(Event{kind, at, data, arg, qpc::seconds(), origin});
-        return;
+        return wait(s, Event{kind, at, data, arg, qpc::seconds(), origin, taken});
     }
     if (static_cast<uint16_t>(data - 1) >= kDataIdMax) return;
     if (kind != kTalkedToKind && kind != kFedKind) {
@@ -405,8 +470,7 @@ void on_event_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
         return;
     }
     if (kind == kFedKind && static_cast<uint16_t>((arg & kItemMask) - 1) >= kItemMax) return;
-    if (s.incoming.size() >= kQueue) return;
-    s.incoming.push_back(Event{kind, at, data, arg, qpc::seconds(), origin});
+    wait(s, Event{kind, at, data, arg, qpc::seconds(), origin});
 }
 
 void tick(::Ctx* c, bool in_game) {

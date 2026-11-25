@@ -42,7 +42,7 @@
   <a href="../../LEGAL.md">कानूनी</a> ·
   <a href="../../PRIVACY.md">गोपनीयता</a> ·
   <a href="https://github.com/Dittobyte/Recompia/issues">समस्याएँ</a> ·
-  <a href="https://discord.recompia.com">Discord</a>
+  <a href="https://discord.gg/VyRcUUQNKH">Discord</a>
 </p>
 
 > [!IMPORTANT]
@@ -306,7 +306,7 @@ Home पर **Storage** दिखाता है कि हर चीज़ क
 
 ## समुदाय
 
-सवाल, बग से जुड़ी मदद, टेस्टिंग और चैट: [Recompia Discord](https://discord.recompia.com) से जुड़ें। लॉन्चर में **Settings > About > Community** के नीचे भी **Join Discord** बटन है। जिन बग को ठीक करना है, उन्हें अब भी [GitHub](https://github.com/Dittobyte/Recompia/issues/new/choose) पर रिपोर्ट करें।
+सवाल, बग से जुड़ी मदद, टेस्टिंग और चैट: [Recompia Discord](https://discord.gg/VyRcUUQNKH) से जुड़ें। लॉन्चर में **Settings > About > Community** के नीचे भी **Join Discord** बटन है। जिन बग को ठीक करना है, उन्हें अब भी [GitHub](https://github.com/Dittobyte/Recompia/issues/new/choose) पर रिपोर्ट करें।
 
 ## समस्याएँ रिपोर्ट करना
 

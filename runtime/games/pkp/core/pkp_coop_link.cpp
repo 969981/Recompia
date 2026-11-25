@@ -60,6 +60,7 @@ constexpr Route kRoutes[] = {
     {wire::Type::StockState, Path::FromAuthority, &stock::on_state_message},
     {wire::Type::ShopRows, Path::FromAuthority, &shoprows::on_rows_message},
     {wire::Type::AreaLevels, Path::FromAuthority, &levels::on_levels_message},
+    {wire::Type::PartyBags, Path::FromAuthority, &party::on_bags_message},
     {wire::Type::EventHistory, Path::Shared, &events::on_history_message},
     {wire::Type::StoryLines, Path::Shared, &events::on_lines_message},
     {wire::Type::DexKnown, Path::Shared, &discovery::on_dex_message},
@@ -226,6 +227,7 @@ void on_member(const ch::MemberEvent& e) {
         skits::on_member_joined();
         friendship::on_member_joined(e.node);
     }
+    party::on_member_change(e.node, e.joined);
     NXLOG_I(kTag, "Co-op: node %d %s the session%s", e.node, e.joined ? "joined" : "left", e.authority ? " (the authority)" : "");
 }
 

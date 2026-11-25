@@ -13,6 +13,6 @@ Recompia @VERSION@ لنظام Linux وSteamOS وSteam Deck
 
 التحديث: استخرج الإصدار الجديد فوق تثبيتك. إذا غيّر التحديث شيفرة اللعبة، يخبرك المشغّل: اضغط Set up مرة أخرى وسيعيد بناء pkp. تبقى شيدراتك وملفات حفظك.
 
-المجتمع والمساعدة: https://discord.recompia.com
+المجتمع والمساعدة: https://discord.gg/VyRcUUQNKH
 
 التراخيص: LICENSE.txt و licenses/.

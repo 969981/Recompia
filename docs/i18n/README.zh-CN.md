@@ -41,7 +41,7 @@
   <a href="../../LEGAL.md">法律信息</a> ·
   <a href="../../PRIVACY.md">隐私</a> ·
   <a href="https://github.com/Dittobyte/Recompia/issues">问题反馈</a> ·
-  <a href="https://discord.recompia.com">Discord</a>
+  <a href="https://discord.gg/VyRcUUQNKH">Discord</a>
 </p>
 
 > [!IMPORTANT]
@@ -305,7 +305,7 @@ Home 页面上的 **Storage** 会显示每项占用的空间，并可删除构�
 
 ## 社区
 
-问题咨询、错误帮助、测试和聊天：加入 [Recompia Discord](https://discord.recompia.com)。启动器的 **Settings > About > Community** 下也有 **Join Discord** 按钮。需要修复的错误仍请在 [GitHub](https://github.com/Dittobyte/Recompia/issues/new/choose) 报告。
+问题咨询、错误帮助、测试和聊天：加入 [Recompia Discord](https://discord.gg/VyRcUUQNKH)。启动器的 **Settings > About > Community** 下也有 **Join Discord** 按钮。需要修复的错误仍请在 [GitHub](https://github.com/Dittobyte/Recompia/issues/new/choose) 报告。
 
 ## 报告问题
 

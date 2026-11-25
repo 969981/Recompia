@@ -252,6 +252,20 @@ pub fn save(dir: &Path, new: &NewDevice) -> Result<(), String> {
     write(dir, "launcher.json", serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?.as_bytes(), false)
 }
 
+/// This device's certificate as the portal issued it (PEM), to show the portal which device asks.
+pub fn certificate_pem(dir: &Path) -> Result<String, String> {
+    String::from_utf8(read(dir, "device.crt")?).map_err(|_| "device.crt is not a PEM certificate".to_string())
+}
+
+/// Records the portal this sign-in belongs to now (launcher.json `portal`), after the portal moved to another address
+/// and still knows this device. Nothing else of the sign-in changes.
+pub fn set_portal(dir: &Path, portal: &str) -> Result<(), String> {
+    let mut json: serde_json::Value = serde_json::from_slice(&read(dir, "launcher.json")?).map_err(|e| format!("launcher.json is not readable: {e}"))?;
+    let fields = json.as_object_mut().ok_or("launcher.json is not readable")?;
+    fields.insert("portal".into(), portal.into());
+    write(dir, "launcher.json", serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?.as_bytes(), false)
+}
+
 /// Signs this device out here: removes the sign-in's files (launcher.json first). The device stays valid on the
 /// portal until it is removed there, which is what revokes it.
 pub fn remove(dir: &Path) -> Result<(), String> {

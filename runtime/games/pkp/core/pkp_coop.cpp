@@ -140,6 +140,11 @@ enum class Site : uintptr_t {
     // ---- the role answers (pkp_coop_role.cpp) ----
     RoleAnswer,       // a role getter's call listed in pkp_coop_role_table.inc (a permission or display check): a member gets the host's
                       // answer there, every other caller the game's own
+    // ---- the party answers (pkp_coop_party_answers.cpp) ----
+    PartyFact,        // a condition handler listed in pkp_coop_party_table.inc that checks one player for what the party has (a
+                      // creature following): in a session it answers for every player
+    PartyOff,         // a refusal listed there whose reason a session does not have: in a session it does not refuse
+    PartyCount,       // a count of an item in this player's bag listed there: in a session any one player's bag counts
     // ---- the creature jobs (pkp_coop_jobs.cpp) ----
     JobTick,          // the item-making tick's IsMine test: the authority also ticks a job on a creature a member holds, which
                       // otherwise no process ticks
@@ -204,6 +209,12 @@ enum class Site : uintptr_t {
     ContentsNotice,   // the contents notifier, called by the three "event ended" notifiers and the two "object used" ones: a member's
                       // is posted on the authority too, so content records waiting on a scene a member played or an object a member
                       // used (the PC) run for the group
+    // ---- a record run for a member whose own copy ran (pkp_coop_behalf.cpp), the member's mark for it (pkp_coop_feed.cpp) ----
+    RecordQueued,     // a record put into the contents scheduler's run queue: a member marks the notice it sends as taken here; the
+                      // authority remembers a record its post of such a notice queued
+    RecordRun,        // a queued record's run: the record whose actions run from now
+    ActorAction,      // a content's warp or push of this process's player: not made by a record the authority runs for a member
+                      // whose own copy ran (the play scene action is the PlayScene site)
     // ---- a content's scene refused by a character another player holds (pkp_coop_contents.cpp) ----
     SceneTake,        // the event setup's "every character is ready" test: a remembered scene refused long enough starts anyway
     SceneStart,       // the event start's IsMine of one character: the same scene takes a character another player holds
@@ -290,6 +301,14 @@ constexpr CoopSite kSites[] = {
 #include "core/pkp_coop_role_table.inc"
 #undef PKP_ROLE_BIT
 #undef PKP_ROLE_ROW
+    // ---- the party answers (pkp_coop_party_answers.cpp): an entry hook per fact row, a midhook (after its `bl`) per off row ----
+#define PKP_PARTY_FACT(entry, fact, word, tag, what) {{entry, word, true}, Site::PartyFact},
+#define PKP_PARTY_OFF(ret, callee, answer, word, tag, what) {{ret, word, false}, Site::PartyOff},
+#define PKP_PARTY_COUNT(ret, callee, item_sp, n_reg, op_reg, word, tag, what) {{ret, word, false}, Site::PartyCount},
+#include "core/pkp_coop_party_table.inc"
+#undef PKP_PARTY_COUNT
+#undef PKP_PARTY_OFF
+#undef PKP_PARTY_FACT
     // the creature jobs (pkp_coop_jobs.cpp)
     {{0x3b39a8, 0x36001540u, false}, Site::JobTick},         // tbz w0, #0, 0x3b3c50 (w0 = IsMine's answer)
     // friendship
@@ -359,6 +378,11 @@ constexpr CoopSite kSites[] = {
     {{0x4a1adc, 0x2a0802d8u, false}, Site::TalkSwapParent},  // orr w24, w22, w8 (w8 = the parent term, w24 = the data id, in 0x4a17fc)
     // an event's end on a member (pkp_coop_feed.cpp): the journal's entry site of the contents notifier, shared
     {{0x1353a0, kPacibsp, true}, Site::ContentsNotice},
+    {{0x1350c0, 0xf940002bu, true}, Site::RecordQueued},     // ldr x11, [x1] (x1 = the run slot, its first u64 the record)
+    {{0x131200, kPacibsp, true}, Site::RecordRun},           // x0 = the run slot
+    {{0x12af00, 0xb9400409u, true}, Site::ActorAction},      // ldr w9, [x0, #4] (action 0x4a6: warp to a cell)
+    {{0x12b108, kPacibsp, true}, Site::ActorAction},         // action 0x4ab: warp to a stage point
+    {{0x12dbb8, kPacibsp, true}, Site::ActorAction},         // action 0xe74: push
     {{0x4774e8, 0x3600013cu, false}, Site::SceneTake},       // tbz w28, #0, 0x47750c (w28 = all characters ready, x19 = the runner)
     {{0x47bfe4, 0x0a000318u, false}, Site::SceneStart},      // and w24, w24, w0 (w0 = IsMine, x20 = &actor id, x19 = the runner)
 };
@@ -430,10 +454,18 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::RecordSend: return coop::linkqueue::on_send_record(c);
         case Site::QueueReset: return coop::linkqueue::on_session_reset(c);
         case Site::PlacedNotice: return coop::placement::on_placed_notice(c);
-        case Site::PlayScene: return coop::contents::on_play_scene(c);
+        case Site::PlayScene: return coop::behalf::on_actor_action(c) ? 1 : coop::contents::on_play_scene(c);
+        case Site::ActorAction: return coop::behalf::on_actor_action(c);
+        case Site::RecordRun: return coop::behalf::on_record_run(c);
+        case Site::RecordQueued:
+            coop::feed::on_record_queued(c);
+            return coop::behalf::on_record_queued(c);
         case Site::AreaGateRecord: return coop::unlocks::on_area_gate_record(c);
         case Site::AbilityCheck: return coop::story::on_ability_check(c);
         case Site::RoleAnswer: return coop::answers::on_answer(c, addr - st().base);
+        case Site::PartyFact: return coop::party::on_fact(c, addr - st().base);
+        case Site::PartyOff: return coop::party::on_off(c, addr - st().base);
+        case Site::PartyCount: return coop::party::on_count(c, addr - st().base);
         case Site::JobTick: return coop::jobs::on_job_tick(c);
         case Site::FriendGain: return coop::friendship::on_add_points(c);
         case Site::FriendFlag: return coop::friendship::on_flag_17a(c);
@@ -589,8 +621,11 @@ void game_frame(::Ctx* c) {
     coop::levels::tick();
     coop::skits::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::answers::tick();
+    coop::party::tick();
+    coop::party::bags_tick();
     coop::friendship::tick(c);
     coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::behalf::tick();
     coop::newcomer::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::takeout::tick(c);
     coop::deposit::tick(c, s.in_game.load(std::memory_order_relaxed));
@@ -645,11 +680,14 @@ void remove() {   // the registry has removed the hooks
     coop::contents::reset();
     coop::friendship::reset();
     coop::feed::reset();
+    coop::behalf::reset();
     coop::session::reset();
     coop::records::reset();
     coop::levels::reset();
     coop::skits::reset();
     coop::answers::reset();
+    coop::party::reset();
+    coop::party::bags_reset();
     coop::jobs::reset();
     coop::owner::reset();
     coop::newcomer::reset();

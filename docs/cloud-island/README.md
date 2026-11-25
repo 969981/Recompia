@@ -50,7 +50,9 @@ All of it sits behind one launcher switch, **Settings > Game > Online > Cloud Is
 gateway, and the game is not pointed at a server (a `cloud_server` left in pkp.ini is overridden with an empty one for the run).
 Switching it off keeps the sign-in (the device folder). Switching it on opens the sign-in screen at once (Skip or Back returns to
 Settings). On, for each run the launcher points the game at the Cloud Islands server (`NXRT_NET_CLOUD_SERVER`) and runs the gateway;
-the server and portal addresses are built in (`launcher/src-tauri/src/cloud_account.rs`, `SERVER` and `PORTAL`). pkp.ini can name
+the server and portal addresses are built in (`launcher/src-tauri/src/cloud_account.rs`, `SERVER` and `PORTAL`). The gateway dials that
+server address, not the host a sign-in stored, so a sign-in keeps working when the server's name changes; the port and the name its
+certificate is checked against stay the sign-in's. pkp.ini can name
 others for a test server; the launcher never writes these keys:
 
 ```ini
@@ -85,6 +87,15 @@ screen at any time; its way out is then **Back**
 (or Esc), back to Home, the skip flag untouched, and leaving while a sign-in waits stops it. Signed in, the card shows "Signed in as
 <name>", **Sign out**, **Account page** (the portal's account page in the browser) and Back; after Sign out it says so, points to the
 account page to revoke the device for good and offers the two ways in again. Expired, it offers both ways in and Sign out.
+
+**When the portal moves to another address.** A passkey belongs to the portal's host name, so the passkeys made before a move stop
+working, and a device that is still signed in is the only way left into its account. The launcher asks the portal about that for a
+signed-in device (`launcher/src-tauri/src/cloud_passkey.rs`; the portal's `/api/recover/device/begin`). While the account needs a new
+passkey, Home's chip says **Set up a new passkey**, the launcher starts on the sign-in screen (Skip is remembered), and the card shows
+why, that button and no **Sign out** (signing out would lock the account). The button proves the device's key to the portal, which
+answers a one-time link to its page for the new passkey, opened in the browser (`launcher/cloud-gateway/src/recover.rs`). The portal
+grants this only to an account with no working passkey. Without the launcher: `recompia-cloud-gateway recover --portal <url>`. A
+player with no signed-in device left needs a recovery link from the server's operator (the portal's `recovery-link` command).
 
 The launcher hands the game the server, the gateway's ports and its CA (`NXRT_NET_CLOUD_SERVER`, `NXRT_NET_CLOUD_ACCOUNT_TLS_PORT`,
 `NXRT_NET_CLOUD_ACCOUNT_PLAIN_PORT`, `NXRT_NET_CLOUD_CA`) for that run only; pkp.ini is not written. The gateway makes a new CA at every start and drops its key after

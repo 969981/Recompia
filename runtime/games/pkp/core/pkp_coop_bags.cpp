@@ -137,6 +137,7 @@ struct Kept {
     bool dirty = false;
     double written_at = -1e9;
     UserId user{};   // the authority: the member's user id, from its last BagRecord (all 0: not known yet)
+    int node = -1;   // the authority: the node that last sent this record in this run (-1: none)
 };
 
 // One credited gain: n more of the packed word `word` (items::kMoved without the count), found in bag slot `slot`.
@@ -697,6 +698,9 @@ void on_record_message(::Ctx*, int from, uint8_t, wire::Reader& r) {
     const bool first = !(s.greeted & (1u << from));
     const bool newer = got.seq > m.rec.seq, new_user = user != m.user;
     m.user = user;
+    for (auto& [other, kept] : s.members)
+        if (kept.node == from) kept.node = -1;   // a node belongs to one member at a time
+    m.node = from;
     if (newer) {
         m.rec = got;
         m.dirty = true;
@@ -796,6 +800,16 @@ void gain_end(::Ctx* c) {
     if (pending || lost)
         NXLOG_I(kTag, "Co-op bags: a gain of %u items is credited to record %llu at its source (a write-back is pending or the bag is "
                       "held); %u items fit nowhere in the record", items_in, static_cast<unsigned long long>(o.rec.seq), lost);
+}
+
+size_t records(View* out, size_t most) {
+    State& s = st();
+    size_t n = 0;
+    if (!link::in_session() || !link::is_authority()) return 0;
+    if (s.own.rec.seq && n < most) out[n++] = View{link::self(), s.own.rec.seq, s.own.rec.slot.data()};
+    for (const auto& [k, kept] : s.members)
+        if (kept.node >= 0 && kept.rec.seq && n < most) out[n++] = View{kept.node, kept.rec.seq, kept.rec.slot.data()};
+    return n;
 }
 
 void reset() {

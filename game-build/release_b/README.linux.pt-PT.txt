@@ -13,6 +13,6 @@ A partir do Steam (modo Jogo no Deck): adiciona o launcher em Definições, Add 
 
 Para atualizar, extrai a nova versão por cima da tua instalação. Se a atualização mudar o código do jogo, o launcher avisa: carrega em Set up outra vez e ele recompila o pkp. Os teus shaders e jogos guardados mantêm-se.
 
-Comunidade e ajuda: https://discord.recompia.com
+Comunidade e ajuda: https://discord.gg/VyRcUUQNKH
 
 Licenças: LICENSE.txt e licenses/.
