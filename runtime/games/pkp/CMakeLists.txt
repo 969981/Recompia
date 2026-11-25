@@ -72,6 +72,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop_role.cpp"
         "${_pkp}/core/pkp_coop_party.cpp"
         "${_pkp}/core/pkp_coop_party_answers.cpp"
+        "${_pkp}/core/pkp_coop_party_bags.cpp"
         "${_pkp}/core/pkp_coop_jobs.cpp"
         "${_pkp}/core/pkp_coop_friendship.cpp"
         "${_pkp}/core/pkp_coop_challenges.cpp"

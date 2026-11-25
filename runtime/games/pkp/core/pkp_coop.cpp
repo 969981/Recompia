@@ -618,6 +618,7 @@ void game_frame(::Ctx* c) {
     coop::skits::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::answers::tick();
     coop::party::tick();
+    coop::party::bags_tick();
     coop::friendship::tick(c);
     coop::feed::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::behalf::tick();
@@ -682,6 +683,7 @@ void remove() {   // the registry has removed the hooks
     coop::skits::reset();
     coop::answers::reset();
     coop::party::reset();
+    coop::party::bags_reset();
     coop::jobs::reset();
     coop::owner::reset();
     coop::newcomer::reset();

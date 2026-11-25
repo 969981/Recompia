@@ -49,6 +49,8 @@
 //   pkp_coop_role.cpp     the role answers: at the listed permission and display checks (pkp_coop_role_table.inc) a member gets the
 //                         host's answer from the game's role getters
 //   pkp_coop_party.cpp    the party facts: what the party as a whole has (the creatures following any player)
+//   pkp_coop_party_bags.cpp the party facts, the bags: how many of an item each player holds (the authority's sums of the bag
+//                         records, sent to every member)
 //   pkp_coop_party_answers.cpp the party answers: at the listed checks of one player (pkp_coop_party_table.inc) every process
 //                         answers for the party, and a refusal a session has no reason for does not refuse
 //   pkp_coop_friendship.cpp a member's friendship gains with a creature made on the authority (the group's), its records shown to all
@@ -436,6 +438,14 @@ void on_request_refused();
 // restore) can take it away; a loss in between is not credited (the header of pkp_coop_bags.cpp has the rule).
 void gain_begin(::Ctx* c);
 void gain_end(::Ctx* c);
+// The authority: the records it holds for the players now in the session, its own first (node, the record's sequence number, its
+// wire::kBagRecordSlots slot payloads; the pointers hold until the next tick). At most `most`; the count. 0 anywhere else.
+struct View {
+    int node;
+    uint64_t seq;
+    const uint64_t* slots;
+};
+size_t records(View* out, size_t most);
 // The hook sites (pkp_coop.cpp).
 int on_mirror_fill(::Ctx* c);   // entry 0x575644 (member index), the host at a join: the mirror fed from that member's record
 int on_bag_screen(::Ctx* c);    // entry 0xfeee78 (screen), the bag / container screen's frame: an apply waits while it is open
@@ -704,6 +714,16 @@ bool follower_ability(::Ctx* c, uint32_t ability, bool* own);
 // The actor ids of the creatures the session's players invited to follow them (every slot's list), at most `most`; the count.
 constexpr size_t kInvitedMost = 20;   // 4 lists of 5
 size_t invited(uint16_t* ids, size_t most);
+// The bags (pkp_coop_party_bags.cpp). The largest count of item `id` any other player of the session holds, as far as this
+// process knows (0: none; *node: that player's, written when the count is above 0); and whether one of them holds exactly
+// `exactly` of it (*node: that player's).
+uint32_t teammates_most(uint32_t id, uint8_t* node);
+bool teammate_holds(uint32_t id, uint32_t exactly, uint8_t* node);
+// The message (pkp_coop_link.cpp): the authority's sums of every player's bag. A member joined or left (the authority).
+void on_bags_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_member_change(int node, bool joined);
+void bags_tick();    // once a frame: the authority follows the bag records and sends the sums when they changed
+void bags_reset();
 // The hook sites (pkp_coop.cpp), one per row of pkp_coop_party_table.inc (site: its main offset). A fact row's entry hook: in a
 // session the party's answer is written and the handler does not run (returns 1). An off row's midhook after a `bl`: in a session
 // x0 becomes the answer that does not refuse (returns 0). Both return 0 untouched outside a session.
