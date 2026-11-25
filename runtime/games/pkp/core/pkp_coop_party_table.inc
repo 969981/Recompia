@@ -27,6 +27,10 @@
 //             site only compares "at least"
 //     Only for a check that takes nothing: a check whose pass is followed by a take of the item from the checked bag (a request's
 //     hand-in, a give in a talk) gets no row until the take can be made from the bag that passed.
+//   PKP_PARTY_COUNT_OF(ret, callee, item_sp, kind_reg, kinds, word, tag, what)  the same count at a site several kinds of check
+//     share, answered for some of them only ("at least" alone)
+//     kind_reg  the register that holds the kind of the check that reached the site (0..63)
+//     kinds     a bit per kind the row answers; every other kind keeps this player's own count
 //   word      the instruction word at the site, checked with every co-op site before the hooks are armed
 //   tag       the system, short (shown in the log line the first time the row changes an answer in a session)
 //   what      what changes for the players
@@ -78,3 +82,11 @@ PKP_PARTY_OFF(0xfbacfc, 0x4da0e0, 0, 0x360000a0u, "story follower", "the map pag
 PKP_PARTY_COUNT(0x126f58, 0x2e9d74, 0x18, 21, 22, 0x710012dfu, "bag", "a story step that asks for an item counts it in any one player's bag (condition 0x7e4)")
 PKP_PARTY_COUNT(0x126e44, 0x5b253c, 0x08, 20, 21, 0x710012bfu, "bag", "the same for the story's other item test (condition 0x7da)")
 PKP_PARTY_COUNT(0x11d118, 0x2e9d74, 0x18, 20, 0xff, 0x6b20229fu, "bag", "a quest that waits for an item is met when any one player holds it (quest condition 0x11)")
+
+// ---- a creature's request that only asks to have two items (request type 0xd; the checker 0x613c9c) ----
+// The request checker counts this player's bag for four request types at one site (w21 the type) and for type 0xd a second
+// item right after. Types 1, 0x33 and 0x39 are followed by a take at the hand-in (the give); type 0xd is not: nothing in the
+// request code raises its progress or takes its items, the check alone makes it ready. So type 0xd counts any one player's
+// bag for each of its two items, and the other three keep this player's own count.
+PKP_PARTY_COUNT_OF(0x614028, 0x2e9d74, 0x28, 21, 1ull << 0xd, 0x12003c16u, "request", "a creature's request to have two items is met when players of the session hold them (request type 0xd, first item)")
+PKP_PARTY_COUNT_OF(0x614560, 0x2e9d74, 0x28, 21, 1ull << 0xd, 0x0b2022d6u, "request", "the same, second item")

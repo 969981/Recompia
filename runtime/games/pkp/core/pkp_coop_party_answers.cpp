@@ -36,6 +36,7 @@ constexpr const char* kTag = "pkp";
 
 enum class Fact : uint8_t { Follows, FollowerAbility, None };
 
+constexpr uint8_t kAnyKind = 0xff;   // a count row's kind register: none, the row answers whatever reached the site
 constexpr uint8_t kAtLeast = 0xff;   // a count row's compare register: none, the site compares "at least n"
 
 struct Row {
@@ -48,6 +49,8 @@ struct Row {
     uint8_t item_sp = 0;   // sp + : the u32 whose low 13 bits are the item id
     uint8_t n_reg = 0;     // the register holding the wanted number
     uint8_t op_reg = 0;    // the register holding the compare (0 more than, 1 at least, 2 exactly, 3 at most, 4 fewer), or kAtLeast
+    uint8_t kind_reg = kAnyKind;   // a count row for some kinds only: the register holding the kind (0..63), or kAnyKind
+    uint64_t kinds = 0;            // and a bit per kind the row answers
 };
 
 // The rows as the table lists them, then one sentinel past every address.
@@ -55,7 +58,10 @@ constexpr Row kListed[] = {
 #define PKP_PARTY_FACT(entry, fact, word, tag, what) {entry, Fact::fact, 0, 0, tag},
 #define PKP_PARTY_OFF(ret, callee, answer, word, tag, what) {ret, Fact::None, callee, answer, tag},
 #define PKP_PARTY_COUNT(ret, callee, item_sp, n_reg, op_reg, word, tag, what) {ret, Fact::None, callee, 0, tag, true, item_sp, n_reg, op_reg},
+#define PKP_PARTY_COUNT_OF(ret, callee, item_sp, kind_reg, kinds, word, tag, what) \
+    {ret, Fact::None, callee, 0, tag, true, item_sp, 0, kAtLeast, kind_reg, kinds},
 #include "core/pkp_coop_party_table.inc"
+#undef PKP_PARTY_COUNT_OF
 #undef PKP_PARTY_COUNT
 #undef PKP_PARTY_OFF
 #undef PKP_PARTY_FACT
@@ -172,6 +178,7 @@ int on_count(::Ctx* c, uint64_t site) {
     if (!link::in_session()) return 0;
     const Row* r = find(site);
     if (!r || !r->count || !good(*r)) return 0;
+    if (r->kind_reg != kAnyKind && !(r->kinds >> (c->x[r->kind_reg] & 0x3f) & 1)) return 0;
     uint32_t word = 0;
     if (!guest::read(c->x[31] + r->item_sp, word)) return 0;
     const uint32_t id = word & kItemId, own = static_cast<uint32_t>(c->x[0]) & 0xffff;
