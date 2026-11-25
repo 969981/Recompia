@@ -441,6 +441,19 @@ midhook 0x7100faa3e4
 midhook 0x7100faa3f8
 midhook 0x7100fab940
 #   ---- end of the role answers ----
+#   Seamless co-op, the party answers (pkp_coop_party_answers.cpp): one line per row of pkp_coop_party_table.inc, ascending. An
+#   entry hook per fact row (a condition handler that checks one player for what the party has), a midhook per off row (the
+#   instruction after the `bl` whose result decides a refusal a session does not have)
+entryhook 0x71001273a0
+entryhook 0x7100127480
+midhook 0x71007b09d4
+midhook 0x71007b0a14
+midhook 0x71007b0cfc
+midhook 0x71007cc76c
+midhook 0x71007cc890
+midhook 0x71007ccba8
+midhook 0x7100fbacfc
+#   ---- end of the party answers ----
 #   Seamless co-op, creature jobs (pkp_coop_jobs.cpp): in the item-making tick 0x71003b38f0, the `tbz w0, #0` after the actor's
 #   IsMine (vt+0x478) that returns when another member holds the creature (x19 = the job component)
 midhook 0x71003b39a8
@@ -612,6 +625,10 @@ entryhook 0x71002c2480
 entryhook 0x71002c2e80
 # party NPC: a visitor sends RequestPartyNPC instead
 entryhook 0x7100659588
+# party invite (mgr, &leader id, &creature id): a visitor sends the join instead
+entryhook 0x7100657a20
+# the story's attach (mgr, &leader id, &creature id, flag): to this process's own player
+entryhook 0x7100659280
 # general progress type 3: returns on a visitor before counting
 entryhook 0x710062b3e0
 # general progress type 9: returns on a visitor before counting
@@ -673,6 +690,10 @@ entryhook 0x7100114970
 entryhook 0x71005c059c
 entryhook 0x7100463ae0
 entryhook 0x71007b0d80
+#   the gate and the presser's followers: the can-enter test 0x71007b0c50 (refuses on a story follower), and in 0x71007b0690 the
+#   `ldr x8, [x0, #8]` after `bl 0x710028ebb0` (x0 = the presser's invited followers, walked next)
+entryhook 0x71007b0c50
+midhook 0x71007b09b0
 # ---- end of journal travel ----
 
 # ---- journal services (pkp_journal_services*.cpp) ----

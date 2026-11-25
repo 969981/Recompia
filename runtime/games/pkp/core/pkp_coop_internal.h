@@ -48,6 +48,9 @@
 //   pkp_coop_levels.cpp   the authority's Environment Levels (the 32 area-level bytes), filled into every member's save at the join
 //   pkp_coop_role.cpp     the role answers: at the listed permission and display checks (pkp_coop_role_table.inc) a member gets the
 //                         host's answer from the game's role getters
+//   pkp_coop_party.cpp    the party facts: what the party as a whole has (the creatures following any player)
+//   pkp_coop_party_answers.cpp the party answers: at the listed checks of one player (pkp_coop_party_table.inc) every process
+//                         answers for the party, and a refusal a session has no reason for does not refuse
 //   pkp_coop_friendship.cpp a member's friendship gains with a creature made on the authority (the group's), its records shown to all
 //   pkp_coop_challenges.cpp what a member does counts toward the group's challenges (its shop buys)
 //   pkp_coop_feed.cpp     what a member's player did to a creature (talked to it), posted to the authority's contents scheduler
@@ -687,6 +690,26 @@ int on_answer(::Ctx* c, uint64_t site);
 void tick();    // once a frame: the marks of the rows logged this session clear when the session closes
 void reset();
 }  // namespace answers
+// ---- the party answers (pkp_coop_party.cpp the facts, pkp_coop_party_answers.cpp the hooks): what the party has, where the game
+// checks one player ----
+namespace party {
+// The facts (game thread, inside a hook). A creature follows some player of the session, as far as this process knows (its own
+// player's followers and every player's invited ones): a town creature whose data id is `data`, or any follower when `data` is
+// no data id (the game's condition 0x87a); a town creature with `ability` in one of its two ability slots (condition 0x87c).
+// *own: it is one of this process's own player's followers (written only when true is returned).
+bool follows(::Ctx* c, uint32_t data, bool* own);
+bool follower_ability(::Ctx* c, uint32_t ability, bool* own);
+// The actor ids of the creatures the session's players invited to follow them (every slot's list), at most `most`; the count.
+constexpr size_t kInvitedMost = 20;   // 4 lists of 5
+size_t invited(uint16_t* ids, size_t most);
+// The hook sites (pkp_coop.cpp), one per row of pkp_coop_party_table.inc (site: its main offset). A fact row's entry hook: in a
+// session the party's answer is written and the handler does not run (returns 1). An off row's midhook after a `bl`: in a session
+// x0 becomes the answer that does not refuse (returns 0). Both return 0 untouched outside a session.
+int on_fact(::Ctx* c, uint64_t site);
+int on_off(::Ctx* c, uint64_t site);
+void tick();    // once a frame: the marks of the rows logged this session clear when the session closes
+void reset();
+}  // namespace party
 // ---- the creature jobs (pkp_coop_jobs.cpp) ----
 namespace jobs {
 // Midhook 0x3b39a8 in the item-making tick: on the authority, a job on a creature a member holds is ticked too.
@@ -817,8 +840,8 @@ void reset();
 // ---- a story follow on a member (pkp_coop_follow.cpp) ----
 namespace follow {
 // The hook site (pkp_coop.cpp): entry 0x2a1ed4, the contents' "follow this player" attach (command 0xdac mode 3, through 0x117b18).
-// On a member in the session the game's local-only attach does not run (returns 1) and the creature is sent to the authority; 0
-// elsewhere.
+// On a member in the session the game's local-only attach does not run (returns 1) and the creature is sent to the authority. On
+// the authority it does not run (returns 1) for a creature that follows another session player. 0 elsewhere.
 int on_story_follow(::Ctx* c);
 // The hook site (pkp_coop.cpp): entry 0x5519bc, the host's RequestPartyNPC handler. On the authority in the session a member's leave
 // of a creature another player leads is refused as handled (x0 = 0, returns 1); 0 elsewhere (the game's handler runs).
@@ -826,6 +849,9 @@ int on_party_request(::Ctx* c);
 // The message (pkp_coop_link.cpp): a member's story follow, made on the authority at a safe moment unless the creature follows a
 // player there already.
 void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// The authority, when the group's agreed move to another area is made (pkp_coop_travel.cpp): every player's invited followers
+// leave their leaders through the game's own leave. Nothing on a member or outside a session.
+void release_for_move(::Ctx* c);
 // Sends a member's asks; the authority makes the waiting ones (once a frame, after the channel's handlers).
 void tick(::Ctx* c, bool in_game);
 void reset();

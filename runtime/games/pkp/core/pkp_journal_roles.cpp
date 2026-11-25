@@ -10,7 +10,10 @@
 //   0xe889ac (mid, `tbnz w0`)   shop buy: w0 = IsVisitor (0xe889a8 `bl 0x376c4`); set skips the bought bit 0x5bdc5c (SHOP-STOCK-RE)
 //   0x62f7e0                   area-visit writer: returns at once on a visitor (UNLOCK-LISTS-RE)
 //   0x9bdf50 (w0 chara)        house arrival: refused on a visitor (PR #796)
-//   0x2c2480 / 0x2c2e80 / 0x659588   create NPC / spawn character / party NPC: a visitor sends a request message and returns
+//   0x2c2480 / 0x2c2e80   create NPC / spawn character: a visitor sends a request message and returns
+//   0x659588 (x2 &leader id, x3 &creature id, w4, w5)   a follower leaves its leader: a visitor sends the leave and returns
+//   0x657a20 (x1 &leader id, x2 &creature id, w3, w4)   a creature is invited to follow: a visitor sends the join and returns
+//   0x659280 (x1 &leader id, x2 &creature id, w3)       the story's attach, to this process's own player only (no visitor branch)
 //   0x62b3e0 / 0x62b72c / 0x62be5c   general progress types 3 / 9 / 0x2d: return on a visitor before counting (ROLE-GATES-RE)
 //   0x1355ec (x0 GM+0xd8, x1 &actor id)   contents feed: skipped on a visitor
 //   0xe87260 (w0 shop entry)   "offline-only shop row": hidden whenever online; co-op's OfflineGoods hook (after this one) shows it
@@ -137,7 +140,37 @@ void npc(::Ctx* c, uint64_t site, const char* what) {
 }
 void on_create_npc(::Ctx* c) { npc(c, 0x2c2480, "create NPC"); }
 void on_spawn_chara(::Ctx* c) { npc(c, 0x2c2e80, "spawn character"); }
-void on_party_npc(::Ctx* c) { npc(c, 0x659588, "party NPC"); }
+// The follow calls. Each line names the creature and its leader, and is deduped on the caller and the creature.
+uint16_t id_at(uint64_t at) {
+    uint16_t id = 0;
+    guest::read(at, id);
+    return id;
+}
+void on_party_npc(::Ctx* c) {
+    const uint16_t leader = id_at(c->x[2]), creature = id_at(c->x[3]);
+    branch(c, 0x659588, "party NPC",
+           fmt("leader=0x%x creature=0x%x w1=0x%x w4=%u w5=%u", leader, creature, static_cast<uint32_t>(c->x[1]),
+               static_cast<uint32_t>(c->x[4] & 1), static_cast<uint32_t>(c->x[5] & 1)).c_str(),
+           caller(c), creature);
+}
+void on_party_invite(::Ctx* c) {
+    const uint16_t leader = id_at(c->x[1]), creature = id_at(c->x[2]);
+    branch(c, 0x657a20, "party invite",
+           fmt("leader=0x%x creature=0x%x w3=0x%x w4=0x%x", leader, creature, static_cast<uint32_t>(c->x[3]),
+               static_cast<uint32_t>(c->x[4])).c_str(),
+           caller(c), creature);
+}
+void on_story_attach(::Ctx* c) {
+    const uint16_t leader = id_at(c->x[1]), creature = id_at(c->x[2]);
+    const uint8_t bits = session_byte();
+    uint32_t repeats = 0;
+    if (!due(key_of(0x659280, caller(c), creature, bits), &repeats)) return;
+    Rec rec(Area::Role, "party story attach");
+    rec.in("leader=0x%x creature=0x%x w3=0x%x role=0x%02x (%s) from 0x%" PRIx64, leader, creature, static_cast<uint32_t>(c->x[3]), bits,
+           decode(bits).c_str(), caller(c))
+        .out("attached to this process's own player (the story's follower list, never sent to other players)");
+    if (repeats) rec.note("x%u more since the last line", repeats);
+}
 void progress(::Ctx* c, uint64_t site, const char* what) {
     branch(c, site, what, fmt("x0=0x%" PRIx64 " w1=0x%x", c->x[0], static_cast<uint32_t>(c->x[1])).c_str(), caller(c), 0);
 }
@@ -184,6 +217,8 @@ constexpr WatchSite kSites[] = {
     {{0x2c2480, kPacibsp, true}, &on_create_npc, "create NPC 0x2c2480"},
     {{0x2c2e80, kPacibsp, true}, &on_spawn_chara, "spawn character 0x2c2e80"},
     {{0x659588, kPacibsp, true}, &on_party_npc, "party NPC 0x659588"},
+    {{0x657a20, kPacibsp, true}, &on_party_invite, "party invite 0x657a20"},
+    {{0x659280, 0x79400028u, true}, &on_story_attach, "party story attach 0x659280"},   // ldrh w8, [x1]
     {{0x62b3e0, kPacibsp, true}, &on_progress3, "general progress 3 0x62b3e0"},
     {{0x62b72c, kPacibsp, true}, &on_progress9, "general progress 9 0x62b72c"},
     {{0x62be5c, kPacibsp, true}, &on_progress2d, "general progress 0x2d 0x62be5c"},

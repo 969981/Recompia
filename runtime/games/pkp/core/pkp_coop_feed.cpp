@@ -144,6 +144,7 @@ constexpr size_t kPostedMax = 32;
 constexpr double kSendWait = 30.0;          // a member's event is sent at the latest this long after the talk started
 constexpr double kDrop = 120.0;             // an event the authority found no safe moment for (its own talks can be long)
 constexpr size_t kQueue = 16;
+constexpr double kHeldLine = 5.0;   // the authority: a wait for a safe moment this long is logged when it ends
 
 struct Event {
     uint8_t kind;
@@ -168,6 +169,8 @@ struct State {
     std::vector<Event> outgoing;   // a member's events not sent yet
     std::vector<Event> incoming;   // the authority's received events not posted yet
     std::vector<Posted> posted;    // the authority's kind 2 posts of the last kRecent seconds
+    uint32_t lost = 0;             // the authority's received events lost to a full queue since the last line
+    double held_at = 0.0;          // the authority: since when events wait with no safe moment to post (0: not waiting)
 };
 State& st() {
     static State s;
@@ -277,7 +280,10 @@ bool post(::Ctx* c, const Event& e) {
 
 void apply(::Ctx* c, bool in_game) {
     State& s = st();
-    if (s.incoming.empty()) return;
+    if (s.incoming.empty()) {
+        s.held_at = 0.0;
+        return;
+    }
     const uint8_t here = stage();
     const double now = qpc::seconds();
     for (size_t i = 0; i < s.incoming.size();) {
@@ -296,7 +302,19 @@ void apply(::Ctx* c, bool in_game) {
         }
         ++i;
     }
-    if (s.incoming.empty() || !session::can_walk(in_game) || talk::talking()) return;
+    if (s.incoming.empty()) {
+        s.held_at = 0.0;
+        return;
+    }
+    if (!session::can_walk(in_game) || talk::talking()) {
+        if (s.held_at == 0.0) s.held_at = now;
+        return;
+    }
+    if (s.held_at != 0.0 && now - s.held_at >= kHeldLine)
+        NXLOG_I(kTag, "Co-op feed: posting again after %.1f s with no safe moment; %zu events waited, %u were lost to the full queue",
+                now - s.held_at, s.incoming.size(), s.lost);
+    s.held_at = 0.0;
+    s.lost = 0;
     const Event e = s.incoming.front();
     s.incoming.erase(s.incoming.begin());
     if (e.kind == kEndedKind && posted_recently(e.arg, e.data)) {
@@ -305,6 +323,13 @@ void apply(::Ctx* c, bool in_game) {
     }
     if (!post(c, e))
         NXLOG_I(kTag, "Co-op feed: node %u's %s character %u dropped (no such character here)", e.origin, what(e.kind), e.data);
+}
+
+// The authority's queue is full: the event is lost. Logged for the first of a run; the count is in the line that ends the wait.
+void lose(State& s, uint8_t origin, uint8_t kind) {
+    if (s.lost++ == 0)
+        NXLOG_W(kTag, "Co-op feed: the queue of events to post here is full (%zu); node %u's event of kind %u is lost, and every one "
+                "after it until there is room", kQueue, origin, kind);
 }
 
 }  // namespace
@@ -388,14 +413,15 @@ void on_event_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
     const uint16_t data = r.u16(), arg = r.u16();
     if (!r.ok()) return;
     if (kind == kEndedKind) {
-        if (arg >= kEnderCount || static_cast<uint16_t>(data - 1) >= kEnders[arg].max || s.incoming.size() >= kQueue) return;
+        if (arg >= kEnderCount || static_cast<uint16_t>(data - 1) >= kEnders[arg].max) return;
+        if (s.incoming.size() >= kQueue) return lose(s, origin, kind);
         s.incoming.push_back(Event{kind, at, data, arg, qpc::seconds(), origin});
         return;
     }
     if (kind == kUsedKind) {
-        if (static_cast<uint16_t>(data - 1) >= kObjectMax || static_cast<uint16_t>(use_of(arg) - 1) >= kUseMax ||
-            mode_of(arg) > kModeMax || s.incoming.size() >= kQueue)
+        if (static_cast<uint16_t>(data - 1) >= kObjectMax || static_cast<uint16_t>(use_of(arg) - 1) >= kUseMax || mode_of(arg) > kModeMax)
             return;
+        if (s.incoming.size() >= kQueue) return lose(s, origin, kind);
         s.incoming.push_back(Event{kind, at, data, arg, qpc::seconds(), origin});
         return;
     }
@@ -405,7 +431,7 @@ void on_event_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
         return;
     }
     if (kind == kFedKind && static_cast<uint16_t>((arg & kItemMask) - 1) >= kItemMax) return;
-    if (s.incoming.size() >= kQueue) return;
+    if (s.incoming.size() >= kQueue) return lose(s, origin, kind);
     s.incoming.push_back(Event{kind, at, data, arg, qpc::seconds(), origin});
 }
 
