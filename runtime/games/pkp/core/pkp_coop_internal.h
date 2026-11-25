@@ -747,6 +747,9 @@ int on_fact(::Ctx* c, uint64_t site);
 int on_off(::Ctx* c, uint64_t site);
 int on_count(::Ctx* c, uint64_t site);
 int on_pred(::Ctx* c, uint64_t site);
+// A leader row's midhook at a compare of a creature's leader with this player: in a session a leader that is any player of the
+// session passes (returns 0).
+int on_leader(::Ctx* c, uint64_t site);
 void tick();    // once a frame: the marks of the rows logged this session clear when the session closes
 void reset();
 }  // namespace party

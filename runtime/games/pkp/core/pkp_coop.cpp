@@ -147,6 +147,7 @@ enum class Site : uintptr_t {
     PartyCount,       // a count of an item in this player's bag listed there: in a session any one player's bag counts
     PartyPred,        // a predicate about one creature and this player listed there (the game's own-creature test): a member gets
                       // the party's answer, except for the callers the row keeps
+    PartyLeader,      // a compare of a creature's leader with this player listed there: in a session any player's follower passes
     // ---- the creature jobs (pkp_coop_jobs.cpp) ----
     JobTick,          // the item-making tick's IsMine test: the authority also ticks a job on a creature a member holds, which
                       // otherwise no process ticks
@@ -311,7 +312,9 @@ constexpr CoopSite kSites[] = {
 #define PKP_PARTY_OFF(ret, callee, answer, word, tag, what) {{ret, word, false}, Site::PartyOff},
 #define PKP_PARTY_COUNT(ret, callee, item_sp, n_reg, op_reg, word, tag, what) {{ret, word, false}, Site::PartyCount},
 #define PKP_PARTY_COUNT_OF(ret, callee, item_sp, kind_reg, kinds, word, tag, what) {{ret, word, false}, Site::PartyCount},
+#define PKP_PARTY_LEADER(site, leader_reg, mine_reg, word, tag, what) {{site, word, false}, Site::PartyLeader},
 #include "core/pkp_coop_party_table.inc"
+#undef PKP_PARTY_LEADER
 #undef PKP_PARTY_COUNT_OF
 #undef PKP_PARTY_COUNT
 #undef PKP_PARTY_OFF
@@ -477,6 +480,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::PartyOff: return coop::party::on_off(c, addr - st().base);
         case Site::PartyCount: return coop::party::on_count(c, addr - st().base);
         case Site::PartyPred: return coop::party::on_pred(c, addr - st().base);
+        case Site::PartyLeader: return coop::party::on_leader(c, addr - st().base);
         case Site::JobTick: return coop::jobs::on_job_tick(c);
         case Site::FriendGain: return coop::friendship::on_add_points(c);
         case Site::FriendFlag: return coop::friendship::on_flag_17a(c);

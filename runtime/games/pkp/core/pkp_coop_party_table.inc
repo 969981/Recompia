@@ -36,13 +36,18 @@
 //     fact    the party fact that answers it (pkp_coop_party.cpp): Owns
 //     Members only: the authority's own answer already is the group's. The callers that keep the game's answer (by their return
 //     address) are listed with the fact in pkp_coop_party_answers.cpp.
+//   PKP_PARTY_LEADER(site, leader_reg, mine_reg, word, tag, what)  a compare of a creature's leader with this player
+//     site        main offset of the compare (a midhook: it runs before the compare)
+//     leader_reg  the register holding the actor id of the creature's leader
+//     mine_reg    the register holding this player's actor id; when the leader is a player of the session it becomes the leader's
+//                 id, so "it follows me" reads "it follows a player". Only where nothing reads mine_reg after the compare
 //   word      the instruction word at the site, checked with every co-op site before the hooks are armed
 //   tag       the system, short (shown in the log line the first time the row changes an answer in a session)
 //   what      what changes for the players
 // Every row needs its `entryhook` / `midhook 0x71<site>` line in recomp/games/pkp/main.sites (the co-op party answer block).
 //
-// The pkp_coop.cpp site table includes this file too (each row one Site::PartyFact, Site::PartyOff, Site::PartyCount or
-// Site::PartyPred hook).
+// The pkp_coop.cpp site table includes this file too (each row one Site::PartyFact, Site::PartyOff, Site::PartyCount,
+// Site::PartyPred or Site::PartyLeader hook).
 
 // ---- a creature follows a player: the party's followers, not only this process's player's ----
 // Contents conditions (the story's and the quests' scripts, evaluator 0x12483c; x0 = the condition's words, x8 = the u32 result).
@@ -111,3 +116,11 @@ PKP_PARTY_COUNT_OF(0x614560, 0x2e9d74, 0x28, 21, 1ull << 0xd, 0x0b2022d6u, "requ
 // answers 1 for a creature that has parents, as the host does. Five callers keep the game's answer (kOwnsKept): a member must
 // not run their step.
 PKP_PARTY_PRED(0x284ef4, Owns, 0xd503237fu, "own creature", "a teammate has the town's creatures as its own, as the host does: the move-in talk option, the talk rows for one's own creatures, their friendship values")
+
+// ---- the talk option to move a creature into a house: the creature follows a player (0x4db9f4, slot 9 of table 0x34c3060) ----
+// After the own test above the option asks that the creature is following: its invited mark (part +0x1e, or byte +9 of its
+// follow row), a valid leader id at part block +0x10, and that id equal to this process's player's (`ldrh w9, [x22, x9]` at
+// 0x4dbcb8, `cmp w8, w9` at 0x4dbcbc, `b.ne` to "no option"). So only the player the creature follows could offer it a house.
+// In a session a creature that follows any player passes; the house is still the one the talking player stands in or next
+// to, and the home is written as for that player (script callback 0x49c000). w9 is loaded again at 0x4dbce4 before its next use.
+PKP_PARTY_LEADER(0x4dbcbc, 8, 9, 0x6b09011fu, "move in", "a creature that follows any player can be asked to move into a house by every player, not only by the one it follows")
