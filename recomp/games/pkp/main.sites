@@ -626,6 +626,10 @@ entryhook 0x71002c2480
 entryhook 0x71002c2e80
 # party NPC: a visitor sends RequestPartyNPC instead
 entryhook 0x7100659588
+# party invite (mgr, &leader id, &creature id): a visitor sends the join instead
+entryhook 0x7100657a20
+# the story's attach (mgr, &leader id, &creature id, flag): to this process's own player
+entryhook 0x7100659280
 # general progress type 3: returns on a visitor before counting
 entryhook 0x710062b3e0
 # general progress type 9: returns on a visitor before counting
@@ -687,6 +691,10 @@ entryhook 0x7100114970
 entryhook 0x71005c059c
 entryhook 0x7100463ae0
 entryhook 0x71007b0d80
+#   the gate and the presser's followers: the can-enter test 0x71007b0c50 (refuses on a story follower), and in 0x71007b0690 the
+#   `ldr x8, [x0, #8]` after `bl 0x710028ebb0` (x0 = the presser's invited followers, walked next)
+entryhook 0x71007b0c50
+midhook 0x71007b09b0
 # ---- end of journal travel ----
 
 # ---- journal services (pkp_journal_services*.cpp) ----
