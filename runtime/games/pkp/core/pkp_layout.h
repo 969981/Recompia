@@ -35,6 +35,16 @@ constexpr uint64_t kSaveLastGate = 0x13d3a59;         // u8 STGDAT m_lastGate (t
 constexpr uint64_t kSaveSkitInGate = 0x7416d1;        // u8 m_playSkitInGateNum
 constexpr uint64_t kSaveTrainerLevel = 0x4a4400;      // u8 m_trainerLevel (the rank a gate asks for; own save, no visitor copy)
 constexpr uint64_t kSaveCleanCount = 0x4a4401;        // u8 the sludge cleanings counted (1..99; unique request type 0x2c reads it)
+constexpr uint64_t kSaveStoryFlags = 0x4a26c8;        // u8[4] m_storyCtrlFlag: flag n (1..20) is bit n & 7 of byte n >> 3
+constexpr size_t kStoryFlagBytes = 4;
+constexpr uint32_t kStoryFlagMax = 20;
+// The home record per character index (0x20 bytes: +8 u8 its kind 1..3, +0xc u8 its stage); a visitor reads the copy of the host's.
+constexpr uint64_t kSaveHome = 0x8b860, kSaveHomeMirror = 0x154e468, kHomeSize = 0x20, kHomeKind = 8, kHomeStage = 0xc;
+constexpr uint32_t kHomeCount = 0x41a;
+// A creature's friend record, through its component (a resident's part + 0x2ca0; a talk target with none has the stand-in).
+constexpr uint64_t kNoComponent = 0x3567db0;     // main + : the stand-in component
+constexpr uint64_t kHasParents = 0x285100;       // (comp) -> bit 0: its record (as this process selects it) has a parents user id
+constexpr uint64_t kCloudIsland = 0x77ecb0;      // () -> bit 0: the stage is Cloud Island
 constexpr uint64_t kGameState = 0x3561710;       // the game state (stage, session)
 constexpr uint64_t kStateStage = 0x18;           // game state: u8, the stage the player is in
 constexpr uint64_t kStateSession = 0x90;         // game state: u8 Link Play session bits (kSession*); 0 offline
@@ -356,5 +366,17 @@ constexpr uint64_t kNetManager = 0x3561a20, kNetQualityTimer = 0xb3374;
 constexpr uint64_t kNetQualityLevel = 0xb336c, kNetQualityLoss = 0xb3378, kNetQualityPing = 0xb337c;
 // Error 3103: KTGL_ONLINE_E_SESSIONP2P_NETWORK_LOST, the result 0x547278 shows when the session's network is gone.
 constexpr uint32_t kErrorSessionLost = 0x80401103;
+
+// The party manager PG = *(main + kPartyManager): the creatures following the players. Its lists start at PG + kPartyLists, each
+// kPartyListSize bytes (+0 the u16 actor ids, +8 u64 their count): lists 0..kPartySlotLists-1 the creatures each session player
+// invited, by the player's session slot (on every process); list kPartyStoryList the story's followers of this process's own
+// player (never sent); list kPartyOwnList every follower of this process's own player (0x373f58 returns it).
+constexpr uint64_t kPartyManager = 0x35659f8, kPartyLists = 8, kPartyListSize = 0x28;
+constexpr uint64_t kPartySlotLists = 4, kPartyStoryList = 9, kPartyOwnList = 10;
+// The follow rows: one per character in the player's own save (save root + kFollowRows, index = the character's save index, the
+// u32 at its party block +0xc; an index of kFollowRowCount or more reads row 0), byte kFollowRowStory the story's mark of a
+// follower. A visiting game reads the host's rows in its mirror (kFollowRowsVisiting), Cloud Island its own copy.
+constexpr uint64_t kFollowRows = 0x23c3d0, kFollowRowsVisiting = 0x16fefd8, kFollowRowSize = 0x10, kFollowRowStory = 0xa;
+constexpr uint32_t kFollowRowCount = 0x41a;
 
 }  // namespace nxrt::games::pkp::layout

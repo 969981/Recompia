@@ -33,8 +33,27 @@ struct CoopLaunch {
 // (pkp_coop_bags.cpp, BagRecord / BagRestore); a build where the game's own join hand-back still owns a member's bag would undo
 // that, and an authority without the records would never answer a member's. 5: a member reads the area-open gate through the host's
 // branch (pkp_coop_role_table.inc 0x630fcc), from the bytes the authority's open-areas record sends (pkp_coop_records.cpp record 9);
-// under an authority that sends no such record every area would read closed. The launcher knows the "Recompia co-op rules" prefix.
-inline constexpr const char* kCoopRules = "Recompia co-op rules 5";
+// under an authority that sends no such record every area would read closed. 6: a creature following any player answers the
+// story's "is it following" checks on every process, and an area gate's press releases no follower (pkp_coop_party_table.inc); a build
+// without it answers those checks for its own player alone, so the two would set a creature's story talk against each other and its
+// player's gate press would still release the followers. 7: a member's event of kind 2 or 14 says whether a record of its own took
+// the notice (pkp_coop_feed.cpp kTakenFlag, a bit of the event's argument); an authority without it reads the bit as part of the
+// argument and drops the event, so the story's records waiting on a member's scene end or press would not run for the group.
+// 8: a story or quest check of "has this item" counts any one player's bag (pkp_coop_party_table.inc count rows, from the
+// authority's PartyBags); a build without it answers for its own bag alone, so the two would run a story record on one process
+// and not on the other.
+// 9: a story follower is an escort of the player who asked, kept in the authority's record and at the follower's leave
+// (pkp_coop_follow.cpp), and marked as the story's follower in the rows every player's game reads (pkp_coop_escort_marks.cpp); a
+// build without it would attach the story's follower to its own player, release an escort at any leave and not mark it.
+// 10: a creature's request that only asks to have two items counts any one player's bag for each (pkp_coop_party_table.inc,
+// request type 0xd); a build without it answers for its own bag alone, so the request would be ready on one process and not on
+// another.
+// 11: a member has the town's creatures as its own and a creature following any player can be offered a house by every player
+// (pkp_coop_party_table.inc, the predicate and leader rows), and the story flags are the group's (pkp_coop_story_flags.cpp); a
+// build without them would offer the talks of somebody else's creature, and neither send its flag sets to the authority nor take
+// the authority's flags, so its records would go another way than the group's.
+// The launcher knows the "Recompia co-op rules" prefix.
+inline constexpr const char* kCoopRules = "Recompia co-op rules 11";
 
 // Pure: the launch's co-op facts from the settings' text. False when a value is missing or malformed, with the reason in *why.
 bool coop_launch_parse(const std::string& role, const std::string& group, const std::string& member, CoopLaunch* out, const char** why);

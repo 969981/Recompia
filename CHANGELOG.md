@@ -2,8 +2,26 @@
 
 ## Unreleased
 
+**Update:** press **Update** in the launcher, then **Set up again** once (new hook sites; saves and shaders are kept, no shader is rebuilt). Everyone in a co-op session needs this version: an older build cannot join a newer one.
+
 ### Graphics
-- Fixed render resolution percentages depending on the startup window size instead of the game's base resolution.
+- Added `[gfx] gpu_keepalive` (off by default) for NVIDIA desktop cards that run the game at ~40 fps with low GPU load: the driver keeps such a card in a low power state (memory at 810 MHz) because the game's load looks light, and the frame then takes ~22 ms instead of ~2. With `gpu_keepalive = 1` in pkp.ini a tiny workload runs beside the game while it draws, so the card stays at full speed: an RTX 4060 went from ~37 fps to the 60 fps cap at the start of the game. It costs some power. Still not on by default, and not in the launcher's settings
+- Fixed render resolution percentages depending on the startup window size instead of the game's base resolution
+
+### Gameplay
+- Fixed a co-op story step that needs a creature brought through an area gate: pressing the gate no longer makes the creature stop following (followers leave when the group moves to the next area), and the step counts the creature when it follows any player in the session, not only the one who presses the gate
+- Fixed the co-op host being refused at area gates and on the map while a story creature follows it: the group's move is voted on as it is for a teammate
+- Changed co-op story checks of "is this creature following" to count every player's followers, so a creature's talk no longer flips between two lines depending on who looks
+- Fixed a co-op teammate's action playing its scene for the host too: a teammate who pressed a story gate or object and got its message no longer makes the same message appear on the host's screen
+- Fixed co-op story steps that wait on a teammate's action being lost while the host was in a menu or a talk for a long time
+- Changed co-op story and quest checks of "has this item" to count the item when any one player holds it; items are still taken only from the bag of the player who gives them
+- Fixed co-op story creatures only ever following the host: a creature the story sends along now follows the player who asked for it, and every player's game knows it
+- Fixed a co-op story creature being lost before its step was done: only the story itself ends its follow now, not a gate, a trip, parting ways, the creature's mood or a teammate's game; if its player leaves, it follows the host
+- Changed a co-op creature request that only asks you to have two items: it is ready when players of the session hold them, not only when you do
+- Changed a co-op creature request that asks you to bring an item: any player can hand it in while a teammate holds the item (the item stays with that teammate)
+- Fixed a co-op teammate not being treated as a friend of the town's creatures: the talk option to move a creature into a house, the talk lines for creatures you befriended and their friendship values now work for every player, not only the host
+- Changed the co-op talk option to move a creature into a house: any player can offer it while the creature follows any player, not only the player it follows
+- Fixed co-op story flags being kept per player: a flag a story step sets for one player is now set for the whole group, so hint scenes at gates and a creature's story steps no longer differ between players
 
 ## 0.17.6 (build U: Urchin Hotfix a2)
 

@@ -75,24 +75,22 @@
 //     join is replaced: the mirror gets the record (when there is none yet, the mirror stays as the game cleared it until the first
 //     arrives), the valid flag stays clear (nothing stores the mirror back), and the game's fill from its table does not run (it
 //     also pushed what did not fit into the host's PC). Every newer record of that member is fed into its mirror again.
+// The module's files: this one (the apply, the take, the safeguard, the messages); pkp_coop_bags_store.cpp (the records' files);
+// pkp_coop_bags_credit.cpp (a source's gain); they share pkp_coop_bags_internal.h.
+#include "core/pkp_coop_bags_internal.h"
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_items.h"
 #include "core/pkp_layout.h"
-#include "core/pkp_save_files.h"
 
 #include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <map>
 #include <string>
 #include <vector>
 
-#include "nxrt/file_write.h"
 #include "nxrt/log.h"
 #include "nxrt/qpc.h"
 
@@ -102,11 +100,7 @@ namespace {
 
 constexpr const char* kTag = "pkp";
 
-constexpr size_t kSlots = layout::kBagWholeSlots;
-static_assert(kSlots == wire::kBagRecordSlots && items::kSlotSize == wire::kBagSlotBytes, "the record is the game's whole bag");
-constexpr uint64_t kBagBytes = kSlots * items::kSlotSize;
 
-constexpr double kWriteEvery = 2.0;   // seconds between two writes of one record's file
 constexpr double kSendEvery = 1.0;    // seconds between two BagRecords of a member
 constexpr double kHelloEvery = 5.0;   // seconds between two first BagRecords while the authority has not answered
 constexpr double kGrace = 3.0;        // seconds after an apply or a selection change in which no loss is taken
@@ -119,73 +113,8 @@ constexpr double kSettleWait = 2.0;   // seconds a member's bag must stay unchan
 constexpr double kSettleMax = 10.0;   // seconds after which a change is taken while the bag keeps changing, once it has been still kSettleQuiet
 constexpr double kSettleQuiet = 0.5;  // seconds (longer than the move-to-request gap)
 
-constexpr char kFileMagic[4] = {'C', 'B', 'A', 'G'};
-constexpr uint8_t kFormat = 1;
-constexpr size_t kFileHead = sizeof kFileMagic + 1 + 8;
+}  // namespace
 
-using Key = std::array<uint8_t, kMemberKeyBytes>;
-using UserId = std::array<uint8_t, layout::kUserIdSize>;
-
-struct Record {
-    uint64_t seq = 0;   // 0: no record
-    std::array<uint64_t, kSlots> slot{};   // each slot's payload (+8)
-};
-
-// A record with its file.
-struct Kept {
-    Record rec;
-    bool dirty = false;
-    double written_at = -1e9;
-    UserId user{};   // the authority: the member's user id, from its last BagRecord (all 0: not known yet)
-};
-
-// One credited gain: n more of the packed word `word` (items::kMoved without the count), found in bag slot `slot`.
-struct Credit {
-    uint64_t word = 0;
-    uint32_t n = 0;
-    size_t slot = 0;
-};
-
-// What the bag selector reads, as last seen.
-struct Selection {
-    uint64_t bag = 0;
-    uint8_t stage = 0, own_bag = 0;
-    bool visitor = false, online = false;
-    bool player = false;   // the local player's character exists (it is made again at the end of a load)
-    bool operator==(const Selection&) const = default;
-};
-
-struct State {
-    bool loaded = false;      // own's file was read
-    Kept own;                 // this process's player
-    std::map<Key, Kept> members;   // the authority: every other member's, by key (read from its file on first use)
-    bool active = false;      // in a session at the last tick
-    bool answered = false;    // a member: the authority answered this session's first record (the authority: always)
-    double hello_at = -1e9;
-    bool send = false;        // a member: the record changed since the last BagRecord
-    double sent_at = -1e9;
-    bool apply = false;       // the record waits to be written into the selected bag
-    double grace_until = 0.0;
-    double refused_log_at = -1e9;
-    Selection seen;
-    bool looked = false;      // seen holds this session's first look
-    double up_at = 0.0;       // the session came up
-    bool was_ready = false;   // the bag was ready once in this session (or its absence was logged)
-    uint32_t greeted = 0;     // the authority: bit per node whose first record of its session was answered
-    double screen_at = -1e9;  // the bag / container screen's last frame (its hook runs on the game thread, as the tick)
-    bool restore = false;     // a member: the host refused a request; the record waits to be written back into the bag
-    double unanswered_at = -1.0;   // a member: when the request now unanswered was first seen so (-1: none)
-    bool wait_logged = false; // that wait outlasted kAnswerWait and was logged
-    double change_first = -1.0;   // a member: when the bag was first seen differing from the record (-1: it does not)
-    double change_at = -1.0;      // and when it last changed since (the wait runs from there)
-    Record change_bag;            // the bag as it was then
-    // A source's gain (the header): the bag at gain_begin, and the credits not yet carried by a write-back.
-    bool gain_open = false;
-    uint64_t gain_bag = 0;
-    Record gain_pre;
-    uint32_t credited = 0;            // gains credited since the last write-back (its log line)
-    std::vector<Credit> early;        // a member before the authority's answer: credits to put on top of the copy that wins
-};
 State& st() {
     static State s;
     return s;
@@ -213,70 +142,6 @@ std::pair<uint32_t, uint32_t> totals(const Record& r) {
     for (uint64_t p : r.slot)
         if (items::id_of(p)) ++slots, count += items::count_of(p);
     return {slots, count};
-}
-
-// ---- the files ----
-
-std::filesystem::path file_of(const Key& k) { return save_files::save_dir() / "bags" / (hex(k) + ".bin"); }
-
-bool read_file(const Key& k, Record* out) {
-    std::string b;
-    if (std::ifstream in{file_of(k), std::ios::binary}) b.assign(std::istreambuf_iterator<char>(in), {});
-    if (b.empty()) return false;
-    const auto* p = reinterpret_cast<const uint8_t*>(b.data());
-    if (b.size() != kFileHead + kBagBytes || std::memcmp(p, kFileMagic, sizeof kFileMagic) != 0 || p[4] != kFormat) {
-        NXLOG_W(kTag, "Co-op bags: %s is not a bag record of this build; it is not used", save_files::u8(file_of(k)).c_str());
-        return false;
-    }
-    std::memcpy(&out->seq, p + 5, 8);
-    for (size_t i = 0; i < kSlots; ++i) {
-        std::memcpy(&out->slot[i], p + kFileHead + i * items::kSlotSize + items::kSlotPayload, 8);
-        out->slot[i] = items::moved_of(out->slot[i]);
-    }
-    return true;
-}
-
-void write_file(const Key& k, Kept& kept, double now) {
-    std::string b(kFileHead + kBagBytes, '\0');
-    std::memcpy(b.data(), kFileMagic, sizeof kFileMagic);
-    b[4] = static_cast<char>(kFormat);
-    std::memcpy(b.data() + 5, &kept.rec.seq, 8);
-    for (size_t i = 0; i < kSlots; ++i) std::memcpy(b.data() + kFileHead + i * items::kSlotSize + items::kSlotPayload, &kept.rec.slot[i], 8);
-    std::string err;
-    kept.written_at = now;
-    if (!write_file_atomic(save_files::u8(file_of(k)), b, &err)) {
-        NXLOG_W(kTag, "Co-op bags: the record of %s is not written: %s", hex(k).c_str(), err.c_str());
-        return;
-    }
-    kept.dirty = false;
-    const auto [slots, count] = totals(kept.rec);
-    NXLOG_I(kTag, "Co-op bags: kept %s record %llu (%u slots, %u items)", k == own_key() ? "this player's" : hex(k).c_str(),
-            static_cast<unsigned long long>(kept.rec.seq), slots, count);
-}
-
-// Writes every changed record whose last write is kWriteEvery old (all of them with force).
-void flush(bool force) {
-    State& s = st();
-    const double now = qpc::seconds();
-    if (s.own.dirty && (force || now - s.own.written_at >= kWriteEvery)) write_file(own_key(), s.own, now);
-    for (auto& [k, kept] : s.members)
-        if (kept.dirty && (force || now - kept.written_at >= kWriteEvery)) write_file(k, kept, now);
-}
-
-Kept& own() {
-    State& s = st();
-    if (!s.loaded) {
-        s.loaded = true;
-        if (read_file(own_key(), &s.own.rec))
-            NXLOG_I(kTag, "Co-op bags: this player's record %llu read", static_cast<unsigned long long>(s.own.rec.seq));
-    }
-    return s.own;
-}
-
-Kept& member(const Key& k) {
-    auto [it, added] = st().members.try_emplace(k);
-    if (added) read_file(k, &it->second.rec);
-    return it->second;
 }
 
 // ---- the bag ----
@@ -314,6 +179,10 @@ void read_bag(uint64_t bag, Record* out) {
         out->slot[i] = items::moved_of(guest::rd<uint64_t>(bag + i * items::kSlotSize + items::kSlotPayload));
 }
 
+bool screen_open() { return qpc::seconds() - st().screen_at < kScreenGap; }
+
+namespace {
+
 void write_bag(uint64_t bag, const Record& r) {
     for (size_t i = 0; i < kSlots; ++i) {
         const uint64_t at = bag + i * items::kSlotSize + items::kSlotPayload;
@@ -326,8 +195,6 @@ void put(::Ctx* c, uint64_t bag, const Record& r) {
     write_bag(bag, r);
     guest::call(c, base() + layout::kItemBarRefresh, 0, 0, 0);
 }
-
-bool screen_open() { return qpc::seconds() - st().screen_at < kScreenGap; }
 
 // A member's hold (the header): its take waits while the bag / container screen is open or a request is unanswered.
 bool held(double now) {
@@ -389,47 +256,6 @@ Loss loss_of(const Record& was, const Record& now) {
         if (left == before[id]) ++l.kinds_gone;
     }
     return l;
-}
-
-// ---- gains and write-backs (the header's rule) ----
-
-constexpr uint64_t kWordMask = 0x7fffffff;   // a payload's packed word (bits 0..30); two stacks merge when theirs are equal
-uint64_t word_of(uint64_t p) { return p & kWordMask; }
-
-// The game's max stack (one value for every item, a u8 in the slot).
-uint32_t max_stack(::Ctx* c) {
-    const uint32_t m = static_cast<uint32_t>(guest::call(c, base() + layout::kMaxStack, 0) & 0xffff);
-    return m ? std::min<uint32_t>(m, 0xff) : 0xff;
-}
-
-// Puts a credit into a record by the header's order; false when it fits nowhere.
-bool place(Record& r, const Credit& g, uint32_t max) {
-    for (uint64_t& p : r.slot)
-        if (items::id_of(p) && word_of(p) == g.word && items::count_of(p) + g.n <= max) {
-            p = items::with_count(p, items::count_of(p) + g.n);
-            return true;
-        }
-    const uint64_t fresh = items::with_count(g.word, g.n);
-    if (g.slot < kSlots && !items::id_of(r.slot[g.slot])) return r.slot[g.slot] = fresh, true;
-    size_t last = 0;   // one past the last slot in use in the bag's own 120 (kind 4's ten are a separate sub-area)
-    for (size_t i = 0; i < layout::kBagSlots; ++i)
-        if (items::id_of(r.slot[i])) last = i + 1;
-    for (size_t i = 0; i < last; ++i)
-        if (!items::id_of(r.slot[i])) return r.slot[i] = fresh, true;
-    return false;
-}
-
-// The gains from `pre` to `post` (both this bag, around a source's add), per slot; a loss or an unchanged slot gives none.
-std::vector<Credit> gains_of(const Record& pre, const Record& post) {
-    std::vector<Credit> out;
-    for (size_t i = 0; i < kSlots; ++i) {
-        const uint64_t a = pre.slot[i], b = post.slot[i];
-        if (a == b || !items::id_of(b)) continue;
-        const bool same = items::id_of(a) && word_of(a) == word_of(b);
-        if (same && items::count_of(b) <= items::count_of(a)) continue;
-        out.push_back({word_of(b), items::count_of(b) - (same ? items::count_of(a) : 0), i});
-    }
-    return out;
 }
 
 // What a write-back of `r` over `bag` changes: slots, and items the bag held beyond the record (discarded).
@@ -697,6 +523,9 @@ void on_record_message(::Ctx*, int from, uint8_t, wire::Reader& r) {
     const bool first = !(s.greeted & (1u << from));
     const bool newer = got.seq > m.rec.seq, new_user = user != m.user;
     m.user = user;
+    for (auto& [other, kept] : s.members)
+        if (kept.node == from) kept.node = -1;   // a node belongs to one member at a time
+    m.node = from;
     if (newer) {
         m.rec = got;
         m.dirty = true;
@@ -749,53 +578,14 @@ void on_restore_message(::Ctx* c, int, uint8_t, wire::Reader& r) {
     s.early.clear();
 }
 
-void gain_begin(::Ctx* c) {
+size_t records(View* out, size_t most) {
     State& s = st();
-    s.gain_open = false;
-    if (!c || !s.active) return;
-    const Selection sel = select(c);
-    size_t bad_slot = kSlots;
-    if (!(link::is_authority() || sel.visitor) || !ready(sel, &bad_slot)) return;
-    read_bag(sel.bag, &s.gain_pre);
-    s.gain_bag = sel.bag;
-    s.gain_open = true;
-}
-
-void gain_end(::Ctx* c) {
-    State& s = st();
-    if (!s.gain_open) return;
-    s.gain_open = false;
-    Kept& o = s.own;
-    if (!c || !s.active || !o.rec.seq) return;   // no record yet: the first one is the bag as it is, this gain with it
-    const Selection sel = select(c);
-    size_t bad_slot = kSlots;
-    if (sel.bag != s.gain_bag || !ready(sel, &bad_slot)) return;   // another bag now: its apply writes the record, the take follows
-    Record post;
-    read_bag(sel.bag, &post);
-    const std::vector<Credit> gains = gains_of(s.gain_pre, post);
-    if (gains.empty()) return;
-    const uint32_t max = max_stack(c);
-    uint32_t lost = 0, items_in = 0;
-    for (const Credit& g : gains) {
-        const uint64_t was = s.gain_pre.slot[g.slot];   // the same slot only when it held nothing or this word (a loss is never credited)
-        if (o.rec.slot[g.slot] == was && (!items::id_of(was) || word_of(was) == g.word)) o.rec.slot[g.slot] = post.slot[g.slot];
-        else if (!place(o.rec, g, max)) {
-            lost += g.n;
-            continue;
-        }
-        items_in += g.n;
-        ++s.credited;
-        if (!s.answered) s.early.push_back(g);
-    }
-    if (s.answered) {
-        ++o.rec.seq;
-        s.send = !link::is_authority();
-    }
-    o.dirty = true;
-    const bool pending = s.apply || s.restore || !s.answered || screen_open() || (!link::is_authority() && linkqueue::unanswered());
-    if (pending || lost)
-        NXLOG_I(kTag, "Co-op bags: a gain of %u items is credited to record %llu at its source (a write-back is pending or the bag is "
-                      "held); %u items fit nowhere in the record", items_in, static_cast<unsigned long long>(o.rec.seq), lost);
+    size_t n = 0;
+    if (!link::in_session() || !link::is_authority()) return 0;
+    if (s.own.rec.seq && n < most) out[n++] = View{link::self(), s.own.rec.seq, s.own.rec.slot.data()};
+    for (const auto& [k, kept] : s.members)
+        if (kept.node >= 0 && kept.rec.seq && n < most) out[n++] = View{kept.node, kept.rec.seq, kept.rec.slot.data()};
+    return n;
 }
 
 void reset() {

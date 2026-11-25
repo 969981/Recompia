@@ -126,6 +126,19 @@
 //   ---- the Environment Levels (pkp_coop_levels.cpp) ----
 //   AreaLevels  +2 u8 count n (32), n bytes: the authority's own level of each stage 0..31   (when a member joins, when a level
 //               changes and every 30 s)
+//   ---- the story flags (pkp_coop_story_flags.cpp) ----
+//   StoryFlags   +2 u32 the authority's 20 story flags (bit n: flag n)   (when they change, when a member joins and every 30 s)
+//   StoryFlagSet +2 u8 flag n (1..20): a record of the origin's player set it   (a member to the authority)
+//   ---- the escorts (pkp_coop_follow.cpp); the ask is StoryFollow, whose flag byte carries the asker's session slot + 1 in bits
+//   1..3 (bit 0 the attach's flag, the only bit an older reader takes) ----
+//   PartyEscorts +2 u8 count n, then n times: u16 the creature's data id, u8 its leader's session slot, u8 its leader's node, u16
+//               the creature's save index (0: not seen yet)   (the authority's whole record; when it changes, and when a member
+//               joins or leaves)
+//   EscortRelease +2 u16 the creature's data id   (the member that leads an escort: the story released it there)
+//   ---- the party's bags (pkp_coop_party_bags.cpp) ----
+//   PartyBags   +2 u8 players p, then p times: u8 the player's node, u8 kinds k, k times {u16 item id, u16 how many}   (the
+//               authority's sums of every present player's bag record; when one changes, at most every 2 s, and when a member
+//               joins or leaves)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -229,6 +242,14 @@ enum class Type : uint32_t {
     ShopRows = 65,
     // ---- the Environment Levels (pkp_coop_levels.cpp) ----
     AreaLevels = 66,
+    // ---- the party's bags (pkp_coop_party_bags.cpp) ----
+    PartyBags = 67,
+    // ---- the escorts (pkp_coop_follow.cpp) ----
+    PartyEscorts = 68,
+    EscortRelease = 69,
+    // ---- the story flags (pkp_coop_story_flags.cpp) ----
+    StoryFlags = 70,
+    StoryFlagSet = 71,
 };
 
 // Builds one payload: the header, then the fields in order.

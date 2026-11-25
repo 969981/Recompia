@@ -14,6 +14,9 @@
 //   0x47e140 (entry) runner state 4, the end writes (played bit, rows, story bus, notices); one call per event end (its one exit
 //            sets state 5). 0x47bd00 (entry, co-op's TalkEnd site) the end of a slot's chain.
 //   poll     each runner's asked-for state (+0xc) and event (+0x10): one step line per change, so a crash names the event step.
+//   0x125e7c (mid) the contents condition evaluator 0x12483c's default case, x20 = the condition's words: a kind it has no case
+//            for. It keeps the result it had and does not step past the condition, so the rest of that record's conditions are not
+//            read. One line per kind per run.
 // Lines from per-frame callers (mode-1 content records re-offer every frame, notices of unread rate) are kept once per key and
 // counted for kRepeat seconds.
 #include "core/pkp_guest.h"
@@ -688,8 +691,27 @@ void reset() {
     s.content_refused = LastRefused{};
 }
 
+void on_unknown_condition(::Ctx* c) {   // mid 0x125e7c
+    static std::mutex m;
+    static std::vector<uint32_t> seen;
+    uint32_t kind = 0;
+    if (!guest::read(c->x[20], kind)) return;
+    {
+        std::lock_guard<std::mutex> lk(m);
+        for (uint32_t k : seen)
+            if (k == kind) return;
+        if (seen.size() >= 256) return;
+        seen.push_back(kind);
+    }
+    Rec rec(Area::Quest, "content condition of a kind the game has no case for");
+    rec.in("kind=0x%x words=%s", kind, hex_bytes(reinterpret_cast<const void*>(c->x[20]), guest::ok(c->x[20], 24) ? 24 : 4).c_str())
+        .out("the evaluator keeps its result and reads no further condition of this record");
+    rec.note("once per kind per run");
+}
+
 constexpr WatchSite kSites[] = {
     {{0x45d5a0, kPacibsp, true}, &on_offer, "event queue enqueue 0x45d5a0"},
+    {{0x125e7c, 0xb9400268u, false}, &on_unknown_condition, "content condition default 0x125e7c"},   // ldr w8, [x19]
     {{0x12b544, 0xb9400408u, true}, &on_play_scene, "content play scene 0x12b544"},      // ldr w8, [x0, #4]
     {{0x132f00, 0x39403028u, true}, &on_record_removal, "content record removal 0x132f00"},   // ldrb w8, [x1, #0xc]
     {{0x1353a0, kPacibsp, true}, &on_notice, "contents notifier 0x1353a0"},

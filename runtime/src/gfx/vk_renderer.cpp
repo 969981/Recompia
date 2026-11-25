@@ -23,6 +23,7 @@
 #include "nxrt/platform.h"
 #include "nxrt/present_timing.h"
 #include "nxrt/text.h"
+#include "extras/gpu_keepalive.h"
 #include "extras/hdr_capture.h"
 #include "extras/hdr_math.h"
 #include "extras/win_display.h"
@@ -166,6 +167,7 @@ struct Renderer::Impl {
     VkColorSpaceKHR color_space = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
     uint32_t format_serial = 0;
     std::unique_ptr<extras::LowLatency> latency;
+    std::unique_ptr<extras::GpuKeepAlive> keepalive;          // [gfx] gpu_keepalive (null when off)
     VkExtent2D extent = {0, 0};
     uint32_t headless_w = 0, headless_h = 0;
     struct Target {
@@ -792,6 +794,7 @@ std::unique_ptr<Renderer> Renderer::create(Device& dev, const RendererDesc& desc
     s.decide_output();
     s.latency = std::make_unique<extras::LowLatency>(dev);
     extras::lowlat_set(s.latency.get());
+    if (!s.headless) s.keepalive = extras::GpuKeepAlive::create(dev);
     if (!s.create_slots()) {
         if (error) *error = "could not create the frame slots";
         return nullptr;
@@ -1113,6 +1116,7 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
             if (pw_wait) s.pw_push(swapchain, present_id, pt_frame);
         }
         if (!s.headless && s.latency) s.latency->present_end();
+        if (s.keepalive) s.keepalive->note_present();
     };
     if (s.submit_queue) {
         if (prefix) prefix->queued = true;
