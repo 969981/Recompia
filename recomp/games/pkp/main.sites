@@ -416,6 +416,7 @@ midhook 0x71004c03e4
 midhook 0x7100630fcc
 midhook 0x710063e450
 midhook 0x71007596cc
+midhook 0x71007b0a40
 midhook 0x71007fca2c
 midhook 0x71007fd1ac
 midhook 0x71007fd6b0
@@ -441,6 +442,14 @@ midhook 0x7100faa3e4
 midhook 0x7100faa3f8
 midhook 0x7100fab940
 #   ---- end of the role answers ----
+#   Seamless co-op, the party answers (pkp_coop_party_answers.cpp): one line per row of pkp_coop_party_table.inc, ascending. An
+#   entry hook per fact row (a condition handler that checks one player for what the party has), a midhook per off row (the
+#   instruction after the `bl` whose result decides a refusal a session does not have)
+entryhook 0x71001273a0
+entryhook 0x7100127480
+midhook 0x710049bba0
+midhook 0x71007b0a14
+#   ---- end of the party answers ----
 #   Seamless co-op, creature jobs (pkp_coop_jobs.cpp): in the item-making tick 0x71003b38f0, the `tbz w0, #0` after the actor's
 #   IsMine (vt+0x478) that returns when another member holds the creature (x19 = the job component)
 midhook 0x71003b39a8

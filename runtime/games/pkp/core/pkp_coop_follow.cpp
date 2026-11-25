@@ -26,6 +26,10 @@
 //   leaves the creature with no leader (0x659280 returns silently when the player cannot lead) is made again every 2 s, up to 8 times
 //   and inside the ask's 60 s window. The leader is always the authority's own player: 0x6599c0 attaches only to a local player
 //   (vt+0x1e0), and a member's player on the authority is not one. RE: coop-v2/role-census/build/a14-follow.md.
+//   The same hook on the authority, for its own content: the game's call runs unless the creature follows another session player.
+//   0x659280 would first take it from that player, and a content whose only test is "the creature follows a player" runs on
+//   every process once that test counts every player's followers (pkp_coop_party_table.inc; contents #7144 record 8 turns an
+//   invited follower into a story one this way). So what holds for a member's ask holds here: it is left as it is.
 // A member's party leave (RequestPartyNPC +0x38 = 0, sent by 0x659588 on a visitor instead of a local detach: from an AI state
 // change 0x2b5e08 at 0x2b5f64, the player action 0x2df220 at 0x2df510, the escort end 0x617d98, ...) carries the creature (+0x36)
 // and the leader as the member sees it (+0x34), not who asks. The host's handler 0x5519bc (0x551a7c..0x551b38) reads the
@@ -210,12 +214,25 @@ void apply(::Ctx* c, bool in_game) {
     s.incoming.push_back(a);
 }
 
+// The authority's own attach (its content's, or make()'s for a member): true when the creature follows another session player.
+bool led_by_teammate(::Ctx* c, uint64_t npc) {
+    const uint16_t leader = leader_here(c, npc);
+    if (!leader) return false;
+    const uint64_t own = guest::deref(guest::deref(base() + layout::kPlayerManager) + layout::kManagerPlayer);
+    if (guest::ok(own + kActorId, 2) && guest::rd<uint16_t>(own + kActorId) == leader) return false;
+    if (players(kIndexMax + 1, leader).index_of < 0) return false;   // its leader is no session player: the game's own
+    NXLOG_I(kTag, "Co-op follow: the story's follow of actor 0x%x left as it is: it follows player 0x%x, a teammate",
+            guest::rd<uint16_t>(npc), leader);
+    return true;
+}
+
 }  // namespace
 
 int on_story_follow(::Ctx* c) {
-    if (!quests::member_rules()) return 0;
     const uint64_t npc = c->x[0];
     if (!guest::ok(npc, 2) || !valid_id(guest::rd<uint16_t>(npc))) return 0;   // 0x659280 returns at once on these: as the game does
+    if (link::in_session() && link::is_authority()) return led_by_teammate(c, npc) ? 1 : 0;
+    if (!quests::member_rules()) return 0;
     const uint16_t data = static_cast<uint16_t>(guest::call(c, base() + kDataIdOf, npc));
     if (static_cast<uint16_t>(data - 1) >= kDataIdMax) return 0;
     State& s = st();
