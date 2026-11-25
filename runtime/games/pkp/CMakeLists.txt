@@ -70,6 +70,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop_digest.cpp"
         "${_pkp}/core/pkp_coop_records.cpp"
         "${_pkp}/core/pkp_coop_levels.cpp"
+        "${_pkp}/core/pkp_coop_story_flags.cpp"
         "${_pkp}/core/pkp_coop_skits.cpp"
         "${_pkp}/core/pkp_coop_role.cpp"
         "${_pkp}/core/pkp_coop_party.cpp"

@@ -18,8 +18,9 @@
 // naming another holder drops the claim (the talk already runs). Any other chained talk asks as a press does. A member's talk takes
 // the host's path in the talk handler (on_talk_kind),
 // so a member gets the character's own talk, quest talks too, instead of the visitor's stub; the lock above keeps it to one player.
-// A member is also the own player of every creature that lives in the group's town (on_talk_own): its talks with a resident go on to
-// the same later stages as the host's, outside Cloud Island (whose records and visitor rules are the game's own).
+// A member is also the own player of every creature that lives in the group's town (on_talk_own, the party fact party::owns that the
+// game's other own test 0x284ef4 is answered with too, pkp_coop_party_table.inc): its talks with a resident go on to the same later
+// stages as the host's, outside Cloud Island (whose records and visitor rules are the game's own).
 //
 // The game, 2.0.1:
 //   0x3180e0(obj, w1 slot, x2 &actor id, w3 flags)  the one real talk start (every other caller of the talk selector only probes).
@@ -149,9 +150,9 @@ constexpr uint64_t kFlagsReg = 3;       // 0x3180e0's w3: bit 0 clear, a talk st
 constexpr uint64_t kIsHostReg = 0;      // at 0x4c06d8: IsHost's answer, or'd into the "take the host's path" bit (also at 0x4d35f8)
 constexpr uint64_t kOwnReg = 0;         // at 0x4c0574: 0x332c80's answer, "this player is the creature's own"
 constexpr uint64_t kCompReg = 22;       // at 0x4c0574: the creature's component (actor vt+0x410 + 0x2ca0), or the stand-in
-constexpr uint64_t kNoComponent = 0x3567db0;   // main + : the stand-in component of a talk target with none
-constexpr uint64_t kHasParents = 0x285100;     // (comp) -> bit 0: its record (as this process selects it) has a parents user id
-constexpr uint64_t kCloudIsland = 0x77ecb0;    // () -> bit 0: Cloud Island
+using layout::kCloudIsland;
+using layout::kHasParents;
+using layout::kNoComponent;
 constexpr uint64_t kCondRowReg = 22, kCondDataReg = 21, kCondParentReg = 19;   // at 0x4d35f8 (condition 0x52), see the header
 constexpr uint32_t kCharaOfData = 4;            // a creature's friend record index is its data id + 4 (0x3b7948's +0x600)
 constexpr uint64_t kParents = 0x8;              // friend record: 16 bytes, m_ParentsUserID
@@ -346,10 +347,7 @@ int on_talk_kind(::Ctx* c) {
 int on_talk_own(::Ctx* c) {
     // Only where the game said no, for a member, on a creature with parents outside Cloud Island: a creature with none keeps false
     // (its first talk is the IsHost split above, on_talk_kind and pkp_coop_newcomer.cpp), and Cloud Island keeps its own rules.
-    if ((c->x[kOwnReg] & 1) || !quests::member_rules()) return 0;
-    const uint64_t comp = c->x[kCompReg];
-    if (comp == base() + kNoComponent || (guest::call(c, base() + kCloudIsland, 0) & 1)) return 0;
-    if (!(guest::call(c, base() + kHasParents, comp) & 1)) return 0;
+    if ((c->x[kOwnReg] & 1) || !party::owns(c, c->x[kCompReg])) return 0;
     State& s = st();
     if (s.held && s.held->talking && !s.held->owned) {   // once per talk, as on_talk_kind
         s.held->owned = true;

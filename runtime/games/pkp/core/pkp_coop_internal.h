@@ -54,6 +54,8 @@
 //                         records, sent to every member)
 //   pkp_coop_party_answers.cpp the party answers: at the listed checks of one player (pkp_coop_party_table.inc) every process
 //                         answers for the party, and a refusal a session has no reason for does not refuse
+//   pkp_coop_story_flags.cpp the story flags (contents condition 0x32): set by any player's record, cleared by the authority's, the
+//                         authority's in every member's save
 //   pkp_coop_friendship.cpp a member's friendship gains with a creature made on the authority (the group's), its records shown to all
 //   pkp_coop_challenges.cpp what a member does counts toward the group's challenges (its shop buys)
 //   pkp_coop_feed.cpp     what a member's player did to a creature (talked to it), posted to the authority's contents scheduler
@@ -647,6 +649,8 @@ bool area_levels(Entries& out);    // pkp_coop_digest.cpp: stage -> the level th
 bool gates(Entries& out);          // pkp_coop_digest.cpp: gate id -> the byte the gate getter reads here (non-zero)
 bool trainer_level(Entries& out);  // pkp_coop_digest.cpp: 0 -> m_trainerLevel
 bool open_areas(Entries& out);     // pkp_coop_records.cpp: area 1..31 -> the open byte the area gate reads here (non-zero)
+bool story_flags(Entries& out);    // pkp_coop_digest.cpp: flag 1..20 -> 1 (m_storyCtrlFlag)
+bool homes(Entries& out);          // pkp_coop_digest.cpp: character index -> (kind << 8) | stage of its home, as read here
 // The authority sends its digest every few seconds; a member compares (once a frame, in a session).
 void tick(::Ctx* c, bool in_game);
 void on_digest_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
@@ -688,6 +692,20 @@ void on_session_change();   // this process joined or left: the copy forgotten, 
 void on_member_joined();    // another member joined: the levels are sent again
 void reset();
 }  // namespace levels
+// ---- the story flags (pkp_coop_story_flags.cpp): the 20 flags the content records set and test are the group's ----
+namespace storyflags {
+// The hook site (pkp_coop.cpp): entry 0x12c46c, contents action 0xbbd (x0 = its words). On a member that has the authority's
+// flags a set runs and is asked of the authority (returns 0), a clear does not run (returns 1). 0 everywhere else.
+int on_flag_action(::Ctx* c);
+// The messages (pkp_coop_link.cpp): a member keeps the authority's flags; the authority sets the flag a member's record set.
+void on_flags_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+void on_set_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
+// The authority sends its flags at a join, on a change and every so often; a member writes them into its save (once a frame).
+void tick();
+void on_session_change();   // this process joined or left: the copy forgotten, the flags sent again
+void on_member_joined();    // another member joined: the flags are sent again
+void reset();
+}  // namespace storyflags
 // ---- the story talks (pkp_coop_skits.cpp): each character's story talk, its bubble and the objective that follows it ----
 namespace skits {
 // The message (pkp_coop_link.cpp): a member keeps the authority's story talks.
@@ -716,6 +734,10 @@ namespace party {
 // *own: it is one of this process's own player's followers (written only when true is returned).
 bool follows(::Ctx* c, uint32_t data, bool* own);
 bool follower_ability(::Ctx* c, uint32_t ability, bool* own);
+// The creature whose component is `comp` (a resident's part + 0x2ca0) is the group's own, on a member: this process is a member in
+// the session, outside Cloud Island, and the creature's record has parents. False on the authority and outside a session, where
+// the game's own test already is the answer.
+bool owns(::Ctx* c, uint64_t comp);
 // The actor ids of the creatures the session's players invited to follow them (every slot's list), at most `most`; the count.
 constexpr size_t kInvitedMost = 20;   // 4 lists of 5
 size_t invited(uint16_t* ids, size_t most);
@@ -734,9 +756,15 @@ void bags_reset();
 // x0 becomes the answer that does not refuse (returns 0). A count row's midhook after the `bl` that counts an item in this
 // player's bag: in a session x0 becomes the count the party's answer is made from (returns 0). All return 0 untouched outside a
 // session.
+// A predicate row's entry hook (x0 = the function's argument, x30 = its caller): on a member the party's answer 1 is returned and
+// the function does not run (returns 1), except for the callers the row keeps the game's answer for.
 int on_fact(::Ctx* c, uint64_t site);
 int on_off(::Ctx* c, uint64_t site);
 int on_count(::Ctx* c, uint64_t site);
+int on_pred(::Ctx* c, uint64_t site);
+// A leader row's midhook at a compare of a creature's leader with this player: in a session a leader that is any player of the
+// session passes (returns 0).
+int on_leader(::Ctx* c, uint64_t site);
 void tick();    // once a frame: the marks of the rows logged this session clear when the session closes
 void reset();
 }  // namespace party

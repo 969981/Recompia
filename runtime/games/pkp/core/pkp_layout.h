@@ -35,6 +35,16 @@ constexpr uint64_t kSaveLastGate = 0x13d3a59;         // u8 STGDAT m_lastGate (t
 constexpr uint64_t kSaveSkitInGate = 0x7416d1;        // u8 m_playSkitInGateNum
 constexpr uint64_t kSaveTrainerLevel = 0x4a4400;      // u8 m_trainerLevel (the rank a gate asks for; own save, no visitor copy)
 constexpr uint64_t kSaveCleanCount = 0x4a4401;        // u8 the sludge cleanings counted (1..99; unique request type 0x2c reads it)
+constexpr uint64_t kSaveStoryFlags = 0x4a26c8;        // u8[4] m_storyCtrlFlag: flag n (1..20) is bit n & 7 of byte n >> 3
+constexpr size_t kStoryFlagBytes = 4;
+constexpr uint32_t kStoryFlagMax = 20;
+// The home record per character index (0x20 bytes: +8 u8 its kind 1..3, +0xc u8 its stage); a visitor reads the copy of the host's.
+constexpr uint64_t kSaveHome = 0x8b860, kSaveHomeMirror = 0x154e468, kHomeSize = 0x20, kHomeKind = 8, kHomeStage = 0xc;
+constexpr uint32_t kHomeCount = 0x41a;
+// A creature's friend record, through its component (a resident's part + 0x2ca0; a talk target with none has the stand-in).
+constexpr uint64_t kNoComponent = 0x3567db0;     // main + : the stand-in component
+constexpr uint64_t kHasParents = 0x285100;       // (comp) -> bit 0: its record (as this process selects it) has a parents user id
+constexpr uint64_t kCloudIsland = 0x77ecb0;      // () -> bit 0: the stage is Cloud Island
 constexpr uint64_t kGameState = 0x3561710;       // the game state (stage, session)
 constexpr uint64_t kStateStage = 0x18;           // game state: u8, the stage the player is in
 constexpr uint64_t kStateSession = 0x90;         // game state: u8 Link Play session bits (kSession*); 0 offline
