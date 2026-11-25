@@ -586,6 +586,8 @@ entryhook 0x710045d5a0
 entryhook 0x7100132f00
 # the contents notifier (x0 scheduler, x1 list, w2, w3): the notice kind at scheduler +0x11aae0 and its payload
 entryhook 0x71001353a0
+# the contents condition evaluator's default case (`ldr w8, [x19]`, x20 = the condition's words): a kind it has no case for
+midhook 0x7100125e7c
 # event runner state 4 (x0 runner): the end writes of an event (played bit, rows, story bus, notices)
 entryhook 0x710047e140
 # ---- end of journal events ----
