@@ -449,6 +449,11 @@ entryhook 0x71001273a0
 entryhook 0x7100127480
 midhook 0x710049bba0
 midhook 0x71007b0a14
+midhook 0x71007b0cfc
+midhook 0x71007cc76c
+midhook 0x71007cc890
+midhook 0x71007ccba8
+midhook 0x7100fbacfc
 #   ---- end of the party answers ----
 #   Seamless co-op, creature jobs (pkp_coop_jobs.cpp): in the item-making tick 0x71003b38f0, the `tbz w0, #0` after the actor's
 #   IsMine (vt+0x478) that returns when another member holds the creature (x19 = the job component)

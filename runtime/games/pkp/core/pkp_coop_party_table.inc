@@ -38,3 +38,16 @@ PKP_PARTY_FACT(0x127480, FollowerAbility, 0xd503237fu, "followers", "a story ste
 // cannot come along (0x4b1558) stops the press. (The visitor branch itself is the role table's row 0x7b0a40.)
 PKP_PARTY_OFF(0x7b0a14, 0x257e44, 0, 0x3607fd80u, "area gate", "pressing an area gate no longer releases the creatures following the player")
 PKP_PARTY_OFF(0x49bba0, 0x207b0, 0, 0x36001420u, "area gate", "the gate's own question about a follower no longer releases every follower before the passage")
+
+// ---- moving to another area while a story follower is attached ----
+// The game refuses an area gate (0x7b0c50 results 2 / 3, scenes 0xa7f / 0xa80; the same test in the gate object 0x7cc180 and its
+// "can start" 0x7ccb50) and a move from the map page (0xfbacd0) while the story's follower list (party manager list 9) holds a
+// creature. That list is this process's own and only the authority's ever fills (a member's story follow is made on the authority,
+// pkp_coop_follow.cpp), so the refusal bound the host alone while any member's press or map ask moved the whole group, the host
+// and its follower included; and the player has no way to end it (the release by hand, 0x2df220, walks the invited followers
+// only). In a session the move is the group's: nobody is refused.
+PKP_PARTY_OFF(0x7b0cfc, 0x4e7a40, 0, 0x7100041fu, "story follower", "an area gate opens for the host while a story follower is with it, as it does for a teammate")
+PKP_PARTY_OFF(0x7cc76c, 0x4e7a40, 0, 0x7100041fu, "story follower", "the same refusal of the gate object's press (first copy)")
+PKP_PARTY_OFF(0x7cc890, 0x4e7a40, 0, 0x7100041fu, "story follower", "the same, second copy")
+PKP_PARTY_OFF(0x7ccba8, 0x4da0e0, 0, 0x52000008u, "story follower", "the gate object's passage can start while a story follower is with the host")
+PKP_PARTY_OFF(0xfbacfc, 0x4da0e0, 0, 0x360000a0u, "story follower", "the map page lets the host travel to another area while a story follower is with it")
