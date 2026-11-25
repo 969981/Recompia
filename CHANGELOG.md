@@ -4,6 +4,9 @@
 
 **Update:** press **Update** in the launcher, then **Set up again** once (new hook sites; saves and shaders are kept, no shader is rebuilt). Everyone in a co-op session needs this version: an older build cannot join a newer one.
 
+### Graphics
+- Added `[gfx] gpu_keepalive` (off by default) for NVIDIA desktop cards that run the game at ~40 fps with low GPU load: the driver keeps such a card in a low power state (memory at 810 MHz) because the game's load looks light, and the frame then takes ~22 ms instead of ~2. With `gpu_keepalive = 1` in pkp.ini a tiny workload runs beside the game while it draws, so the card stays at full speed: an RTX 4060 went from ~37 fps to the 60 fps cap at the start of the game. It costs some power. Still not on by default, and not in the launcher's settings
+
 ### Gameplay
 - Fixed a co-op story step that needs a creature brought through an area gate: pressing the gate no longer makes the creature stop following (followers leave when the group moves to the next area), and the step counts the creature when it follows any player in the session, not only the one who presses the gate
 - Fixed the co-op host being refused at area gates and on the map while a story creature follows it: the group's move is voted on as it is for a teammate

@@ -823,19 +823,40 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     }
     if (!headless) dev_exts.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     float prio = 1.0f;
-    VkDeviceQueueCreateInfo qci = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-    qci.queueFamilyIndex = queue_family_;
-    qci.queueCount = 1;
-    qci.pQueuePriorities = &prio;
+    VkDeviceQueueCreateInfo qci[2] = {{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO}, {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO}};
+    qci[0].queueFamilyIndex = queue_family_;
+    qci[0].queueCount = 1;
+    qci[0].pQueuePriorities = &prio;
+    // [gfx] gpu_keepalive (extras/gpu_keepalive.h): one more queue, on a compute-only family, so the keep-alive's work runs beside the
+    // frame's instead of between its commands. Without the key the device is created exactly as before (one queue).
+    uint32_t aux_family = UINT32_MAX;
+    float aux_prio = 0.0f;
+    if (config_get_bool("gfx", "gpu_keepalive", false)) {
+        uint32_t nqf = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_, &nqf, nullptr);
+        std::vector<VkQueueFamilyProperties> qfp(nqf);
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_, &nqf, qfp.data());
+        for (uint32_t k = 0; k < nqf && aux_family == UINT32_MAX; ++k)
+            if (k != queue_family_ && qfp[k].queueCount && (qfp[k].queueFlags & VK_QUEUE_COMPUTE_BIT) && !(qfp[k].queueFlags & VK_QUEUE_GRAPHICS_BIT))
+                aux_family = k;
+        if (aux_family == UINT32_MAX) NXLOG_W(kTag, "[gfx] gpu_keepalive: this GPU has no compute-only queue family; the keep-alive stays off");
+        qci[1].queueFamilyIndex = aux_family;
+        qci[1].queueCount = 1;
+        qci[1].pQueuePriorities = &aux_prio;
+    }
     VkDeviceCreateInfo dci = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, &en};
-    dci.queueCreateInfoCount = 1;
-    dci.pQueueCreateInfos = &qci;
+    dci.queueCreateInfoCount = aux_family == UINT32_MAX ? 1 : 2;
+    dci.pQueueCreateInfos = qci;
     dci.enabledExtensionCount = static_cast<uint32_t>(dev_exts.size());
     dci.ppEnabledExtensionNames = dev_exts.data();
     r = vkCreateDevice(physical_, &dci, nullptr, &device_);
     if (r != VK_SUCCESS) return fail("vkCreateDevice failed (" + std::to_string(r) + ")");
     volkLoadDevice(device_); if constexpr (facts::kPhone) install_work_track();   // phones: vk_work_track.h
     vkGetDeviceQueue(device_, queue_family_, 0, &queue_);
+    if (aux_family != UINT32_MAX) {
+        vkGetDeviceQueue(device_, aux_family, 0, &aux_queue_);
+        aux_family_ = aux_family;
+    }
 
     uint32_t nq = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(physical_, &nq, nullptr);

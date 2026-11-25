@@ -173,6 +173,10 @@ public:
     VkQueue queue() const { return queue_; }
     uint32_t queue_family() const { return queue_family_; }
     std::mutex& queue_mutex() { return queue_mutex_; }              // hold while calling vkQueueSubmit / vkQueuePresentKHR
+    // A second queue on a compute-only family, made only for [gfx] gpu_keepalive (extras/gpu_keepalive.h); null otherwise. One thread
+    // (the keep-alive's) uses it, so it has no mutex.
+    VkQueue aux_compute_queue() const { return aux_queue_; }
+    uint32_t aux_compute_family() const { return aux_family_; }
     VmaAllocator allocator() const { return vma_; }
     VkSurfaceKHR surface() const { return surface_; }              // null when headless
     bool headless() const { return surface_ == VK_NULL_HANDLE; }
@@ -250,6 +254,8 @@ private:
     VkDevice device_ = VK_NULL_HANDLE;
     VkQueue queue_ = VK_NULL_HANDLE;
     uint32_t queue_family_ = 0;
+    VkQueue aux_queue_ = VK_NULL_HANDLE;
+    uint32_t aux_family_ = UINT32_MAX;
     uint32_t timestamp_valid_bits_ = 0;
     std::mutex queue_mutex_;
     VmaAllocator vma_ = nullptr;
