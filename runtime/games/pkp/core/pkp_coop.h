@@ -48,8 +48,12 @@ struct CoopLaunch {
 // 10: a creature's request that only asks to have two items counts any one player's bag for each (pkp_coop_party_table.inc,
 // request type 0xd); a build without it answers for its own bag alone, so the request would be ready on one process and not on
 // another.
+// 11: a member has the town's creatures as its own and a creature following any player can be offered a house by every player
+// (pkp_coop_party_table.inc, the predicate and leader rows), and the story flags are the group's (pkp_coop_story_flags.cpp); a
+// build without them would offer the talks of somebody else's creature, and neither send its flag sets to the authority nor take
+// the authority's flags, so its records would go another way than the group's.
 // The launcher knows the "Recompia co-op rules" prefix.
-inline constexpr const char* kCoopRules = "Recompia co-op rules 10";
+inline constexpr const char* kCoopRules = "Recompia co-op rules 11";
 
 // Pure: the launch's co-op facts from the settings' text. False when a value is missing or malformed, with the reason in *why.
 bool coop_launch_parse(const std::string& role, const std::string& group, const std::string& member, CoopLaunch* out, const char** why);
