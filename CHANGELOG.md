@@ -10,6 +10,7 @@
 - Changed co-op story checks of "is this creature following" to count every player's followers, so a creature's talk no longer flips between two lines depending on who looks
 - Fixed a co-op teammate's action playing its scene for the host too: a teammate who pressed a story gate or object and got its message no longer makes the same message appear on the host's screen
 - Fixed co-op story steps that wait on a teammate's action being lost while the host was in a menu or a talk for a long time
+- Changed co-op story and quest checks of "has this item" to count the item when any one player holds it; items are still taken only from the bag of the player who gives them
 
 ## 0.17.6 (build U: Urchin Hotfix a2)
 
