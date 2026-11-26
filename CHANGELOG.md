@@ -39,6 +39,9 @@
 ### Saves
 - Fixed a save file the game opens for writing but that was never made (its create failed): before, every later save of it failed; now it is made at the open and the save goes on
 
+### Gameplay
+- Changed co-op to keep the creatures' talk state (walk-up timers, event talks) in the game's own Cloud Island record set, shared by the whole group as on Cloud Island; everyone in a co-op session needs this version
+
 ## 0.17.7 (build U: Urchin Hotfix a3)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (new hook sites; saves and shaders are kept, no shader is rebuilt). Everyone in a co-op session needs this version: an older build cannot join a newer one.
