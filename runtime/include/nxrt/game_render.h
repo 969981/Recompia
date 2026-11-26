@@ -111,9 +111,9 @@ struct Render {
     // The lowest [upscale] scene_scale percent the game's picture stays correct at (automatic resolution and a game's settings rows go no
     // lower). 25 = the key's own limit.
     int scene_scale_min = 25;
-    // A square image (an iris wipe's mask) that the game sizes in fractions of its 2D canvas with a fixed 16:9 ratio, as a quad in canvas
-    // units drawn with this fragment shader (its cache hash): on a canvas of another shape it comes out stretched. The replay draws it
-    // square (src/gfx/nvn/nvn_replay_square.cpp).
+    // 2D that the game sizes in fractions of its 2D canvas with a fixed 16:9 ratio, as quads in canvas units drawn with this fragment shader
+    // (its cache hash): on a canvas of another shape it comes out stretched. A square image on its own (an iris wipe's mask) is drawn
+    // square; a stencil clip mask and the content drawn after it are drawn as at 16:9 about the mask's centre (src/gfx/nvn/nvn_replay_square.cpp).
     const char* square_quad_fs = nullptr;
     // A decal pass the game draws into the 3D picture with depth test and write before the frame's camera block is bound, from a projection
     // block of its own (vertex stage slot 0, a view-projection in floats 0..15), with this vertex and fragment shader (cache hashes). Under a

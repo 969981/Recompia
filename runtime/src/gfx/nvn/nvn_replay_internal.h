@@ -329,6 +329,8 @@ struct CmdState {   // owner: nvn_replay_draw.cpp (begin_draw); the other ops se
     int8_t fs_tonemap = -1;          // the bound fragment shader is the tone-map shader (extras::hdr_is_tonemap); -1: not asked since kPipe
     int8_t fs_stretch = -1;          // extras::is_scene_stretch of the bound fragment shader (1 scene stretch, 2 into the window texture); -1: not asked
     int8_t fs_square = -1;           // the bound fragment shader is the game's square quad shader (game::Render::square_quad_fs); -1: not asked
+    bool square_clip = false;        // a stencil clip mask drawn with that shader is open (nvn_replay_square.cpp): its content follows it
+    float square_clip_c[2] = {};     // the mask's centre in canvas units
     DynShadow dsh;                   // bind_coalesce: the dynamic state, vertex and index buffers last sent in this command buffer
     VbShadow vbsh[16];
     IbShadow ibsh;
