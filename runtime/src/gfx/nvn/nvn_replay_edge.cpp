@@ -13,7 +13,6 @@
 // stood 66 to 75 above the columns 64 to 128 px in (blue minus the mean of red and green), 4 to 6 with the guard. Phones only: elsewhere no pass reaches here (facts::kPhone at the callers).
 #include "nvn_replay_internal.h"
 
-#include "nxrt/ab_switch.h"
 #include "nxrt/config.h"
 
 namespace nxrt::nvn::be::gpu {
@@ -31,7 +30,7 @@ bool edge_guard_on() {
 
 bool edge_lazy_on() {
     static const bool on = config_get_bool("gfx", "edge_lazy", true);
-    return on && diag::ab("edge_lazy", true);
+    return on;
 }
 
 struct Guard {
@@ -137,7 +136,7 @@ void edge_guard_after_pass() {
     memory_barrier(F->cb);
 }
 
-// ---- [gfx] edge_lazy (phones, default on; A/B name "edge_lazy") -----------------------------------------------------------------
+// ---- [gfx] edge_lazy (phones, default on) ---------------------------------------------------------------------------------------
 // The guard of a target is recorded when the target is next used another way (a layout change: sampled, copied, cleared on its own, its
 // image remade; g_tex_touch_hook), before a pass that may write past its part (edge_before_begin), or at the end of the command buffer,
 // instead of after every pass into it. A target drawn by several passes in a row (the G-buffer, the lighting buffers) is then guarded

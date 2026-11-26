@@ -477,10 +477,10 @@ inline void gstamp(const char* label) {
     if (gpass_on()) gpass_stamp(*F, label, 0);
 }
 void end_pass(bool to_pass = false);
-// A/B name "barrier_dedupe", default on: end_pass() and then a full memory barrier, without the second barrier when end_pass already
+// end_pass() and then a full memory barrier, without the second barrier when end_pass already
 // ended with one (it does whenever it closes a pass or flushes pending pass writes): two full barriers back to back are one.
 inline void end_pass_full_barrier() {
-    if (diag::ab("barrier_dedupe", true) && (P.open || !g_bar.pending.empty())) {
+    if (P.open || !g_bar.pending.empty()) {
         end_pass();
         return;
     }
@@ -488,7 +488,7 @@ inline void end_pass_full_barrier() {
     memory_barrier(F->cb);
 }
 // [nvn] barrier_bits (default on: measured on a Tensor G2, full barriers -58 %, passes -25 %, GPU Mcycles -8.8 %; on a desktop integrated GPU
-// under RADV, full barriers 278 -> 157 a frame, passes -16 %, GPU time -0.6 %; A/B name "barrier_bits"): the game's nvnCommandBufferBarrier, about 133 a frame
+// under RADV, full barriers 278 -> 157 a frame, passes -16 %, GPU time -0.6 %): the game's nvnCommandBufferBarrier, about 133 a frame
 // outdoors (census: 0x3 ORDER_PRIMITIVES|ORDER_FRAGMENTS 69, 0x10 INVALIDATE_TEXTURE 51, 0x8 ORDER_INDIRECT_DATA 5, 0x12 4, 0x21 3,
 // 0x11 1; about 63 with a pass open, 70 with none), each ending the pass with full barriers.
 // With a pass open whose draws wrote only their attachments:
@@ -507,7 +507,7 @@ inline void barrier_op(uint32_t bits) {
     constexpr uint32_t kTexBits = 0x10 | 0x40;                    // INVALIDATE_TEXTURE, INVALIDATE_TEXTURE_DESCRIPTOR
     constexpr uint32_t kIndirect = 0x8;                           // ORDER_INDIRECT_DATA
     static const bool cfg = config_get_bool("nvn", "barrier_bits", true);
-    if (!g_bar.tracked || g_bar.pass_unsafe || !diag::ab("barrier_bits", cfg)) return end_pass_full_barrier();
+    if (!g_bar.tracked || g_bar.pass_unsafe || !cfg) return end_pass_full_barrier();
     if (P.open) {
         if ((bits & ~(kOrderBits | kTexBits)) != 0) return end_pass_full_barrier();
         static nxrt::GaugeCounter kept("nvn.cnt.barrier_pass_kept");   // game barriers that left the pass open (breaks avoided)

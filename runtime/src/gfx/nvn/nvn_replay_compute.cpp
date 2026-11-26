@@ -4,7 +4,6 @@
 #include <cstdio>
 #include "nxrt/game_render.h"
 #include "nxrt/game.h"
-#include "nxrt/ab_switch.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -387,8 +386,8 @@ static bool dispatch_cpu_blind(const ProgLayout& pl) {
     return true;
 }
 
-// The game's compute variants (game::ComputeVariant): [nvn] cs_vote (default on with subgroups >= 32 wide, A/B "cs_vote") runs a VoteAllFalse program as its
-// variant; [nvn] cs_retile (default off, A/B "cs_retile") runs a Retile program with [nvn] cs_retile_size workgroups (default 8x8). The
+// The game's compute variants (game::ComputeVariant): [nvn] cs_vote (default on with subgroups >= 32 wide) runs a VoteAllFalse program as its
+// variant; [nvn] cs_retile (default off) runs a Retile program with [nvn] cs_retile_size workgroups (default 8x8). The
 // pipeline of the variant, with *fx / *fy the factors the group counts grow by; null: the program's own.
 static VkPipeline variant_pipeline(const ShaderInfo* cs, const ProgLayout& pl, uint32_t* fx, uint32_t* fy) {
     static std::unordered_map<const ShaderInfo*, int> kind_of;   // -1: no variant
@@ -406,7 +405,7 @@ static VkPipeline variant_pipeline(const ShaderInfo* cs, const ProgLayout& pl, u
         // histogram in 6 differed from the original's on a Tensor G2 / Mali-G710 (Adreno 58/58 and RADV 237/237 identical), and the
         // dispatch costs 0.3 ms there.
         static const bool on = config_get_bool("nvn", "cs_vote", device().limits_ext().subgroup_size >= 32);
-        return diag::ab("cs_vote", on) ? compute_variant_pipeline(cs, pl, it->second, 0, 0, fx, fy) : VK_NULL_HANDLE;
+        return on ? compute_variant_pipeline(cs, pl, it->second, 0, 0, fx, fy) : VK_NULL_HANDLE;
     }
     static const bool on = config_get_bool("nvn", "cs_retile", false);
     static uint32_t tx = 8, ty = 8;
@@ -417,7 +416,7 @@ static VkPipeline variant_pipeline(const ShaderInfo* cs, const ProgLayout& pl, u
         return true;
     }();
     (void)size_read;
-    return diag::ab("cs_retile", on) ? compute_variant_pipeline(cs, pl, it->second, tx, ty, fx, fy) : VK_NULL_HANDLE;
+    return on ? compute_variant_pipeline(cs, pl, it->second, tx, ty, fx, fy) : VK_NULL_HANDLE;
 }
 
 void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {

@@ -35,7 +35,6 @@
 #include <string>
 #include <vector>
 
-#include "nxrt/ab_switch.h"
 #include "nxrt/config.h"
 #include "nxrt/platform_facts.h"
 #include "nxrt/fault_guard.h"
@@ -455,7 +454,7 @@ static uint64_t copy_around(PoolGpu* g, PoolChunk* c, uint64_t p0, uint64_t p1) 
     return bytes;
 }
 
-// [nvn] pool_touch_mark (default on; A/B name "touch_mark"): a page the write tracker finds current at a bind is marked as serving every
+// [nvn] pool_touch_mark (default on): a page the write tracker finds current at a bind is marked as serving every
 // submission queued so far, as a copy made then would be. A bind scans every page of its range (a 4 MiB storage buffer is 1024 pages), and
 // a current page cost three loads, one of them acquire, and a tracker call at every bind of every submission; marked, it costs one load
 // until the game queues a newer submission. A CPU write to a page after that belongs to a later submission (the game leaves the bytes of
@@ -463,7 +462,7 @@ static uint64_t copy_around(PoolGpu* g, PoolChunk* c, uint64_t p0, uint64_t p1) 
 // lowers a copy's (stop_serving). Render thread only, as every page_copied write.
 static bool touch_mark() {
     static const bool on = config_get_bool("nvn", "pool_touch_mark", true);
-    return diag::ab("touch_mark", on);
+    return on;
 }
 
 void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {

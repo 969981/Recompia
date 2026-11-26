@@ -125,7 +125,7 @@ void image_barrier(VkCommandBuffer cb, VkImage image, VkImageLayout from, VkImag
                    uint32_t base_level, uint32_t level_count, uint32_t base_layer, uint32_t layer_count);
 // All commands before, all commands after, all memory (used after passes, dispatches, copies and fills).
 void memory_barrier(VkCommandBuffer cb);
-// A/B name "barrier_batch", default on: between barrier_batch_begin(cb) and barrier_batch_end(), image_barrier / memory_barrier on that
+// Between barrier_batch_begin(cb) and barrier_batch_end(), image_barrier / memory_barrier on that
 // command buffer are collected and recorded as ONE vkCmdPipelineBarrier2 (the union of their dependencies; each barrier command is a sync
 // point of its own on a tiler, and a driver call each on the render thread). Render thread only; other command buffers are not affected.
 struct BarrierBatch {
@@ -138,7 +138,6 @@ inline BarrierBatch& barrier_batch() {
     return b;
 }
 inline bool barrier_batch_begin(VkCommandBuffer cb) {
-    if (!diag::ab("barrier_batch", true)) return false;
     BarrierBatch& b = barrier_batch();
     b.mem = false;
     b.img.clear();

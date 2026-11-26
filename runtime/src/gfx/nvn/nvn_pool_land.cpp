@@ -186,7 +186,7 @@ uint64_t land_one(PoolGpu* pool, const PoolChunk* c, uint64_t off, uint64_t size
     return bad;
 }
 
-// [nvn] pool_land_diff (default on; A/B name "land_diff"): a record lands only on the pages whose bytes differ from guest memory. A storage
+// [nvn] pool_land_diff (default on): a record lands only on the pages whose bytes differ from guest memory. A storage
 // buffer a shader may write is recorded whole, but a shader often writes little of it: of the pages such records landed on a Tensor G2
 // (Mali-G710) 0.56 % differed. A page that already holds the
 // GPU's bytes needs no copy, no protection change of the write tracker (it stays armed and current) and no write-watch write; the result
@@ -194,7 +194,7 @@ uint64_t land_one(PoolGpu* pool, const PoolChunk* c, uint64_t off, uint64_t size
 // the copy did). The compare runs per page under one fault guard; a page that cannot be read, or a fault, lands as before.
 bool land_diff() {
     static const bool on = config_get_bool("nvn", "pool_land_diff", true);
-    return diag::ab("land_diff", on);
+    return on;
 }
 uint64_t land_diff_one(PoolGpu* pool, const PoolChunk* c, uint64_t off, uint64_t size, std::vector<KeptRun>& kept, const uint8_t* ring) {
     if (size <= kPage || !land_diff()) return land_one(pool, c, off, size, kept, ring);

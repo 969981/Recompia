@@ -414,7 +414,7 @@ void prepare_textures(const ProgLayout& pl) {
     for (Texture* t : need) out_texture_read(t);           // an upload reads game memory: compute results held there go back first
     for (Texture* t : need_storage) out_texture_read(t);
     for (Texture* t : need_general) out_texture_read(t);
-    // A/B name "barrier_batch": when nothing here uploads (every image current on the GPU, no rescale), the end of the pass and all the
+    // When nothing here uploads (every image current on the GPU, no rescale), the end of the pass and all the
     // layout changes are one barrier command instead of one each (about 20 such changes a frame outdoors on a Tensor G2 (Mali-G710)).
     // sampled images only: an image that is also a storage or size-query image would change layout twice in the one command
     bool plain = need_storage.empty() && need_general.empty();
