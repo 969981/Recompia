@@ -137,6 +137,8 @@ struct Fam {
 struct State {
     std::array<Fam, kFamilyCount> fam;
     std::atomic<bool> authority{false};     // the seeds were the authority's (only it copies back)
+    std::atomic<bool> load_pending{false};  // a visited area's load job ran and its fix-up has not: no seed reads the Cloud set yet
+    std::atomic<double> load_pending_since{0.0};
     site_rows::Marks<kRowCount + 1> marks;  // each row's check (once per run), this session's first answer written
     std::mutex copy;                        // the copies of fields (game thread, the save worker)
     double counted_at = 0.0;                // game thread
@@ -304,9 +306,17 @@ bool check(const Row& r) {
     return false;
 }
 
-void count_line(double now) {
+void count_line(double now, bool in) {
     State& s = st();
     if (now - s.counted_at < kCountEvery) return;
+    if (!in) {   // no session: rows reached with the mode off are every co-op launch's solo frames, not worth a line
+        s.counted_at = now;
+        for (Fam& f : s.fam) {
+            f.answered += f.answers.exchange(0, std::memory_order_relaxed);
+            f.passes_off.store(0, std::memory_order_relaxed);
+        }
+        return;
+    }
     const double span = s.counted_at ? now - s.counted_at : kCountEvery;
     s.counted_at = now;
     for (size_t i = 0; i < kFamilyCount; ++i) {
@@ -323,8 +333,9 @@ void count_line(double now) {
     }
 }
 
-// The set-aside fields back into the Cloud set after an area load (the fix-up). Game thread.
-void restore_aside(Family id) {
+// The set-aside fields back into the Cloud set after an area load: at the fix-up, or kLoadLate after a load whose fix-up never ran
+// (an aborted load), so the mode cannot stay stuck with the rows off. Game thread.
+void restore_aside(Family id, const char* when) {
     State& s = st();
     const Desc& d = desc(id);
     Fam& f = fam(id);
@@ -342,8 +353,8 @@ void restore_aside(Family id) {
     f.loading.store(false, std::memory_order_release);
     f.late_logged = false;
     const Sum got = sum_of(d, file), g = sum_of(d, f.aside);
-    NXLOG_I(kTag, "Co-op stage: %s: written back after the area load (stage %u): the file's sum %016llx (%u set), the group's %016llx "
-            "(%u set, column %016llx)", d.name, session::area_stage(), got.hash, got.tally, g.hash, g.tally, g.column);
+    NXLOG_I(kTag, "Co-op stage: %s: written back %s (stage %u): the file's sum %016llx (%u set), the group's %016llx "
+            "(%u set, column %016llx)", d.name, when, session::area_stage(), got.hash, got.tally, g.hash, g.tally, g.column);
     f.aside.clear();
 }
 
@@ -405,15 +416,15 @@ int on_load_job(::Ctx* c) {
     const uint32_t mode = static_cast<uint32_t>(c->x[2]);
     if (!guest::ok(at, layout::kLoadEntryKind + 1)) return 0;
     const uint8_t stage = guest::rd<uint8_t>(at), kind = guest::rd<uint8_t>(at + layout::kLoadEntryKind);
+    if (mode == kLoadStageData && kind == kEntryVisited) {   // whatever the modes: an authority seed waits for this load's fix-up
+        s.load_pending_since.store(qpc::seconds(), std::memory_order_relaxed);
+        s.load_pending.store(true, std::memory_order_release);
+    }
     for (size_t i = 0; i < kFamilyCount; ++i) {
         const Desc& d = kFamilies[i];
         Fam& f = s.fam[i];
         if (f.mode.load(std::memory_order_acquire) != Mode::On) continue;
-        if (!s.authority.load(std::memory_order_acquire)) {
-            NXLOG_I(kTag, "Co-op stage: %s: load job (stage %u, mode %u, entry kind %u) on a member: nothing set aside", d.name, stage,
-                    mode, kind);
-            continue;
-        }
+        if (!s.authority.load(std::memory_order_acquire)) continue;   // a member's Cloud set is the seed's: nothing set aside
         if (stage == layout::kStageCloudIsland) {
             end(d.id, "a load into Cloud Island");
             continue;
@@ -441,8 +452,9 @@ int on_load_job(::Ctx* c) {
 }
 
 int on_load_fixup(::Ctx*) {
+    st().load_pending.store(false, std::memory_order_release);
     for (size_t i = 0; i < kFamilyCount; ++i)
-        if (st().fam[i].loading.load(std::memory_order_acquire)) restore_aside(kFamilies[i].id);
+        if (st().fam[i].loading.load(std::memory_order_acquire)) restore_aside(kFamilies[i].id, "after the area load");
     return 0;
 }
 
@@ -535,6 +547,13 @@ void tick(bool in_game) {
     const bool in = link::in_session();
     const uint8_t stage = session::area_stage();
     const double now = qpc::seconds();
+    State& s = st();
+    if (s.load_pending.load(std::memory_order_acquire) &&
+        now - s.load_pending_since.load(std::memory_order_relaxed) > kLoadLate && session::area_settled(in_game)) {
+        s.load_pending.store(false, std::memory_order_release);
+        NXLOG_W(kTag, "Co-op stage: no fix-up 0x5af540 %.0f s after a visited area's load job: taken as done", kLoadLate);
+    }
+    const bool load_pending = s.load_pending.load(std::memory_order_acquire);
     for (const Desc& d : kFamilies) {
         Fam& f = fam(d.id);
         Mode mode = f.mode.load(std::memory_order_acquire);
@@ -545,7 +564,7 @@ void tick(bool in_game) {
         if (!in || stage == layout::kStageCloudIsland) continue;
         if (mode == Mode::Off) {
             if (link::is_authority()) {
-                if (session::area_settled(in_game)) seed_authority(d.id);
+                if (!load_pending && session::area_settled(in_game)) seed_authority(d.id);
             } else if (session_bits() & layout::kSessionVisitor) {
                 f.mode.store(Mode::Asking, std::memory_order_release);
                 mode = Mode::Asking;
@@ -555,11 +574,11 @@ void tick(bool in_game) {
         if (f.loading.load(std::memory_order_acquire) && !f.late_logged &&
             now - f.loading_since.load(std::memory_order_relaxed) > kLoadLate && session::area_settled(in_game)) {
             f.late_logged = true;
-            NXLOG_W(kTag, "Co-op stage: %s: no fix-up 0x5af540 %.0f s after the area load: the rows stay off and copy-backs take "
-                    "the set-aside fields until a fix-up writes them back", d.name, kLoadLate);
+            NXLOG_W(kTag, "Co-op stage: %s: no fix-up 0x5af540 %.0f s after the area load (an aborted load?)", d.name, kLoadLate);
+            restore_aside(d.id, "with no fix-up");
         }
     }
-    count_line(now);
+    count_line(now, in);
 }
 
 void reset() {
@@ -574,6 +593,7 @@ void reset() {
         f.late_logged = false;
     }
     s.authority.store(false, std::memory_order_relaxed);
+    s.load_pending.store(false, std::memory_order_relaxed);
     s.marks.reset();
     s.counted_at = 0.0;
 }
