@@ -349,10 +349,28 @@ std::shared_ptr<Service> make_filesystem(std::shared_ptr<Volume> v, std::string 
         s.add_cmd(8, "OpenFile", [v, label](Request& req, Response& rsp) -> uint32_t {
             PATH_OR_FAIL(p, 0);
             std::shared_ptr<fs::VFile> f;
-            const uint32_t r = v->open_file(p, req.arg<uint32_t>(0), &f);
+            const uint32_t mode = req.arg<uint32_t>(0);
+            const bool write = (mode & (fs::kModeWrite | fs::kModeAppend)) != 0;
+            uint32_t r = v->open_file(p, mode, &f);
+            // A save file opened for writing that is not there: on the console a save job that creates a file and then opens it
+            // always finds it, and a game may not check the open's result (it then writes through a handle that was never filled
+            // in). A save whose create failed or never came would fail every later save of that file, so it is made now, as the
+            // create would have (empty), and opened again. Based on pokopia-native 1.6.7 (MIT) hle_fs.c h_fs_OpenFile.
+            if (r == fs::rc::kPathNotFound && write && v->journalled() && !v->read_only()) {
+                const uint32_t c = v->create_file(p, 0);
+                if (c == 0 || c == fs::rc::kPathAlreadyExists) r = v->open_file(p, mode, &f);   // exists: another thread made it in between
+                NXLOG_W("fs", "OpenFile %s%s for writing: the file was not there (its create failed or never came): %s", label.c_str(),
+                        p.c_str(), c && c != fs::rc::kPathAlreadyExists ? "making it failed too" : r ? "made it, the open still failed" : "made it now");
+            }
             diag_note_file("open", (label + p).c_str());
             if (r) {
-                NXLOG_D("fs", "OpenFile %s%s (mode %u) -> 0x%x", label.c_str(), p.c_str(), req.arg<uint32_t>(0), r);
+                if (write) {   // named at warning level: the game may write on with the handle it never got
+                    static std::atomic<int> told{0};
+                    if (told.fetch_add(1, std::memory_order_relaxed) < 20)
+                        NXLOG_W("fs", "OpenFile %s%s for writing failed (mode %u) -> 0x%x", label.c_str(), p.c_str(), mode, r);
+                } else {
+                    NXLOG_D("fs", "OpenFile %s%s (mode %u) -> 0x%x", label.c_str(), p.c_str(), mode, r);
+                }
                 return r;
             }
             rsp.push_object(make_file(f, p, v));

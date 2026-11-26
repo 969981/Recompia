@@ -33,6 +33,9 @@
 - Added `[memory] zero_reclaim`: large zero fills and freed game memory are given back to the system. On by default on phones whose heap is a shared section (the Tensor G2 profile), off elsewhere
 - Added `[nvn] upload_slot_kb` to size the upload rings (default unchanged)
 
+### Saves
+- Fixed a save file the game opens for writing but that was never made (its create failed): before, every later save of it failed; now it is made at the open and the save goes on
+
 ## 0.17.7 (build U: Urchin Hotfix a3)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (new hook sites; saves and shaders are kept, no shader is rebuilt). Everyone in a co-op session needs this version: an older build cannot join a newer one.
