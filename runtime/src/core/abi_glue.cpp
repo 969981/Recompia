@@ -144,7 +144,10 @@ void guest_unimpl(uint64_t pc, uint32_t insn, const char* what) {
     TerminateProcess(GetCurrentProcess(), 3);
 }
 
-void guest_svc(Ctx* c, uint32_t number) { nxrt::svc_dispatch(c, number, 0); }
+void guest_svc(Ctx* c, uint32_t number) {
+    nxrt::t_guest_svc_ret = reinterpret_cast<uint64_t>(__builtin_return_address(0));   // the lifted caller, for reports (no c->fn)
+    nxrt::svc_dispatch(c, number, 0);
+}
 
 // System registers the lifter does not model inline: the generic timer counters are real (the system tick, nxrt/clock.h), other reads give 0, writes are ignored; each register is reported once.
 uint64_t guest_mrs(Ctx* c, uint32_t sysreg) {
@@ -155,13 +158,13 @@ uint64_t guest_mrs(Ctx* c, uint32_t sysreg) {
         default: break;
     }
     std::lock_guard<std::mutex> lk(nxrt::g_sysreg_lock);
-    if (nxrt::g_sysregs_seen.insert(sysreg).second) NXLOG_W("guest", "MRS of system register 0x%04x (not modelled): returns 0 (in f_%llx)", sysreg, static_cast<unsigned long long>(c->fn));
+    if (nxrt::g_sysregs_seen.insert(sysreg).second) NXLOG_W("guest", "MRS of system register 0x%04x (not modelled): returns 0 (in f_%llx)", sysreg, static_cast<unsigned long long>(nxrt::guest_function_of(reinterpret_cast<uint64_t>(__builtin_return_address(0)))));
     return 0;
 }
 
 void guest_msr(Ctx* c, uint32_t sysreg, uint64_t value) {
     std::lock_guard<std::mutex> lk(nxrt::g_sysreg_lock);
-    if (nxrt::g_sysregs_seen.insert(sysreg | 0x10000u).second) NXLOG_W("guest", "MSR to system register 0x%04x = 0x%llx (not modelled): ignored (in f_%llx)", sysreg, static_cast<unsigned long long>(value), static_cast<unsigned long long>(c->fn));
+    if (nxrt::g_sysregs_seen.insert(sysreg | 0x10000u).second) NXLOG_W("guest", "MSR to system register 0x%04x = 0x%llx (not modelled): ignored (in f_%llx)", sysreg, static_cast<unsigned long long>(value), static_cast<unsigned long long>(nxrt::guest_function_of(reinterpret_cast<uint64_t>(__builtin_return_address(0)))));
 }
 
 // Called on every failed exclusive store; reports a loop that never succeeds.
@@ -169,7 +172,7 @@ void stx_diag(Ctx* c, uint64_t a, uint64_t expected, uint64_t seen, uint64_t v, 
     uint64_t n = ++c->ex_fail;
     if (n == 1000 || n == 100000)
         NXLOG_W("guest", "STXR failing %llu times in f_%llx: addr=%llx expected=%llx seen=%llx new=%llx (%s%d)", static_cast<unsigned long long>(n),
-                static_cast<unsigned long long>(c->fn), static_cast<unsigned long long>(a), static_cast<unsigned long long>(expected),
+                static_cast<unsigned long long>(nxrt::guest_function_of(reinterpret_cast<uint64_t>(__builtin_return_address(0)))), static_cast<unsigned long long>(a), static_cast<unsigned long long>(expected),
                 static_cast<unsigned long long>(seen), static_cast<unsigned long long>(v), bits < 0 ? "monitor lost, " : "", bits < 0 ? -bits : bits);
 }
 

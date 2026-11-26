@@ -23,6 +23,9 @@ void fn_clear();                                  // tests only: no thread may b
 // The guest function whose host code contains `host_rip` (nearest registered function at or below it, within 4 MiB), or 0.
 // Used by the crash handler and the watchdog to turn a host address into the lifted function it belongs to.
 uint64_t guest_function_of(uint64_t host_rip);
+// The host return address of the current guest SVC call (guest_svc): reports name its lifted caller with guest_function_of. Lifted
+// functions keep no record of themselves (no c->fn store).
+extern thread_local uint64_t t_guest_svc_ret;
 
 // ---- HLE thunks ----------------------------------------------------------------------------------------------------
 // Each thunk is a 16-byte slot in [mem::kHleBase, +mem::kHleSize). Calling the address through call_indirect runs the host

@@ -334,7 +334,7 @@ void svc_break(::Ctx* c) {
         snprintf(extra, sizeof extra, " (4-byte argument 0x%x: as a Result module %u, description %u)", r, r & 0x1FF, (r >> 9) & 0x1FFF);
     }
     NXLOG_E("svc", "svcBreak reason 0x%x arg 0x%llx size 0x%llx%s lr=0x%llx in f_%llx", reason, (unsigned long long)arg, (unsigned long long)size, extra,
-            (unsigned long long)X(c, 30), (unsigned long long)c->fn);
+            (unsigned long long)X(c, 30), (unsigned long long)guest_function_of(t_guest_svc_ret));
     if (notify_only) return;
     NXLOG_I("runtime", "state at svcBreak:\n%s", kernel::detail::state_report().c_str());
     log_flush();

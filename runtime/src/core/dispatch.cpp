@@ -185,6 +185,8 @@ void fn_clear() {
     g_byhost = {};
 }
 
+thread_local uint64_t t_guest_svc_ret = 0;
+
 uint64_t guest_function_of(uint64_t host_rip) {
     std::lock_guard<std::mutex> lk(g_byhost_lock);
     size_t n = g_fn_count.load(std::memory_order_relaxed);
