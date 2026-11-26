@@ -10,6 +10,7 @@
 // neither the names nor the numbers carry is the c[0] offset a storage buffer's address was loaded from; that comes
 // from the harness's results.tsv (apply_harness).
 #include "nvn_shaders.h"
+#include "nvn_shaders_internal.h"
 #include "nvn_driver_bank.h"
 #include "nvn_fnv.h"
 
@@ -34,6 +35,8 @@
 #include <zstd.h>
 
 namespace nxrt::nvn::be {
+
+using namespace shader_files;
 
 // ---- SHA-1 (the Sha1 class: nvn_sha1.cpp) -------------------------------------------------------------------------
 
@@ -887,7 +890,8 @@ const char* source_name(NvnSource s) {
 
 // ---- the runtime cache ----------------------------------------------------------------------------------------------
 
-namespace {
+// The cache's file helpers, shared with the reflection catalogue (nvn_shaders_refl.cpp): nvn_shaders_internal.h.
+namespace shader_files {
 
 bool read_file(const std::string& path, std::string& out) {
     std::ifstream f(path, std::ios::binary);
@@ -897,6 +901,33 @@ bool read_file(const std::string& path, std::string& out) {
     out = s.str();
     return true;
 }
+
+// <dir>.preload.pack<suffix>; a trailing separator of the cache directory is dropped, so the file stays beside the directory.
+std::string pack_path(std::string dir, const char* suffix) {
+    while (!dir.empty() && (dir.back() == '/' || dir.back() == '\\')) dir.pop_back();
+    return dir + ".preload.pack" + suffix;
+}
+
+uint64_t fnv1a64(std::string_view s) {
+    uint64_t h = kFnvBasis;
+    for (unsigned char c : s) h = fnv_step(h, c);
+    return h;
+}
+
+std::wstring widen(const std::string& s) {
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
+    std::wstring w(static_cast<size_t>(std::max(n, 0)), L'\0');
+    if (n > 0) MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), w.data(), n);
+    return w;
+}
+
+uint64_t now_ms() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
+}  // namespace shader_files
+
+namespace {
 
 // Tab-separated column `col` (0-based) of one line; empty if the line has fewer columns.
 std::string column_text(std::string_view line, int col) {
@@ -973,28 +1004,9 @@ struct PackDiskEntry {
 };
 static_assert(sizeof(PackHeader) == 32 && sizeof(PackDiskEntry) == 40, "preload.pack layout");
 
-// <dir>.preload.pack<suffix>; a trailing separator of the cache directory is dropped, so the file stays beside the directory.
-std::string pack_path(std::string dir, const char* suffix) {
-    while (!dir.empty() && (dir.back() == '/' || dir.back() == '\\')) dir.pop_back();
-    return dir + ".preload.pack" + suffix;
-}
-
 bool pack_enabled() {
     static const bool on = nxrt::config_get_bool("nvn", "shader_pack", true);
     return on;
-}
-
-uint64_t fnv1a64(std::string_view s) {
-    uint64_t h = kFnvBasis;
-    for (unsigned char c : s) h = fnv_step(h, c);
-    return h;
-}
-
-std::wstring widen(const std::string& s) {
-    const int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
-    std::wstring w(static_cast<size_t>(std::max(n, 0)), L'\0');
-    if (n > 0) MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), w.data(), n);
-    return w;
 }
 
 // A positional read: threads share the handle (under Wine a pread; Windows serialises reads on a synchronous handle, still correct).
@@ -1004,10 +1016,6 @@ bool read_at(void* file, uint64_t off, void* dst, uint32_t n) {
     ov.OffsetHigh = static_cast<DWORD>(off >> 32);
     DWORD got = 0;
     return ReadFile(static_cast<HANDLE>(file), dst, n, &got, &ov) && got == n;
-}
-
-uint64_t now_ms() {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
 }  // namespace
@@ -1033,7 +1041,12 @@ void ShaderCache::pack_open() {
     }
     size_t stale = 0;
     uint64_t bytes = 0;
+    pack_digest_ = fnv1a64(std::string_view(reinterpret_cast<const char*>(idx.data()), idx.size() * sizeof(PackDiskEntry)));
+    pack_size_ = static_cast<uint64_t>(size.QuadPart);
+    pack_count_ = h.count;
+    uint32_t slot = 0;
     for (const PackDiskEntry& e : idx) {
+        const uint32_t this_slot = slot++;
         std::string hash(e.hash, sizeof e.hash);
         auto ln = lines_.find(hash);
         if (ln == lines_.end() || fnv1a64(std::string_view(results_.data() + ln->second.first, ln->second.second)) != e.line_hash ||
@@ -1042,10 +1055,11 @@ void ShaderCache::pack_open() {
             continue;
         }
         bytes += e.usize;
-        pack_.emplace(std::move(hash), PackEntry{e.offset, e.csize, e.usize});
+        pack_.emplace(std::move(hash), PackEntry{e.offset, e.csize, e.usize, this_slot});
     }
     pack_file_ = f;
     pack_data_end_ = h.index_offset;
+    cat_open();
     NXLOG_I("nvn", "shader pack: preload.pack has %zu shaders (%llu MiB of SPIR-V in %llu MiB)%s", pack_.size(),
             static_cast<unsigned long long>(bytes >> 20), static_cast<unsigned long long>(h.index_offset >> 20),
             stale ? (", " + std::to_string(stale) + " translated again since and read from their .spv files").c_str() : "");
@@ -1314,6 +1328,8 @@ void ShaderCache::preload_done() {
     NXLOG_I("nvn", "shader preload: done after %.1f s (%llu .spv reads from preload.pack, %llu from the shader archive, %llu from separate files so far)",
             (now_ms() - pre_start_ms_) / 1000.0, static_cast<unsigned long long>(pre_from_pack_.load()),
             static_cast<unsigned long long>(from_archive_.load()), static_cast<unsigned long long>(pre_from_files_.load()));
+    if (cat_on_) NXLOG_I("nvn", "reflection catalogue: %llu shaders prepared from it", static_cast<unsigned long long>(cat_hits_.load()));
+    cat_write();
 }
 
 // Started with the preload when the pack lacks shaders of the order file; writes once the preload is done (or after 90 s: workers wait
@@ -1599,10 +1615,20 @@ void ShaderCache::preload_worker() {
 // One shader: the file read and the reflection, no lock held for them. Null if the game already has it or needs its own load.
 std::unique_ptr<ShaderCache::Preloaded> ShaderCache::preload_one(const std::string& hash) {
     NXFT("shader.preload");
+    std::string record;
+    bool have_record = false, taken;
     {
         std::lock_guard lk(lock_);
-        if (by_hash_.count(hash)) return nullptr;   // the game got there first
+        taken = by_hash_.count(hash) != 0;   // the game got there first
+        if (auto it = lines_.find(hash); !taken && it != lines_.end()) {
+            record = column_text(std::string_view(results_.data() + it->second.first, it->second.second), resources_col_);
+            have_record = true;
+        }
     }
+    // The game's own load reflected it without noting it: still reflected once here while the catalogue lacks it, for the next run.
+    if (taken && (!cat_on_ || !pack_.count(hash) || cat_has(hash))) return nullptr;
+    if (!taken)
+        if (auto p = cat_preload(hash, have_record ? &record : nullptr)) return p;
     std::string bytes;
     SpirvFrom from = SpirvFrom::Memory;
     if (!read_spv(hash, bytes, &from) || bytes.empty() || bytes.size() % 4) return nullptr;
@@ -1612,17 +1638,13 @@ std::unique_ptr<ShaderCache::Preloaded> ShaderCache::preload_one(const std::stri
     std::memcpy(p->words.data(), bytes.data(), bytes.size());
     bytes = std::string();
     if (!reflect_spirv(p->words.data(), p->words.size(), p->refl, nullptr)) return nullptr;
+    if (from == SpirvFrom::Pack) cat_note(hash, p->refl);
+    if (taken) return nullptr;
     p->word_count = static_cast<uint32_t>(p->words.size());
     if (p->from != SpirvFrom::Memory) p->words = std::vector<uint32_t>();   // read again when a module is made (SpirvFrom)
-    std::string record;
-    bool have_record = false;
     {
         std::lock_guard lk(lock_);
         if (by_hash_.count(hash)) return nullptr;
-        if (auto it = lines_.find(hash); it != lines_.end()) {
-            record = column_text(std::string_view(results_.data() + it->second.first, it->second.second), resources_col_);
-            have_record = true;
-        }
     }
     if (have_record) {
         std::vector<HarnessResource> list;
@@ -1776,6 +1798,7 @@ const ShaderInfo* ShaderCache::load(const std::string& hash, const uint8_t* code
     };
     NXFT("shader.load");
     std::unique_ptr<Preloaded> pre = take_preloaded(hash);   // waits for a worker that is reading this file: one read, not two
+    if (!pre) pre = cat_preload(hash, record_ptr);
     std::vector<uint32_t> words;
     SpirvFrom from = SpirvFrom::Memory;
     if (pre) {
