@@ -14,6 +14,10 @@
 #include "nxrt/write_watch.h"
 
 #include <windows.h>
+#if defined(__linux__)
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -609,6 +613,14 @@ bool heap_decommit(uint64_t offset, uint64_t size) {
                     static_cast<unsigned long>(e));
             return false;
         }
+#if defined(__linux__)
+        {   // [memory] zero_reclaim: the decommitted pages leave the section (a later commit reads zeros, as on Windows); whole host pages only
+            static const bool reclaim = config_get_bool("memory", "zero_reclaim", false);
+            static const uint64_t hp = static_cast<uint64_t>(sysconf(_SC_PAGESIZE) > 0 ? sysconf(_SC_PAGESIZE) : 4096);
+            const uint64_t lo = align_up(kHeapBase + p * kPage, hp), hi = (kHeapBase + run * kPage) & ~(hp - 1);
+            if (reclaim && lo < hi) ::madvise(reinterpret_cast<void*>(lo), static_cast<size_t>(hi - lo), MADV_REMOVE);
+        }
+#endif
         for (uint64_t q = p; q < run; q++) {
             bit_clear(q);
             g_committed -= kPage;

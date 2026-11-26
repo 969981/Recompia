@@ -541,6 +541,10 @@ BOOL VirtualFree(LPVOID addr, SIZE_T size, DWORD type) {
         }
         if (lo >= 0) region_coalesce(static_cast<size_t>(lo), hi);
         apply_host_protect(a, size);
+        // [memory] zero_reclaim: decommitted pages leave memory as on Windows (a later commit reads zeros); before, they stayed resident.
+        static const bool reclaim = nxrt::config_get_bool("memory", "zero_reclaim", false);
+        if (reclaim && round_up(a) < round_down(a + size))
+            ::madvise(reinterpret_cast<void*>(round_up(a)), round_down(a + size) - round_up(a), MADV_DONTNEED);
         return TRUE;
     }
 
