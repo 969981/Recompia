@@ -53,7 +53,7 @@ typedef struct Ctx {
     uint64_t ex_addr;            /* exclusive monitor: address of the last LDXR / LDXP, or ~0 when open */
     uint64_t ex_val, ex_val_hi;  /* ... and the value(s) it read (hi: second half of an LDXP of two X registers) */
     uint64_t ex_fail;            /* consecutive failed STXR, for diagnostics */
-    uint64_t fn;                 /* entry address of the lifted function entered most recently (crash reports) */
+    uint64_t fn;                 /* unused by lifted code (kept for the layout); host stubs save and restore it around guest calls */
     const char *in_import;       /* name of the host import currently executing on this context, or NULL */
     uint64_t import_from;        /* guest return address of that import call */
     uint32_t import_id;          /* the host import executing on this context (0 = none): the reports resolve its name on demand,

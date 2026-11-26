@@ -97,8 +97,9 @@ def lift_function(env, entry, text=True):
             lines, trailer, decl = res
     if not text:
         return '', len(lines), bad, [(lp, entry) for lp in pads]
-    out = ['%svoid %s_%x(Ctx *__restrict c%s) {' % (cold, 'u' if two else 'f', entry, ', uint64_t rp' if two else ''),
-           '  c->fn = 0x%xULL;' % entry]
+    # No c->fn store: a report finds the lifted function from the host pc (guest_function_of); the store cost about 1 % of the
+    # lifted code's samples on a phone (4 instructions on every call of every function).
+    out = ['%svoid %s_%x(Ctx *__restrict c%s) {' % (cold, 'u' if two else 'f', entry, ', uint64_t rp' if two else '')]
     if entry in env.sites['entryhook']:
         out.append('  if (nx_hook_entry(c, 0x%xULL)) return;' % entry)
     if decl:                                                 # after the entry hook: it may change registers and flags
