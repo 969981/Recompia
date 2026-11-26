@@ -353,6 +353,13 @@ static bool is_shadow_map(const Texture& t) {
 // swapchain's size instead of the render scale: the 2D is drawn at the screen's resolution while the 3D passes keep the low internal
 // size, and the draw that copies the scene into the window texture enlarges it. 0 when off or not known yet.
 static std::unordered_set<uint32_t> g_ui_depth;   // depth targets of passes on a window texture (render thread): they keep its scale
+// Desktop: depth targets of passes on other colour targets (the 3D scene's). A depth target found on both sides (the game draws into the
+// window texture with the scene's depth buffer: under water, behind a waterfall) cannot have both scales: it was promoted to the window's
+// scale for good, and every 3D pass then dragged the G-buffer up to it and the next pass back down, remaking the targets each pass (half
+// the frame rate) with the passes reading targets of other sizes (white, glowing characters and a checkered player). Then ui_native goes
+// off for the rest of the run (g_ui_conflict), the old path: everything at the render scale, the present enlarges the frame.
+static std::unordered_set<uint32_t> g_3d_depth;
+static bool g_ui_conflict = false;
 
 // Desktop: `auto` (the default) is on while the window is larger than the game's frame (a 4K or 1440p screen with 1080p targets), except
 // while the player's FSR 1 or NIS has only the present to enlarge the 3D picture in (the scene shown at 100%: the game's composite then
@@ -392,7 +399,7 @@ static float ui_native_desktop_scale(const Texture& t) {
 
 static float ui_native_scale_impl(const Texture& t) {
     if constexpr (!facts::kPhone) {
-        if (t.b.width <= 0 || (!t.is_display && !g_ui_depth.count(t.id))) return 0.0f;
+        if (g_ui_conflict || t.b.width <= 0 || (!t.is_display && !g_ui_depth.count(t.id))) return 0.0f;
         const float sc = ui_native_desktop_scale(t);
         return sc > 0.0f && ui_native_desktop_on(sc) ? sc : 0.0f;
     }
@@ -573,7 +580,24 @@ static void arm_worker() {
 float ui_native_scale(const Texture& t) { return tex::ui_native_scale_impl(t); }
 // A depth target used with a window texture keeps the window texture's scale in its other passes too (without this the 2D's depth buffer was
 // remade at both scales every frame, once per pass kind).
-void ui_native_note_depth(const Texture& t) { if (t.fmt && t.fmt->aspect != kAspectColor) tex::g_ui_depth.insert(t.id); }
+void ui_native_note_depth(const Texture& t, bool window_pass) {
+    if (!t.fmt || t.fmt->aspect == kAspectColor) return;
+    if constexpr (!facts::kPhone) {
+        if (tex::g_ui_conflict) return;
+        if (!window_pass) {
+            tex::g_3d_depth.insert(t.id);
+            if (!tex::g_ui_depth.count(t.id)) return;
+        } else if (!tex::g_3d_depth.count(t.id)) {
+            tex::g_ui_depth.insert(t.id);
+            return;
+        }
+        tex::g_ui_conflict = true;
+        NXLOG_W(kTag, "ui_native: depth texture %u (%dx%d) is used by a window-texture pass and by 3D passes: the 2D at the screen's resolution is "
+                      "off for this run ([gfx] ui_native), everything at the render scale", t.id, t.b.width, t.b.height);
+        return;
+    }
+    if (window_pass) tex::g_ui_depth.insert(t.id);
+}
 
 std::mutex& tex_arm_import_mutex() { return g_arm_import_mu; }
 

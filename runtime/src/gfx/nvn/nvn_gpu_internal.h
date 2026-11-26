@@ -314,7 +314,7 @@ extern void (*g_tex_touch_hook)(Frame& f, TexGpu* g);
 TexGpu* tex_gpu_attachment(Texture* t);
 TexGpu* tex_gpu_scaled(Texture* t, float scale);
 float ui_native_scale(const Texture& t);                // [gfx] ui_native: the window textures' scale, 0 = off
-void ui_native_note_depth(const Texture& t);            // [gfx] ui_native: a depth target of a pass on a window texture
+void ui_native_note_depth(const Texture& t, bool window_pass);   // [gfx] ui_native: a pass's depth target (window_pass: on a window texture)
 float render_scale();                                   // [gfx] render_scale (1 until known)
 float tex_scale(Texture* t);                            // the image size over the NVN size (1 for most textures)
 VkExtent3D tex_image_extent(Texture* t, uint32_t level = 0);   // the image's own size (tex_extent times tex_scale)
