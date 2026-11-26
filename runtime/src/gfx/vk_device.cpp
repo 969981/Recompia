@@ -641,6 +641,7 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     VkPhysicalDevicePresentIdFeaturesKHR apid = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR};
     VkPhysicalDeviceAntiLagFeaturesAMD aal = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ANTI_LAG_FEATURES_AMD};
     VkPhysicalDeviceFaultFeaturesEXT afault = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT};
+    VkPhysicalDeviceImageCompressionControlFeaturesEXT aicc = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_COMPRESSION_CONTROL_FEATURES_EXT};
     std::vector<const char*> dev_exts;
     void* chain = nullptr;
     auto add_ext = [&](const char* name, void* feat_struct) {
@@ -706,6 +707,7 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     const bool x_ck = ck_level > 0 && has_dext(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
     if (x_ck) dev_exts.push_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
     const bool x_fault = add_ext(VK_EXT_DEVICE_FAULT_EXTENSION_NAME, &afault);
+    compression_query_ = config_get_bool("prof", "image_compression", false) && add_ext(VK_EXT_IMAGE_COMPRESSION_CONTROL_EXTENSION_NAME, &aicc);
     // availability query: one chain holding all the structs
     a11.pNext = &a12; a12.pNext = &a13; a13.pNext = chain;
     VkPhysicalDeviceFeatures2 avail = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &a11};
@@ -1188,6 +1190,20 @@ VkResult Device::create_image(const ImageDesc& d, Image* out, std::string* why) 
         if (inf.size >= (256ull << 20))
             NXLOG_I(kTag, "large image '%s': %ux%ux%u, %u levels, %u layers, format %d, %llu MB", d.name ? d.name : "?", d.width, d.height, d.depth,
                     d.mip_levels, d.array_layers, static_cast<int>(d.format), static_cast<unsigned long long>(inf.size >> 20));
+    }
+    if (compression_query_ && (d.usage & (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)) && d.width >= 64) {
+        // [prof] image_compression = 1: whether the driver compresses each render target (VK_EXT_image_compression_control), counted per format
+        VkImageSubresource2KHR sub = {VK_STRUCTURE_TYPE_IMAGE_SUBRESOURCE_2_KHR};
+        const VkImageAspectFlags asp = aspect_of(d.format);
+        sub.imageSubresource = {(asp & VK_IMAGE_ASPECT_DEPTH_BIT) ? static_cast<VkImageAspectFlags>(VK_IMAGE_ASPECT_DEPTH_BIT) : asp, 0, 0};
+        VkImageCompressionPropertiesEXT cp = {VK_STRUCTURE_TYPE_IMAGE_COMPRESSION_PROPERTIES_EXT};
+        VkSubresourceLayout2KHR lay = {VK_STRUCTURE_TYPE_SUBRESOURCE_LAYOUT_2_KHR, &cp};
+        vkGetImageSubresourceLayout2EXT(device_, handle, &sub, &lay);
+        static std::atomic<int> told{0};
+        if (told.fetch_add(1) < 400)
+            NXLOG_I(kTag, "image compression: %ux%ux%u format %d usage 0x%x flags 0x%x list %u: %s", d.width, d.height, d.array_layers, static_cast<int>(d.format),
+                    static_cast<unsigned>(d.usage), static_cast<unsigned>(d.flags), ci.pNext ? d.view_format_count : 0u,
+                    cp.imageCompressionFlags == VK_IMAGE_COMPRESSION_DISABLED_EXT ? "UNCOMPRESSED" : "compressed");
     }
     img.image = handle;
     img.allocation = alloc;

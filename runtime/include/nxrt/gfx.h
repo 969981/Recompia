@@ -268,6 +268,7 @@ private:
     size_t gpu_index_ = 0;
     bool gpu_override_matched_ = true;
     bool validation_ = false;
+    bool compression_query_ = false;   // [prof] image_compression: VK_EXT_image_compression_control enabled to log each render target's compression
     bool debug_utils_ = false;
     bool owns_platform_surface_ = false;
     std::atomic<bool> device_lost_{false};
