@@ -76,14 +76,14 @@ void do_clear_depth_stencil(const P_ClearDepthStencil& p) {
     if (!ensure_pass_for_clear()) return;
     VkClearAttachment ca = {};
     if (p.depth_mask) ca.aspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
-    if (p.stencil_mask && P.has_stencil) ca.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+    const uint32_t smask = p.stencil_mask & 0xffu;   // the stencil is 8 bits: only the mask's low byte counts
+    if (smask && P.has_stencil) ca.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
     if (!ca.aspectMask) return;
     ++(P.draws ? P.clears_mid : P.clears_first);
-    // The stencil is 8 bits: a mask with all of them set (a full mask, 0xffffffff) is a full clear, not a masked one. Drawn as a masked
-    // clear it was a full-screen depth and stencil draw in a pass of its own (about 0.1 ms each on a phone, five a frame) instead of a
-    // vkCmdClearAttachments. Phones only (facts::kPhone); desktop keeps the comparison it had.
-    const bool masked = facts::kPhone ? ((p.stencil_mask & 0xffu) != 0 && (p.stencil_mask & 0xffu) != 0xffu)
-                                      : (p.stencil_mask && p.stencil_mask != 0xff);
+    // A mask with all 8 bits set (a full mask, 0xffffffff) is a full clear, not a masked one: drawn as a masked clear it was a full-screen
+    // depth and stencil draw in a pass of its own (about 0.1 ms each on a phone, five a frame; on a desktop APU GPU -0.8 %, render and game
+    // thread -0.25 ms each) instead of a vkCmdClearAttachments. A mask whose low byte is 0 clears no stencil bit.
+    const bool masked = smask && smask != 0xffu;
     if (masked && P.has_stencil && !P.depth_ro) pass_flush();   // drawn ([nvn] clear_fold)
     if (masked && P.has_stencil && !P.depth_ro) {
         // vkCmdClearAttachments has no stencil write mask: a masked stencil clear is a draw with that write mask (depth goes along)
@@ -105,6 +105,7 @@ void do_clear_depth_stencil(const P_ClearDepthStencil& p) {
     }
     ca.clearValue.depthStencil = {p.depth, static_cast<uint32_t>(p.stencil)};
     VkClearRect r = full_rect();
+    shadow_half_clip_clear(&r);   // [gfx] shadow_half: a frame keeping the far cascade clears the near half only (then not folded)
     if (pass_fold_clear_ds(ca.aspectMask, ca.clearValue.depthStencil, r)) {
         counters().clears.fetch_add(1, std::memory_order_relaxed);
         return;

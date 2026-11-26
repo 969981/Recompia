@@ -10,6 +10,7 @@
 // neither the names nor the numbers carry is the c[0] offset a storage buffer's address was loaded from; that comes
 // from the harness's results.tsv (apply_harness).
 #include "nvn_shaders.h"
+#include "nvn_shaders_internal.h"
 #include "nvn_driver_bank.h"
 #include "nvn_fnv.h"
 
@@ -26,17 +27,6 @@
 #include <sstream>
 #include <unordered_set>
 
-#if defined(__x86_64__) || defined(_M_X64)
-#include <immintrin.h>
-#include <intrin.h>
-#elif defined(__aarch64__)
-#include <arm_neon.h>
-#if defined(__linux__)
-#include <asm/hwcap.h>   // HWCAP_SHA1
-#include <sys/auxv.h>    // getauxval
-#endif
-#endif
-
 #include <nxrt/ftrace.h>
 #include <nxrt/config.h>
 #include <nxrt/gauge.h>
@@ -46,192 +36,9 @@
 
 namespace nxrt::nvn::be {
 
-// ---- SHA-1 ----------------------------------------------------------------------------------------------------------
+using namespace shader_files;
 
-namespace {
-
-inline uint32_t rol(uint32_t x, int n) { return (x << n) | (x >> (32 - n)); }
-
-inline uint32_t rd32(const uint8_t* p) {
-    uint32_t v;
-    std::memcpy(&v, p, 4);  // little-endian host (arm64, x86-64), like the Switch
-    return v;
-}
-
-// The SHA instructions (Intel since Ice Lake / Alder Lake, AMD since Zen): the same digest as block() at several times the speed. The
-// shader cache keys on this hash, and the game hashes every stage of every program it links (over a second of the boot on the portable
-// loop). Intrinsics, no inline assembly; chosen at run time from CPUID.
-// x86: SHA-NI. arm64: the ARMv8 SHA-1 instructions, which every Apple silicon core has.
-#if defined(__x86_64__) || defined(_M_X64)
-bool have_shani() {
-    static const bool yes = [] {
-        int r[4];
-        __cpuid(r, 0);
-        if (r[0] < 7) return false;
-        __cpuidex(r, 1, 0);
-        const bool sse41 = (r[2] >> 19) & 1, ssse3 = (r[2] >> 9) & 1;
-        __cpuidex(r, 7, 0);
-        return sse41 && ssse3 && ((r[1] >> 29) & 1);
-    }();
-    return yes;
-}
-
-template <int F>
-__attribute__((target("sha,sse4.1,ssse3"))) inline __m128i rnds4(__m128i abcd, __m128i wk) { return _mm_sha1rnds4_epu32(abcd, wk, F); }
-
-__attribute__((target("sha,sse4.1,ssse3"))) void sha1_blocks_shani(uint32_t h[5], const uint8_t* data, size_t blocks) {
-    const __m128i kSwap = _mm_set_epi64x(0x0001020304050607ll, 0x08090a0b0c0d0e0fll);
-    __m128i abcd = _mm_shuffle_epi32(_mm_loadu_si128(reinterpret_cast<const __m128i*>(h)), 0x1B);
-    __m128i e0 = _mm_set_epi32(static_cast<int>(h[4]), 0, 0, 0);
-    for (; blocks; --blocks, data += 64) {
-        const __m128i abcd_save = abcd, e_save = e0;
-        __m128i m[4];
-        for (int i = 0; i < 4; i++) m[i] = _mm_shuffle_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 16 * i)), kSwap);
-        __m128i eprev = e0;
-        for (int g = 0; g < 20; g++) {
-            const __m128i wk = g == 0 ? _mm_add_epi32(e0, m[0]) : _mm_sha1nexte_epu32(eprev, m[g & 3]);
-            eprev = abcd;
-            switch (g / 5) {   // the round function is an immediate
-                case 0: abcd = rnds4<0>(abcd, wk); break;
-                case 1: abcd = rnds4<1>(abcd, wk); break;
-                case 2: abcd = rnds4<2>(abcd, wk); break;
-                default: abcd = rnds4<3>(abcd, wk); break;
-            }
-            if (g + 4 < 20)   // W[4(g+4) ..] from the four groups before it; it takes m[g]'s slot, which this group has used
-                m[g & 3] = _mm_sha1msg2_epu32(_mm_xor_si128(_mm_sha1msg1_epu32(m[g & 3], m[(g + 1) & 3]), m[(g + 2) & 3]), m[(g + 3) & 3]);
-        }
-        e0 = _mm_sha1nexte_epu32(eprev, e_save);
-        abcd = _mm_add_epi32(abcd, abcd_save);
-    }
-    _mm_storeu_si128(reinterpret_cast<__m128i*>(h), _mm_shuffle_epi32(abcd, 0x1B));
-    h[4] = static_cast<uint32_t>(_mm_extract_epi32(e0, 3));
-}
-#elif defined(__aarch64__)
-// ARMv8 SHA-1 instructions: the same digest as block(), about four times faster. Every Apple silicon core has them, and so does
-// the Switch 2's A78C; on arm64 Linux they are optional (an early Cortex-A53 or A72 without the crypto extension), so the kernel
-// is asked there.
-bool have_shani() {
-#if defined(__APPLE__)
-    return true;
-#elif defined(__linux__)
-    static const bool yes = (getauxval(AT_HWCAP) & HWCAP_SHA1) != 0;
-    return yes;
-#else
-    return true;
-#endif
-}
-// The SHA-1 instructions are in the optional crypto extension, so the function carries the feature (as the x86 path does with its
-// target attribute) and have_shani() decides at run time whether it may be called.
-#if defined(__clang__)
-#define NX_SHA1_TARGET __attribute__((target("sha2")))
-#else
-#define NX_SHA1_TARGET __attribute__((target("arch=armv8-a+crypto")))
-#endif
-NX_SHA1_TARGET void sha1_blocks_shani(uint32_t h[5], const uint8_t* data, size_t blocks) {
-    uint32x4_t abcd = vld1q_u32(h);
-    uint32_t e0 = h[4];
-    const uint32x4_t k0 = vdupq_n_u32(0x5A827999), k1 = vdupq_n_u32(0x6ED9EBA1), k2 = vdupq_n_u32(0x8F1BBCDC), k3 = vdupq_n_u32(0xCA62C1D6);
-    for (; blocks; --blocks, data += 64) {
-        const uint32x4_t abcd_save = abcd;
-        const uint32_t e_save = e0;
-        uint32x4_t m0 = vreinterpretq_u32_u8(vrev32q_u8(vld1q_u8(data)));
-        uint32x4_t m1 = vreinterpretq_u32_u8(vrev32q_u8(vld1q_u8(data + 16)));
-        uint32x4_t m2 = vreinterpretq_u32_u8(vrev32q_u8(vld1q_u8(data + 32)));
-        uint32x4_t m3 = vreinterpretq_u32_u8(vrev32q_u8(vld1q_u8(data + 48)));
-        uint32x4_t t0 = vaddq_u32(m0, k0), t1 = vaddq_u32(m1, k0);
-        uint32_t e1;
-        // rounds 0-3 .. 76-79, four per step; the message schedule with sha1su0/su1 (the ARM ACLE reference ordering)
-        e1 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1cq_u32(abcd, e0, t0); t0 = vaddq_u32(m2, k0); m0 = vsha1su0q_u32(m0, m1, m2);
-        e0 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1cq_u32(abcd, e1, t1); t1 = vaddq_u32(m3, k0); m0 = vsha1su1q_u32(m0, m3); m1 = vsha1su0q_u32(m1, m2, m3);
-        e1 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1cq_u32(abcd, e0, t0); t0 = vaddq_u32(m0, k0); m1 = vsha1su1q_u32(m1, m0); m2 = vsha1su0q_u32(m2, m3, m0);
-        e0 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1cq_u32(abcd, e1, t1); t1 = vaddq_u32(m1, k1); m2 = vsha1su1q_u32(m2, m1); m3 = vsha1su0q_u32(m3, m0, m1);
-        e1 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1cq_u32(abcd, e0, t0); t0 = vaddq_u32(m2, k1); m3 = vsha1su1q_u32(m3, m2); m0 = vsha1su0q_u32(m0, m1, m2);
-        e0 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1pq_u32(abcd, e1, t1); t1 = vaddq_u32(m3, k1); m0 = vsha1su1q_u32(m0, m3); m1 = vsha1su0q_u32(m1, m2, m3);
-        e1 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1pq_u32(abcd, e0, t0); t0 = vaddq_u32(m0, k1); m1 = vsha1su1q_u32(m1, m0); m2 = vsha1su0q_u32(m2, m3, m0);
-        e0 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1pq_u32(abcd, e1, t1); t1 = vaddq_u32(m1, k1); m2 = vsha1su1q_u32(m2, m1); m3 = vsha1su0q_u32(m3, m0, m1);
-        e1 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1pq_u32(abcd, e0, t0); t0 = vaddq_u32(m2, k2); m3 = vsha1su1q_u32(m3, m2); m0 = vsha1su0q_u32(m0, m1, m2);
-        e0 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1pq_u32(abcd, e1, t1); t1 = vaddq_u32(m3, k2); m0 = vsha1su1q_u32(m0, m3); m1 = vsha1su0q_u32(m1, m2, m3);
-        e1 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1mq_u32(abcd, e0, t0); t0 = vaddq_u32(m0, k2); m1 = vsha1su1q_u32(m1, m0); m2 = vsha1su0q_u32(m2, m3, m0);
-        e0 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1mq_u32(abcd, e1, t1); t1 = vaddq_u32(m1, k2); m2 = vsha1su1q_u32(m2, m1); m3 = vsha1su0q_u32(m3, m0, m1);
-        e1 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1mq_u32(abcd, e0, t0); t0 = vaddq_u32(m2, k2); m3 = vsha1su1q_u32(m3, m2); m0 = vsha1su0q_u32(m0, m1, m2);
-        e0 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1mq_u32(abcd, e1, t1); t1 = vaddq_u32(m3, k3); m0 = vsha1su1q_u32(m0, m3); m1 = vsha1su0q_u32(m1, m2, m3);
-        e1 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1mq_u32(abcd, e0, t0); t0 = vaddq_u32(m0, k3); m1 = vsha1su1q_u32(m1, m0); m2 = vsha1su0q_u32(m2, m3, m0);
-        e0 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1pq_u32(abcd, e1, t1); t1 = vaddq_u32(m1, k3); m2 = vsha1su1q_u32(m2, m1); m3 = vsha1su0q_u32(m3, m0, m1);
-        e1 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1pq_u32(abcd, e0, t0); t0 = vaddq_u32(m2, k3); m3 = vsha1su1q_u32(m3, m2);
-        e0 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1pq_u32(abcd, e1, t1); t1 = vaddq_u32(m3, k3);
-        e1 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1pq_u32(abcd, e0, t0);
-        e0 = vsha1h_u32(vgetq_lane_u32(abcd, 0)); abcd = vsha1pq_u32(abcd, e1, t1);
-        e0 += e_save;
-        abcd = vaddq_u32(abcd_save, abcd);
-    }
-    vst1q_u32(h, abcd);
-    h[4] = e0;
-}
-#else
-bool have_shani() { return false; }
-#endif
-
-std::atomic<bool> g_shani_off{false};   // Sha1::force_portable (tests)
-
-}  // namespace
-
-Sha1::Sha1() : h_{0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0} {}
-
-void Sha1::block(const uint8_t* p) {
-    uint32_t w[80];
-    for (int i = 0; i < 16; i++)
-        w[i] = uint32_t(p[4 * i]) << 24 | uint32_t(p[4 * i + 1]) << 16 | uint32_t(p[4 * i + 2]) << 8 | p[4 * i + 3];
-    for (int i = 16; i < 80; i++) w[i] = rol(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
-    uint32_t a = h_[0], b = h_[1], c = h_[2], d = h_[3], e = h_[4];
-    for (int i = 0; i < 80; i++) {
-        uint32_t f, k;
-        if (i < 20) f = (b & c) | (~b & d), k = 0x5a827999;
-        else if (i < 40) f = b ^ c ^ d, k = 0x6ed9eba1;
-        else if (i < 60) f = (b & c) | (b & d) | (c & d), k = 0x8f1bbcdc;
-        else f = b ^ c ^ d, k = 0xca62c1d6;
-        uint32_t t = rol(a, 5) + f + e + k + w[i];
-        e = d, d = c, c = rol(b, 30), b = a, a = t;
-    }
-    h_[0] += a, h_[1] += b, h_[2] += c, h_[3] += d, h_[4] += e;
-}
-
-void Sha1::update(const void* data, size_t size) {
-    auto* p = static_cast<const uint8_t*>(data);
-    bytes_ += size;
-    if (used_) {
-        size_t n = std::min(size, 64 - used_);
-        std::memcpy(buf_ + used_, p, n);
-        used_ += n, p += n, size -= n;
-        if (used_ < 64) return;
-        block(buf_);
-        used_ = 0;
-    }
-#if defined(__x86_64__) || defined(_M_X64) || defined(__aarch64__)
-    if (size >= 64 && have_shani() && !g_shani_off.load(std::memory_order_relaxed)) {
-        sha1_blocks_shani(h_, p, size / 64);
-        p += size & ~size_t{63};
-        size &= 63;
-    }
-#endif
-    for (; size >= 64; p += 64, size -= 64) block(p);
-    std::memcpy(buf_, p, size);
-    used_ = size;
-}
-
-bool Sha1::shani_available() { return have_shani(); }
-void Sha1::force_portable(bool on) { g_shani_off.store(on, std::memory_order_relaxed); }
-
-void Sha1::finish(uint8_t digest[20]) {
-    uint64_t bits = bytes_ * 8;
-    uint8_t pad = 0x80;
-    update(&pad, 1);
-    pad = 0;
-    while (used_ != 56) update(&pad, 1);
-    uint8_t len[8];
-    for (int i = 0; i < 8; i++) len[i] = uint8_t(bits >> (56 - 8 * i));
-    update(len, 8);
-    for (int i = 0; i < 20; i++) digest[i] = uint8_t(h_[i / 4] >> (24 - 8 * (i % 4)));
-}
+// ---- SHA-1 (the Sha1 class: nvn_sha1.cpp) -------------------------------------------------------------------------
 
 std::string sha1_hex(const void* data, size_t size) {
     Sha1 s;
@@ -245,6 +52,16 @@ std::string sha1_hex(const void* data, size_t size) {
 }
 
 std::string shader_hash(const uint8_t* code, uint32_t size) { return sha1_hex(code, size).substr(0, 16); }
+
+namespace {
+
+inline uint32_t rd32(const uint8_t* p) {
+    uint32_t v;
+    std::memcpy(&v, p, 4);  // little-endian host (arm64, x86-64), like the Switch
+    return v;
+}
+
+}  // namespace
 
 // ---- control section ------------------------------------------------------------------------------------------------
 
@@ -1073,7 +890,8 @@ const char* source_name(NvnSource s) {
 
 // ---- the runtime cache ----------------------------------------------------------------------------------------------
 
-namespace {
+// The cache's file helpers, shared with the reflection catalogue (nvn_shaders_refl.cpp): nvn_shaders_internal.h.
+namespace shader_files {
 
 bool read_file(const std::string& path, std::string& out) {
     std::ifstream f(path, std::ios::binary);
@@ -1083,6 +901,33 @@ bool read_file(const std::string& path, std::string& out) {
     out = s.str();
     return true;
 }
+
+// <dir>.preload.pack<suffix>; a trailing separator of the cache directory is dropped, so the file stays beside the directory.
+std::string pack_path(std::string dir, const char* suffix) {
+    while (!dir.empty() && (dir.back() == '/' || dir.back() == '\\')) dir.pop_back();
+    return dir + ".preload.pack" + suffix;
+}
+
+uint64_t fnv1a64(std::string_view s) {
+    uint64_t h = kFnvBasis;
+    for (unsigned char c : s) h = fnv_step(h, c);
+    return h;
+}
+
+std::wstring widen(const std::string& s) {
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
+    std::wstring w(static_cast<size_t>(std::max(n, 0)), L'\0');
+    if (n > 0) MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), w.data(), n);
+    return w;
+}
+
+uint64_t now_ms() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
+}  // namespace shader_files
+
+namespace {
 
 // Tab-separated column `col` (0-based) of one line; empty if the line has fewer columns.
 std::string column_text(std::string_view line, int col) {
@@ -1159,28 +1004,9 @@ struct PackDiskEntry {
 };
 static_assert(sizeof(PackHeader) == 32 && sizeof(PackDiskEntry) == 40, "preload.pack layout");
 
-// <dir>.preload.pack<suffix>; a trailing separator of the cache directory is dropped, so the file stays beside the directory.
-std::string pack_path(std::string dir, const char* suffix) {
-    while (!dir.empty() && (dir.back() == '/' || dir.back() == '\\')) dir.pop_back();
-    return dir + ".preload.pack" + suffix;
-}
-
 bool pack_enabled() {
     static const bool on = nxrt::config_get_bool("nvn", "shader_pack", true);
     return on;
-}
-
-uint64_t fnv1a64(std::string_view s) {
-    uint64_t h = kFnvBasis;
-    for (unsigned char c : s) h = fnv_step(h, c);
-    return h;
-}
-
-std::wstring widen(const std::string& s) {
-    const int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
-    std::wstring w(static_cast<size_t>(std::max(n, 0)), L'\0');
-    if (n > 0) MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), w.data(), n);
-    return w;
 }
 
 // A positional read: threads share the handle (under Wine a pread; Windows serialises reads on a synchronous handle, still correct).
@@ -1190,10 +1016,6 @@ bool read_at(void* file, uint64_t off, void* dst, uint32_t n) {
     ov.OffsetHigh = static_cast<DWORD>(off >> 32);
     DWORD got = 0;
     return ReadFile(static_cast<HANDLE>(file), dst, n, &got, &ov) && got == n;
-}
-
-uint64_t now_ms() {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
 }  // namespace
@@ -1219,7 +1041,12 @@ void ShaderCache::pack_open() {
     }
     size_t stale = 0;
     uint64_t bytes = 0;
+    pack_digest_ = fnv1a64(std::string_view(reinterpret_cast<const char*>(idx.data()), idx.size() * sizeof(PackDiskEntry)));
+    pack_size_ = static_cast<uint64_t>(size.QuadPart);
+    pack_count_ = h.count;
+    uint32_t slot = 0;
     for (const PackDiskEntry& e : idx) {
+        const uint32_t this_slot = slot++;
         std::string hash(e.hash, sizeof e.hash);
         auto ln = lines_.find(hash);
         if (ln == lines_.end() || fnv1a64(std::string_view(results_.data() + ln->second.first, ln->second.second)) != e.line_hash ||
@@ -1228,10 +1055,11 @@ void ShaderCache::pack_open() {
             continue;
         }
         bytes += e.usize;
-        pack_.emplace(std::move(hash), PackEntry{e.offset, e.csize, e.usize});
+        pack_.emplace(std::move(hash), PackEntry{e.offset, e.csize, e.usize, this_slot});
     }
     pack_file_ = f;
     pack_data_end_ = h.index_offset;
+    cat_open();
     NXLOG_I("nvn", "shader pack: preload.pack has %zu shaders (%llu MiB of SPIR-V in %llu MiB)%s", pack_.size(),
             static_cast<unsigned long long>(bytes >> 20), static_cast<unsigned long long>(h.index_offset >> 20),
             stale ? (", " + std::to_string(stale) + " translated again since and read from their .spv files").c_str() : "");
@@ -1500,6 +1328,8 @@ void ShaderCache::preload_done() {
     NXLOG_I("nvn", "shader preload: done after %.1f s (%llu .spv reads from preload.pack, %llu from the shader archive, %llu from separate files so far)",
             (now_ms() - pre_start_ms_) / 1000.0, static_cast<unsigned long long>(pre_from_pack_.load()),
             static_cast<unsigned long long>(from_archive_.load()), static_cast<unsigned long long>(pre_from_files_.load()));
+    if (cat_on_) NXLOG_I("nvn", "reflection catalogue: %llu shaders prepared from it", static_cast<unsigned long long>(cat_hits_.load()));
+    cat_write();
 }
 
 // Started with the preload when the pack lacks shaders of the order file; writes once the preload is done (or after 90 s: workers wait
@@ -1785,10 +1615,20 @@ void ShaderCache::preload_worker() {
 // One shader: the file read and the reflection, no lock held for them. Null if the game already has it or needs its own load.
 std::unique_ptr<ShaderCache::Preloaded> ShaderCache::preload_one(const std::string& hash) {
     NXFT("shader.preload");
+    std::string record;
+    bool have_record = false, taken;
     {
         std::lock_guard lk(lock_);
-        if (by_hash_.count(hash)) return nullptr;   // the game got there first
+        taken = by_hash_.count(hash) != 0;   // the game got there first
+        if (auto it = lines_.find(hash); !taken && it != lines_.end()) {
+            record = column_text(std::string_view(results_.data() + it->second.first, it->second.second), resources_col_);
+            have_record = true;
+        }
     }
+    // The game's own load reflected it without noting it: still reflected once here while the catalogue lacks it, for the next run.
+    if (taken && (!cat_on_ || !pack_.count(hash) || cat_has(hash))) return nullptr;
+    if (!taken)
+        if (auto p = cat_preload(hash, have_record ? &record : nullptr)) return p;
     std::string bytes;
     SpirvFrom from = SpirvFrom::Memory;
     if (!read_spv(hash, bytes, &from) || bytes.empty() || bytes.size() % 4) return nullptr;
@@ -1798,17 +1638,13 @@ std::unique_ptr<ShaderCache::Preloaded> ShaderCache::preload_one(const std::stri
     std::memcpy(p->words.data(), bytes.data(), bytes.size());
     bytes = std::string();
     if (!reflect_spirv(p->words.data(), p->words.size(), p->refl, nullptr)) return nullptr;
+    if (from == SpirvFrom::Pack) cat_note(hash, p->refl);
+    if (taken) return nullptr;
     p->word_count = static_cast<uint32_t>(p->words.size());
     if (p->from != SpirvFrom::Memory) p->words = std::vector<uint32_t>();   // read again when a module is made (SpirvFrom)
-    std::string record;
-    bool have_record = false;
     {
         std::lock_guard lk(lock_);
         if (by_hash_.count(hash)) return nullptr;
-        if (auto it = lines_.find(hash); it != lines_.end()) {
-            record = column_text(std::string_view(results_.data() + it->second.first, it->second.second), resources_col_);
-            have_record = true;
-        }
     }
     if (have_record) {
         std::vector<HarnessResource> list;
@@ -1962,6 +1798,7 @@ const ShaderInfo* ShaderCache::load(const std::string& hash, const uint8_t* code
     };
     NXFT("shader.load");
     std::unique_ptr<Preloaded> pre = take_preloaded(hash);   // waits for a worker that is reading this file: one read, not two
+    if (!pre) pre = cat_preload(hash, record_ptr);
     std::vector<uint32_t> words;
     SpirvFrom from = SpirvFrom::Memory;
     if (pre) {

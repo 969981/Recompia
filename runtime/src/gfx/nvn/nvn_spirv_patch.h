@@ -186,4 +186,12 @@ struct SpvCountLimit {
 // lacks it. Returns the comparisons changed; 0 (out untouched) when nothing matches.
 int spirv_limit_count(const std::vector<uint32_t>& in, const SpvCountLimit& limit, bool by_table, std::vector<uint32_t>& out);
 
+// Compute variants (nvn_spirv_compute.cpp, game::ComputeVariant). spirv_retile: the workgroup made tx x ty when the module derives its
+// cell only as WorkgroupId * LocalSize + LocalInvocationId (x and y), with no other built-in, shared memory, barrier or subgroup
+// operation; *fx / *fy are the factors the dispatch's group counts grow by. spirv_vote_all_false: the module's one OpGroupNonUniformAll
+// becomes false (valid only where the caller knows the vote never holds for two lanes). Both: false and `out` untouched when the module
+// is not of that shape.
+bool spirv_retile(const std::vector<uint32_t>& in, uint32_t tx, uint32_t ty, std::vector<uint32_t>& out, uint32_t* fx, uint32_t* fy);
+bool spirv_vote_all_false(const std::vector<uint32_t>& in, std::vector<uint32_t>& out);
+
 }  // namespace nxrt::nvn::be::gpu

@@ -36,6 +36,7 @@ using namespace nxos;
 // ==================================================================================================================
 namespace {
 
+#if !defined(__linux__)   // Linux and Android: os_posix_futex_sync.cpp
 struct SrwImpl {
     pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
     pthread_cond_t cv = PTHREAD_COND_INITIALIZER;
@@ -73,6 +74,8 @@ pthread_cond_t* cv_get(CONDITION_VARIABLE* cv) {
     return impl;
 }
 
+#endif  // !__linux__
+
 struct CsImpl {
     pthread_mutex_t mu;
 };
@@ -99,6 +102,7 @@ CsImpl* cs_get(CRITICAL_SECTION* cs) {
 
 }  // namespace
 
+#if !defined(__linux__)   // Linux and Android: os_posix_futex_sync.cpp
 void InitializeSRWLock(PSRWLOCK lock) {
     SrwImpl* impl = srw_get(lock);
     pthread_mutex_lock(&impl->mu);
@@ -215,6 +219,8 @@ void WakeAllConditionVariable(PCONDITION_VARIABLE cv) {
     pthread_cond_t* impl = static_cast<pthread_cond_t*>(__atomic_load_n(&cv->impl, __ATOMIC_ACQUIRE));
     if (impl) pthread_cond_broadcast(impl);
 }
+
+#endif  // !__linux__
 
 // ==================================================================================================================
 // CRITICAL_SECTION (the vendored Link Play module only)

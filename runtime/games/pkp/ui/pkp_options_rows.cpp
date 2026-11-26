@@ -294,6 +294,11 @@ const Row kGraphics[] = {
     names("Shadow Quality", "Makes the game's shadow maps 2x, 3x, 4x or 8x sharper per side. Ultra and Extreme cost a lot of video memory.", kShadowNames, 5,
           [](const S& s) { return static_cast<int>(s.display.shadow_quality); },
           [](S& s, int v) { s.display.shadow_quality = static_cast<gfx::ShadowQuality>(v); play::quality_preset_edited(s.display, play::QualityField::Shadows); }),
+    // [display] shadow_half: auto shows what it runs as (on on a phone); a pick stores on / off
+    choice("Far Shadows", "Every Other Frame redraws distant shadows half as often while the camera stands still: faster, but a distant shadow can lag one frame.",
+           {"Every Frame", "Every Other Frame (Faster)"}, 2,
+           [](const S& s) { return static_cast<int>(s.display.shadow_half == "on" || (s.display.shadow_half == "auto" && nxrt::host_is_phone())); },
+           [](S& s, int v) { s.display.shadow_half = v ? "on" : "off"; }, true),
     number("Texture Sharpness", "Texture level of detail. Negative is sharper.", 0, 80, "%+.2f", -2, 0.05,
            [](const S& s) { return static_cast<int>(std::lround((s.display.lod_bias + 2.0) / 0.05)); },
            [](S& s, int v) { s.display.lod_bias = -2.0 + v * 0.05; play::quality_preset_edited(s.display, play::QualityField::LodBias); }),

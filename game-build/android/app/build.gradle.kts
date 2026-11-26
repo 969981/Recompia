@@ -165,7 +165,7 @@ val uiAssets = tasks.register<Copy>("uiAssets") {
                     "LICENSE.Streamline-headers.MIT.txt", "LICENSE.nvn-header-h1k421.MIT.txt", "LICENSE.astc-encoder.Apache-2.0.txt",
                     "LICENSE.bc7enc_rdo.MIT-Apache-2.0.txt", "LICENSE.DejaVu-fonts.Bitstream-Vera.txt",
                     "LICENSE.FontAwesome-Free.CC-BY-4.0-MIT-OFL.txt", "LICENSE.pokopia-native.MIT.txt", "LICENSE.pokopia-coop.MIT.txt",
-                    "LICENSE.totk-pc-recomp.MIT.txt", "LICENSE.libnx.ISC.txt")
+                    "LICENSE.totk-pc-recomp.MIT.txt", "LICENSE.libnx.ISC.txt", "LICENSE.musl.MIT.txt")
         }
         // what the runtime takes from which project, with the licence texts it quotes (Ryujinx and ryubing among them)
         from(rootProject.file("../../runtime/THIRD_PARTY_NOTICES.md"))

@@ -46,10 +46,14 @@ struct alignas(64) ImpCache {
 template <bool kOn = facts::kPhone>
 ImpCache* imp_cache(const ::Ctx* c) {
     constinit static ImpCache slots[256];   // zero: in .bss; 24 KiB per slot, touched by the contexts that import
-    ImpCache& s = slots[(reinterpret_cast<uintptr_t>(c) * 0x9E3779B97F4A7C15ull) >> 56];
-    const ::Ctx* o = s.owner.load(std::memory_order_relaxed);
-    if (o == c) return &s;
-    if (o == nullptr && s.owner.compare_exchange_strong(o, c, std::memory_order_relaxed)) return &s;
+    const size_t h = (reinterpret_cast<uintptr_t>(c) * 0x9E3779B97F4A7C15ull) >> 56;
+    for (size_t k = 0; k < 4; ++k) {   // up to 4 neighbouring slots (dispatch.cpp ctx_cache)
+        ImpCache& s = slots[(h + k) & 255];
+        const ::Ctx* o = s.owner.load(std::memory_order_relaxed);
+        if (o == c) return &s;
+        if (o == nullptr && s.owner.compare_exchange_strong(o, c, std::memory_order_relaxed)) return &s;
+        if (o == c) return &s;
+    }
     return nullptr;
 }
 // Everything but a cached leaf call, out of line, so that the hit path needs no stack frame (a leaf thunk is then a tail call).
@@ -77,7 +81,6 @@ template <bool kOn = facts::kPhone>
         }
         return leaf(c);
     }
-    detail::count_import();
     const uint32_t saved_id = c->import_id;
     const uint64_t saved_from = c->import_from;
     c->import_id = import_id;
@@ -100,6 +103,18 @@ template <bool kOn = facts::kPhone>
 extern "C" {
 
 void call_indirect(Ctx* c, uint64_t addr) { nxrt::dispatch_call(c, addr); }
+
+// The lifted code's per-import caches (Android: recomp/native/nx_native_call.h): an import's leaf handler (strlen and friends) with
+// the low 16 bits of import_epoch it was read at in the top 16 bits; 0 in the low 48 bits = not a leaf (the call takes host_import).
+// [diag] hle_census counts leaf calls in host_import, so with it on nothing is a leaf here.
+extern const uint32_t* const nx_import_epoch_word;   // a const object has internal linkage unless declared extern
+const uint32_t* const nx_import_epoch_word = reinterpret_cast<const uint32_t*>(&nxrt::import_epoch<true>());
+uint64_t nx_import_leaf(uint32_t import_id) {
+    const uint32_t ep = nxrt::import_epoch<true>().load(std::memory_order_acquire);
+    const uint64_t target = nxrt::import_resolve(import_id);
+    const nxrt::HleFn leaf = target && !nxrt::diag::census::on() ? nxrt::hle_leaf_fn(target) : nullptr;
+    return uint64_t{ep & 0xffffu} << 48 | (reinterpret_cast<uint64_t>(leaf) & 0xffffffffffffull);
+}
 
 // A call to a symbol another module provides: the lifted PLT stub passes NX_IMPORT_ID(module index, symbol index) of its own
 // module. The registry (nxmodule.cpp) names the import and finds its target: a function another lifted module defines, else the HLE
@@ -144,7 +159,10 @@ void guest_unimpl(uint64_t pc, uint32_t insn, const char* what) {
     TerminateProcess(GetCurrentProcess(), 3);
 }
 
-void guest_svc(Ctx* c, uint32_t number) { nxrt::svc_dispatch(c, number, 0); }
+void guest_svc(Ctx* c, uint32_t number) {
+    nxrt::t_guest_svc_ret = reinterpret_cast<uint64_t>(__builtin_return_address(0));   // the lifted caller, for reports (no c->fn)
+    nxrt::svc_dispatch(c, number, 0);
+}
 
 // System registers the lifter does not model inline: the generic timer counters are real (the system tick, nxrt/clock.h), other reads give 0, writes are ignored; each register is reported once.
 uint64_t guest_mrs(Ctx* c, uint32_t sysreg) {
@@ -155,13 +173,13 @@ uint64_t guest_mrs(Ctx* c, uint32_t sysreg) {
         default: break;
     }
     std::lock_guard<std::mutex> lk(nxrt::g_sysreg_lock);
-    if (nxrt::g_sysregs_seen.insert(sysreg).second) NXLOG_W("guest", "MRS of system register 0x%04x (not modelled): returns 0 (in f_%llx)", sysreg, static_cast<unsigned long long>(c->fn));
+    if (nxrt::g_sysregs_seen.insert(sysreg).second) NXLOG_W("guest", "MRS of system register 0x%04x (not modelled): returns 0 (in f_%llx)", sysreg, static_cast<unsigned long long>(nxrt::guest_function_of(reinterpret_cast<uint64_t>(__builtin_return_address(0)))));
     return 0;
 }
 
 void guest_msr(Ctx* c, uint32_t sysreg, uint64_t value) {
     std::lock_guard<std::mutex> lk(nxrt::g_sysreg_lock);
-    if (nxrt::g_sysregs_seen.insert(sysreg | 0x10000u).second) NXLOG_W("guest", "MSR to system register 0x%04x = 0x%llx (not modelled): ignored (in f_%llx)", sysreg, static_cast<unsigned long long>(value), static_cast<unsigned long long>(c->fn));
+    if (nxrt::g_sysregs_seen.insert(sysreg | 0x10000u).second) NXLOG_W("guest", "MSR to system register 0x%04x = 0x%llx (not modelled): ignored (in f_%llx)", sysreg, static_cast<unsigned long long>(value), static_cast<unsigned long long>(nxrt::guest_function_of(reinterpret_cast<uint64_t>(__builtin_return_address(0)))));
 }
 
 // Called on every failed exclusive store; reports a loop that never succeeds.
@@ -169,7 +187,7 @@ void stx_diag(Ctx* c, uint64_t a, uint64_t expected, uint64_t seen, uint64_t v, 
     uint64_t n = ++c->ex_fail;
     if (n == 1000 || n == 100000)
         NXLOG_W("guest", "STXR failing %llu times in f_%llx: addr=%llx expected=%llx seen=%llx new=%llx (%s%d)", static_cast<unsigned long long>(n),
-                static_cast<unsigned long long>(c->fn), static_cast<unsigned long long>(a), static_cast<unsigned long long>(expected),
+                static_cast<unsigned long long>(nxrt::guest_function_of(reinterpret_cast<uint64_t>(__builtin_return_address(0)))), static_cast<unsigned long long>(a), static_cast<unsigned long long>(expected),
                 static_cast<unsigned long long>(seen), static_cast<unsigned long long>(v), bits < 0 ? "monitor lost, " : "", bits < 0 ? -bits : bits);
 }
 

@@ -27,6 +27,7 @@
 #include "ui/pkp_options.h"
 #include "input/pkp_play.h"
 #include "core/pkp_play_time.h"
+#include "core/pkp_job_spin.h"
 #include "render/pkp_quality.h"
 #include "core/pkp_pokemon_cap.h"
 #include "core/pkp_save_uuid.h"
@@ -103,7 +104,7 @@ constexpr Entry kEntries[] = {
 #if NXRT_TESTTOOLS
     port(&kMovieTestFeature),
 #endif
-    port(&kMenuFeature), port(&kCrossGuideFeature), port(&kLoadingBackdropFeature), port(&kQualityFeature),
+    port(&kMenuFeature), port(&kCrossGuideFeature), port(&kLoadingBackdropFeature), port(&kQualityFeature), port(&kJobSpinFeature),
     port(&kTaaFeature),
 #if NXRT_TESTTOOLS
     port(&kTaaProbeFeature),

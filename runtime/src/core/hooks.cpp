@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "nxrt/log.h"
+#include "nxrt/platform_facts.h"
 #include "../diag/hle_census.h"
 
 namespace nxrt {
@@ -42,7 +43,10 @@ std::atomic<uint64_t> g_site_calls[3];
 
 // Site calls per thread, added to the shared count every 1024 (as host_import's count): every thread passes the sites, and a locked add per
 // call moves the counters' cache line between the cores. The summary count is short by under 1024 per thread and kind.
+// Phones: not counted. A thread_local in this dlopen'd library costs a TLS-descriptor resolver call on every access (bionic gives it
+// dynamic TLS), and the sites run thousands of times a frame; the count only feeds the crash report's summary line.
 inline void count_site(HookKind kind) {
+    if constexpr (facts::kPhone) return;
     static thread_local uint32_t n[3] = {};
     const int k = static_cast<int>(kind);
     if (++n[k] == 1024) {

@@ -67,7 +67,7 @@ struct ThreadDump {
     ThreadRecord rec;                    // copied from the registry before any suspension
     Status status = Status::NoSuspend;
     bool have_guest = false;
-    uint64_t guest_lr = 0, guest_sp = 0, guest_fp = 0, guest_fn = 0;   // fn: entry of the lifted function entered most recently
+    uint64_t guest_lr = 0, guest_sp = 0, guest_fp = 0;
     const char* guest_import = nullptr;   // host import running on the thread, if any (Ctx::in_import)
     uint64_t cpu_user_ms = 0, cpu_kernel_ms = 0;   // CPU time the thread has used so far: two dumps tell a busy thread from a waiting one
     size_t nframes = 0;
@@ -119,7 +119,6 @@ void collect_threads(std::vector<ThreadDump>& out) {
                 d.guest_lr = lr(d.rec.ctx);
                 d.guest_sp = sp(d.rec.ctx);
                 d.guest_fp = fp(d.rec.ctx);
-                d.guest_fn = d.rec.ctx->fn;
                 if (d.rec.ctx->in_import && readable(reinterpret_cast<uint64_t>(d.rec.ctx->in_import), 1))
                     d.guest_import = d.rec.ctx->in_import;
                 else if (d.rec.ctx->import_id)
@@ -173,8 +172,8 @@ std::string format_threads(const std::vector<ThreadDump>& threads) {
         appendf(out, "  cpu: user %llu ms, kernel %llu ms\n", static_cast<unsigned long long>(d.cpu_user_ms), static_cast<unsigned long long>(d.cpu_kernel_ms));
         if (d.status == Status::NoSuspend) {
             if (d.have_guest) {
-                appendf(out, "  guest: fn=%s lr=%016llx sp=%016llx fp=%016llx\n",
-                        d.guest_fn ? module_describe(d.guest_fn).c_str() : "(none)", static_cast<unsigned long long>(d.guest_lr),
+                appendf(out, "  guest: lr=%s (%016llx) sp=%016llx fp=%016llx\n",   // lifted code keeps no record of the function it is in: the caller via lr
+                        d.guest_lr ? module_describe(d.guest_lr).c_str() : "(none)", static_cast<unsigned long long>(d.guest_lr),
                         static_cast<unsigned long long>(d.guest_sp), static_cast<unsigned long long>(d.guest_fp));
                 if (d.guest_import) {
                     out += "  in host import: ";

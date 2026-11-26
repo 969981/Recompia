@@ -81,9 +81,24 @@ constexpr const char* kSquareQuadFs = "eaa545bbb9251212";
 constexpr const char* kMarkerVs = "8ef279a6af886a66";
 constexpr const char* kMarkerFs = "bd95575680cf77b1";
 
+// Compute variants (game::ComputeVariant). 3a718dcc49952e74: 32x32 groups over a 512x512 grid of 5-word storage cells, each cell from
+// WorkgroupId * 32 + LocalInvocationId only, no shared memory or subgroup operation. 62619a57fc0feb43, the exposure histogram: 8x8 lanes,
+// lane (x, y) owns bin 8y+x of the shared histogram after the last barrier and adds it to the storage histogram at 4 * bin past a uniform
+// base; two lanes of a group never share an address (offsets differ by 4..252), so the translated same-address subgroup reduction's vote is
+// never true for more than one lane and the per-lane atomic it falls back to adds the same counts.
+constexpr game::ComputeVariant kComputeVariants[] = {
+    {"3a718dcc49952e74", game::ComputeVariantKind::Retile},
+    {"62619a57fc0feb43", game::ComputeVariantKind::VoteAllFalse},
+};
+
+// [gfx] shadow_half: the game's 2048x2048 shadow map holds two cascades, the near one in the top half and the far one in the bottom half.
+// Standing still the far half changes in about 0.01 % of its texels from frame to frame, the near half in 2-3 % (animated casters).
+constexpr game::ShadowHalves kShadowHalves = {true};
+
 constexpr game::Render kRender = {&kReadbackDefer, &kCamera, kToneMaps, sizeof kToneMaps / sizeof kToneMaps[0],
                                   kLoopGuards, sizeof kLoopGuards / sizeof kLoopGuards[0], true, kSceneStretch, sizeof kSceneStretch / sizeof kSceneStretch[0], kSceneScaleMin,
-                                  kSquareQuadFs, kMarkerVs, kMarkerFs};
+                                  kSquareQuadFs, kMarkerVs, kMarkerFs, kComputeVariants, sizeof kComputeVariants / sizeof kComputeVariants[0],
+                                  &kShadowHalves};
 
 }  // namespace
 

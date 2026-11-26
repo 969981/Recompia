@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+**Update:** press **Update** in the launcher, then **Set up again** once (the game code is lifted again and there are new hook sites; saves and shaders are kept, no shader is rebuilt). On Android, the app updates from inside it.
+
+### Highlights
+- Phones play smoother and load faster: threads wake on time, the phone raises its clocks for the game, and many smaller CPU and GPU savings (each with its gain below)
+- Phones without AHardwareBuffer pools (Tensor G2) use about 350-470 MB less graphics memory
+- Added a **Far Shadows** row to Settings > Graphics: phones draw the far shadows every other frame while the camera stands still
+
+### Performance
+- Changed how a waiting game thread sleeps on Linux and Android: it waits on its own word and, on phones, watches it for 50 us before it sleeps. Before, every wake slept a second time on the kernel lock. Now a Snapdragon 8 Gen 3 shows about 14 % more fps. Still not changed on Windows and Proton
+- Added an Android performance hint session for the game's busy threads: before, the phone kept them on the little cores at low clocks; now it raises their clocks only as far as the frame needs (Tensor G2 about 13 % more fps)
+- Changed the guest kernel's locks on Linux and Android to need no system call when nobody waits
+- Changed lifted functions to no longer record their own address on every call (about 1 % of the game's CPU time on a phone, 2.2 MB less code)
+- Changed phones' calls between the game code and the runtime to skip the lookup when the target did not change (the call glue was about 10 % of the CPU time on a Tensor G2)
+- Fixed a game job worker that could spin on a whole phone core with nothing to do: it now yields and then naps until it has work
+- Changed the GPU work of a frame on every platform: fewer full barriers (278 to 157 a frame on a Zen 3 laptop, RADV), one barrier for a draw's layout changes, and full stencil clears without a draw of their own
+- Changed render targets to keep their framebuffer compression (UBWC, AFBC, DCC): images name the formats their views take and get storage usage only when a shader stores to them
+- Changed the exposure histogram to run without its subgroup vote where subgroups are at least 32 wide (Snapdragon 8 Gen 3 about 3 % fewer GPU cycles); same picture. Still not on Mali
+- Changed phones' edge guard to be recorded once per target instead of after every pass
+- Changed the Turnip driver's render mode choice to the GPU time it measured (about 3 % less GPU time on an Adreno 750)
+- Changed the shader preload to keep each shader's reflection beside the preload pack: a launch no longer reflects 1.1 GiB of SPIR-V (Zen 3 laptop, RADV: 13 % less CPU to the title)
+- Changed GPU memory writes to land only on the pages they changed, and binds to skip pages already known to be current
+
+### Graphics
+- Added the **Far Shadows** row to Settings > Graphics (Every Frame / Every Other Frame (Faster), next start): every other frame keeps the far shadow cascade from the frame before while its casters and the camera stand still, about 3 % fewer GPU cycles on a Snapdragon 8 Gen 3. On by default on phones, off on PC. A far caster that moves can be one frame late. Still not bit-exact with Every Frame
+- Added `[gfx] small_targets` (off by default) for phones with the low-memory profile: the 3D keeps the low-memory size while the 2D stays at the screen's resolution
+
+### Memory
+- Changed phones without AHardwareBuffer pools to use 512 KiB pool copy cells and 32 MiB of spares: before, most of the pool copy memory held nothing the GPU used; now a Tensor G2 uses about 560 MB less graphics memory outdoors and survives an area load
+- Added `[memory] zero_reclaim`: large zero fills and freed game memory are given back to the system. On by default on phones whose heap is a shared section (the Tensor G2 profile), off elsewhere
+- Added `[nvn] upload_slot_kb` to size the upload rings (default unchanged)
+
 ## 0.17.7 (build U: Urchin Hotfix a3)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (new hook sites; saves and shaders are kept, no shader is rebuilt). Everyone in a co-op session needs this version: an older build cannot join a newer one.

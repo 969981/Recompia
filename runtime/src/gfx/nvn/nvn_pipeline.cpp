@@ -22,6 +22,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -1227,6 +1228,40 @@ VkPipeline compute_pipeline(const ShaderInfo* cs, const ProgLayout& layout) {
     NXLOG_I(kTag, "compute built at the dispatch %s (%.1f ms%s)", cs->hash.c_str(), ms, gpl_gate_open() ? "" : ", loading");
     if (p) prewarm_record_compute(cs, compute_layout_key(layout));
     return p;
+}
+
+VkPipeline compute_variant_pipeline(const ShaderInfo* cs, const ProgLayout& layout, int kind, uint32_t tx, uint32_t ty, uint32_t* fx, uint32_t* fy) {
+    struct Variant { VkPipeline pipe = VK_NULL_HANDLE; uint32_t fx = 1, fy = 1; };
+    static std::map<std::tuple<const ShaderInfo*, VkPipelineLayout, int, uint32_t, uint32_t>, Variant> variants;   // render thread only
+    const auto key = std::make_tuple(cs, layout.layout, kind, tx, ty);
+    auto it = variants.find(key);
+    if (it == variants.end()) {
+        Variant v;
+        const SpirvWords w = shader_words(cs);
+        std::vector<uint32_t> patched;
+        const bool ok = w && (kind == static_cast<int>(game::ComputeVariantKind::Retile) ? spirv_retile(*w, tx, ty, patched, &v.fx, &v.fy)
+                                                                                         : spirv_vote_all_false(*w, patched));
+        VkShaderModule m = ok ? create_module(patched, cs->hash.c_str()) : VK_NULL_HANDLE;
+        if (m) {
+            ensure_cache();
+            VkComputePipelineCreateInfo ci = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+            ci.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+            ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+            ci.stage.pNext = subgroup32_info(VK_SHADER_STAGE_COMPUTE_BIT, kind == static_cast<int>(game::ComputeVariantKind::Retile)
+                                                                             ? uint64_t{tx} * ty : uint64_t{cs->local_size[0]} * cs->local_size[1] * cs->local_size[2]);
+            ci.stage.module = m;
+            ci.stage.pName = "main";
+            ci.layout = layout.layout;
+            if (vkCreateComputePipelines(vkdev(), g_cache, 1, &ci, nullptr, &v.pipe) != VK_SUCCESS) v.pipe = VK_NULL_HANDLE;
+            else ++g_pipeline_count;
+        }
+        NXLOG_I(kTag, "compute variant %s of %s (%ux%u): %s", kind == static_cast<int>(game::ComputeVariantKind::Retile) ? "retile" : "vote",
+                cs->hash.c_str(), tx, ty, v.pipe ? "built" : ok ? "pipeline failed" : "module not of the expected shape");
+        it = variants.emplace(key, v).first;
+    }
+    *fx = it->second.fx;
+    *fy = it->second.fy;
+    return it->second.pipe;
 }
 
 bool compute_pipeline_done(const ShaderInfo* cs, const ProgLayout& layout) {

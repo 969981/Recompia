@@ -387,8 +387,8 @@ void prepare_textures(const ProgLayout& pl) {
     for (const BindingDesc& d : pl.bindings) {
         if (d.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
             TexResolved r = resolve_image(d);
-            if (!r.tex || !tex_gpu(r.tex) || !tex_has_storage(r.tex)) continue;
-            if (r.tex->cpu_dirty.load() || tex_layout(r.tex) != VK_IMAGE_LAYOUT_GENERAL || tex_scale(r.tex) != 1.0f) need_storage.push_back(r.tex);
+            if (!r.tex || !tex_gpu(r.tex) || !(tex_has_storage(r.tex) || tex_storage_lazy(r.tex))) continue;
+            if (!tex_has_storage(r.tex) || r.tex->cpu_dirty.load() || tex_layout(r.tex) != VK_IMAGE_LAYOUT_GENERAL || tex_scale(r.tex) != 1.0f) need_storage.push_back(r.tex);
             continue;
         }
         if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
@@ -414,15 +414,12 @@ void prepare_textures(const ProgLayout& pl) {
     for (Texture* t : need) out_texture_read(t);           // an upload reads game memory: compute results held there go back first
     for (Texture* t : need_storage) out_texture_read(t);
     for (Texture* t : need_general) out_texture_read(t);
-    // Phones (A/B name "barrier_batch"): when nothing here uploads (every image current on the GPU, no rescale), the end of the pass and all
-    // the layout changes are one barrier command instead of one each (about 20 such changes a frame outdoors on a Tensor G2 (Mali-G710)).
-    bool batch = false;
-    if constexpr (facts::kPhone) {
-        // sampled images only: an image that is also a storage or size-query image would change layout twice in the one command
-        bool plain = need_storage.empty() && need_general.empty();
-        for (Texture* t : need) plain = plain && !t->cpu_dirty.load() && tex_current_on_gpu(t);
-        batch = plain && barrier_batch_begin(F->cb);
-    }
+    // When nothing here uploads (every image current on the GPU, no rescale), the end of the pass and all the
+    // layout changes are one barrier command instead of one each (about 20 such changes a frame outdoors on a Tensor G2 (Mali-G710)).
+    // sampled images only: an image that is also a storage or size-query image would change layout twice in the one command
+    bool plain = need_storage.empty() && need_general.empty();
+    for (Texture* t : need) plain = plain && !t->cpu_dirty.load() && tex_current_on_gpu(t);
+    const bool batch = plain && barrier_batch_begin(F->cb);
     end_pass(true);     // layout changes and uploads follow: each carries the dependency for its own image
     counters().pass_breaks.fetch_add(1, std::memory_order_relaxed);
     for (Texture* t : need) {
@@ -430,6 +427,7 @@ void prepare_textures(const ProgLayout& pl) {
         tex_transition(t, *F, tex_sampled_layout(t));
     }
     for (Texture* t : need_storage) {
+        if (!tex_enable_storage(t, *F)) continue;   // [gfx] storage_lazy: storage usage on first use (the pass has ended)
         if (tex_scale(t) != 1.0f) tex_rescale(t, *F, 1.0f, "bound as a storage image");   // imageStore coordinates are not scaled (Ryujinx: ResScaleUnsupported)
         tex_ensure_current(t, *F);
         tex_transition(t, *F, VK_IMAGE_LAYOUT_GENERAL);
@@ -439,8 +437,7 @@ void prepare_textures(const ProgLayout& pl) {
         tex_ensure_current(t, *F);
         tex_transition(t, *F, VK_IMAGE_LAYOUT_GENERAL);
     }
-    if constexpr (facts::kPhone)
-        if (batch) barrier_batch_end();
+    if (batch) barrier_batch_end();
     gstamp("uploads/layouts");
 }
 

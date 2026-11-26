@@ -190,7 +190,7 @@ static void report_unknown(::Ctx* c, uint32_t number, uint64_t pc) {
             r.number = number;
             for (int i = 0; i < 8; i++) r.first_args[i] = c->x[i];
             r.first_lr = c->x[30];
-            r.first_fn = c->fn;
+            r.first_fn = guest_function_of(t_guest_svc_ret);
             r.first_pc = pc;
         }
         count = ++r.count;
@@ -203,7 +203,7 @@ static void report_unknown(::Ctx* c, uint32_t number, uint64_t pc) {
                 number, svc_name(number), static_cast<unsigned long long>(count), (unsigned long long)c->x[0], (unsigned long long)c->x[1],
                 (unsigned long long)c->x[2], (unsigned long long)c->x[3], (unsigned long long)c->x[4], (unsigned long long)c->x[5],
                 (unsigned long long)c->x[6], (unsigned long long)c->x[7], (unsigned long long)c->x[30], (unsigned long long)pc,
-                (unsigned long long)c->fn, t ? t->name.c_str() : "?");
+                (unsigned long long)guest_function_of(t_guest_svc_ret), t ? t->name.c_str() : "?");
     }
 }
 

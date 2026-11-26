@@ -81,6 +81,8 @@ struct ImageDesc {
     VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL;
     bool create_view = true;              // a view of the whole image (2D / 2D array / 3D / cube by flags and layer count)
     const char* name = nullptr;           // debug name
+    VkFormat view_formats[4] = {};        // a MUTABLE_FORMAT image: every format its views take (VkImageFormatListCreateInfo), unset: no list
+    uint32_t view_format_count = 0;
 };
 
 struct Image {
@@ -266,6 +268,7 @@ private:
     size_t gpu_index_ = 0;
     bool gpu_override_matched_ = true;
     bool validation_ = false;
+    bool compression_query_ = false;   // [prof] image_compression: VK_EXT_image_compression_control enabled to log each render target's compression
     bool debug_utils_ = false;
     bool owns_platform_surface_ = false;
     std::atomic<bool> device_lost_{false};

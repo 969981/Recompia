@@ -9,14 +9,21 @@
 //
 // Only pure functions with no locale or global state are replaced; the SDK module's own internal calls stay its own code.
 // Config: [hle] libc (env NXRT_HLE_LIBC), default on; off leaves the SDK's functions in charge.
+#include <atomic>
 #include <cstdint>
 #include <cstring>
+#if defined(__linux__)
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
 
 #include "nxrt/abi.h"
 #include "nxrt/config.h"
 #include "nxrt/dispatch.h"
 #include "nxrt/log.h"
+#include "nxrt/memory.h"
 #include "nxrt/module.h"
+#include "nxrt/write_watch.h"
 
 namespace nxrt {
 namespace {
@@ -49,7 +56,43 @@ bool page_is_zero(const uint8_t* p) {
     return true;
 }
 
+#if defined(__linux__)
+// [memory] zero_reclaim (nxrt/memory.h: default on on a phone whose heap is a section): a zero fill of at least 1 MiB gives the whole host pages inside it back
+// to the kernel instead of writing zeros into them; the pages then read as zero without being resident. A section heap ([memory]
+// heap_section, the phones' default) is a shared file or memfd mapping: MADV_REMOVE punches the pages out of it (every view reads zeros).
+// Private memory refuses that (EINVAL) and takes MADV_DONTNEED, after which every page is checked and any page that kept its contents
+// (a mapping such as a dmabuf pool import) gets the plain memset. The write tracker is told first (before_os_write: armed pages count as
+// written, guarded ones are made current), exactly as for a file read into guest memory. The result is the memset's in every case.
+// note: assumes no pool is imported by host pointer (true on Linux and Android, where pools are always copies: auto_copy); a
+// pinned import would keep the old page. Check pool_copy before enabling it with [nvn] pool_copy = 0.
+constexpr size_t kReclaimMin = 1 << 20;
+std::atomic<uint64_t> g_reclaimed{0};
+bool zero_reclaim(uint8_t* d, size_t n) {   // true: [d, d+n) is zero now
+    static const uintptr_t hp = static_cast<uintptr_t>(sysconf(_SC_PAGESIZE) > 0 ? sysconf(_SC_PAGESIZE) : 4096);
+    uint8_t* const a = reinterpret_cast<uint8_t*>((reinterpret_cast<uintptr_t>(d) + hp - 1) & ~(hp - 1));
+    uint8_t* const e = reinterpret_cast<uint8_t*>((reinterpret_cast<uintptr_t>(d) + n) & ~(hp - 1));
+    if (a >= e || static_cast<size_t>(e - a) < kReclaimMin) return false;
+    const size_t len = static_cast<size_t>(e - a);
+    const mem::ww::OsWriteScope ws(a, len);
+    if (madvise(a, len, MADV_REMOVE) != 0) {
+        if (madvise(a, len, MADV_DONTNEED) != 0) return false;   // caller memsets
+        for (uint8_t* q = a; q < e; q += kPage)
+            if (!page_is_zero(q)) std::memset(q, 0, kPage);
+    }
+    std::memset(d, 0, static_cast<size_t>(a - d));
+    std::memset(e, 0, static_cast<size_t>(d + n - e));
+    const uint64_t was = g_reclaimed.fetch_add(len, std::memory_order_relaxed);
+    if ((was >> 28) != ((was + len) >> 28))   // every 256 MiB
+        NXLOG_I("hle", "[memory] zero_reclaim: %llu MiB of zero fills given back so far (last fill %zu KiB)",
+                static_cast<unsigned long long>((was + len) >> 20), n >> 10);
+    return true;
+}
+#endif
+
 void zero_fill(uint8_t* d, size_t n) {
+#if defined(__linux__)
+    if (n >= kReclaimMin && mem::zero_reclaim_on() && zero_reclaim(d, n)) return;
+#endif
     uint8_t* const a = reinterpret_cast<uint8_t*>((reinterpret_cast<uintptr_t>(d) + kPage - 1) & ~uintptr_t(kPage - 1));
     uint8_t* const e = reinterpret_cast<uint8_t*>((reinterpret_cast<uintptr_t>(d) + n) & ~uintptr_t(kPage - 1));
     if (n < kZeroSkipMin || a >= e) {
