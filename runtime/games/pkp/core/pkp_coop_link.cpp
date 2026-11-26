@@ -113,6 +113,9 @@ constexpr Route kRoutes[] = {
     {wire::Type::DropClosing, Path::FromAuthority, &drop::on_closing_message},
     // the characters another member's scenes hold
     {wire::Type::SceneHolds, Path::Shared, &scenes::on_holds_message},
+    // co-op stage mode: a family's fields of Cloud Island's record set
+    {wire::Type::StageAsk, Path::ToAuthority, &stage::on_ask_message},
+    {wire::Type::StageTable, Path::FromAuthority, &stage::on_table_message},
 };
 
 struct State {
@@ -187,6 +190,7 @@ void on_member(const ch::MemberEvent& e) {
     savecopy::on_member(e.node, e.joined, self);
     drop::on_member(e.node, e.joined, self);
     scenes::on_member(e.node, e.joined, self);
+    stage::on_member(e.node, e.joined, self);
     if (self) {
         story::on_session_change();
         quests::on_session_change();

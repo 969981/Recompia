@@ -139,6 +139,12 @@
 //   PartyBags   +2 u8 players p, then p times: u8 the player's node, u8 kinds k, k times {u16 item id, u16 how many}   (the
 //               authority's sums of every present player's bag record; when one changes, at most every 2 s, and when a member
 //               joins or leaves)
+//   ---- co-op stage mode (pkp_coop_stage.cpp): a family's fields of Cloud Island's record set ----
+//   StageAsk    +2 u8 family (pkp_coop_stage_table.inc; 1 talk)   (a member in the session, until its StageTable arrives; again
+//               every 5 s)
+//   StageTable  +2 u8 family, +3 u16 record count n, +5 u16 field bytes m, then n times m bytes: record i's fields in order (talk:
+//               n 0x41a, m 0xc, record i's +0x8..+0x13)   (the authority's Cloud set, to the node that asked; a member takes it only
+//               while it asks, with n and m as its table has them)
 // A change to a layout raises kVersion. A new type does not: a build without its handler drops it at drain (one warning per type,
 // nxrt coop_channel drain()), and the rest plays on. But a dropped message is never handled, so it is never forwarded either: with
 // an older build as the authority, a new shared type reaches no member at all (the authority is the only one that passes shared
@@ -250,6 +256,9 @@ enum class Type : uint32_t {
     // ---- the story flags (pkp_coop_story_flags.cpp) ----
     StoryFlags = 70,
     StoryFlagSet = 71,
+    // ---- co-op stage mode (pkp_coop_stage.cpp) ----
+    StageAsk = 72,
+    StageTable = 73,
 };
 
 // Builds one payload: the header, then the fields in order.

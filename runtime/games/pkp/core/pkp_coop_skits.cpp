@@ -6,7 +6,8 @@
 // (index data id + 4, data ids 1..0x415): +0x14 f32 a timer, +0x18 u8 the timer is on, +0x1a u16 the scene, +0x1c u16 the content
 // that set it. A process reads its own records (R+0x93ba0) or, on a Link Play visitor (every co-op member), the visitor copy
 // (R+0x15567a8); Cloud Island has its own (R+0xae5138). The professor (data id 0x2c) keeps his in the stage data instead, at
-// R+0x95bbe0 with the same field offsets. The getter 0x3b2278(data id) picks the record that way; the talk selector (0x4c1a18..
+// R+0x95bbe0 with the same field offsets. The talk fields +0x8..+0x13 of these records are co-op stage mode's (pkp_coop_stage.cpp:
+// in a session every process keeps them in the Cloud Island set); the story-skit fields stay here. The getter 0x3b2278(data id) picks the record that way; the talk selector (0x4c1a18..
 // 0x4c7058, through 0x3ad37c), the "has something to say" test 0x3b1f9c and the objective list's state 0x10f180 (a row's goal or
 // start scene against the getter) read it. The only writers of a story are the contents actions (0x7da "set story talk",
 // 0x3b2570, by the talking component; 0x7df), quest effect 0x2c (0x3b2360, a world kind the authority alone runs) and the timer

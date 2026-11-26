@@ -71,6 +71,8 @@
 //   pkp_coop_savecopy.cpp the one shared save: the authority's save points copied to every member's co-op folder, stamped
 //                         (pkp_coop_saveset.cpp: the folder's files on disk)
 //   pkp_coop_drop.cpp     a dropped player is waited for: the group holds while it comes back through the normal join
+//   pkp_coop_stage.cpp    co-op stage mode: the game's Cloud Island test answers yes at the rows of pkp_coop_stage_table.inc, so
+//                         every process uses Cloud Island's record set for those families, kept the group's (seeded, saved, carried)
 // The parts run on the game thread (the game's own code at a hook site, or the game-frame tick) unless a comment says otherwise. Each
 // part keeps its own state; pkp_coop.cpp resets them all when the feature is removed.
 #pragma once
@@ -985,6 +987,34 @@ void on_armed_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void tick();
 void reset();
 }  // namespace talkrec
+// ---- co-op stage mode (pkp_coop_stage.cpp): in a session every process uses Cloud Island's record set for the families of
+// pkp_coop_stage_table.inc, as Cloud Island does for host and visitor alike ----
+namespace stage {
+// One per PKP_STAGE_FAMILY of the table, in its order (pkp_coop_stage.cpp checks).
+enum class Family : uint8_t { Talk, Count };
+// The hook sites (pkp_coop.cpp), each returns 0 (the game's code runs on). A row (midhook after a `bl 0x77ecb0`, site its main
+// offset): while the family's mode is on, x0 = 1 (Cloud Island); a reset row also clears that record's fields in the Cloud set.
+int on_answer(::Ctx* c, uint64_t site);
+// Entry 0x5aa8b8 (the pre-save fixups; game thread or the TaskMgr thread) and entry 0x241324 (the save request), site the entry's
+// main offset: the authority copies the group's fields Cloud -> own, so the CMNDAT it writes holds them.
+int on_save_point(::Ctx* c, uint64_t site);
+// Entry 0x5a8748 (a stage data load posted): the group's fields are set aside before a visited area's STGDAT replaces the Cloud
+// set. Entry 0x5af540 (the post-STGDAT-load fix-up): they are written back.
+int on_load_job(::Ctx* c);
+int on_load_fixup(::Ctx* c);
+// A member event (pkp_coop_link.cpp on_member): self, this process joined or left the session's channel.
+void on_member(int node, bool joined, bool self);
+// The messages (pkp_coop_link.cpp).
+void on_ask_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);     // the authority: a member asks for a family's fields
+void on_table_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: the authority's fields of a family
+// Seeds and ends each family's mode, asks for the authority's fields, logs the answer counts (once a frame).
+void tick(bool in_game);
+void reset();
+// The family's mode is on here: in the session, this process's Cloud set seeded, no area load in flight. Any thread.
+bool on(Family f);
+// Save root + : the record set the authority's game uses for the family (Cloud while its mode is on, else its own set).
+uint64_t authority_set(Family f);
+}  // namespace stage
 // ---- the Star Piece swap in a member's talk (pkp_coop_talk.cpp) ----
 namespace talk {
 // The hook site (pkp_coop.cpp): midhook 0x4a1adc in script callback slot 119 0x4a17fc. A member's parent term is the group's record of

@@ -315,7 +315,8 @@ entryhook 0x7100fb9ea0
 #   Seamless co-op, group travel (pkp_coop_travel.cpp): the area-move filer by destination index (event callbacks 0x52 / 0x53, a
 #   travel object's step 0x71007cbc88), the moves that run no poll of their own
 entryhook 0x71000bda20
-#   Seamless co-op, the save: the three save writers (reserved: no handler yet; the journal logs them)
+#   Seamless co-op, the save: the three save writers (the journal logs them): the save request 0x7100241324, where co-op stage mode's
+#   authority copies its Cloud fields into its own records (pkp_coop_stage.cpp); 0x7100245200 and 0x71005a8a34 reserved (no handler yet)
 entryhook 0x7100241324
 entryhook 0x7100245200
 entryhook 0x71005a8a34
@@ -823,6 +824,80 @@ entryhook 0x7100659bf8
 #   Seamless co-op, a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp): in script callback slot 195
 #   0x71004ae68c, the `bl 0x77ecb0` after its store of the talk record's +0x10 outside Cloud Island (w23 = the chara)
 midhook 0x71004ae7e8
+#   Seamless co-op, co-op stage mode (pkp_coop_stage.cpp): one midhook per row of runtime/games/pkp/core/pkp_coop_stage_table.inc, at
+#   the instruction after a `bl` to the Cloud Island test 0x710077ecb0 (the test itself is not hooked: 2884 call sites, many every
+#   frame), ascending; then the pre-save fixups 0x71005aa8b8, the stage data load job 0x71005a8748 and the post-STGDAT-load fix-up
+#   0x71005af540 (the save request 0x7100241324 is declared above, with the save writers)
+midhook 0x71002ac4d0
+midhook 0x71002ac5c0
+midhook 0x71002adddc
+midhook 0x71002adecc
+midhook 0x71002adefc
+midhook 0x71002adf58
+midhook 0x71002ccb34
+midhook 0x710033a130
+midhook 0x71003ac540
+midhook 0x71003acb64
+midhook 0x71003acc08
+midhook 0x71003ad2c0
+midhook 0x71003ad2f4
+midhook 0x71003ad354
+midhook 0x71003add44
+midhook 0x71003ae488
+midhook 0x71003afb30
+midhook 0x71003afbe4
+midhook 0x71003b0a70
+midhook 0x71003b0ad0
+midhook 0x71003b0ae8
+midhook 0x71003b0b54
+midhook 0x71003b0b90
+midhook 0x71003b0c54
+midhook 0x71003b0cb4
+midhook 0x71003b0ccc
+midhook 0x71003b0d38
+midhook 0x71003b0d74
+midhook 0x71003b0dd0
+midhook 0x71003b304c
+midhook 0x71003b3100
+midhook 0x71003b3260
+midhook 0x71004a5280
+midhook 0x71004a52e0
+midhook 0x71004a52f8
+midhook 0x71004a533c
+midhook 0x71004ab444
+midhook 0x71004ab4a4
+midhook 0x71004ab4bc
+midhook 0x71004ab518
+midhook 0x71004ab564
+midhook 0x71004ab598
+midhook 0x71004ae708
+midhook 0x71004ae770
+midhook 0x71004ae790
+midhook 0x71004ae7ec
+midhook 0x71004ae808
+midhook 0x71004ae894
+midhook 0x71004ae8c8
+midhook 0x71004bbedc
+midhook 0x71004bc96c
+midhook 0x71004bc9e4
+midhook 0x71004bca5c
+midhook 0x71004bcaa4
+midhook 0x71004bcac0
+midhook 0x71004bd544
+midhook 0x71004bd580
+midhook 0x71004bd610
+midhook 0x71004bd62c
+midhook 0x71004bd654
+midhook 0x71004c2cf8
+midhook 0x71004ee06c
+midhook 0x71004ee0b8
+midhook 0x71004ee13c
+midhook 0x71004ee150
+midhook 0x71004ee178
+entryhook 0x71005aa8b8
+entryhook 0x71005a8748
+entryhook 0x71005af540
+#   ---- end of co-op stage mode ----
 #   Seamless co-op, the Star Piece swap in a member's talk (pkp_coop_talk.cpp): in script callback slot 119 0x71004a17fc, the
 #   `orr w24, w22, w8` that joins its row and parent terms (w24 = the data id off Cloud Island)
 midhook 0x71004a1adc

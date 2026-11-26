@@ -25,6 +25,10 @@
 // Island, after the store into the member's copy) is sent to the authority (TalkRecArmed), which sets the flag in its own record, as
 // its apply 0x3ad29c does there for the Cloud Island records. A member's clears are not sent: they are its own process's resets of its
 // copy, and the authority's own resets clear the group's record. What the member's conditions 29 / 31 answer is left as it is.
+// With co-op stage mode (pkp_coop_stage.cpp) on, the talk fields live in the Cloud Island set on every process and the game's own
+// Cloud path carries a member's set (delta bit 40 -> the host's apply 0x2197a0 -> 0x3ad29c, which marks the actor dirty), so this
+// is the fallback: 0x4ae7e8 is reached only off the Cloud path, i.e. on a member not seeded yet (or under an authority without the
+// mode). The authority sets the flag in whichever set its game reads (stage::authority_set).
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
@@ -61,8 +65,12 @@ int on_armed(::Ctx* c) {
     State& s = st();
     if (s.asks.size() >= kQueueMax) s.asks.pop_front();
     s.asks.push_back(static_cast<uint16_t>(chara));
-    NXLOG_I(kTag, "Co-op talk record: chara %u's flag +0x%x set here: sent to the authority", chara,
-            static_cast<unsigned>(layout::kTalkRecArmed));
+    if (stage::on(stage::Family::Talk))
+        NXLOG_W(kTag, "Co-op talk record: chara %u's flag +0x%x set off the Cloud path while stage mode is on here: sent to the "
+                "authority (fallback)", chara, static_cast<unsigned>(layout::kTalkRecArmed));
+    else
+        NXLOG_I(kTag, "Co-op talk record: chara %u's flag +0x%x set here, stage mode not on: sent to the authority (fallback)", chara,
+                static_cast<unsigned>(layout::kTalkRecArmed));
     return 0;
 }
 
@@ -70,12 +78,18 @@ void on_armed_message(::Ctx*, int, uint8_t origin, wire::Reader& r) {
     const uint32_t chara = r.u16();
     if (!r.ok() || !link::is_authority() || chara >= layout::kFriendCount) return;
     const uint64_t root = guest::rd<uint64_t>(base() + layout::kSaveRoot);
-    const uint64_t at = root + layout::kTalkRecOwn + static_cast<uint64_t>(chara) * layout::kTalkRecSize + layout::kTalkRecArmed;
+    const uint64_t set = stage::authority_set(stage::Family::Talk);
+    const uint64_t at = root + set + static_cast<uint64_t>(chara) * layout::kTalkRecSize + layout::kTalkRecArmed;
     if (!root || !guest::ok(at, 1)) return;
-    if (guest::rd<uint8_t>(at)) return;
+    const char* where = set == layout::kTalkRecCloud ? "the Cloud set (stage mode on)" : "the own set";
+    if (guest::rd<uint8_t>(at)) {
+        NXLOG_I(kTag, "Co-op talk record: node %u's flag +0x%x for chara %u was set already in %s", origin,
+                static_cast<unsigned>(layout::kTalkRecArmed), chara, where);
+        return;
+    }
     guest::wr<uint8_t>(at, 1);
-    NXLOG_I(kTag, "Co-op talk record: node %u set chara %u's flag +0x%x in the group's record", origin, chara,
-            static_cast<unsigned>(layout::kTalkRecArmed));
+    NXLOG_I(kTag, "Co-op talk record: node %u set chara %u's flag +0x%x in the group's record, %s (fallback path)", origin, chara,
+            static_cast<unsigned>(layout::kTalkRecArmed), where);
 }
 
 void tick() {
