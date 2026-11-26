@@ -1751,7 +1751,7 @@ def main():
     game = os.path.abspath(a.game)
     if a.check:
         try:
-            current, reason, relink = check(Layout(game, prepared=a.next))
+            current, reason, relink = check(Layout(game, prepared=a.next), asked_options(a))
         except (OSError, Fail) as e:         # a tool file that cannot be read: Set up then runs and names it
             current, reason, relink = False, 'cannot read the build tools: %s' % e, False
         print(json.dumps({'current': current, 'reason': reason, 'relink': relink}), flush=True)
