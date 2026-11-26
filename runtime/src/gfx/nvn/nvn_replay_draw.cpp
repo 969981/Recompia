@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Draws of the replay: pipeline keys, dynamic state and its shadow, begin_draw, primitive conversion, direct, indirect and feedback draws.
 #include "nvn_replay_internal.h"
+#include "nxrt/game.h"
+#include "nxrt/game_render.h"
+#include "nxrt/host_device.h"
 #include "nxrt/platform_facts.h"
 
 namespace nxrt::nvn::be::gpu {
@@ -396,6 +399,94 @@ static const ShaderInfo* passthrough_tcs_for(const ShaderInfo* vs, const ShaderI
 }
 static const ShaderInfo* tcs_now() { return S.stage[kTessCtl] ? S.stage[kTessCtl] : g_gen_tcs; }
 
+// ---- [gfx] shadow_half (NOT bit-exact; default on on a phone, off elsewhere) -------------------------------------------------------
+// Only for a game that describes its shadow map (game::Render::shadow_halves): a square depth-only target holding two cascades, one per
+// horizontal half (split at half the height by the viewport's y), the far one changing little from frame to frame while the camera stands
+// still. With this on, every other frame the far half is not cleared and its draws are skipped: it keeps the previous frame's depth. Only
+// while the far half's draws looked the same in the two frames before (their number, programs, viewports and scissors, in any order) and
+// the camera stood still (the camera block, game::Render::camera, bound by the G-buffer draws was byte-identical); a change draws it every
+// frame again. A frame late at most where a far caster moved. A game without shadow_halves never takes this path.
+namespace {
+struct ShadowHalf {
+    uint64_t frame = ~0ull, sig = 0, sig1 = 0, sig2 = 0, cam = 0, cam1 = 0, cam2 = 0;
+    bool skip = false, skipped1 = false;
+    uint64_t frames = 0, skip_frames = 0, skipped_draws = 0;
+} g_sh;
+}  // namespace
+// Read once. Set by the ini, else by controls.ini [display] shadow_half (play_startup.cpp); "auto" (not a bool) takes the default: phones
+// only (Snapdragon 8 Gen 3: -2.9 % GPU cycles a frame), a desktop keeps drawing every frame.
+static const game::ShadowHalves* shadow_halves() {
+    static const game::ShadowHalves* const s = game::info().render ? game::info().render->shadow_halves : nullptr;
+    return s;
+}
+static bool shadow_half_on() {
+    static const bool on = shadow_halves() && nxrt::config_get_bool("gfx", "shadow_half", host_is_phone());
+    return on;
+}
+static bool shadow_target() {
+    const Texture* d = S.depth_tex.get();
+    return d && S.ncolor == 0 && d->fmt && d->fmt->aspect != kAspectColor && d->b.width == d->b.height && d->b.width >= 256 && (d->b.width & (d->b.width - 1)) == 0;
+}
+static void shadow_half_frame() {
+    const uint64_t now = counters().presents.load(std::memory_order_relaxed);
+    if (now == g_sh.frame) return;
+    g_sh.sig2 = g_sh.sig1;
+    g_sh.sig1 = g_sh.sig;
+    g_sh.sig = 0;
+    g_sh.cam2 = g_sh.cam1;
+    g_sh.cam1 = g_sh.cam;
+    g_sh.cam = 0;
+    g_sh.skipped1 = g_sh.skip;
+    g_sh.frame = now;
+    // the far casters looked the same and the camera stood still (its block identical) in the two frames before
+    g_sh.skip = shadow_half_on() && !g_sh.skipped1 && g_sh.sig1 != 0 && g_sh.sig1 == g_sh.sig2 && g_sh.cam1 != 0 && g_sh.cam1 == g_sh.cam2;
+    ++g_sh.frames;
+    g_sh.skip_frames += g_sh.skip ? 1 : 0;
+    if ((g_sh.frames % 1800) == 0)
+        NXLOG_I("nvn.replay", "shadow_half: %llu of the last frames kept the far cascade, %llu far draws skipped (on %d)", static_cast<unsigned long long>(g_sh.skip_frames),
+                static_cast<unsigned long long>(g_sh.skipped_draws), shadow_half_on() ? 1 : 0);
+}
+// A draw into the far half of the shadow map: its look goes into the frame's signature; true when it is skipped this frame. Other draws:
+// the first G-buffer draw of the frame that binds a readable camera block gives the frame's camera hash.
+static bool shadow_half_skip_draw() {
+    if (!shadow_halves()) return false;
+    if (!shadow_target()) {
+        if (g_sh.cam == 0 && shadow_half_on()) {
+            shadow_half_frame();
+            g_sh.cam = camera_block_hash();
+        }
+        return false;
+    }
+    shadow_half_frame();
+    const float h = static_cast<float>(S.depth_tex->b.height);
+    if ((S.vp[0][1] >= h * 0.5f) != shadow_halves()->far_bottom) return false;   // a draw into the near half
+    uint64_t x = 0xcbf29ce484222325ull;   // this draw's look; summed into the frame's signature, so the draw order does not count
+    auto mix = [&x](uint64_t v) { x = (x ^ v) * 0x100000001b3ull; };
+    mix(reinterpret_cast<uintptr_t>(S.stage[kVertex]));
+    mix(reinterpret_cast<uintptr_t>(S.stage[kFragment]));
+    for (int k = 0; k < 4; ++k) { uint32_t b; std::memcpy(&b, &S.vp[0][k], 4); mix(b); }
+    for (int k = 0; k < 4; ++k) mix(static_cast<uint32_t>(S.sc[0][k]));
+    // note: the casters' own uniforms are not in the signature: read here (the replay runs after the game moved on) they differ every
+    // frame. A light that moves with the camera still and the same casters is not seen: a frame late every other frame.
+    g_sh.sig = (g_sh.sig + (x | 1)) | 1;
+    if (g_sh.skip) ++g_sh.skipped_draws;
+    return g_sh.skip;
+}
+// The clear of a frame that keeps the far half: only the near half is cleared.
+bool shadow_half_clip_clear(VkClearRect* r) {
+    if (!shadow_halves() || !shadow_target()) return false;
+    shadow_half_frame();
+    if (!g_sh.skip) return false;
+    const uint32_t half = r->rect.extent.height / 2;
+    if (shadow_halves()->far_bottom) {
+        r->rect.extent.height = half;   // the near (top) half
+    } else {
+        r->rect.offset.y += static_cast<int32_t>(half);   // the near (bottom) half
+        r->rect.extent.height -= half;
+    }
+    return true;
+}
+
 // Prepares everything a draw needs and binds it. False: skip the draw.
 static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopology* topo_out) {
     RpScope rp_all(kRpDraw);
@@ -405,6 +496,7 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     if (!S.render_enable) return false;
     if (key_check_on()) key_check_draw(counters().presents.load(std::memory_order_relaxed));
     if (g_trace_hooks && trace_skip_draw()) return false;
+    if (shadow_half_skip_draw()) return false;   // [gfx] shadow_half (not bit-exact, on by default on a phone)
     // Tessellation: Vulkan runs it only with both shaders and a patch list. NVN also allows an evaluation shader alone (fixed levels from
     // SetInner/OuterTessellationLevels): those draws get a generated pass-through control shader (passthrough_tcs_for).
     if (S.stage[kTessCtl] || S.stage[kTessEval] || mode == NVN_DRAW_PRIMITIVE_PATCHES) {

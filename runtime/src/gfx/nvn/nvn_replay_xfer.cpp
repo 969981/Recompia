@@ -105,6 +105,7 @@ void do_clear_depth_stencil(const P_ClearDepthStencil& p) {
     }
     ca.clearValue.depthStencil = {p.depth, static_cast<uint32_t>(p.stencil)};
     VkClearRect r = full_rect();
+    shadow_half_clip_clear(&r);   // [gfx] shadow_half: a frame keeping the far cascade clears the near half only (then not folded)
     if (pass_fold_clear_ds(ca.aspectMask, ca.clearValue.depthStencil, r)) {
         counters().clears.fetch_add(1, std::memory_order_relaxed);
         return;

@@ -156,6 +156,18 @@ void temporal_gbuffer_note() {
     if (extras::temporal_camera_ready()) g_tsr_depth = S.depth_tex;
 }
 
+// [gfx] shadow_half: a hash of the game's camera block as a G-buffer draw binds it (0 when this draw is not one or the block is not
+// readable: guest memory holds it only when no GPU write is in flight over it). The camera standing still keeps the shadow cascades still.
+uint64_t camera_block_hash() {
+    if (!g_tsr.resolved || !g_tsr.bytes || g_tsr.bytes > kTsrMaxWords * 4 || S.ncolor < g_tsr.colors || !S.depth_tex || !S.stage[g_tsr.stage]) return 0;
+    const GState::Bind& u = S.ubo[g_tsr.stage][g_tsr.slot];
+    if (!u.addr || u.size < g_tsr.bytes || !gw_settled_fast(u.addr, g_tsr.bytes) || out_overlaps(u.addr, g_tsr.bytes)) return 0;
+    const uint8_t* p = host_ptr(u.addr);
+    uint64_t h = 0xcbf29ce484222325ull;
+    for (uint32_t i = 0; i < g_tsr.bytes; ++i) h = (h ^ p[i]) * 0x100000001b3ull;
+    return h | 1;
+}
+
 // The game's scene covers only part of its targets (extras::scene_fraction, the game's [upscale] scene_scale, #116): the part of a scene
 // image of size `scene` that holds it, and the size of the image the draw that reads it then needs, out / fraction, so that its own lookup
 // at uv * fraction lands on the upscaled result in that image's top-left out-sized corner. False: the whole image is the scene.

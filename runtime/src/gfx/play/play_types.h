@@ -199,6 +199,9 @@ struct DisplaySettings {
     bool shader_prewarm = true;    // build the pipelines recorded by earlier runs ahead of the draws ([nvn] prewarm); at the next start, [nvn] prewarm in the ini wins
     // Uniform blocks from video memory: auto (discrete GPUs under 7 GiB or without resizable BAR), on or off; becomes [nvn] uniform_snapshot at the next start unless the ini or the environment set it
     std::string uniform_snapshot = "auto";
+    // The far shadow cascade drawn every other frame while it and the camera stand still: auto (phones), on or off; becomes [gfx] shadow_half
+    // at the next start unless the ini or the environment set it
+    std::string shadow_half = "auto";
     std::string astc_quality = "high";   // ASTC texture quality on this GPU: fast, high or uncompressed (RGBA8, lots of video memory); becomes [gfx] astc_quality at the next start unless the ini or the environment set it
     // The display the window lives on, 1-based in the system's order; 0 = automatic (wherever the window opens). Applied live (the window moves).
     int monitor = 0;
@@ -364,7 +367,8 @@ const char* key_wheel_cycles();
 //              controller (all, or the one pad's player number, 1 = the first)
 //   [timing]   tap_ms hold_ms double_ms pulse_ms
 //   [display]  window_mode vsync fps_limit (number, 0 = unlimited, auto = refresh rate; fps_cap is read too) width height keep_aspect render_scale render_width render_height aspect fov_offset
-//              dynamic_resolution anisotropy lod_bias bloom chromatic_aberration fast_gpu_memory fewer_gpu_waits shader_prewarm uniform_snapshot (auto on off) astc_quality (fast high uncompressed)
+//              dynamic_resolution anisotropy lod_bias bloom chromatic_aberration fast_gpu_memory fewer_gpu_waits shader_prewarm uniform_snapshot (auto on off) shadow_half (auto on off)
+//              astc_quality (fast high uncompressed)
 //              monitor (auto or the display's number, 1 = the first)
 //   [hdr]      mode (off auto on) format (auto hdr10 scrgb) peak_nits (0 = auto, else 200..10000) paper_white_nits (0 = auto, else
 //              80..500) highlight_boost (0..2)

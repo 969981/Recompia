@@ -91,9 +91,14 @@ constexpr game::ComputeVariant kComputeVariants[] = {
     {"62619a57fc0feb43", game::ComputeVariantKind::VoteAllFalse},
 };
 
+// [gfx] shadow_half: the game's 2048x2048 shadow map holds two cascades, the near one in the top half and the far one in the bottom half.
+// Standing still the far half changes in about 0.01 % of its texels from frame to frame, the near half in 2-3 % (animated casters).
+constexpr game::ShadowHalves kShadowHalves = {true};
+
 constexpr game::Render kRender = {&kReadbackDefer, &kCamera, kToneMaps, sizeof kToneMaps / sizeof kToneMaps[0],
                                   kLoopGuards, sizeof kLoopGuards / sizeof kLoopGuards[0], true, kSceneStretch, sizeof kSceneStretch / sizeof kSceneStretch[0], kSceneScaleMin,
-                                  kSquareQuadFs, kMarkerVs, kMarkerFs, kComputeVariants, sizeof kComputeVariants / sizeof kComputeVariants[0]};
+                                  kSquareQuadFs, kMarkerVs, kMarkerFs, kComputeVariants, sizeof kComputeVariants / sizeof kComputeVariants[0],
+                                  &kShadowHalves};
 
 }  // namespace
 

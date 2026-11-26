@@ -10,6 +10,7 @@
 //   ui_after_picture false: the game's 2D cannot be hidden (nxrt/ui_layer.h; a mod's ui_visible is not offered)
 //   square_quad_fs   none: no quad is made square
 //   cs_variants      none: no compute program runs as a variant ([nvn] cs_vote, [nvn] cs_retile have nothing to do)
+//   shadow_halves    none: no shadow map keeps a cascade from the previous frame ([gfx] shadow_half has nothing to do)
 // Header-only and free of Vulkan, so game.h users that do not link the graphics back end can include it.
 #pragma once
 #include <cstdint>
@@ -87,6 +88,13 @@ struct ComputeVariant {
     ComputeVariantKind kind = ComputeVariantKind::Retile;
 };
 
+// [gfx] shadow_half (src/gfx/nvn/nvn_replay_draw.cpp): the game's shadow map is a square depth-only target (no colour attachment, a
+// power of two of at least 256 texels a side) holding two cascades, one per horizontal half, and the far cascade changes little from frame
+// to frame while the camera stands still. far_bottom: the far cascade is the bottom half (viewports from half the height down), else the top.
+struct ShadowHalves {
+    bool far_bottom = true;
+};
+
 struct Render {
     const ReadbackShape* readback_defer = nullptr;
     const CameraBlock* camera = nullptr;
@@ -115,6 +123,7 @@ struct Render {
     const char* jitter_decal_fs = nullptr;
     const ComputeVariant* cs_variants = nullptr;
     uint32_t cs_variant_count = 0;
+    const ShadowHalves* shadow_halves = nullptr;
 };
 
 }  // namespace nxrt::game

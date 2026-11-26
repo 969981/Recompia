@@ -200,6 +200,8 @@ void pass_stats_discard(bool depth);
 extern Pass P;   // owner: nvn_replay_pass.cpp (ensure_pass, end_pass)
 extern float g_csr_scale;                                           // gfx::Tuning::csr_*: the reduction dispatch being set up (nvn_replay_bind.cpp)
 float csr_scale_for(const ProgLayout& pl);
+bool shadow_half_clip_clear(VkClearRect* r);   // [gfx] shadow_half (nvn_replay_draw.cpp)
+uint64_t camera_block_hash();                 // [gfx] shadow_half: the camera block a G-buffer draw binds, hashed (nvn_replay_upscale.cpp)
 // [nvn] pass_barriers = tracked (S38). A pass whose draws can only have written its attachments (no storage buffers or images, no stream-out)
 // does not end with a barrier: its written attachments are remembered here, and the next command that could depend on them gets one. A
 // layout change of such an image is that barrier for the image (narrow masks, set_narrow_barriers); a later pass that renders to it again in
