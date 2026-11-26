@@ -126,6 +126,7 @@ struct TexGpu {
     // render pass (tex_transition_attach / tex_mark_gpu_written with its level), so a copy that leaves the image in TRANSFER_SRC sees each later
     // write. A new image (creation, rescale, feedback loop usage) gets new numbers for every level.
     uint64_t wgen[kGenLevels] = {};
+    bool storage_lazy = false;                          // [gfx] storage_lazy: storage usage is added when first bound as a storage image
     bool fb_loop_tried = false;                         // tex_enable_feedback_loop ran (once per image)
     bool read_back = false;                             // download_texture copied it into game memory (the CPU reads it): a dispatch that writes
                                                         // it is never skipped ([nvn] async_compute). Render thread (set in download_texture's job)

@@ -387,8 +387,8 @@ void prepare_textures(const ProgLayout& pl) {
     for (const BindingDesc& d : pl.bindings) {
         if (d.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
             TexResolved r = resolve_image(d);
-            if (!r.tex || !tex_gpu(r.tex) || !tex_has_storage(r.tex)) continue;
-            if (r.tex->cpu_dirty.load() || tex_layout(r.tex) != VK_IMAGE_LAYOUT_GENERAL || tex_scale(r.tex) != 1.0f) need_storage.push_back(r.tex);
+            if (!r.tex || !tex_gpu(r.tex) || !(tex_has_storage(r.tex) || tex_storage_lazy(r.tex))) continue;
+            if (!tex_has_storage(r.tex) || r.tex->cpu_dirty.load() || tex_layout(r.tex) != VK_IMAGE_LAYOUT_GENERAL || tex_scale(r.tex) != 1.0f) need_storage.push_back(r.tex);
             continue;
         }
         if (d.type != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) continue;
@@ -427,6 +427,7 @@ void prepare_textures(const ProgLayout& pl) {
         tex_transition(t, *F, tex_sampled_layout(t));
     }
     for (Texture* t : need_storage) {
+        if (!tex_enable_storage(t, *F)) continue;   // [gfx] storage_lazy: storage usage on first use (the pass has ended)
         if (tex_scale(t) != 1.0f) tex_rescale(t, *F, 1.0f, "bound as a storage image");   // imageStore coordinates are not scaled (Ryujinx: ResScaleUnsupported)
         tex_ensure_current(t, *F);
         tex_transition(t, *F, VK_IMAGE_LAYOUT_GENERAL);

@@ -334,6 +334,8 @@ uint64_t tex_write_gen(Texture* t, uint32_t level);
 // Remakes the image with VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT (content copied over) unless it has it. Once per image; false
 // when the image cannot have it (the caller keeps the feedback copy). No render pass open.
 bool tex_enable_feedback_loop(Texture* t, Frame& f);
+bool tex_enable_storage(Texture* t, Frame& f);   // [gfx] storage_lazy: the image remade with storage usage (true when it has it)
+bool tex_storage_lazy(Texture* t);               // storage usage would be added on first storage use
 bool tex_has_feedback_loop(Texture* t);
 // tex_ensure_current would do nothing: the image holds the newest content (rendered or uploaded, the CPU did not write since).
 bool tex_current_on_gpu(Texture* t);

@@ -329,6 +329,11 @@ bool tex_has_storage(Texture* t) {
     return g && (g->usage & VK_IMAGE_USAGE_STORAGE_BIT) != 0;
 }
 
+bool tex_storage_lazy(Texture* t) {
+    TexGpu* g = tex_or_null(t);
+    return g && g->storage_lazy;
+}
+
 VkFormat tex_storage_format(Texture* t, VkFormat requested) {
     TexGpu* g = tex_or_null(t);
     const VkFormat f = requested != VK_FORMAT_UNDEFINED ? requested : g ? g->format : VK_FORMAT_UNDEFINED;
