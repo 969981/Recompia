@@ -212,8 +212,24 @@ float attach_targets(bool fix) {
     float lo = 0.0f, hi = 0.0f;
     // [gfx] ui_native: a pass on a window texture brings its other attachments (the 2D's depth buffer) to the window texture's scale
     float ui = 0.0f;
-    for (uint32_t i = 0; i < n && ui == 0.0f; ++i) ui = ui_native_scale(*ts[i]);
-    if (ui > 0.0f && fix && S.depth_tex) ui_native_note_depth(*S.depth_tex);
+    if constexpr (facts::kPhone) {
+        for (uint32_t i = 0; i < n && ui == 0.0f; ++i) ui = ui_native_scale(*ts[i]);
+        if (ui > 0.0f && fix && S.depth_tex) ui_native_note_depth(*S.depth_tex, true);
+    } else {
+        // Desktop: the window texture is a colour target. A pass with only a depth target keeps the scale that depth target has (a 2D
+        // depth clear); a pass with colour notes its depth target on the side of its colour, and a depth target found on both sides turns
+        // ui_native off for the run (ui_native_note_depth): every scale here is the render scale again.
+        const uint32_t ncol = S.depth_tex ? n - 1 : n;
+        for (uint32_t i = 0; i < ncol && ui == 0.0f; ++i) ui = ui_native_scale(*ts[i]);
+        if (ncol == 0 && S.depth_tex) ui = ui_native_scale(*S.depth_tex);
+        else if (fix && S.depth_tex) {
+            ui_native_note_depth(*S.depth_tex, ui > 0.0f);
+            if (ui > 0.0f) {   // 0 when the note found the depth target in 3D passes too
+                ui = 0.0f;
+                for (uint32_t i = 0; i < ncol && ui == 0.0f; ++i) ui = ui_native_scale(*ts[i]);
+            }
+        }
+    }
     for (uint32_t i = 0; i < n; ++i) {
         if (!tex_gpu_attachment(ts[i])) continue;
         if (fix) {
