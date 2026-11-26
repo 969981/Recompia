@@ -22,6 +22,9 @@ pub struct GameStep {
     exefs: Result<PathBuf, String>,
     jobs: usize,
     idle: bool,
+    options: gamebuild::Options,
+    /// the save an optimized build's play-test copies
+    save_dir: Option<PathBuf>,
     log: gamebuild::LogFn,
     tag: String,
     /// prepare left a build for adopt (built now, or found current from an earlier update that stopped)
@@ -33,7 +36,7 @@ impl GameStep {
     pub fn new(cfg: &Config, tag: &str) -> GameStep {
         let game_dir = paths::game_dir_of(cfg);
         let tools = paths::exe_dir().join("tools");
-        let enabled = gamebuild::is_package_b(&tools) && gamebuild::built_state(&game_dir, &tools) != Built::No;
+        let enabled = gamebuild::is_package_b(&tools) && gamebuild::built_state(&game_dir, &tools, cfg.build_options()) != Built::No;
         // the game files Set up builds from: Linux and macOS read the pkp.ini Set up wrote, Windows the chosen dump (setup_job.rs)
         let exefs = if host::native_game() {
             Ok(host::native_exefs(&game_dir))
@@ -43,7 +46,19 @@ impl GameStep {
         let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(3);
         let slog = Arc::new(setuplog::SetupLog::open(&game_dir));
         let log: gamebuild::LogFn = Arc::new(move |t: &str| slog.line(t));
-        GameStep { game_dir, enabled, exefs, jobs: preflight::jobs_for(cpus, cfg.gentle_build).1, idle: cfg.gentle_build, log, tag: tag.to_string(), prepared: Cell::new(false) }
+        let save_dir = Some(crate::saveimport::locate(&game_dir).0);
+        GameStep {
+            game_dir,
+            enabled,
+            exefs,
+            jobs: preflight::jobs_for(cpus, cfg.gentle_build).1,
+            idle: cfg.gentle_build,
+            options: cfg.build_options(),
+            save_dir,
+            log,
+            tag: tag.to_string(),
+            prepared: Cell::new(false),
+        }
     }
 
     fn tools(&self, tools_dir: &Path) -> Result<gamebuild::Tools, String> {
@@ -58,7 +73,7 @@ impl crate::update::GameCode for GameStep {
         }
         let failed = |e: String| format!("The game could not be prepared for the update: {e} Nothing was changed. The details are in setup.log.");
         let tools = self.tools(tools_dir).map_err(failed)?;
-        match gamebuild::next_state(&self.game_dir, &tools) {
+        match gamebuild::next_state(&self.game_dir, &tools, self.options) {
             Next::Unsupported => {
                 (self.log)(&format!("=== Update to {}: its build tools cannot prepare the game, Set up builds it after the restart", self.tag));
                 return Ok(true);
@@ -74,7 +89,16 @@ impl crate::update::GameCode for GameStep {
         // the build puts in the hook points of the mods as they are now (Modtopia's hooks.tsv), as Set up does
         mods::refresh_plan(&self.game_dir).map_err(failed)?;
         (self.log)(&format!("=== Update to {}: preparing the game code while the installed game stays playable", self.tag));
-        let job = gamebuild::Job { game_dir: self.game_dir.clone(), exefs, jobs: self.jobs, idle: self.idle, log: Some(self.log.clone()), prepare: true };
+        let job = gamebuild::Job {
+            game_dir: self.game_dir.clone(),
+            exefs,
+            jobs: self.jobs,
+            idle: self.idle,
+            log: Some(self.log.clone()),
+            prepare: true,
+            options: self.options,
+            save_dir: self.save_dir.clone(),
+        };
         let built = gamebuild::run(&job, &tools, cancel, |t| report(&t.phase, t.done, t.total)).map_err(failed)?;
         (self.log)(if built { "=== Update: the game code is prepared" } else { "=== Update: preparing the game code was cancelled" });
         self.prepared.set(built);

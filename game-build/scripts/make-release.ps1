@@ -76,6 +76,8 @@ Put "$root\game-build\src\pkp_stub.cpp" 'tools\build\sdk\pkp_stub.cpp'
 Put "$root\game-build\res\pkp.manifest" 'tools\build\sdk\pkp.manifest'
 Put "$root\game-build\res\pkp.rc" 'tools\build\sdk\pkp.rc'
 foreach ($f in 'pkp_build.py', 'dump_hashes.json', 'fetch_dlss.py') { Put "$root\game-build\release_b\$f" "tools\build\$f" }
+# the optimized build (pkp_build.py --optimize); the launcher offers it only with pgo\tools (llvm-profdata, the profile runtime; gamebuild.rs can_optimize), which this package does not ship yet
+foreach ($f in 'pkp_pgo.py', 'profile_writer.cpp', 'session.nxs') { Put "$root\game-build\release_b\pgo\$f" "tools\build\pgo\$f" }
 function Readme([string]$launcherName) {
     (Get-Content -Raw "$root\game-build\release_b\README.txt").Replace('@VERSION@', $Version).Replace('@LAUNCHER@', $launcherName) | Set-Content -NoNewline (Join-Path $pkg 'README.txt')
 }

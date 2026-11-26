@@ -56,6 +56,9 @@ install -m 755 "$rt" "$pkg/tools/build/sdk/libpkp_rt.so"
 for f in pkp_build.py dump_hashes.json fetch_dlss.py; do
     cp "$repo/game-build/release_b/$f" "$pkg/tools/build/$f"
 done
+# the optimized build (pkp_build.py --optimize); the launcher offers it only with pgo/tools (gamebuild.rs can_optimize)
+mkdir -p "$pkg/tools/build/pgo"
+cp "$repo"/game-build/release_b/pgo/{pkp_pgo.py,profile_writer.cpp,session.nxs} "$pkg/tools/build/pgo/"
 cp -R "$repo/recomp" "$pkg/tools/build/recomp"
 find "$pkg/tools/build/recomp" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 # what the package ships under tools/build/recomp: pkp_build.py stamps a build by these files only, so a file an older release
