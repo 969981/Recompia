@@ -22,6 +22,7 @@
 #include "nxrt/ab_switch.h"
 #include "nxrt/gfx.h"
 #include "nvn_present_pass.h"
+#include "nvn_work_log.h"
 
 namespace nxrt::extras { class OutputPass; }
 #include "nvn_core.h"
@@ -83,6 +84,9 @@ struct Frame {
     VkCommandBuffer cb = VK_NULL_HANDLE;
     uint64_t serial = 0;          // the timeline value this submission signals when the GPU has run it
     void* slot = nullptr;         // nvn_gpu.cpp: the submission slot (command pool, descriptor pools, upload memory)
+    // The slot's record of the shaders this submission runs (the replay notes each dispatch and draw), named in the device-lost log and
+    // the freeze dump while the GPU has not finished it. Never null in a recording.
+    WorkLog* work = nullptr;
     // Host-visible memory valid until the submission has completed: small per-draw data (support buffer, driver constants,
     // inline uniform data). align is a power of two.
     UploadAlloc upload(VkDeviceSize size, VkDeviceSize align);

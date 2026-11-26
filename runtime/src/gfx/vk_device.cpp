@@ -1031,6 +1031,16 @@ void Device::report_lost(const char* operation) {
     } else {
         NXLOG_E(kTag, "  no GPU checkpoints (%s)", features_.checkpoints ? "[gfx] gpu_checkpoints = off" : "they need NVIDIA's VK_NV_device_diagnostic_checkpoints");
     }
+    // The back end's record of its unfinished submissions (set_lost_report): every vendor, whatever the checkpoints say.
+    if (std::string (*fn)() = lost_report_.load(std::memory_order_acquire)) {
+        const std::string t = fn();
+        for (size_t at = 0; at < t.size();) {
+            size_t end = t.find('\n', at);
+            if (end == std::string::npos) end = t.size();
+            NXLOG_E(kTag, "  %.*s", static_cast<int>(end - at), t.data() + at);
+            at = end + 1;
+        }
+    }
     // The driver's fault report: a counts query, then the address and vendor records and the description (never the vendor binary).
     if (!features_.device_fault || !vkGetDeviceFaultInfoEXT) {
         NXLOG_E(kTag, "  no driver fault report (VK_EXT_device_fault not offered)");

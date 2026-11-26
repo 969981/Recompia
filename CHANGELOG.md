@@ -27,6 +27,7 @@
 ### Graphics
 - Added the **Far Shadows** row to Settings > Graphics (Every Frame / Every Other Frame (Faster), next start): every other frame keeps the far shadow cascade from the frame before while its casters and the camera stand still, about 3 % fewer GPU cycles on a Snapdragon 8 Gen 3. On by default on phones, off on PC. A far caster that moves can be one frame late. Still not bit-exact with Every Frame
 - Added `[gfx] small_targets` (off by default) for phones with the low-memory profile: the 3D keeps the low-memory size while the 2D stays at the screen's resolution
+- Added the shaders of the work the GPU had not finished to the log when the graphics device is lost (every GPU vendor), so a GPU hang names the shader behind it
 
 ### Memory
 - Changed phones without AHardwareBuffer pools to use 512 KiB pool copy cells and 32 MiB of spares: before, most of the pool copy memory held nothing the GPU used; now a Tensor G2 uses about 560 MB less graphics memory outdoors and survives an area load
