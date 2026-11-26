@@ -55,7 +55,7 @@ constexpr const char* kTag = "pkp";
 constexpr double kAskEvery = 5.0;       // a member asks again until the authority answers (it answers only while its mode is on)
 constexpr unsigned kAskLogEvery = 12;   // a member that still asks logs it once a minute
 constexpr double kCountEvery = 60.0;    // the answer counts in the log
-constexpr double kLoadLate = 30.0;      // a set-aside load whose fix-up never ran is written back this long after, once settled
+constexpr double kLoadLate = 30.0;      // a set-aside load whose fix-up has not run this long after, once settled, is logged
 constexpr uint32_t kLoadStageData = 0;  // 0x5a8748's w2: the stage data load
 constexpr uint8_t kEntryVisited = 1;    // GM+0x24 at a load job: a visited area (its STGDAT is read)
 
@@ -130,6 +130,7 @@ struct Fam {
     uint64_t answered = 0;                  // game thread: Cloud answers since the mode turned on
     double asked_at = 0.0;                  // game thread: a member's last StageAsk
     unsigned asks = 0;
+    bool late_logged = false;               // game thread: the missing fix-up of this load was logged
     std::vector<uint8_t> aside;             // under State::copy: the group's fields at the load job
     std::vector<uint8_t> before;            // under State::copy, a member: its Cloud fields before the seed
 };
@@ -175,14 +176,20 @@ bool unpack(const Desc& d, uint64_t set, const std::vector<uint8_t>& in) {
     return true;
 }
 
-// "sum <hash>, <n> with +<tally> set" of packed fields, for the log.
+// Packed fields for the log: the hash of all of them, how many records have the tally byte set, and the hash of the tally bytes
+// alone (record order). The tally column is the one the game replicates, so it compares between processes after the seed too.
 struct Sum {
     unsigned long long hash;
     unsigned tally;
+    unsigned long long column;
 };
 Sum sum_of(const Desc& d, const std::vector<uint8_t>& p) {
-    Sum s{static_cast<unsigned long long>(saveset::hash(p.data(), p.size())), 0};
-    for (size_t i = 0; i + d.bytes <= p.size(); i += d.bytes) s.tally += p[i + (d.tally - d.at)] != 0;
+    std::vector<uint8_t> column;
+    column.reserve(d.count);
+    for (size_t i = 0; i + d.bytes <= p.size(); i += d.bytes) column.push_back(p[i + (d.tally - d.at)]);
+    Sum s{static_cast<unsigned long long>(saveset::hash(p.data(), p.size())), 0,
+          static_cast<unsigned long long>(saveset::hash(column.data(), column.size()))};
+    for (uint8_t b : column) s.tally += b != 0;
     return s;
 }
 
@@ -202,9 +209,21 @@ void copy_back(const Desc& d, Fam& f, const char* path) {
         return;
     }
     const Sum s = sum_of(d, fields);
-    NXLOG_I(kTag, "Co-op stage: %s copy-back (%s): Cloud -> own%s, %zu bytes, sum %016llx, %u with +0x%llx set", d.name, path,
-            aside ? " from the fields set aside for the area load" : "", fields.size(), s.hash, s.tally,
-            static_cast<unsigned long long>(d.tally));
+    NXLOG_I(kTag, "Co-op stage: %s copy-back (%s): Cloud -> own%s, %zu bytes, sum %016llx, %u with +0x%llx set (column %016llx)",
+            d.name, path, aside ? " from the fields set aside for the area load" : "", fields.size(), s.hash, s.tally,
+            static_cast<unsigned long long>(d.tally), s.column);
+}
+
+// The live Cloud fields, for the log (game thread).
+void log_live(const Desc& d, const char* when) {
+    std::vector<uint8_t> live;
+    {
+        std::lock_guard<std::mutex> lock(st().copy);
+        if (!pack(d, d.cloud, &live)) return;
+    }
+    const Sum s = sum_of(d, live);
+    NXLOG_I(kTag, "Co-op stage: %s: the Cloud set %s: sum %016llx, %u with +0x%llx set (column %016llx)", d.name, when, s.hash,
+            s.tally, static_cast<unsigned long long>(d.tally), s.column);
 }
 
 // Ends the family's mode (game thread).
@@ -214,6 +233,7 @@ void end(Family id, const char* why) {
     Fam& f = fam(id);
     const Mode was = f.mode.load(std::memory_order_acquire);
     if (was == Mode::Off) return;
+    if (was == Mode::On) log_live(d, "at the end of the mode");
     {
         std::lock_guard<std::mutex> lock(s.copy);
         if (was == Mode::On && s.authority.load(std::memory_order_acquire)) {
@@ -235,6 +255,7 @@ void end(Family id, const char* why) {
             static_cast<unsigned long long>(f.answered + f.answers.exchange(0, std::memory_order_relaxed)));
     f.answered = 0;
     f.asks = 0;
+    f.late_logged = false;
     bool any = false;
     for (const Fam& o : s.fam) any = any || o.mode.load(std::memory_order_acquire) != Mode::Off;
     if (!any) {
@@ -257,8 +278,8 @@ void seed_authority(Family id) {
     }
     const Sum o = sum_of(d, own), c = sum_of(d, cloud);
     NXLOG_I(kTag, "Co-op stage: %s on (the authority): own -> Cloud, %u records x %llu bytes, sum %016llx, %u with +0x%llx set "
-            "(the Cloud set held sum %016llx, %u set)", d.name, d.count, static_cast<unsigned long long>(d.bytes), o.hash, o.tally,
-            static_cast<unsigned long long>(d.tally), c.hash, c.tally);
+            "(column %016llx; the Cloud set held sum %016llx, %u set)", d.name, d.count, static_cast<unsigned long long>(d.bytes),
+            o.hash, o.tally, static_cast<unsigned long long>(d.tally), o.column, c.hash, c.tally);
 }
 
 void ask(Family id) {
@@ -293,11 +314,37 @@ void count_line(double now) {
         const uint32_t yes = f.answers.exchange(0, std::memory_order_relaxed);
         const uint32_t off = f.passes_off.exchange(0, std::memory_order_relaxed);
         f.answered += yes;
+        const Mode mode = f.mode.load(std::memory_order_acquire);
         if (yes || off)
             NXLOG_I(kTag, "Co-op stage: %s: %u Cloud answers and %u rows reached with the mode off in the last %.0f s (mode %s%s)",
-                    kFamilies[i].name, yes, off, span, mode_name(f.mode.load(std::memory_order_acquire)),
+                    kFamilies[i].name, yes, off, span, mode_name(mode),
                     f.loading.load(std::memory_order_acquire) ? ", an area load in flight" : "");
+        if (settled_on(mode, f)) log_live(kFamilies[i], "now");
     }
+}
+
+// The set-aside fields back into the Cloud set after an area load (the fix-up). Game thread.
+void restore_aside(Family id) {
+    State& s = st();
+    const Desc& d = desc(id);
+    Fam& f = fam(id);
+    if (session::area_stage() == layout::kStageCloudIsland) {
+        end(id, "the load went to Cloud Island");
+        return;
+    }
+    std::vector<uint8_t> file;
+    std::lock_guard<std::mutex> lock(s.copy);
+    if (!pack(d, d.cloud, &file) || !unpack(d, d.cloud, f.aside)) {
+        NXLOG_W(kTag, "Co-op stage: %s: the fields set aside for the area load were not written back at the fix-up: no save data (the "
+                "next load's fix-up writes them)", d.name);
+        return;
+    }
+    f.loading.store(false, std::memory_order_release);
+    f.late_logged = false;
+    const Sum got = sum_of(d, file), g = sum_of(d, f.aside);
+    NXLOG_I(kTag, "Co-op stage: %s: written back after the area load (stage %u): the file's sum %016llx (%u set), the group's %016llx "
+            "(%u set, column %016llx)", d.name, session::area_stage(), got.hash, got.tally, g.hash, g.tally, g.column);
+    f.aside.clear();
 }
 
 }  // namespace
@@ -393,31 +440,9 @@ int on_load_job(::Ctx* c) {
     return 0;
 }
 
-// The set-aside fields back into the Cloud set after an area load (the fix-up, or kLoadLate after a load with none). Game thread.
-void restore_aside(Family id, const char* how) {
-    State& s = st();
-    const Desc& d = desc(id);
-    Fam& f = fam(id);
-    if (session::area_stage() == layout::kStageCloudIsland) {
-        end(id, "the load went to Cloud Island");
-        return;
-    }
-    std::vector<uint8_t> file;
-    std::lock_guard<std::mutex> lock(s.copy);
-    if (!pack(d, d.cloud, &file) || !unpack(d, d.cloud, f.aside)) {
-        NXLOG_W(kTag, "Co-op stage: %s: the fields set aside for the area load were not written back (%s): no save data", d.name, how);
-        return;
-    }
-    f.loading.store(false, std::memory_order_release);
-    const Sum got = sum_of(d, file), g = sum_of(d, f.aside);
-    NXLOG_I(kTag, "Co-op stage: %s: written back after the area load (%s, stage %u): the file's sum %016llx (%u set), the group's "
-            "%016llx (%u set)", d.name, how, session::area_stage(), got.hash, got.tally, g.hash, g.tally);
-    f.aside.clear();
-}
-
 int on_load_fixup(::Ctx*) {
     for (size_t i = 0; i < kFamilyCount; ++i)
-        if (st().fam[i].loading.load(std::memory_order_acquire)) restore_aside(kFamilies[i].id, "fix-up 0x5af540");
+        if (st().fam[i].loading.load(std::memory_order_acquire)) restore_aside(kFamilies[i].id);
     return 0;
 }
 
@@ -461,9 +486,9 @@ void on_ask_message(::Ctx*, int from, uint8_t, wire::Reader& r) {
                                           .u16(static_cast<uint16_t>(d->bytes))
                                           .bytes(fields.data(), fields.size())
                                           .take());
-    NXLOG_I(kTag, "Co-op stage: %s: sent the Cloud fields to node %d%s: %u records x %llu bytes, sum %016llx, %u with +0x%llx set",
-            d->name, from, queued ? "" : " (not queued)", d->count, static_cast<unsigned long long>(d->bytes), g.hash, g.tally,
-            static_cast<unsigned long long>(d->tally));
+    NXLOG_I(kTag, "Co-op stage: %s: sent the Cloud fields to node %d%s: %u records x %llu bytes, sum %016llx, %u with +0x%llx set "
+            "(column %016llx)", d->name, from, queued ? "" : " (not queued)", d->count, static_cast<unsigned long long>(d->bytes),
+            g.hash, g.tally, static_cast<unsigned long long>(d->tally), g.column);
 }
 
 void on_table_message(::Ctx*, int from, uint8_t, wire::Reader& r) {
@@ -502,8 +527,8 @@ void on_table_message(::Ctx*, int from, uint8_t, wire::Reader& r) {
     }
     const Sum b = sum_of(*d, before);
     NXLOG_I(kTag, "Co-op stage: %s on (a member): node %d's Cloud fields taken after %u asks: %zu bytes, sum %016llx, %u with +0x%llx "
-            "set (this member's Cloud set held sum %016llx, %u set: written back when the mode ends)", d->name, from, f.asks,
-            fields.size(), g.hash, g.tally, static_cast<unsigned long long>(d->tally), b.hash, b.tally);
+            "set (column %016llx; this member's Cloud set held sum %016llx, %u set: written back when the mode ends)", d->name, from,
+            f.asks, fields.size(), g.hash, g.tally, static_cast<unsigned long long>(d->tally), g.column, b.hash, b.tally);
 }
 
 void tick(bool in_game) {
@@ -527,10 +552,11 @@ void tick(bool in_game) {
             }
         }
         if (mode == Mode::Asking) ask(d.id);
-        if (f.loading.load(std::memory_order_acquire) && now - f.loading_since.load(std::memory_order_relaxed) > kLoadLate &&
-            session::area_settled(in_game)) {
-            NXLOG_W(kTag, "Co-op stage: %s: no fix-up 0x5af540 after the area load in %.0f s", d.name, kLoadLate);
-            restore_aside(d.id, "late, the area settled");
+        if (f.loading.load(std::memory_order_acquire) && !f.late_logged &&
+            now - f.loading_since.load(std::memory_order_relaxed) > kLoadLate && session::area_settled(in_game)) {
+            f.late_logged = true;
+            NXLOG_W(kTag, "Co-op stage: %s: no fix-up 0x5af540 %.0f s after the area load: the rows stay off and copy-backs take "
+                    "the set-aside fields until a fix-up writes them back", d.name, kLoadLate);
         }
     }
     count_line(now);
@@ -545,6 +571,7 @@ void reset() {
         f.answered = 0;
         f.asked_at = 0.0;
         f.asks = 0;
+        f.late_logged = false;
     }
     s.authority.store(false, std::memory_order_relaxed);
     s.marks.reset();
