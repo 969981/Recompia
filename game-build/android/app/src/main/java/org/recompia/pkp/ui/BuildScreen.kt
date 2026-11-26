@@ -154,6 +154,21 @@ fun BuildPanel(vm: AppViewModel, inWizard: Boolean, onFinish: () -> Unit, onChan
             RcButton(stringResource(if (inWizard) R.string.ui_go_home else R.string.ui_close), { vm.dismissJob(); onFinish() },
                 Modifier.fillMaxWidth().initialFocus(job.run), icon = Icons.Rounded.Check, kind = Kind.PRIMARY, big = true)
         }
+        job.run == RunState.DONE && build && job.session.isNotEmpty() -> {
+            // the optimized build's step 2 (BuildOptions): the game plays the session, then the build continues with its counts
+            Heading(stringResource(R.string.ui_pgo_session_title))
+            Body(stringResource(R.string.ui_pgo_session_body))
+            // a play-test that ran and did not finish (closed, crashed, off its track): the script's own verdict (result.json)
+            val failed = remember(job.session, ui.status) { sessionFailure(job.session) }
+            if (failed != null) Banner(stringResource(R.string.ui_pgo_session_failed, failed), Rc.warn, Rc.tintWarn, Icons.Rounded.Warning)
+            HealthStrip()
+            RcButton(stringResource(R.string.ui_pgo_session_start), { org.recompia.pkp.GameLauncher.launchSession(ctx, job.session) },
+                Modifier.fillMaxWidth().initialFocus(job.run), icon = Icons.Rounded.PlayArrow, kind = Kind.PRIMARY, big = true)
+            RcButton(stringResource(R.string.ui_pgo_session_continue), { start(false) }, Modifier.fillMaxWidth(), icon = Icons.Rounded.Build)
+            // switching Optimized build off here and building again makes the normal library
+            BuildOptionRows()
+            RcButton(stringResource(R.string.ui_dismiss), vm::dismissJob, kind = Kind.QUIET)
+        }
         job.run == RunState.DONE && build -> {
             Heading(stringResource(when {
                 job.fake -> R.string.ui_build_done_fake
@@ -163,6 +178,7 @@ fun BuildPanel(vm: AppViewModel, inWizard: Boolean, onFinish: () -> Unit, onChan
             }))
             if (job.fake) FakeBadge()
             StepRow(if (job.shadersMissing) STEPS.size - 1 else STEPS.size, done = !job.shadersMissing)
+            HouseNote()
             if (inWizard) {
                 // the wizard goes on (graphics driver on Adreno, then shaders): never stuck on a missing shader cache here
                 RcButton(stringResource(R.string.ui_continue), { vm.dismissJob(); onFinish() },
@@ -235,6 +251,8 @@ fun BuildPanel(vm: AppViewModel, inWizard: Boolean, onFinish: () -> Unit, onChan
             if (tools && !buildRoom) Banner(stringResource(R.string.ui_err_no_space, BuildService.gib(buildNeed), BuildService.gib(ui.sizes.free)),
                 Rc.warn, Rc.tintWarn, Icons.Rounded.Warning)
             if (ui.report?.chosen == null) Banner(stringResource(R.string.ui_build_needs_files), Rc.info, Rc.tintInfo, Icons.Rounded.Info)
+            BuildOptionRows()
+            HouseNote()
             RcButton(stringResource(R.string.ui_build_start), { start(false) }, Modifier.fillMaxWidth().initialFocus(job.run),
                 icon = Icons.Rounded.Build, kind = Kind.PRIMARY, big = true, enabled = tools && buildRoom && ui.report?.chosen != null)
             if (ui.report?.chosen == null) RcButton(stringResource(R.string.ui_change_files), onChangeFiles, icon = Icons.Rounded.FolderOpen)
@@ -252,6 +270,42 @@ fun BuildPanel(vm: AppViewModel, inWizard: Boolean, onFinish: () -> Unit, onChan
             if (inWizard) RcButton(stringResource(R.string.ui_finish_later), onFinish, kind = Kind.QUIET)
         }
     }
+}
+
+/** Why the last play-test of [session] (the driver's @@SESSION JSON) did not pass, from its result.json; null when it passed or has
+ *  not run yet. */
+private fun sessionFailure(session: String): String? = runCatching {
+    val out = org.json.JSONObject(session).getString("NXRT_TEST_OUT")
+    val r = org.json.JSONObject(java.io.File(out, "result.json").readText())
+    if (r.optInt("exit_code", -1) == 0) null else r.optString("message").ifEmpty { r.optString("verdict") }
+}.getOrNull()
+
+/** The optimized build's last play-test did not pass, so the normal game was built (pgo/pkp_pgo.py wait_after_play_test writes
+ *  <work>/build/pgo/status.json: "first_house" for a save from before the first house, "play_test" for a run that never got where its
+ *  tour starts); the next optimized build plays it again. */
+@Composable
+private fun HouseNote() {
+    val ctx = LocalContext.current
+    val note = remember {
+        if (!org.recompia.pkp.build.BuildOptions.optimize(ctx)) "" else
+            runCatching { java.io.File(org.recompia.pkp.Paths.buildDir, "build/pgo/status.json").readText() }.getOrDefault("")
+    }
+    when {
+        note.contains("first_house") -> Banner(stringResource(R.string.ui_pgo_no_house), Rc.info, Rc.tintInfo, Icons.Rounded.Info)
+        note.contains("play_test") -> Banner(stringResource(R.string.ui_pgo_not_finished), Rc.info, Rc.tintInfo, Icons.Rounded.Info)
+    }
+}
+
+/** The player's build options (BuildOptions), the same two as the PC launcher's Set up page; read by the next build. */
+@Composable
+private fun BuildOptionRows() {
+    val ctx = LocalContext.current
+    var optimize by remember { mutableStateOf(org.recompia.pkp.build.BuildOptions.optimize(ctx)) }
+    var tune by remember { mutableStateOf(org.recompia.pkp.build.BuildOptions.tuneCpu(ctx)) }
+    SwitchRow(stringResource(R.string.ui_build_optimize), optimize, { optimize = it; org.recompia.pkp.build.BuildOptions.setOptimize(ctx, it) },
+        sub = stringResource(R.string.ui_build_optimize_sub))
+    SwitchRow(stringResource(R.string.ui_build_tune), tune, { tune = it; org.recompia.pkp.build.BuildOptions.setTuneCpu(ctx, it) },
+        sub = stringResource(R.string.ui_build_tune_sub))
 }
 
 @Composable

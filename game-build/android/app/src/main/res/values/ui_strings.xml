@@ -116,6 +116,17 @@
     <string name="ui_build_fake">Test build (debug app only, builds nothing)</string>
     <string name="ui_fake_badge">Test build: nothing real was built</string>
     <string name="ui_fake_cannot_play">The test build made no game library. Build for real or import a library built on a PC.</string>
+    <string name="ui_build_optimize">Optimized build (experimental)</string>
+    <string name="ui_build_optimize_sub">About 10 percent less CPU work per frame. The first build takes about 2.5 times longer: it builds a test version and plays a short automatic session to learn how the game runs.</string>
+    <string name="ui_build_tune">Tune for this CPU</string>
+    <string name="ui_build_tune_sub">About 3 to 5 percent more fps. The game then only runs on this phone. No extra build time.</string>
+    <string name="ui_pgo_session_title">Optimized build: the play-test</string>
+    <string name="ui_pgo_session_body">The test version is built. Next the game starts and plays by itself for about 10 to 20 minutes, on a copy of your save, to learn how the game runs. Keep the phone on the charger and leave it alone: the game closes by itself. Then come back here and continue the build.</string>
+    <string name="ui_pgo_session_start">Start the play-test</string>
+    <string name="ui_pgo_session_continue">Continue the build</string>
+    <string name="ui_pgo_no_house">Optimized build: play until you have your first house, then build again. The normal game is built for now.</string>
+    <string name="ui_pgo_not_finished">Optimized build: the play-test could not finish; the normal game is built. Save outdoors and try building again.</string>
+    <string name="ui_pgo_session_failed">The last play-test did not finish (%1$s). Start it again, or switch Optimized build off and build again.</string>
     <string name="ui_build_faster">Faster: bring it from a PC</string>
     <string name="ui_build_faster_body">A Recompia install on a PC already has these. Copying them over makes the first start far faster.</string>
     <string name="ui_import_lib">Import a game library built on a PC</string>

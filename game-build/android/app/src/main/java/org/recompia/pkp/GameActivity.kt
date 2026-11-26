@@ -19,9 +19,16 @@ import org.recompia.pkp.overlay.TouchOverlay
 class GameActivity : SDLActivity() {
     /** Why the game cannot start, shown by SDL's error dialog instead of a crash. */
     private var problem: String? = null
+    /** This start is the optimized build's play-test session (GameLauncher.EXTRA_SESSION). */
+    private var session: org.json.JSONObject? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        problem = checkGame()
+        session = intent?.getStringExtra(GameLauncher.EXTRA_SESSION)?.let { runCatching { org.json.JSONObject(it) }.getOrNull() }
+        problem = when {
+            session == null -> checkGame()
+            Paths.sessionLibrary(this).isFile -> null
+            else -> "The optimized build's test version is missing. Build again."
+        }
         // Environment for this start, set in ONE place below (NXRT_<SECTION>_<KEY> overrides pkp.ini; the runtime reads it at SDL_main;
         // the ":game" process is new for every start, so nothing carries over between starts).
         val env = linkedMapOf<String, String>()
@@ -48,6 +55,9 @@ class GameActivity : SDLActivity() {
                 Log.i(Paths.TAG, "co-op start: ${p.name} (${p.id}) as ${coop["NXRT_PKP_COOP_ROLE"]}, relay ${p.invite.relay}")
             }
         }
+        // the optimized build's play-test (GameLauncher.launchSession): the session script, its output and the save copy; the
+        // test version is the library SDL loads (getMainSharedObject)
+        session?.let { j -> j.keys().forEach { k -> if (k != "library") env[k] = j.getString(k) } }
         runCatching { env.forEach { (k, v) -> android.system.Os.setenv(k, v, true) } }
         // the one start decision line that release builds keep too (a locked phone pauses a release build at once: it is not shown over the lock screen)
         Log.i(Paths.TAG, "game start: " + (if (problem == null) "library ready" else "no game library, SDL shows the reason") +
@@ -108,7 +118,7 @@ class GameActivity : SDLActivity() {
 
     override fun getLibraries(): Array<String> = arrayOf("SDL3", "pkp_rt")  // libc++_shared.so resolves as NEEDED from the APK lib dir
 
-    override fun getMainSharedObject(): String = Paths.gameLibrary(this).absolutePath
+    override fun getMainSharedObject(): String = (if (session != null) Paths.sessionLibrary(this) else Paths.gameLibrary(this)).absolutePath
 
     override fun getMainFunction(): String = "SDL_main"
 

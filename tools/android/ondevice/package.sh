@@ -28,6 +28,7 @@ cp -a "$S/python" "$T/python"
 cp "$HERE/driver/recompia_build.py" "$T/driver/"
 K=$T/kit/tools/build
 cp -p "$REPO/game-build/release_b/pkp_build.py" "$REPO/game-build/release_b/guest_layout.py" "$REPO/game-build/release_b/dump_hashes.json" "$K/"
+mkdir -p "$K/pgo" && cp -p "$REPO"/game-build/release_b/pgo/{pkp_pgo.py,profile_writer.cpp,session.nxs} "$K/pgo/"
 for d in nxrecomp include games native; do cp -Rp "$REPO/recomp/$d" "$K/recomp/"; done
 find "$K" -name __pycache__ -prune -exec rm -rf {} +
 if [ -n "${A_OUT:-}" ]; then

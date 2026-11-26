@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Cross-builds clang + lld for aarch64-linux-android (they run ON the phone) as ONE static multicall binary (llvm-driver: clang, lld, llvm-ar):
+# Cross-builds clang + lld for aarch64-linux-android (they run ON the phone) as ONE static multicall binary (llvm-driver: clang, lld, llvm-ar,
+# llvm-profdata for the optimized build's profile, pkp_build.py --optimize):
 # LLVM 19.1.7 (the NDK r28c clang is 19.0.1), AArch64 backend only, no zlib/zstd/terminfo/libxml2, libc++ linked statically.
 # Two stages: host tablegen tools, then the cross build with the NDK. Output: $D/llvm/bin/llvm (stripped).
 #   D=<scratch dir> JOBS=6 ./build-llvm.sh
@@ -37,7 +38,7 @@ cmake -S "$SRC/llvm" -B "$X" -G Ninja \
   -DLLVM_HOST_TRIPLE=aarch64-unknown-linux-android30 -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-unknown-linux-android30 \
   -DLLVM_TABLEGEN="$H/bin/llvm-tblgen" -DLLVM_MIN_TABLEGEN="$H/bin/llvm-min-tblgen" -DCLANG_TABLEGEN="$H/bin/clang-tblgen" \
   -DLLVM_NATIVE_TOOL_DIR="$H/bin" \
-  -DLLVM_TOOL_LLVM_DRIVER_BUILD=ON -DLLVM_DISTRIBUTION_COMPONENTS="clang;lld;llvm-ar" -DLLVM_BUILD_TOOLS=ON -DLLVM_BUILD_UTILS=OFF -DLLVM_INCLUDE_UTILS=OFF \
+  -DLLVM_TOOL_LLVM_DRIVER_BUILD=ON -DLLVM_DISTRIBUTION_COMPONENTS="clang;lld;llvm-ar;llvm-profdata" -DLLVM_BUILD_TOOLS=ON -DLLVM_BUILD_UTILS=OFF -DLLVM_INCLUDE_UTILS=OFF \
   -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF \
   -DCLANG_INCLUDE_TESTS=OFF -DCLANG_INCLUDE_DOCS=OFF -DCLANG_ENABLE_STATIC_ANALYZER=OFF -DCLANG_ENABLE_ARCMT=OFF \
   -DCLANG_PLUGIN_SUPPORT=OFF -DCLANG_BUILD_TOOLS=OFF -DLLVM_ENABLE_PLUGINS=OFF -DLLVM_ENABLE_BINDINGS=OFF \

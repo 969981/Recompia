@@ -28,6 +28,8 @@ object Paths {
     /** `<filesDir>/game`: the only place the game library is loaded from (dlopen refuses shared storage). */
     fun gameDir(context: Context): File = File(context.filesDir, "game")
     fun gameLibrary(context: Context): File = File(gameDir(context), GAME_LIBRARY)
+    /** The optimized build's test version while its play-test session runs (GameLauncher.launchSession). */
+    fun sessionLibrary(context: Context): File = File(gameDir(context), "libpkpgame-test.so")
 
     /** Extracted APK native libs (libSDL3.so, libpkp_rt.so, on-device tools named lib*.so). */
     fun nativeLibraryDir(context: Context): File = File(context.applicationInfo.nativeLibraryDir)

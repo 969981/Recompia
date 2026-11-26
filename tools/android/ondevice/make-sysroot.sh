@@ -4,7 +4,8 @@
 #   $D/stage/toolchain/sysroot/usr/include           bionic + libc++ headers (other ABIs' folders dropped)
 #   $D/stage/toolchain/sysroot/usr/lib/aarch64-linux-android/{libc++_shared.so,30/...}   crt objects and the stub libraries
 #   $D/stage/toolchain/lib/clang/19/include          clang's own headers (arm_neon.h, ...) from OUR clang build (same version)
-#   $D/stage/toolchain/lib/clang/19/lib/linux/       compiler-rt builtins + libunwind from the NDK
+#   $D/stage/toolchain/lib/clang/19/lib/linux/       compiler-rt builtins + libunwind from the NDK, and the profile runtime the
+#                                                    optimized build's test version links (clang adds it for -fprofile-generate)
 # Run after build-llvm.sh (it needs $D/llvm-android/lib/clang/19/include).
 set -euo pipefail
 : "${D:?set D}" "${ANDROID_NDK_HOME:?set ANDROID_NDK_HOME}"
@@ -21,6 +22,6 @@ for f in crtbegin_so.o crtend_so.o crtbegin_dynamic.o crtend_android.o libc.so l
   cp "$L/$API/$f" "$T/sysroot/usr/lib/aarch64-linux-android/$API/"
 done
 cp -a "$D/llvm-android/lib/clang/19/include" "$T/lib/clang/19/"
-cp "$P/lib/clang/19/lib/linux/libclang_rt.builtins-aarch64-android.a" "$T/lib/clang/19/lib/linux/"
+cp "$P/lib/clang/19/lib/linux/libclang_rt.builtins-aarch64-android.a" "$P/lib/clang/19/lib/linux/libclang_rt.profile-aarch64-android.a" "$T/lib/clang/19/lib/linux/"
 cp "$P/lib/clang/19/lib/linux/aarch64/libunwind.a" "$T/lib/clang/19/lib/linux/aarch64/"
 du -sh "$T/sysroot" "$T/lib/clang"
