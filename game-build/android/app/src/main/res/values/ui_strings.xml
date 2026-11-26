@@ -370,6 +370,9 @@
     <string name="ui_coop_step3_title">Host first, then the others</string>
     <string name="ui_coop_step3">The card says who hosts. The host presses Play first; the others once the host is in the game.</string>
     <string name="ui_set_linkplay_group">Link Play</string>
+    <string name="ui_set_colours_group">Look</string>
+    <string name="ui_set_colours">Colours</string>
+    <string name="ui_set_colours_note">Automatic follows the time of day: Sunrise from 4:00, Meadow from 10:00, Dusk from 18:00.</string>
     <string name="ui_set_linkplay">Play together</string>
     <string name="ui_set_linkplay_lan">Same network</string>
     <string name="ui_set_linkplay_internet">Internet</string>

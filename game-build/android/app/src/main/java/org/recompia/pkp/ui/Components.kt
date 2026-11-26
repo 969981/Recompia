@@ -158,20 +158,21 @@ fun GlassCard(modifier: Modifier = Modifier, strong: Boolean = true, padding: Dp
     )
 }
 
-/** The floating-island art behind every screen: sharp with the hero scrim on Home and the wizard, soft (blurred) elsewhere. */
+/** The theme's art behind every screen (Rc.palette): sharp with the hero scrim on Home and the wizard, soft (blurred) elsewhere. */
 @Composable
 fun ArtBackground(sharp: Boolean, content: @Composable BoxScope.() -> Unit) {
     Box(Modifier.fillMaxSize().background(Rc.bg)) {
+        val p = Rc.palette
         Image(
-            painterResource(if (sharp) R.drawable.ui_art_island else R.drawable.ui_art_island_soft),
+            painterResource(if (sharp) p.art else p.artSoft),
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            alignment = androidx.compose.ui.BiasAlignment(0.24f, 0.16f),
+            alignment = p.artAlign,
             modifier = Modifier.fillMaxSize(),
         )
         Box(Modifier.fillMaxSize().background(
-            if (sharp) Brush.verticalGradient(0f to Color(0x290A0E1E), 0.5f to Color(0x660A0E1E), 1f to Color(0xE6070A1E))
-            else Brush.verticalGradient(0f to Color(0x99070A1E), 1f to Color(0xD9070A1E))
+            if (sharp) Brush.verticalGradient(0f to p.scrim.copy(alpha = 0.16f), 0.5f to p.scrim.copy(alpha = p.scrimMid), 1f to p.scrim.copy(alpha = 0.9f))
+            else Brush.verticalGradient(0f to p.scrim.copy(alpha = 0.6f), 1f to p.scrim.copy(alpha = 0.85f))
         ))
         content()
     }

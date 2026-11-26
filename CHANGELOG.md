@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Android
+- Added the PC launcher's Sunrise and Meadow looks to the phone app: Automatic (the default) picks Sunrise, Meadow or Dusk by the time of day, or choose one in Settings > Look > Colours
+
 ## 0.18.0 (build V: Vaquita)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (the game code is lifted again and there are new hook sites; saves and shaders are kept, no shader is rebuilt). On Android, the app updates from inside it. Everyone in a co-op session needs this version: an older build cannot join a newer one.
