@@ -245,10 +245,7 @@ TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     // [gfx] storage_lazy (default on): a 2D colour image gets storage usage when a shader first binds it as a storage image
     // (tex_enable_storage), not here: storage usage can cost the image its framebuffer compression, and the game sets the IMAGE flag on
     // render targets it never stores to. 3D images keep it at creation (the fog's froxel volume is written by a vertex shader).
-    // Default off on Mali GPUs (vendor ARM, 0x13b5; Adreno is Qualcomm, 0x5143, and keeps it): on a Mali-G710 it brings tile-shaped
-    // garbage at the right edge of the picture at low render resolutions, with no speed gain measured there; on elsewhere (Adreno 750:
-    // -1.14 % GPU cycles per frame with the format lists).
-    static const bool storage_lazy = config_get_bool("gfx", "storage_lazy", device().properties().vendorID != 0x13b5);
+    static const bool storage_lazy = config_get_bool("gfx", "storage_lazy", true);
     if (storage_lazy && !g->depth && !is_block_format(chosen) && s.type == VK_IMAGE_TYPE_2D) {
         g->storage_lazy = true;
     } else if (!g->depth && !is_block_format(chosen)) {
