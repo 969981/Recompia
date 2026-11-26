@@ -77,7 +77,8 @@ constexpr game::SceneStretch kSceneStretch[] = {{"c4664b38f6a87835", false}, {"8
 // 16:9-derived canvas of a near-square screen (square at 16:9), an upright egg; wider screens squash it. The in-game menu's minimap draws its
 // content the same way: a 486 x 486 stencil mask (colour writes off) over the map, then the view cone (128 x 128) and one 32 x 32 quad per icon,
 // all sized and placed about the mask's centre in 16:9 fractions of the canvas (about 1.5 times taller on a near-square canvas, the icons'
-// spacing stretched alike).
+// spacing stretched alike). The Habitat Dex card draws its habitat as one draw of such squares (one quad per object of a 256x256 texture,
+// four objects: 194 x 194 at 16:9, about 1.5 times taller on a near-square canvas), placed about the canvas's centre.
 constexpr const char* kSquareQuadFs = "eaa545bbb9251212";
 
 // The target marker's ground tiles (the dashed outline where a move or a placed item lands): drawn before the camera block is bound, from
