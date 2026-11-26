@@ -794,9 +794,11 @@ static inline uint32_t read_index(const uint8_t* src, uint32_t isz, uint32_t i) 
     uint32_t v; std::memcpy(&v, src + i * 4, 4); return v;
 }
 
-// [gfx] gpu_checkpoints = all: a checkpoint before the draw names it (vertex and fragment shader, counts) if the device is lost while it runs.
-// One compare when off or without NVIDIA's extension. Indirect: a, b = the guest address of the arguments, c = the draw count limit.
-static void checkpoint_draw(uint32_t a, uint32_t b, uint32_t c, bool indirect) {
+// The submission's work log names the draw's vertex and fragment shader in the device-lost log and the freeze dump while the GPU has not
+// finished it, on every vendor. [gfx] gpu_checkpoints = all: a checkpoint before it with the counts too (one compare when off or without
+// NVIDIA's extension). Indirect: a, b = the guest address of the arguments, c = the draw count limit.
+static void note_draw(uint32_t a, uint32_t b, uint32_t c, bool indirect) {
+    F->work->add_draw(S.stage[kVertex] ? &S.stage[kVertex]->hash : nullptr, S.stage[kFragment] ? &S.stage[kFragment]->hash : nullptr);
     gfx::Device& d = device();
     if (!d.checkpoints_on(gfx::Device::Checkpoint::Draw)) return;
     d.checkpoint(F->cb, gfx::Device::Checkpoint::Draw, S.stage[kVertex] ? &S.stage[kVertex]->hash : nullptr,
@@ -809,7 +811,7 @@ void do_draw_arrays(const P_DrawArrays& p) {
     VkPrimitiveTopology topo;
     if (!begin_draw(static_cast<int>(p.mode), false, 0, &topo)) { counters().draws_skipped.fetch_add(1); return; }
     const PrimConversion conv = prim_conversion(static_cast<int>(p.mode));
-    checkpoint_draw(p.count, std::max<uint32_t>(1, p.instance_count), 0, false);
+    note_draw(p.count, std::max<uint32_t>(1, p.instance_count), 0, false);
     if (conv == PrimConversion::None) {
         TRACE("    vertices %u instances %u first %u", p.count, p.instance_count, p.first);
         vkCmdDraw(F->cb, p.count, std::max<uint32_t>(1, p.instance_count), p.first, p.base_instance);
@@ -837,7 +839,7 @@ void do_draw_elements(const P_DrawElements& p) {
     const uint32_t isz = index_size_bytes(static_cast<int>(p.type));
     const PrimConversion conv = prim_conversion(static_cast<int>(p.mode));
     const uint8_t* src = host_ptr(p.index_address);
-    checkpoint_draw(p.count, std::max<uint32_t>(1, p.instance_count), 0, false);
+    note_draw(p.count, std::max<uint32_t>(1, p.instance_count), 0, false);
     if (conv != PrimConversion::None || isz == 1) {
         // widen to 32 bit and/or convert the primitive
         const uint64_t m = bind_prim_indices(conv, p.count, [src, isz](uint32_t i) { return read_index(src, isz, i); });
@@ -1025,7 +1027,7 @@ static void draw_indirect_cpu(const P_DrawIndirect& p, PrimConversion conv, uint
         const uint64_t m = src ? bind_prim_indices(conv, count, [src, isz](uint32_t k) { return read_index(src, isz, k); })
                                : bind_prim_indices(conv, count, [first](uint32_t k) { return first + k; });
         if (!m) continue;
-        checkpoint_draw(count, instances, 0, false);   // the CPU read the arguments: a direct draw
+        note_draw(count, instances, 0, false);   // the CPU read the arguments: a direct draw
         vkCmdDrawIndexed(F->cb, static_cast<uint32_t>(m), instances, 0, base_vertex, base_instance);
         drew = true;
     }
@@ -1054,7 +1056,7 @@ void do_draw_indirect(const P_DrawIndirect& p) {
     if (!begin_draw(static_cast<int>(p.mode), indexed, indexed ? static_cast<int>(p.type) : 0, &topo)) { counters().draws_skipped.fetch_add(1); return; }
     if (qa.ok) {
         bind_index_buffer(F->cb, g_qa.index.buffer, 0, VK_INDEX_TYPE_UINT32);
-        checkpoint_draw(static_cast<uint32_t>(p.indirect_address), static_cast<uint32_t>(p.indirect_address >> 32), 1, true);
+        note_draw(static_cast<uint32_t>(p.indirect_address), static_cast<uint32_t>(p.indirect_address >> 32), 1, true);
         vkCmdDrawIndexedIndirect(F->cb, qa.buffer, qa.offset, 1, 20);
         const uint64_t n = ++g_qa.draws;
         if ((n & (n - 1)) == 0)   // 1, 2, 4, 8, ...
@@ -1081,7 +1083,7 @@ void do_draw_indirect(const P_DrawIndirect& p) {
         if (pool_copy_on()) pool_copy_touch(p.index_address, indirect_index_span(p));   // [nvn] pool_copy: every index the draw may read
         bind_index_buffer(F->cb, xb.buffer, xb.offset, vk_index_type(static_cast<int>(p.type)));
     }
-    checkpoint_draw(static_cast<uint32_t>(p.indirect_address), static_cast<uint32_t>(p.indirect_address >> 32), static_cast<uint32_t>(n_cmds), true);
+    note_draw(static_cast<uint32_t>(p.indirect_address), static_cast<uint32_t>(p.indirect_address >> 32), static_cast<uint32_t>(n_cmds), true);
     if (p.multi && p.count_address) {
         BufRef cb = held_or_pool(p.count_address, 4, kOutIndirect, false);
         const uint32_t stride = static_cast<uint32_t>(p.stride ? p.stride : cmd_size);
@@ -1121,7 +1123,7 @@ void do_draw_xfb(const P_DrawXfb& p) {
     uint32_t stride = g_key_attr_count ? S.stream[g_key_binding[0]].stride : 0;
     for (uint32_t b = 0; !stride && b < 16; ++b) stride = S.stream[b].stride;
     if (!stride) { note_unsupported("DrawTransformFeedback with no vertex stream stride"); counters().draws_skipped.fetch_add(1); return; }
-    checkpoint_draw(static_cast<uint32_t>(p.control), static_cast<uint32_t>(p.control >> 32), 1, true);   // the count is the section's byte counter
+    note_draw(static_cast<uint32_t>(p.control), static_cast<uint32_t>(p.control >> 32), 1, true);   // the count is the section's byte counter
     vkCmdDrawIndirectByteCountEXT(F->cb, 1, 0, g_xfb.counter.buffer, static_cast<VkDeviceSize>(slot) * kXfbSlotBytes, 0, stride);
     counters().draws.fetch_add(1, std::memory_order_relaxed); ft::split_count(ft::kCntDraws);
     P.draws++;

@@ -42,6 +42,7 @@
 #include "nvn_present_pass.h"
 #include "nvn_submit_park.h"
 #include "nvn_submit_worker.h"
+#include "nvn_work_log.h"
 #include "extras/output_pass.h"
 
 namespace nxrt::nvn::be::gpu {
@@ -98,6 +99,7 @@ struct Slot {
     std::vector<gfx::Buffer> extra;       // staging / overflow buffers of the submission
     uint64_t serial = 0;                  // last submission that used the slot
     uint64_t sets_live = 0;               // descriptor sets allocated from this slot's pools since the last reset (vk.descriptor_sets)
+    WorkLog work;                         // the shaders the submission ran (Frame::work): in_flight_report names them while it is on the GPU
 };
 
 struct Deferred {
@@ -113,6 +115,9 @@ struct Gpu {
     bool installed_entry_points = false;
     VkSemaphore timeline = VK_NULL_HANDLE;
     std::atomic<uint64_t> completed{0};
+    // The last timeline value read from the GPU (read_completed). After a device loss `completed` is advanced on the CPU by every thread
+    // that sees it; in_flight_report goes by this one.
+    std::atomic<uint64_t> gpu_reached{0};
     uint64_t submitted = 0;               // render thread: last serial recorded (handed to vkQueueSubmit2, or waiting in `batch`)
     uint64_t flushed = 0;                 // render thread: last serial handed to vkQueueSubmit2
     // [nvn] submit_batch: recorded submissions wait here and go to the GPU in one vkQueueSubmit2 (flush_batch). Render thread.
@@ -234,6 +239,7 @@ uint64_t read_completed() {
     if (g && g->dev->device_lost()) return g->completed.load();
     uint64_t v = 0;
     if (g && g->timeline) vkGetSemaphoreCounterValue(g->dev->device(), g->timeline, &v);
+    if (g) for (uint64_t r = g->gpu_reached.load(std::memory_order_relaxed); r < v && !g->gpu_reached.compare_exchange_weak(r, v);) {}
     // [nvn] pool_copy: the GPU writes of every serial up to v go back into guest memory before v is published, so no caller (a sync wait,
     // a poll, the render thread's touch) sees a serial complete whose writes have not landed (nvn_pool_copy.cpp)
     if (g && pool_copy_any()) pcopy_land(v);
@@ -658,6 +664,7 @@ Slot* acquire_slot() {
     s.vram_off = 0;
     for (auto& b : s.extra) g->dev->destroy_buffer(b);
     s.extra.clear();
+    s.work.reset();
     return &s;
 }
 
@@ -971,6 +978,7 @@ uint64_t submit_on_render_thread(const std::function<void(Frame&)>& record, uint
     f.cb = s.cb;
     f.serial = serial;
     f.slot = &s;
+    f.work = &s.work;
     VkCommandBufferBeginInfo bi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(s.cb, &bi); gfx::work_cb() = s.cb;
@@ -983,6 +991,7 @@ uint64_t submit_on_render_thread(const std::function<void(Frame&)>& record, uint
     vkEndCommandBuffer(s.cb);
     if (!unsignalled) {
         s.serial = serial;
+        s.work.seal(serial);
         g->submitted = serial;
         g->last_submitted.store(serial);
         g->recording = 0;
@@ -1352,6 +1361,34 @@ std::atomic<uint64_t> g_waits_begun{0}, g_waits_done{0};   // sync waits entered
 std::atomic<int> g_waiters{0};                 // game threads inside wait_serial (freeze report)
 std::atomic<uint64_t> g_wait_serial{0}, g_wait_timeout{0};   // the latest wait: serial and timeout
 
+// The submissions handed to the GPU and not finished, oldest first, each with its work log (nvn_work_log.h): on one queue the oldest is
+// the one the GPU was running when it stopped (the timeline signals only a batch's last serial, so the first ones listed may have run
+// already, and with [nvn] submit_batch = frame one batch is a whole frame). Every one lists its dispatches; the draws only of the oldest
+// few. The device-lost log (gfx::Device::set_lost_report) and the freeze dump / crash report (gpu_report). The recording slot is
+// not listed, also when [nvn] gpu_split has already sent pieces of it. No lock: a slot reused while this reads is left out. Any thread.
+std::string in_flight_report() {
+    Gpu* gp = g;
+    if (!gp) return {};
+    const uint64_t done = gp->gpu_reached.load(), handed = gp->flushed_pub.load();
+    constexpr uint32_t kDrawsOf = 4, kDrawLines = 24;     // the oldest submissions whose distinct draws are listed, and how many
+    std::pair<uint64_t, const Slot*> fl[kSlots];
+    uint32_t n = 0;
+    for (const Slot& s : gp->slots) {
+        const uint64_t sv = s.work.sealed.load(std::memory_order_acquire);
+        if (sv > done && sv <= handed) fl[n++] = {sv, &s};
+    }
+    std::sort(fl, fl + n, [](const auto& a, const auto& b) { return a.first < b.first; });
+    char b[200];
+    std::snprintf(b, sizeof b, "NVN submissions on the GPU and not finished: %u (the GPU had finished serial %llu, %llu were handed to it)\n", n,
+                  static_cast<unsigned long long>(done), static_cast<unsigned long long>(handed));
+    std::string out = b;
+    for (uint32_t i = 0; i < n; ++i) {
+        std::string t = work_log_text(fl[i].second->work, fl[i].first, "  ", i < kDrawsOf ? kDrawLines : 0);
+        if (fl[i].second->work.sealed.load(std::memory_order_acquire) == fl[i].first) out += t;
+    }
+    return out;
+}
+
 std::string gpu_report() {
     if (!g) return {};
     uint64_t v = 0;
@@ -1372,6 +1409,7 @@ std::string gpu_report() {
                       static_cast<unsigned long long>(g->sw->submitted()), g->sw->depth());
         out += b;
     }
+    out += in_flight_report();
     return out;
 }
 }  // namespace
@@ -1668,6 +1706,7 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
     extras::lowlat_set_gpu_wait_fn(&gpu_wait_frames);
     static const bool report_registered = (diag_add_report(gpu_report), true);   // the freeze dump shows the GPU state
     (void)report_registered;
+    dev.set_lost_report(&in_flight_report);     // the device-lost log names the shaders of the unfinished submissions
     register_counter_gauges();
     // [nvn] submit_thread: see Gpu::sw. Started before the render thread, so every submission of the run goes through it. auto = on on
     // Linux, where a kernel submission can block the render thread for most of a frame (Steam Deck: 25-41 ms, 26 -> 53 fps with the
@@ -1751,6 +1790,7 @@ void tear_down() {
     if (!g) return;
     for (const char* n : kCounterGauges) nxrt::gauge_unregister(n);
     Gpu* gp = g;
+    gp->dev->set_lost_report(nullptr);     // the slots go with gp
     run_on_render_thread([&] {
         {
             std::lock_guard<std::mutex> l2(gp->pmu);

@@ -466,8 +466,11 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
         memory_barrier(F->cb);     // the copies into the shadows before the dispatch reads them
         gstamp("shadow in");
     }
-    // [gfx] gpu_checkpoints: a checkpoint before the dispatch names it (shader, groups or the guest address of indirect arguments) if the
-    // device is lost while it runs. One compare when off or without NVIDIA's extension.
+    // The submission's work log names the dispatch (shader, groups or the guest address of indirect arguments) in the device-lost log and
+    // the freeze dump while the GPU has not finished it, on every vendor. [gfx] gpu_checkpoints: a checkpoint before it says how far the
+    // GPU got (one compare when off or without NVIDIA's extension).
+    if (indirect) F->work->dispatch(cs->hash, static_cast<uint32_t>(indirect), static_cast<uint32_t>(indirect >> 32), 0, true);
+    else F->work->dispatch(cs->hash, x, y, z, false);
     if (device().checkpoints_on(gfx::Device::Checkpoint::Dispatch)) {
         if (indirect) device().checkpoint(F->cb, gfx::Device::Checkpoint::Dispatch, &cs->hash, nullptr, static_cast<uint32_t>(indirect),
                                           static_cast<uint32_t>(indirect >> 32), 0, true);
