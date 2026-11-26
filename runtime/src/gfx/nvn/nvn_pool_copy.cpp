@@ -35,6 +35,7 @@
 #include <string>
 #include <vector>
 
+#include "nxrt/ab_switch.h"
 #include "nxrt/config.h"
 #include "nxrt/fault_guard.h"
 #include "nxrt/ftrace.h"
@@ -444,6 +445,17 @@ static uint64_t copy_around(PoolGpu* g, PoolChunk* c, uint64_t p0, uint64_t p1) 
     return bytes;
 }
 
+// [nvn] pool_touch_mark (default on; A/B name "touch_mark"): a page the write tracker finds current at a bind is marked as serving every
+// submission queued so far, as a copy made then would be. A bind scans every page of its range (a 4 MiB storage buffer is 1024 pages), and
+// a current page cost three loads, one of them acquire, and a tracker call at every bind of every submission; marked, it costs one load
+// until the game queues a newer submission. A CPU write to a page after that belongs to a later submission (the game leaves the bytes of
+// a queued submission alone), which the mark does not cover; a GPU write recorded later through another shadow lowers the mark as it
+// lowers a copy's (stop_serving). Render thread only, as every page_copied write.
+static bool touch_mark() {
+    static const bool on = config_get_bool("nvn", "pool_touch_mark", true);
+    return diag::ab("touch_mark", on);
+}
+
 void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
     const uint64_t cend = c->off + c->size;
     if (off < c->off || off >= cend) return;
@@ -466,11 +478,17 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
     // memory is the better source.
     // ... or (0 too) the CPU has not written the page since this chunk copied it (the write tracker; render thread only).
     PoolTrack* const trk = rt ? g->track : nullptr;
+    const bool mark = trk && cur && touch_mark();
     const auto need = [&](uint64_t p) -> int {
         const uint64_t pc = c->page_copied[static_cast<size_t>(p)];
         if (cur && pc > cur) return 0;
         if (g->page_gpu[static_cast<size_t>(pbase + p)].load(std::memory_order_acquire) > done && (!rt || pc != 0)) return 2;
-        if (trk && ptrack_current(trk, pbase + p, c->page_gen[static_cast<size_t>(p)])) return 0;
+        if (trk && ptrack_current(trk, pbase + p, c->page_gen[static_cast<size_t>(p)])) {
+            // [nvn] pool_touch_mark: the copy is current for every submission queued so far (the argument of pool_copy_once_queued),
+            // so the next touch of this page before a newer submission is queued takes the first test above instead of these three
+            if (mark && pc < through + 1) c->page_copied[static_cast<size_t>(p)] = through + 1;
+            return 0;
+        }
         return 1;
     };
     const uint32_t frame = static_cast<uint32_t>(counters().presents.load(std::memory_order_relaxed));
