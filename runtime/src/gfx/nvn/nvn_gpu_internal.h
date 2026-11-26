@@ -163,6 +163,17 @@ inline void barrier_batch_end() {
     di.pImageMemoryBarriers = b.img.data();
     vkCmdPipelineBarrier2(cb, &di);
 }
+// For code that records commands other than barriers while a batch may be open on cb (a layout change's touch hook, the end of a
+// pass): the barriers collected so far are recorded now, the code's own barriers go straight into the command buffer, and the batch
+// opens again at the end of the scope. Without it the commands ran before the barriers meant to come first (an edge guard's copy before
+// the end-of-pass barrier and its own layout change: corrupt compressed blocks on a Mali-G710).
+struct BarrierBatchPause {
+    VkCommandBuffer cb;
+    explicit BarrierBatchPause(VkCommandBuffer c) : cb(barrier_batch().on(c) ? c : VK_NULL_HANDLE) { if (cb) barrier_batch_end(); }
+    ~BarrierBatchPause() { if (cb) barrier_batch_begin(cb); }
+    BarrierBatchPause(const BarrierBatchPause&) = delete;
+    BarrierBatchPause& operator=(const BarrierBatchPause&) = delete;
+};
 // memory_barrier: true when an open barrier batch on cb collects it; else a full barrier in the replay's command buffer resets
 // the GPU work record (vk_work_track.h).
 inline bool mem_barrier_track(VkCommandBuffer cb) {

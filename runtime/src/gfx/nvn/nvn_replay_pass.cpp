@@ -370,6 +370,7 @@ static void record_clear(VkCommandBuffer cb, const PendingClear& c) {
     memory_barrier(cb);
 }
 static void touch_hook(Frame& f, TexGpu* g) {
+    const BarrierBatchPause pause(f.cb);   // its guard copies and clear passes come after the barriers collected so far
     if constexpr (facts::kPhone) edge_touch(g);   // [gfx] edge_lazy: the guard before anything else uses the image
     for (size_t i = 0; i < g_pc.size();) {
         if (g_pc[i].g == g) {

@@ -125,6 +125,7 @@ void edge_guard_after_pass() {
         touch_hook_sync();
         return;
     }
+    const BarrierBatchPause pause(F->cb);   // a pass ended inside a barrier batch: its barrier first, then the copies
     memory_barrier(F->cb);
     g_bar.pending.clear();
     for (uint32_t i = 0; i < P.ncolor && i < 8; ++i) {
@@ -150,6 +151,7 @@ static void run_guards(std::vector<Guard>& list) {
     std::vector<Guard> run;
     run.swap(list);                       // before the transitions below: their touch hook must not see these again
     touch_hook_sync();
+    const BarrierBatchPause pause(F->cb);   // from a layout change inside a barrier batch: the copies after its barriers, not before
     memory_barrier(F->cb);
     g_bar.pending.clear();
     for (const Guard& gd : run)
