@@ -36,7 +36,8 @@ constexpr game::ToneMapMatch kToneMaps[] = {
 // clustered light lists, is four variants here: 0f9696499923d6d3, 95a73c014ee1eb95, 99a5312bd3dbfc27 and b81c48ff486acef4, each with
 // loops to c3 words 12 and 13 (compared as unsigned) over cp_t_cb0_10 and cp_t_cb0_12, one texel an item. An RTX 3060 log that fell to
 // 3 fps after 8 minutes (#309) loads 95a73c01 and b81c48ff. Their third (2cb5df5c, a loop bound held in a variable) has no match found
-// here yet.
+// here yet. An RTX 4060 (driver 621.14) still lost the device in a 16x16-group dispatch of 3a718dcc with its table-size guard on: the
+// table is the whole texel buffer bound, so the guard also stops at 16384 items (in play the walk is 8).
 constexpr game::LoopGuard kLoopGuards[] = {
     {"3a718dcc49952e74", "cp_c3", 0, "cp_t_cb0_10", 5},
     {"dc36e3636f3c2221", "cp_c3", 0, "cp_t_cb0_10", 5},

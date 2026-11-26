@@ -29,6 +29,7 @@
 - Fixed characters turning into glowing white shapes, a checkered player and the frame rate halving on PC after the camera went under water or into a waterfall, with a window larger than the game's 1080p frame (1440p, 4K)
 - Added `[gfx] small_targets` (off by default) for phones with the low-memory profile: the 3D keeps the low-memory size while the 2D stays at the screen's resolution
 - Added the shaders of the work the GPU had not finished to the log when the graphics device is lost (every GPU vendor), so a GPU hang names the shader behind it
+- Fixed a "graphics device lost" crash on NVIDIA GPUs (and on Linux) when a compute pass read a bad item count: its loop now stops after 16384 items, as it already did on other GPUs
 
 ### Memory
 - Changed phones without AHardwareBuffer pools to use 512 KiB pool copy cells and 32 MiB of spares: before, most of the pool copy memory held nothing the GPU used; now a Tensor G2 uses about 560 MB less graphics memory outdoors and survives an area load
