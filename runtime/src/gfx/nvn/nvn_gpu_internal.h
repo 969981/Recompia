@@ -507,6 +507,13 @@ inline PoolReason pool_reason() { return t_pool_reason; }
 // one about to wait in the frame limiter). No-ops when one_submit is off.
 void present_take_parked();
 void present_give_back();
+// The slots' upload rings (nvn_gpu_upload_ring.cpp): the ring size ([nvn] upload_slot_kb), its buffer usage, the use of a slot's ring at
+// each acquire (peak, histogram, a log line every 5000), and an upload that missed the ring and took a staging buffer (count, then time).
+VkDeviceSize upload_ring_bytes();
+VkBufferUsageFlags upload_ring_usage();
+void upload_ring_note(VkDeviceSize used);
+void upload_ring_overflow_begin();
+void upload_ring_overflow_end(uint64_t ns);
 
 }  // namespace nxrt::nvn::be::gpu
 
