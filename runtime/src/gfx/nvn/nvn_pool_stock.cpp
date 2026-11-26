@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "nxrt/config.h"
+#include "nxrt/platform_facts.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/gauge.h"
 #include "nxrt/log.h"
@@ -48,8 +49,10 @@ std::atomic<uint64_t> g_made_here{0}, g_made_here_bytes{0}, g_made_here_ns{0}, g
 
 // Default 128; 0 when cells are AHB-backed ([nvn] pool_ahb): then only spans are shadows, the stock would mostly sit unused in GPU memory
 // (measured on a phone: 128 MiB of GPU memory freed, no new hitches).
+// Phones: 32 MiB (Tensor G2 outdoors, with 512 KiB cells: Graphics -560 MB, same fps, CPU and frame tails, and the game
+// survived an area load where the defaults were killed for low memory).
 uint64_t spare_target() {
-    static const uint64_t t = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_spare_mb", pool_ahb_on() ? 0 : 128), 0, 1 << 20)) << 20;
+    static const uint64_t t = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_spare_mb", pool_ahb_on() ? 0 : facts::kPhone ? 32 : 128), 0, 1 << 20)) << 20;
     return t;
 }
 
