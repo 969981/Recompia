@@ -27,7 +27,7 @@
 #include "vk_gauges.h"
 #include "vk_perf_facts.h"
 #include "extras/temporal.h"
-#include "vk_work_track.h"   // phones: the replay's record of GPU work since its last full barrier
+#include "vk_work_track.h"   // the replay's record of GPU work since its last full barrier
 #if defined(__APPLE__)
 #include <dlfcn.h>
 #endif
@@ -851,7 +851,7 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
     dci.ppEnabledExtensionNames = dev_exts.data();
     r = vkCreateDevice(physical_, &dci, nullptr, &device_);
     if (r != VK_SUCCESS) return fail("vkCreateDevice failed (" + std::to_string(r) + ")");
-    volkLoadDevice(device_); if constexpr (facts::kPhone) install_work_track();   // phones: vk_work_track.h
+    volkLoadDevice(device_); install_work_track();   // vk_work_track.h
     vkGetDeviceQueue(device_, queue_family_, 0, &queue_);
     if (aux_family != UINT32_MAX) {
         vkGetDeviceQueue(device_, aux_family, 0, &aux_queue_);
@@ -1336,7 +1336,7 @@ bool Device::replace_surface() {
 // ---- one-shot submit, idle, stats -------------------------------------------------------------------------------------
 bool Device::submit_once(const std::function<void(VkCommandBuffer)>& fn) {
     if (device_lost()) return false;
-    std::lock_guard<std::mutex> lk(impl_->once_mu); WorkInflight<> inflight;   // phones: vk_work_track.h
+    std::lock_guard<std::mutex> lk(impl_->once_mu); WorkInflight inflight;   // vk_work_track.h
     VkCommandBufferAllocateInfo ai = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     ai.commandPool = impl_->once_pool;
     ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;

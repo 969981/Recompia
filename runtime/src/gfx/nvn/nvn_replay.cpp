@@ -511,7 +511,7 @@ static void run_list(const CmdList& list, int depth) {
                 }
                 break;
             }
-            case Op::Barrier: if constexpr (facts::kPhone) barrier_op(r.payload<P_Barrier>().bits); else { end_pass(); memory_barrier(F->cb); } break;
+            case Op::Barrier: barrier_op(r.payload<P_Barrier>().bits); break;
             case Op::FenceSync: {
                 const auto& p = r.payload<P_Sync>();
                 if (p.sync) { p.sync->serial.store(F->serial); p.sync->armed.store(true); }
