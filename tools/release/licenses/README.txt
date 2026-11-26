@@ -24,7 +24,7 @@ Components of the runtime (pkp_rt, libpkp_rt) and the game layer
   (Bitstream Vera licence), Font Awesome Free icons (CC BY 4.0: the icons of the in-game Settings tabs).
 Code adapted from other projects
   pokopia-native and its co-op module pokopia-coop (MIT), SuperMarioWonderRecomp (MIT), Ryujinx / ryubing (MIT), totk-pc-recomp (MIT),
-  libnx (ISC), LLVM libc++abi (Apache-2.0 with LLVM exception), yuzu and Eden (GPL-2.0-or-later), smo-recomp (GPL-3.0),
+  musl (MIT), libnx (ISC), LLVM libc++abi (Apache-2.0 with LLVM exception), yuzu and Eden (GPL-2.0-or-later), smo-recomp (GPL-3.0),
   Mesa NAK (MIT).
 Shader tools: Sascha Willems' Vulkan samples (MIT, the stand-in shader corpus).
 Launcher: Inter (OFL 1.1), Lucide (ISC), Font Awesome Free (CC BY 4.0, MIT, OFL 1.1), @tauri-apps/api (MIT or Apache-2.0), and the
