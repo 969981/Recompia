@@ -28,10 +28,9 @@
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 #include "core/pkp_site_check.h"
+#include "core/pkp_site_rows.h"
 
-#include <algorithm>
 #include <array>
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 
@@ -110,30 +109,15 @@ constexpr bool has_keeps(uint64_t site) {
 }
 
 // The same rows sorted by site, for the binary search (the table groups them by kind and system).
-constexpr std::array<Row, kRowCount + 1> sorted_rows() {
-    std::array<Row, kRowCount + 1> a{};
-    for (size_t i = 0; i <= kRowCount; ++i) {
-        size_t j = i;
-        for (; j > 0 && a[j - 1].site > kListed[i].site; --j) a[j] = a[j - 1];
-        a[j] = kListed[i];
-    }
-    return a;
-}
-constexpr std::array<Row, kRowCount + 1> kRows = sorted_rows();
+constexpr std::array<Row, kRowCount + 1> kRows = site_rows::sorted(kListed);
 
-constexpr bool unique() {
-    for (size_t i = 0; i < kRowCount; ++i)
-        if (kRows[i].site == kRows[i + 1].site) return false;
-    return true;
-}
-static_assert(unique(), "pkp_coop_role_table.inc: a site is listed twice");
+static_assert(site_rows::unique(kRows), "pkp_coop_role_table.inc: a site is listed twice");
 constexpr bool well_formed() {
     for (size_t i = 0; i < kRowCount; ++i) {
         const Row& r = kRows[i];
-        if (r.site % 4 != 0 || r.site < 4) return false;
         if (r.kind == Kind::SessionBit && (r.reg > 30 || (r.bit != 1 && r.bit != 2))) return false;
     }
-    return true;
+    return site_rows::aligned(kRows);
 }
 static_assert(well_formed(), "pkp_coop_role_table.inc: a site is not an instruction address, or a session-bit row's register or bit "
                              "is not one it can take (bit 1 host or bit 2 visitor)");
@@ -174,22 +158,13 @@ static_assert(is_session_load(0x39424108u, 8) && is_session_load(0x39424008u, 8)
 static_assert(is_bit_test(0x37100288u, 8, 2) && is_bit_test(0x36100288u, 8, 2) && !is_bit_test(0x37100288u, 8, 1) &&
               !is_bit_test(0xb7100288u, 8, 2), "is_bit_test: tbz / tbnz w8, #2 only");
 
-enum : uint8_t { kUnchecked = 0, kGood = 1, kBad = 2 };
-
 struct State {
-    std::atomic<uint8_t> checked[kRowCount + 1] = {};   // kUnchecked / kGood / kBad, once per run
-    std::atomic<bool> logged[kRowCount + 1] = {};       // this session's first override written
-    bool was_open = false;                              // game thread (tick)
+    site_rows::Marks<kRowCount + 1> marks;   // each row's check (once per run), this session's first override written
+    bool was_open = false;                   // game thread (tick)
 };
 State& st() {
     static State s;
     return s;
-}
-
-const Row* find(uint64_t site) {
-    const Row* end = kRows.data() + kRowCount;
-    const Row* r = std::lower_bound(kRows.data(), end, site, [](const Row& row, uint64_t a) { return row.site < a; });
-    return r != end && r->site == site ? r : nullptr;
 }
 
 // The row's copy is in this save (a row with no PKP_ROLE_READY always is).
@@ -247,16 +222,11 @@ bool check(const Row& r) {
 
 int on_answer(::Ctx* c, uint64_t site) {
     if (!link::in_session() || link::is_authority()) return 0;
-    const Row* r = find(site);
+    const Row* r = site_rows::find(kRows.data(), kRowCount, site);
     if (!r) return 0;
     State& s = st();
     const size_t i = static_cast<size_t>(r - kRows.data());
-    uint8_t v = s.checked[i].load(std::memory_order_acquire);
-    if (v == kUnchecked) {
-        v = check(*r) ? kGood : kBad;
-        s.checked[i].store(v, std::memory_order_release);
-    }
-    if (v != kGood || kept(*r, c) || !ready(*r)) return 0;
+    if (!s.marks.good(i, [r] { return check(*r); }) || kept(*r, c) || !ready(*r)) return 0;
     uint64_t& reg = r->kind == Kind::SessionBit ? c->x[r->reg] : c->x[0];
     const uint64_t was = reg;
     if (r->kind == Kind::SessionBit) {
@@ -265,7 +235,7 @@ int on_answer(::Ctx* c, uint64_t site) {
     } else {
         reg = r->kind == Kind::IsHost ? 1 : 0;
     }
-    if (!s.logged[i].exchange(true, std::memory_order_relaxed)) {
+    if (s.marks.first(i)) {
         const char* what = r->kind == Kind::IsHost ? "IsHost" : r->kind == Kind::IsVisitor ? "IsVisitor" : "the session bits";
         NXLOG_I(kTag, "Co-op role: %s at main+0x%llx answers as the host (%s 0x%llx, the game's 0x%llx)", r->tag,
                 static_cast<unsigned long long>(r->site), what, static_cast<unsigned long long>(reg),
@@ -277,15 +247,13 @@ int on_answer(::Ctx* c, uint64_t site) {
 void tick() {
     State& s = st();
     const bool open = link::in_session();
-    if (s.was_open && !open)
-        for (auto& l : s.logged) l.store(false, std::memory_order_relaxed);
+    if (s.was_open && !open) s.marks.new_session();
     s.was_open = open;
 }
 
 void reset() {
     State& s = st();
-    for (auto& v : s.checked) v.store(kUnchecked, std::memory_order_relaxed);
-    for (auto& l : s.logged) l.store(false, std::memory_order_relaxed);
+    s.marks.reset();
     s.was_open = false;
 }
 
