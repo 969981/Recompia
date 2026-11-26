@@ -268,6 +268,21 @@ inline bool format_view_ok(const TexGpu& g, VkFormat fmt) {
     if (srgb_partner(g.format) == fmt) return true;
     return bit_alias_class(g.format) && (fmt == float_alias(g.format) || fmt == uint_alias(g.format) || fmt == sint_alias(g.format));
 }
+// The formats format_view_ok lets a mutable image of `fmt` be viewed as (its own first), for the image's VkImageFormatListCreateInfo:
+// without a list a driver must assume any format of the size class, and Turnip (Adreno 7xx) and Mali then store the image without
+// framebuffer compression (UBWC / AFBC). Returns the count (0: not mutable, no list).
+inline uint32_t view_formats_of(VkFormat fmt, VkFormat out[4]) {
+    uint32_t n = 0;
+    if (const VkFormat p = srgb_partner(fmt); p != VK_FORMAT_UNDEFINED) {
+        out[n++] = fmt;
+        out[n++] = p;
+    } else if (bit_alias_class(fmt)) {
+        out[n++] = fmt;
+        for (const VkFormat a : {float_alias(fmt), uint_alias(fmt), sint_alias(fmt)})
+            if (a != VK_FORMAT_UNDEFINED && a != fmt) out[n++] = a;
+    }
+    return n;
+}
 VkFormat promoted_view_format(const TexGpu& g, VkFormat f);
 
 // The format a colour attachment of this image is rendered through: integer 32-bit formats as their float alias, because the

@@ -1161,6 +1161,16 @@ VkResult Device::create_image(const ImageDesc& d, Image* out, std::string* why) 
     ci.usage = d.usage;
     ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    // [gfx] format_list (default on): a mutable image names the formats its views take. Without the list Turnip on Adreno 7xx (and Mali)
+    // must assume any format of the class and store the image uncompressed (no UBWC / AFBC): the RGBA8 and sRGB render targets and the
+    // 32-bit integer/float images. The views are the same either way (the list is exactly what format_view_ok allows).
+    static const bool fmt_list_on = config_get_bool("gfx", "format_list", true);
+    VkImageFormatListCreateInfo fl = {VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO};
+    if (fmt_list_on && d.view_format_count && (d.flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT)) {
+        fl.viewFormatCount = d.view_format_count;
+        fl.pViewFormats = d.view_formats;
+        ci.pNext = &fl;
+    }
     VmaAllocationCreateInfo ai = {};
     ai.usage = VMA_MEMORY_USAGE_AUTO;
     Image img;

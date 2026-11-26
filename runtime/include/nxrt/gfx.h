@@ -81,6 +81,8 @@ struct ImageDesc {
     VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL;
     bool create_view = true;              // a view of the whole image (2D / 2D array / 3D / cube by flags and layer count)
     const char* name = nullptr;           // debug name
+    VkFormat view_formats[4] = {};        // a MUTABLE_FORMAT image: every format its views take (VkImageFormatListCreateInfo), unset: no list
+    uint32_t view_format_count = 0;
 };
 
 struct Image {

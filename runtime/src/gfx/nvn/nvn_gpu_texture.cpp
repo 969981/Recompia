@@ -109,6 +109,7 @@ static gfx::ImageDesc make_desc(const Shape& s, VkFormat fmt, VkImageUsageFlags 
     d.samples = static_cast<VkSampleCountFlagBits>(s.samples);
     d.create_view = false;
     d.name = "nvn texture";
+    if (flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) d.view_format_count = view_formats_of(fmt, d.view_formats);
     return d;
 }
 
