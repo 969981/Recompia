@@ -1,8 +1,22 @@
 # Changelog
 
-## Unreleased
+## 0.17.7 (build U: Urchin Hotfix a3)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (new hook sites; saves and shaders are kept, no shader is rebuilt). Everyone in a co-op session needs this version: an older build cannot join a newer one.
+
+### Highlights
+- Co-op story steps work for the whole group: a story creature follows the player who asked for it, an item any one player holds counts, and story flags are the group's, not one player's
+- Fixed the co-op host being refused at area gates and on the map while a story creature follows it
+- Added `[gfx] gpu_keepalive` for NVIDIA desktop cards stuck at ~40 fps with low GPU load: RTX 4060 (PC) ~37 ⇒ 60 fps
+- Fixed render resolution percentages depending on the startup window size
+
+### Known issues
+- A Cloud Islands account made before 24 November with no signed-in PC left cannot sign in: ask on Discord for a recovery link, and do not make a second account
+- Online presence is paused: its server is gone
+
+### Graphics
+- Added `[gfx] gpu_keepalive` (off by default) for NVIDIA desktop cards that run the game at ~40 fps with low GPU load: the driver keeps such a card in a low power state (memory at 810 MHz) because the game's load looks light, and the frame then takes ~22 ms instead of ~2. With `gpu_keepalive = 1` in pkp.ini a tiny workload runs beside the game while it draws, so the card stays at full speed: an RTX 4060 went from ~37 fps to the 60 fps cap at the start of the game. It costs some power. Still not on by default, and not in the launcher's settings
+- Fixed render resolution percentages depending on the startup window size instead of the game's base resolution
 
 ### Gameplay
 - Fixed a co-op story step that needs a creature brought through an area gate: pressing the gate no longer makes the creature stop following (followers leave when the group moves to the next area), and the step counts the creature when it follows any player in the session, not only the one who presses the gate
