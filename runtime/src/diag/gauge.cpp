@@ -21,6 +21,7 @@
 #include "nxrt/config.h"
 #include "nxrt/diag.h"
 #include "nxrt/log.h"
+#include "nxrt/perf_hint.h"
 #include "nxrt/perf_report.h"
 #include "nxrt/qpc.h"
 
@@ -379,6 +380,7 @@ void soak_note_frame() {
     g_ring_n.store(n + 1, std::memory_order_release);
     hitch_on_frame(t, prev_t, n + 1);
     diag::perf_frame(t);
+    if (prev_t && t > prev_t) perfhint::frame(static_cast<uint64_t>(static_cast<double>(t - prev_t) * 1e9 / static_cast<double>(qpc::freq())));
 }
 
 uint64_t hitch_ticks() { return qpc::ticks(); }
