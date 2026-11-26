@@ -11,6 +11,7 @@
 #include "nxrt/gauge.h"
 #include "nxrt/host_device.h"
 #include "nxrt/log.h"
+#include "nxrt/platform_facts.h"
 #include "nxrt/write_watch.h"
 
 #include <windows.h>
@@ -78,6 +79,7 @@ std::map<uint64_t, VmInfo> g_vm;          // start -> block, guarded by g_vm_mu
 // ---- heap (guarded by g_heap_mu) ----
 std::mutex g_heap_mu;
 HANDLE g_section = nullptr;
+std::atomic<bool> g_heap_is_section{false};   // zero_reclaim_on(): g_section without the heap lock
 uint64_t g_heap_size = 0;                 // 0 = no heap; otherwise the section size = size of the primary view
 uint32_t g_heap_commit_error = 0;         // GetLastError of the last failed heap_commit (heap_commit_error)
 std::vector<uint64_t> g_commit_bits;      // one bit per 4 KiB page of the section, set by heap_commit
@@ -520,6 +522,7 @@ bool heap_create(uint64_t reserve_bytes) {
         return false;
     }
     g_section = sec;
+    g_heap_is_section.store(true, std::memory_order_relaxed);
     g_heap_size = size;
     g_commit_bits.assign((size / kPage + 63) / 64, 0);
     g_heap_cls.assign(static_cast<size_t>(size / kPage), 0);
@@ -532,6 +535,12 @@ bool heap_create(uint64_t reserve_bytes) {
 bool heap_exists() {
     std::lock_guard lk(g_heap_mu);
     return g_heap_size != 0;
+}
+
+bool zero_reclaim_on() {
+    static const bool set = nxrt::config_has("memory", "zero_reclaim");
+    static const bool ini = nxrt::config_get_bool("memory", "zero_reclaim", false);
+    return set ? ini : facts::kPhone && g_heap_is_section.load(std::memory_order_relaxed);
 }
 
 bool heap_has_section() {
@@ -615,7 +624,7 @@ bool heap_decommit(uint64_t offset, uint64_t size) {
         }
 #if defined(__linux__)
         {   // [memory] zero_reclaim: the decommitted pages leave the section (a later commit reads zeros, as on Windows); whole host pages only
-            static const bool reclaim = config_get_bool("memory", "zero_reclaim", false);
+            const bool reclaim = zero_reclaim_on();
             static const uint64_t hp = static_cast<uint64_t>(sysconf(_SC_PAGESIZE) > 0 ? sysconf(_SC_PAGESIZE) : 4096);
             const uint64_t lo = align_up(kHeapBase + p * kPage, hp), hi = (kHeapBase + run * kPage) & ~(hp - 1);
             if (reclaim && lo < hi) ::madvise(reinterpret_cast<void*>(lo), static_cast<size_t>(hi - lo), MADV_REMOVE);

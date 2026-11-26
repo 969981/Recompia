@@ -21,6 +21,7 @@
 #include "nxrt/config.h"
 #include "nxrt/dispatch.h"
 #include "nxrt/log.h"
+#include "nxrt/memory.h"
 #include "nxrt/module.h"
 #include "nxrt/write_watch.h"
 
@@ -56,7 +57,7 @@ bool page_is_zero(const uint8_t* p) {
 }
 
 #if defined(__linux__)
-// [memory] zero_reclaim (default off): a zero fill of at least 1 MiB gives the whole host pages inside it back
+// [memory] zero_reclaim (nxrt/memory.h: default on on a phone whose heap is a section): a zero fill of at least 1 MiB gives the whole host pages inside it back
 // to the kernel instead of writing zeros into them; the pages then read as zero without being resident. A section heap ([memory]
 // heap_section, the phones' default) is a shared file or memfd mapping: MADV_REMOVE punches the pages out of it (every view reads zeros).
 // Private memory refuses that (EINVAL) and takes MADV_DONTNEED, after which every page is checked and any page that kept its contents
@@ -66,10 +67,6 @@ bool page_is_zero(const uint8_t* p) {
 // pinned import would keep the old page. Check pool_copy before enabling it with [nvn] pool_copy = 0.
 constexpr size_t kReclaimMin = 1 << 20;
 std::atomic<uint64_t> g_reclaimed{0};
-bool zero_reclaim_on() {
-    static const bool on = config_get_bool("memory", "zero_reclaim", false);
-    return on;
-}
 bool zero_reclaim(uint8_t* d, size_t n) {   // true: [d, d+n) is zero now
     static const uintptr_t hp = static_cast<uintptr_t>(sysconf(_SC_PAGESIZE) > 0 ? sysconf(_SC_PAGESIZE) : 4096);
     uint8_t* const a = reinterpret_cast<uint8_t*>((reinterpret_cast<uintptr_t>(d) + hp - 1) & ~(hp - 1));
@@ -94,7 +91,7 @@ bool zero_reclaim(uint8_t* d, size_t n) {   // true: [d, d+n) is zero now
 
 void zero_fill(uint8_t* d, size_t n) {
 #if defined(__linux__)
-    if (n >= kReclaimMin && zero_reclaim_on() && zero_reclaim(d, n)) return;
+    if (n >= kReclaimMin && mem::zero_reclaim_on() && zero_reclaim(d, n)) return;
 #endif
     uint8_t* const a = reinterpret_cast<uint8_t*>((reinterpret_cast<uintptr_t>(d) + kPage - 1) & ~uintptr_t(kPage - 1));
     uint8_t* const e = reinterpret_cast<uint8_t*>((reinterpret_cast<uintptr_t>(d) + n) & ~uintptr_t(kPage - 1));

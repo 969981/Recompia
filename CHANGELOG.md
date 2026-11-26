@@ -30,7 +30,7 @@
 
 ### Memory
 - Changed phones without AHardwareBuffer pools to use 512 KiB pool copy cells and 32 MiB of spares: before, most of the pool copy memory held nothing the GPU used; now a Tensor G2 uses about 560 MB less graphics memory outdoors and survives an area load
-- Added `[memory] zero_reclaim`: large zero fills and freed game memory are given back to the system (off by default)
+- Added `[memory] zero_reclaim`: large zero fills and freed game memory are given back to the system. On by default on phones whose heap is a shared section (the Tensor G2 profile), off elsewhere
 - Added `[nvn] upload_slot_kb` to size the upload rings (default unchanged)
 
 ## 0.17.7 (build U: Urchin Hotfix a3)
