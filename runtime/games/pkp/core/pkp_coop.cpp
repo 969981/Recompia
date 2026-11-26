@@ -93,8 +93,10 @@ enum class Site : uintptr_t {
     PauseMenu,        // the pause menu's state entry: in a session, the host's "send this member home" and a member's rejection are
                       // refused; Save and Quit (the host closes the session, a teammate leaves it) stays (pkp_coop_doors.cpp)
     // ---- the save ----
-    SaveWrite,        // a save write (0x241324, 0x245200, 0x5a8a34): reserved for holding a member's own writes once the authority
-                      // writes the shared co-op save; not handled yet, the game's own code runs (every member saves its own copy)
+    SaveWrite,        // a save write (0x245200, 0x5a8a34): reserved for holding a member's own writes once the authority writes the
+                      // shared co-op save; not handled yet, the game's own code runs (every member saves its own copy)
+    SaveRequest,      // the save request 0x241324 (the type-5 CMNDAT saves): the authority copies co-op stage mode's Cloud fields into
+                      // its own records first (pkp_coop_stage.cpp); the request runs on
     // ---- the bags: each member's is a record of ours (pkp_coop_bags.cpp); the game's writers that fight it are off (pkp_coop_bag.cpp) ----
     JoinBagSend,      // the host's side of a join's bag sync: it sends "no stored bag", so a member keeps its own bag instead of the
                       // host's stale copy
@@ -225,6 +227,12 @@ enum class Site : uintptr_t {
     // ---- a content's scene refused by a character another player holds (pkp_coop_contents.cpp) ----
     SceneTake,        // the event setup's "every character is ready" test: a remembered scene refused long enough starts anyway
     SceneStart,       // the event start's IsMine of one character: the same scene takes a character another player holds
+    // ---- co-op stage mode (pkp_coop_stage.cpp) ----
+    StageAnswer,      // a Cloud Island test's call listed in pkp_coop_stage_table.inc: while the family's mode is on, it answers Cloud
+                      // Island, so every process uses that set of records
+    StagePresave,     // the pre-save fixups: the authority copies the Cloud fields into its own records before the save copies them
+    StageLoadJob,     // a stage data load posted: the Cloud fields are set aside before a visited area's STGDAT replaces them
+    StageLoadFixup,   // the post-STGDAT-load fix-up: the set-aside fields are written back
 };
 
 struct CoopSite {
@@ -268,7 +276,7 @@ constexpr CoopSite kSites[] = {
     {{0x547278, kPacibsp, true}, Site::Error3103},
     {{0xf282a8, kPacibsp, true}, Site::LinkMenu},
     {{0xfb9ea0, kPacibsp, true}, Site::PauseMenu},
-    {{0x241324, kPacibsp, true}, Site::SaveWrite},
+    {{layout::kSaveRequest, kPacibsp, true}, Site::SaveRequest},
     {{0x245200, kPacibsp, true}, Site::SaveWrite},
     {{0x5a8a34, kPacibsp, true}, Site::SaveWrite},
     {{0x5728b4, 0xf9400660u, false}, Site::JoinBagSend},     // ldr x0, [x19, #8] (before the found flag is written)
@@ -401,6 +409,15 @@ constexpr CoopSite kSites[] = {
     {{0x12dbb8, kPacibsp, true}, Site::ActorAction},         // action 0xe74: push
     {{0x4774e8, 0x3600013cu, false}, Site::SceneTake},       // tbz w28, #0, 0x47750c (w28 = all characters ready, x19 = the runner)
     {{0x47bfe4, 0x0a000318u, false}, Site::SceneStart},      // and w24, w24, w0 (w0 = IsMine, x20 = &actor id, x19 = the runner)
+    // ---- co-op stage mode (pkp_coop_stage.cpp): one midhook per row (after its `bl 0x77ecb0`), the save and area-load points ----
+#define PKP_STAGE_ROW(ret, word, family, what) {{ret, word, false}, Site::StageAnswer},
+#define PKP_STAGE_RESET(ret, word, family, reg, what) {{ret, word, false}, Site::StageAnswer},
+#include "core/pkp_coop_stage_table.inc"
+#undef PKP_STAGE_RESET
+#undef PKP_STAGE_ROW
+    {{layout::kPreSave, kPacibsp, true}, Site::StagePresave},
+    {{layout::kLoadJob, kPacibsp, true}, Site::StageLoadJob},      // x1 = &GM+0x18, w2 = the load's mode
+    {{layout::kLoadFixup, kPacibsp, true}, Site::StageLoadFixup},
 };
 constexpr size_t kSiteCount = sizeof kSites / sizeof kSites[0];
 
@@ -526,6 +543,12 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::ContentsNotice: return coop::feed::on_notice(c);
         case Site::SceneTake: return coop::contents::on_scene_take(c);
         case Site::SceneStart: return coop::contents::on_scene_start(c);
+        // co-op stage mode (pkp_coop_stage.cpp)
+        case Site::StageAnswer: return coop::stage::on_answer(c, addr - st().base);
+        case Site::StagePresave:
+        case Site::SaveRequest: return coop::stage::on_save_point(c, addr - st().base);
+        case Site::StageLoadJob: return coop::stage::on_load_job(c);
+        case Site::StageLoadFixup: return coop::stage::on_load_fixup(c);
         // a dropped player is waited for (pkp_coop_drop.cpp)
         case Site::TripFile: return coop::drop::on_trip_file(c, addr - st().base);
         case Site::SimStep:
@@ -654,6 +677,7 @@ void game_frame(::Ctx* c) {
     coop::follow::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::savecopy::tick(c);
     coop::talkrec::tick();
+    coop::stage::tick(s.in_game.load(std::memory_order_relaxed));
     coop::drop::tick(c, s.in_game.load(std::memory_order_relaxed));
 }
 
@@ -721,6 +745,7 @@ void remove() {   // the registry has removed the hooks
     coop::follow::reset();
     coop::savecopy::reset();
     coop::talkrec::reset();
+    coop::stage::reset();
     coop::drop::reset();
     coop::quality::reset();
 }
