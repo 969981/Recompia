@@ -125,21 +125,19 @@ void image_barrier(VkCommandBuffer cb, VkImage image, VkImageLayout from, VkImag
                    uint32_t base_level, uint32_t level_count, uint32_t base_layer, uint32_t layer_count);
 // All commands before, all commands after, all memory (used after passes, dispatches, copies and fills).
 void memory_barrier(VkCommandBuffer cb);
-// Phones (A/B name "barrier_batch", default on): between barrier_batch_begin(cb) and barrier_batch_end(), image_barrier / memory_barrier
-// on that command buffer are collected and recorded as ONE vkCmdPipelineBarrier2 (the union of their dependencies; each barrier command is
-// a sync point of its own on a tiler). Render thread only; other command buffers are not affected. Templates: a build without the fact has none.
+// A/B name "barrier_batch", default on: between barrier_batch_begin(cb) and barrier_batch_end(), image_barrier / memory_barrier on that
+// command buffer are collected and recorded as ONE vkCmdPipelineBarrier2 (the union of their dependencies; each barrier command is a sync
+// point of its own on a tiler, and a driver call each on the render thread). Render thread only; other command buffers are not affected.
 struct BarrierBatch {
     std::atomic<VkCommandBuffer> cb{VK_NULL_HANDLE}; bool on(VkCommandBuffer c) const { return cb.load(std::memory_order_relaxed) == c; }
     bool mem = false;
     std::vector<VkImageMemoryBarrier2> img;
 };
-template <bool kOn = facts::kPhone>
-BarrierBatch& barrier_batch() {
+inline BarrierBatch& barrier_batch() {
     static BarrierBatch b;
     return b;
 }
-template <bool kOn = facts::kPhone>
-bool barrier_batch_begin(VkCommandBuffer cb) {
+inline bool barrier_batch_begin(VkCommandBuffer cb) {
     if (!diag::ab("barrier_batch", true)) return false;
     BarrierBatch& b = barrier_batch();
     b.mem = false;
@@ -147,11 +145,10 @@ bool barrier_batch_begin(VkCommandBuffer cb) {
     b.cb.store(cb, std::memory_order_relaxed);
     return true;
 }
-template <bool kOn = facts::kPhone>
 // One vkCmdPipelineBarrier2 for the collected barriers. Merging is exact: the global barrier keeps its all-commands / all-memory scopes,
 // and every image barrier carries its own stage, access and layout masks, which a dependency info applies to each barrier on its own; the
 // only change is that they become one dependency instead of several in a row, which orders nothing less.
-void barrier_batch_end() {
+inline void barrier_batch_end() {
     BarrierBatch& b = barrier_batch();
     const VkCommandBuffer cb = b.cb.exchange(VK_NULL_HANDLE, std::memory_order_relaxed);
     if (!cb || (!b.mem && b.img.empty())) return;
@@ -167,10 +164,10 @@ void barrier_batch_end() {
     di.pImageMemoryBarriers = b.img.data();
     vkCmdPipelineBarrier2(cb, &di);
 }
-// memory_barrier: true when an open barrier batch on cb collects it (phones); else a full barrier in the replay's command buffer resets
+// memory_barrier: true when an open barrier batch on cb collects it; else a full barrier in the replay's command buffer resets
 // the GPU work record (vk_work_track.h).
 inline bool mem_barrier_track(VkCommandBuffer cb) {
-    if constexpr (facts::kPhone) { if (barrier_batch().on(cb)) { barrier_batch().mem = true; return true; } }
+    if (barrier_batch().on(cb)) { barrier_batch().mem = true; return true; }
     if (on_render_thread()) gfx::work_reset_for(cb);
     return false;
 }

@@ -908,7 +908,7 @@ void image_barrier(VkCommandBuffer cb, VkImage image, VkImageLayout from, VkImag
     b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     b.image = image;
     b.subresourceRange = {aspect, base_level, level_count, base_layer, layer_count};
-    if constexpr (facts::kPhone) { if (barrier_batch().on(cb)) { barrier_batch().img.push_back(b); return; } }
+    if (barrier_batch().on(cb)) { barrier_batch().img.push_back(b); return; }
     VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO}; di.imageMemoryBarrierCount = 1;
     di.pImageMemoryBarriers = &b;
     ft::split_count(ft::kCntCmdBarrier);
