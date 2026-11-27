@@ -19,6 +19,7 @@ param(
     [Parameter(Mandatory)][string]$Harness,    # self-contained spirv_harness publish folder
     [Parameter(Mandatory)][string]$Crates,     # THIRD_PARTY_CRATES.txt (the release workflow's licenses job: cargo about, launcher/about.hbs)
     [string]$PokoHex,                          # the Save Editor's data tool (build-pokohex.sh --extractor win-x64 <dir>)
+    [string]$PgoTools,                         # the optimized build's profile tools (build-pgo-tools.sh <out>, its windows-x64 folder)
     [Parameter(Mandatory)][string]$Out
 )
 $ErrorActionPreference = 'Stop'
@@ -76,8 +77,14 @@ Put "$root\game-build\src\pkp_stub.cpp" 'tools\build\sdk\pkp_stub.cpp'
 Put "$root\game-build\res\pkp.manifest" 'tools\build\sdk\pkp.manifest'
 Put "$root\game-build\res\pkp.rc" 'tools\build\sdk\pkp.rc'
 foreach ($f in 'pkp_build.py', 'dump_hashes.json', 'fetch_dlss.py') { Put "$root\game-build\release_b\$f" "tools\build\$f" }
-# the optimized build (pkp_build.py --optimize); the launcher offers it only with pgo\tools (llvm-profdata, the profile runtime; gamebuild.rs can_optimize), which this package does not ship yet
+# the optimized build (pkp_build.py --optimize); the launcher offers it only with pgo\tools (llvm-profdata, the profile runtime; gamebuild.rs can_optimize)
 foreach ($f in 'pkp_pgo.py', 'profile_writer.cpp', 'session.nxs') { Put "$root\game-build\release_b\pgo\$f" "tools\build\pgo\$f" }
+if ($PgoTools) {
+    foreach ($f in 'llvm-profdata.exe', 'libclang_rt.profile.a') {
+        if (-not (Test-Path (Join-Path $PgoTools $f))) { throw "no $f in $PgoTools" }
+        Put (Join-Path $PgoTools $f) "tools\build\pgo\tools\$f"
+    }
+}
 function Readme([string]$launcherName) {
     (Get-Content -Raw "$root\game-build\release_b\README.txt").Replace('@VERSION@', $Version).Replace('@LAUNCHER@', $launcherName) | Set-Content -NoNewline (Join-Path $pkg 'README.txt')
 }

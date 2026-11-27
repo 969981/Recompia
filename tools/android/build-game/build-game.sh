@@ -34,7 +34,7 @@ rt=$A_OUT/sdk/libpkp_rt.so
 kit=$WORK/kit/tools/build
 mkdir -p "$kit/recomp" "$kit/sdk" "$WORK/game"
 cp -p "$repo/game-build/release_b/pkp_build.py" "$repo/game-build/release_b/guest_layout.py" "$repo/game-build/release_b/dump_hashes.json" "$kit/"
-mkdir -p "$kit/pgo" && cp -p "$repo"/game-build/release_b/pgo/{pkp_pgo.py,profile_writer.cpp,session.nxs} "$kit/pgo/"
+mkdir -p "$kit/pgo" && for f in pkp_pgo.py profile_writer.cpp session.nxs; do cp -p "$repo/game-build/release_b/pgo/$f" "$kit/pgo/"; done
 for d in nxrecomp include games native; do
     rm -rf "$kit/recomp/$d.tmp" && cp -Rp "$repo/recomp/$d" "$kit/recomp/$d.tmp"
     find "$kit/recomp/$d.tmp" -name __pycache__ -prune -exec rm -rf {} +

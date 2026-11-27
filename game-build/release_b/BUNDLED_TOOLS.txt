@@ -2,6 +2,9 @@ Tools bundled for the first-run build (release model b). None of them contains g
 - Zig 0.17.0 (tools/build/zig): MIT (LICENSE.zig.MIT.txt). The clang, lld, libc++, libunwind and compiler-rt inside it are LLVM
   projects, Apache-2.0 WITH LLVM-exception. mingw-w64 headers and CRT sources carry their own notices (public domain / ZPL / MIT-style)
   in tools/build/zig/lib/libc/mingw and lib/libc/include/any-windows-any.
+- LLVM 22.1.8 profile tools for the optimized build (tools/build/pgo/tools, Windows x64 and Linux x64 packages): llvm-profdata from
+  the official LLVM 22.1.8 release package, unchanged, and libclang_rt.profile.a built from compiler-rt 22.1.8 (lib/profile)
+  (game-build/scripts/build-pgo-tools.sh): Apache-2.0 WITH LLVM-exception (licenses/LICENSE.LLVM.Apache-2.0-LLVM-exception.txt).
 - Python 3.13.15 embeddable package (tools/python): PSF License (LICENSE.Python.PSF.txt).
 - capstone 5.0.9 (BSD-3-Clause) and lz4 4.4.5 (BSD-3-Clause) Python packages: licences in tools/python/Lib/site-packages/*.dist-info.
 - nxrecomp lifter (tools/build/recomp): GPL-3.0-or-later (tools/build/recomp/LICENSE).

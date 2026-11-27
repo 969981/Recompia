@@ -135,6 +135,36 @@ jobs:
             gh release create "$REL_TAG" --target "$GITHUB_SHA" --title "$title" --notes-file build-notes.md "${args[@]}"
           fi
 
+  # The optimized build's profile tools for the Windows x64 and Linux x64 packages (tools/build/pgo/tools, pkp_build.py --optimize):
+  # LLVM's profile runtime built with Zig 0.17.0 from the pinned compiler-rt 22.1.8 sources, and llvm-profdata from the pinned
+  # official LLVM 22.1.8 packages (clang 22.1.8 is Zig's, so the raw and indexed profile versions match), every download checked by
+  # sha256 (game-build/scripts/build-pgo-tools.sh). Cached by that script: the about 3 GB of downloads run only when it changes.
+  pgo-tools:
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read   # runs downloaded (sha-pinned) tools: no write access
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Profile tools (cache)
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: build/pgo-tools
+          key: pgo-tools-${{ hashFiles('game-build/scripts/build-pgo-tools.sh') }}
+
+      - name: Profile tools
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: PGO_DL="$RUNNER_TEMP/pgo-dl" bash game-build/scripts/build-pgo-tools.sh build/pgo-tools
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pgo-tools
+          path: build/pgo-tools
+          if-no-files-found: error
+
   # The shader translator as a self-contained win-x64 publish: Set up runs it once per game folder to translate the shader
   # corpus, so every package carries it. Its own job, because the clone and the publish share nothing with the two compiles.
   windows-payload:
@@ -384,7 +414,7 @@ jobs:
   # The Windows zip: the three artifacts around the base package (make-release.ps1), which carries the unchanged third-party
   # payload — Zig, embedded Python, the FSR/Streamline DLLs, astcdec, fonts, icons and licences.
   windows-package:
-    needs: [windows-payload, windows-runtime, windows-launcher, licenses]
+    needs: [windows-payload, windows-runtime, windows-launcher, licenses, pgo-tools]
     runs-on: windows-2025
     timeout-minutes: 40
     defaults:
@@ -425,6 +455,12 @@ jobs:
           name: release-licenses
           path: build/licenses
 
+      - name: Profile tools from pgo-tools
+        uses: actions/download-artifact@v4
+        with:
+          name: pgo-tools
+          path: build/pgo-tools
+
       - name: Package
         env:
           GH_TOKEN: ${{ github.token }}
@@ -433,7 +469,7 @@ jobs:
           gh release download $env:BASE_RELEASE -R $env:BASE_REPO -p 'PokopiaRecomp-*-win64.zip' -D build/base
           ./game-build/scripts/make-release.ps1 -Version $env:VERSION -Base (Get-Item build/base/*.zip).FullName -RtDir build/rtdll `
               -Launcher build/launcher/recompia.exe -Stub build/launcher/recompia-stub.exe -Harness build/harness -PokoHex build/pokohex `
-              -Crates build/licenses/THIRD_PARTY_CRATES.txt -Out build/rel
+              -Crates build/licenses/THIRD_PARTY_CRATES.txt -PgoTools build/pgo-tools/windows-x64 -Out build/rel
 
       - name: Check the packages
         run: |
@@ -442,7 +478,8 @@ jobs:
           function Names([string]$zip) { $a = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $zip).Path); try { $a.Entries.FullName } finally { $a.Dispose() } }
           $new = Names "build/rel/Recompia-$env:VERSION-windows-x64.zip"
           $old = Names "build/rel/PokopiaRecomp-$env:VERSION-win64.zip"
-          foreach ($f in 'Recompia.exe', 'PokopiaLauncher.exe', 'pkp_rt.dll', 'README.txt', 'tools/build/pkp_build.py') {
+          foreach ($f in 'Recompia.exe', 'PokopiaLauncher.exe', 'pkp_rt.dll', 'README.txt', 'tools/build/pkp_build.py',
+                      'tools/build/pgo/pkp_pgo.py', 'tools/build/pgo/tools/llvm-profdata.exe', 'tools/build/pgo/tools/libclang_rt.profile.a') {
             if ("Recompia-$env:VERSION/$f" -notin $new) { throw "missing $f in the Recompia zip" }
           }
           foreach ($f in 'PokopiaLauncher.exe', 'pkp_rt.dll', 'README.txt', 'tools/build/pkp_build.py') {
@@ -660,7 +697,7 @@ jobs:
   # The Linux tar.gz: the AppImage, the runtime, the build kit and the shader translator, staged from this checkout (nothing
   # comes from another platform's build), then started once under Xvfb to prove it finds tools/.
   linux-package:
-    needs: [linux-payload, linux-runtime, linux-launcher, licenses]
+    needs: [linux-payload, linux-runtime, linux-launcher, licenses, pgo-tools]
     runs-on: ubuntu-22.04
     timeout-minutes: 40
     env:
@@ -711,6 +748,12 @@ jobs:
           name: release-licenses
           path: build/licenses
 
+      - name: Profile tools from pgo-tools
+        uses: actions/download-artifact@v4
+        with:
+          name: pgo-tools
+          path: build/pgo-tools
+
       - name: Restore executable bits
         run: |
           mkdir -p launcher/src-tauri/target/release/bundle/appimage
@@ -733,9 +776,11 @@ jobs:
                      tools/build/sdk/fonts/DejaVuSans.ttf tools/build/sdk/kbm_icons tools/build/recomp/nxrecomp/__main__.py \
                      tools/harness/spirv_harness tools/pokohex/pokohex-extract tools/shaders/extract_corpus.py assets/prompts/prompt_icons.pak \
                      LICENSE.txt licenses/README.txt licenses/THIRD_PARTY_CRATES.txt licenses/THIRD_PARTY_NOTICES.md \
-                     licenses/appimage/SOURCES.txt licenses/appimage/LIBRARIES.txt; do
+                     licenses/appimage/SOURCES.txt licenses/appimage/LIBRARIES.txt \
+                     tools/build/pgo/pkp_pgo.py tools/build/pgo/tools/llvm-profdata tools/build/pgo/tools/libclang_rt.profile.a; do
               test -e "$pkg/$f" || { echo "::error::missing $f in $pkg"; find "$pkg" -maxdepth 3 | head -40; exit 1; }
             done
+            test -x "$pkg/tools/build/pgo/tools/llvm-profdata"
             test -x "$pkg/tools/harness/spirv_harness"
             test -x "$pkg/PokopiaLauncher.AppImage"
           done

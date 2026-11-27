@@ -426,3 +426,24 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     say(&format!("FAILED: game build ({}). Last error output:\n{}", st, tail));
     Err(error.unwrap_or_else(|| format!("The game build failed ({}). {}", st, tail.trim())))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The layout make-release.ps1 and make-linux.sh give a package with the profile tools (release.yml pgo-tools).
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn optimize_is_offered_only_with_the_profile_tools() {
+        let tools = std::env::temp_dir().join(format!("nxrt-pgo-tools-{}", std::process::id()));
+        let pgo = tools.join("build").join("pgo");
+        fs::create_dir_all(pgo.join("tools")).unwrap();
+        fs::write(pgo.join("pkp_pgo.py"), "").unwrap();
+        assert!(!can_optimize(&tools), "the pgo folder without its tools");
+        fs::write(pgo.join("tools").join(if cfg!(windows) { "llvm-profdata.exe" } else { "llvm-profdata" }), "").unwrap();
+        assert!(!can_optimize(&tools), "no profile runtime");
+        fs::write(pgo.join("tools").join("libclang_rt.profile.a"), "").unwrap();
+        assert!(can_optimize(&tools));
+        let _ = fs::remove_dir_all(&tools);
+    }
+}

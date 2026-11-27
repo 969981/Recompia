@@ -56,9 +56,18 @@ install -m 755 "$rt" "$pkg/tools/build/sdk/libpkp_rt.so"
 for f in pkp_build.py dump_hashes.json fetch_dlss.py; do
     cp "$repo/game-build/release_b/$f" "$pkg/tools/build/$f"
 done
-# the optimized build (pkp_build.py --optimize); the launcher offers it only with pgo/tools (gamebuild.rs can_optimize)
+# the optimized build (pkp_build.py --optimize), with its profile tools when build/pgo-tools/linux-<arch> has them
+# (game-build/scripts/build-pgo-tools.sh; the launcher offers the option only with them: gamebuild.rs can_optimize)
 mkdir -p "$pkg/tools/build/pgo"
-cp "$repo"/game-build/release_b/pgo/{pkp_pgo.py,profile_writer.cpp,session.nxs} "$pkg/tools/build/pgo/"
+for f in pkp_pgo.py profile_writer.cpp session.nxs; do
+    cp "$repo/game-build/release_b/pgo/$f" "$pkg/tools/build/pgo/$f"
+done
+pgo_tools="$repo/build/pgo-tools/linux-$arch"
+if [ -f "$pgo_tools/llvm-profdata" ] && [ -f "$pgo_tools/libclang_rt.profile.a" ]; then
+    mkdir -p "$pkg/tools/build/pgo/tools"
+    install -m 755 "$pgo_tools/llvm-profdata" "$pkg/tools/build/pgo/tools/llvm-profdata"
+    install -m 644 "$pgo_tools/libclang_rt.profile.a" "$pkg/tools/build/pgo/tools/libclang_rt.profile.a"
+fi
 cp -R "$repo/recomp" "$pkg/tools/build/recomp"
 find "$pkg/tools/build/recomp" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 # what the package ships under tools/build/recomp: pkp_build.py stamps a build by these files only, so a file an older release
