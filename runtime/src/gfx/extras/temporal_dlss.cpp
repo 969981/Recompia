@@ -118,10 +118,11 @@ public:
         const sl::ViewportHandle vp(0u);
         sl::FrameToken* frame = nullptr;
         if (s.token(frame, nullptr) != sl::Result::eOk || !frame) return fail("slGetNewFrameToken");
-        // the mode from the size ratio (DLAA at the same size)
+        // The mode from the size ratio only: eDLAA needs the output at the render size. The DLAA setting renders the scene at 100%, but a
+        // window larger than the game's targets still enlarges it (2520x1080 -> 3175x1361); eDLAA there drew a black picture (#929).
         const double r = static_cast<double>(f.out.width) / static_cast<double>(f.render.width);
         sl::DLSSOptions o;
-        o.mode = (dlaa_ || r < 1.01) ? sl::DLSSMode::eDLAA : r < 1.55 ? sl::DLSSMode::eMaxQuality : r < 1.8 ? sl::DLSSMode::eBalanced
+        o.mode = r < 1.01 ? sl::DLSSMode::eDLAA : r < 1.55 ? sl::DLSSMode::eMaxQuality : r < 1.8 ? sl::DLSSMode::eBalanced
                : r < 2.2 ? sl::DLSSMode::eMaxPerformance : sl::DLSSMode::eUltraPerformance;
         o.outputWidth = f.out.width;
         o.outputHeight = f.out.height;
