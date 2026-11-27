@@ -126,6 +126,7 @@ struct TexGpu {
     // render pass (tex_transition_attach / tex_mark_gpu_written with its level), so a copy that leaves the image in TRANSFER_SRC sees each later
     // write. A new image (creation, rescale, feedback loop usage) gets new numbers for every level.
     uint64_t wgen[kGenLevels] = {};
+    bool storage_lazy = false;                          // [gfx] storage_lazy: storage usage is added when first bound as a storage image
     bool fb_loop_tried = false;                         // tex_enable_feedback_loop ran (once per image)
     bool read_back = false;                             // download_texture copied it into game memory (the CPU reads it): a dispatch that writes
                                                         // it is never skipped ([nvn] async_compute). Render thread (set in download_texture's job)
@@ -267,6 +268,21 @@ inline bool format_view_ok(const TexGpu& g, VkFormat fmt) {
     if (!g.mutable_fmt) return false;
     if (srgb_partner(g.format) == fmt) return true;
     return bit_alias_class(g.format) && (fmt == float_alias(g.format) || fmt == uint_alias(g.format) || fmt == sint_alias(g.format));
+}
+// The formats format_view_ok lets a mutable image of `fmt` be viewed as (its own first), for the image's VkImageFormatListCreateInfo:
+// without a list a driver must assume any format of the size class, and Turnip (Adreno 7xx) and Mali then store the image without
+// framebuffer compression (UBWC / AFBC). Returns the count (0: not mutable, no list).
+inline uint32_t view_formats_of(VkFormat fmt, VkFormat out[4]) {
+    uint32_t n = 0;
+    if (const VkFormat p = srgb_partner(fmt); p != VK_FORMAT_UNDEFINED) {
+        out[n++] = fmt;
+        out[n++] = p;
+    } else if (bit_alias_class(fmt)) {
+        out[n++] = fmt;
+        for (const VkFormat a : {float_alias(fmt), uint_alias(fmt), sint_alias(fmt)})
+            if (a != VK_FORMAT_UNDEFINED && a != fmt) out[n++] = a;
+    }
+    return n;
 }
 VkFormat promoted_view_format(const TexGpu& g, VkFormat f);
 

@@ -9,6 +9,8 @@
 //   loop_guards      none: no compute loop gets its count limited ([nvn] loop_guard has nothing to do)
 //   ui_after_picture false: the game's 2D cannot be hidden (nxrt/ui_layer.h; a mod's ui_visible is not offered)
 //   square_quad_fs   none: no quad is made square
+//   cs_variants      none: no compute program runs as a variant ([nvn] cs_vote, [nvn] cs_retile have nothing to do)
+//   shadow_halves    none: no shadow map keeps a cascade from the previous frame ([gfx] shadow_half has nothing to do)
 // Header-only and free of Vulkan, so game.h users that do not link the graphics back end can include it.
 #pragma once
 #include <cstdint>
@@ -73,6 +75,26 @@ struct SceneStretch {
     bool into_window = false;
 };
 
+// A compute program the back end may run as an equivalent variant (src/gfx/nvn/nvn_spirv_compute.cpp), bit for bit the same results:
+//   Retile        a smaller workgroup over the same grid (spirv_retile): the program derives its cell only as WorkgroupId * size +
+//                 LocalInvocationId, has no shared memory, barrier or subgroup operation; the dispatch gets proportionally more groups.
+//                 [nvn] cs_retile = WxH.
+//   VoteAllFalse  its one subgroup "all" vote is false (spirv_vote_all_false): the vote picks a same-address reduction before an atomic
+//                 add, and the game's lanes never share an address, so the plain per-lane atomic it falls back to is the same sum.
+//                 [nvn] cs_vote.
+enum class ComputeVariantKind : uint8_t { Retile, VoteAllFalse };
+struct ComputeVariant {
+    const char* shader = nullptr;           // the shader's cache hash, as the back end names it
+    ComputeVariantKind kind = ComputeVariantKind::Retile;
+};
+
+// [gfx] shadow_half (src/gfx/nvn/nvn_replay_draw.cpp): the game's shadow map is a square depth-only target (no colour attachment, a
+// power of two of at least 256 texels a side) holding two cascades, one per horizontal half, and the far cascade changes little from frame
+// to frame while the camera stands still. far_bottom: the far cascade is the bottom half (viewports from half the height down), else the top.
+struct ShadowHalves {
+    bool far_bottom = true;
+};
+
 struct Render {
     const ReadbackShape* readback_defer = nullptr;
     const CameraBlock* camera = nullptr;
@@ -99,6 +121,9 @@ struct Render {
     // wins the depth test at some jitter phases and the decal flickers.
     const char* jitter_decal_vs = nullptr;
     const char* jitter_decal_fs = nullptr;
+    const ComputeVariant* cs_variants = nullptr;
+    uint32_t cs_variant_count = 0;
+    const ShadowHalves* shadow_halves = nullptr;
 };
 
 }  // namespace nxrt::game

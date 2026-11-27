@@ -11,6 +11,7 @@
 #include "os_android_vkdriver.h"
 
 #include <dlfcn.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <vulkan/vulkan.h>
 
@@ -81,6 +82,22 @@ void* load() {
     if (name.empty() || ::stat((dir + name).c_str(), &st) != 0) {
         NXLOG_W(kTag, "custom Vulkan driver: %smeta.json names no library that exists there: using the system driver", dir.c_str());
         return nullptr;
+    }
+    // [gfx] vulkan_driver_env = NAME=value;NAME=value: environment for the custom driver (Mesa reads its options with getenv before the
+    // system properties: TU_DEBUG, TU_AUTOTUNE_ALGO, ...), set in this process only, before the driver is opened. Default: Turnip's
+    // render mode per render pass (tiles in GMEM or straight to memory) picked by the GPU time it measured for each, instead of its
+    // bandwidth estimate (Mesa 26.3 on an Adreno 750: 3 % less GPU time a frame, same picture).
+    const std::string env = config_get_str("gfx", "vulkan_driver_env", "TU_AUTOTUNE_ALGO=profiled");
+    for (size_t at = 0; at < env.size();) {
+        size_t end = env.find(';', at);
+        if (end == std::string::npos) end = env.size();
+        const std::string kv = env.substr(at, end - at);
+        const size_t eq = kv.find('=');
+        if (eq != std::string::npos && eq > 0) {
+            ::setenv(kv.substr(0, eq).c_str(), kv.substr(eq + 1).c_str(), 1);
+            NXLOG_I(kTag, "custom Vulkan driver: environment %s", kv.c_str());
+        }
+        at = end + 1;
     }
     const std::string hooks = own_dir();
     void* at = ::dlopen("libadrenotools.so", RTLD_NOW | RTLD_LOCAL);

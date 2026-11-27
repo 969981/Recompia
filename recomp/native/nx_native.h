@@ -65,6 +65,7 @@
 #undef v_f3e
 #undef v_f1v
 #include "nx_native_fp.h"
+#include "nx_native_call.h"   // after the lifter headers: its macro must not touch their declaration of call_indirect
 
 // postlift.py's FCMP rewrite: the FCMP keeps its operands (as doubles: exact for singles) in F.a / F.b, which no other reader of an
 // FCMP's flags uses, and a reader reached only by FCMPs tests them directly. N = less, Z = equal, C = not less, V = unordered.

@@ -85,6 +85,10 @@ bool is_mapped(uint64_t addr, uint64_t size);                // every byte of th
 bool heap_create(uint64_t reserve_bytes);       // 0 = use the configured size; a second call is ignored
 bool heap_exists();
 bool heap_has_section();                        // false: private memory, no other views of the heap pages
+// [memory] zero_reclaim: large zero fills and decommitted pages are given back to the host (libc_hle.cpp, heap_decommit, the POSIX
+// shim's VirtualFree). Default: on on a phone whose heap is a section (heap_has_section: a shared file or memfd mapping), off
+// elsewhere; an ini or environment value wins. No lock: safe from any thread, also while the heap lock is held.
+bool zero_reclaim_on();
 uint64_t heap_reserved();                       // section size
 bool heap_commit(uint64_t offset, uint64_t size);     // commit [kHeapBase+offset, +size) (page granularity)
 uint32_t heap_commit_error();                   // GetLastError of the last heap_commit that failed (0: none failed)

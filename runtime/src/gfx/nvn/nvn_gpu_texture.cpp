@@ -109,6 +109,7 @@ static gfx::ImageDesc make_desc(const Shape& s, VkFormat fmt, VkImageUsageFlags 
     d.samples = static_cast<VkSampleCountFlagBits>(s.samples);
     d.create_view = false;
     d.name = "nvn texture";
+    if (flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) d.view_format_count = view_formats_of(fmt, d.view_formats);
     return d;
 }
 
@@ -241,7 +242,13 @@ TexGpu* create_texture_gpu(Texture* t, float want_scale) {
     // The console reads and writes any colour texture through an image handle; the builder's IMAGE flag is a hint the game does not always
     // set (the froxel volume of the fog is written by a vertex shader without it). Every uncompressed colour image therefore keeps the
     // storage usage when the GPU accepts the combination.
-    if (!g->depth && !is_block_format(chosen)) {
+    // [gfx] storage_lazy (default on): a 2D colour image gets storage usage when a shader first binds it as a storage image
+    // (tex_enable_storage), not here: storage usage can cost the image its framebuffer compression, and the game sets the IMAGE flag on
+    // render targets it never stores to. 3D images keep it at creation (the fog's froxel volume is written by a vertex shader).
+    static const bool storage_lazy = config_get_bool("gfx", "storage_lazy", true);
+    if (storage_lazy && !g->depth && !is_block_format(chosen) && s.type == VK_IMAGE_TYPE_2D) {
+        g->storage_lazy = true;
+    } else if (!g->depth && !is_block_format(chosen)) {
         add(VK_IMAGE_USAGE_STORAGE_BIT);
         // sRGB formats have no storage support. The console's image stores write the raw bits (no sRGB encode), which is what a UNORM view
         // of the same image does: storage usage is then allowed through EXTENDED_USAGE when the UNORM partner can be stored to and the sRGB
@@ -346,6 +353,13 @@ static bool is_shadow_map(const Texture& t) {
 // swapchain's size instead of the render scale: the 2D is drawn at the screen's resolution while the 3D passes keep the low internal
 // size, and the draw that copies the scene into the window texture enlarges it. 0 when off or not known yet.
 static std::unordered_set<uint32_t> g_ui_depth;   // depth targets of passes on a window texture (render thread): they keep its scale
+// Desktop: depth targets of passes on other colour targets (the 3D scene's). A depth target found on both sides (the game draws into the
+// window texture with the scene's depth buffer: under water, behind a waterfall) cannot have both scales: it was promoted to the window's
+// scale for good, and every 3D pass then dragged the G-buffer up to it and the next pass back down, remaking the targets each pass (half
+// the frame rate) with the passes reading targets of other sizes (white, glowing characters and a checkered player). Then ui_native goes
+// off for the rest of the run (g_ui_conflict), the old path: everything at the render scale, the present enlarges the frame.
+static std::unordered_set<uint32_t> g_3d_depth;
+static bool g_ui_conflict = false;
 
 // Desktop: `auto` (the default) is on while the window is larger than the game's frame (a 4K or 1440p screen with 1080p targets), except
 // while the player's FSR 1 or NIS has only the present to enlarge the 3D picture in (the scene shown at 100%: the game's composite then
@@ -385,7 +399,7 @@ static float ui_native_desktop_scale(const Texture& t) {
 
 static float ui_native_scale_impl(const Texture& t) {
     if constexpr (!facts::kPhone) {
-        if (t.b.width <= 0 || (!t.is_display && !g_ui_depth.count(t.id))) return 0.0f;
+        if (g_ui_conflict || t.b.width <= 0 || (!t.is_display && !g_ui_depth.count(t.id))) return 0.0f;
         const float sc = ui_native_desktop_scale(t);
         return sc > 0.0f && ui_native_desktop_on(sc) ? sc : 0.0f;
     }
@@ -566,7 +580,24 @@ static void arm_worker() {
 float ui_native_scale(const Texture& t) { return tex::ui_native_scale_impl(t); }
 // A depth target used with a window texture keeps the window texture's scale in its other passes too (without this the 2D's depth buffer was
 // remade at both scales every frame, once per pass kind).
-void ui_native_note_depth(const Texture& t) { if (t.fmt && t.fmt->aspect != kAspectColor) tex::g_ui_depth.insert(t.id); }
+void ui_native_note_depth(const Texture& t, bool window_pass) {
+    if (!t.fmt || t.fmt->aspect == kAspectColor) return;
+    if constexpr (!facts::kPhone) {
+        if (tex::g_ui_conflict) return;
+        if (!window_pass) {
+            tex::g_3d_depth.insert(t.id);
+            if (!tex::g_ui_depth.count(t.id)) return;
+        } else if (!tex::g_3d_depth.count(t.id)) {
+            tex::g_ui_depth.insert(t.id);
+            return;
+        }
+        tex::g_ui_conflict = true;
+        NXLOG_W(kTag, "ui_native: depth texture %u (%dx%d) is used by a window-texture pass and by 3D passes: the 2D at the screen's resolution is "
+                      "off for this run ([gfx] ui_native), everything at the render scale", t.id, t.b.width, t.b.height);
+        return;
+    }
+    if (window_pass) tex::g_ui_depth.insert(t.id);
+}
 
 std::mutex& tex_arm_import_mutex() { return g_arm_import_mu; }
 
@@ -771,34 +802,22 @@ bool tex_has_feedback_loop(Texture* t) {
     return g && (g->usage & VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT) != 0;
 }
 
-// Only images that show a feedback draw get the usage: on some GPUs it costs the colour compression of the image (RADV turns DCC off for
-// feedback loop images on older chips), so it is not given to every render target at creation. Same shape, format, scale and flags; every
-// level and layer is copied over.
-bool tex_enable_feedback_loop(Texture* t, Frame& f) {
-    TexGpu* g = tex_or_null(t);
-    if (!g) return false;
-    if (g->usage & VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT) return true;
-    if (g->fb_loop_tried) return false;
-    g->fb_loop_tried = true;
+// The image remade with more usage (and create flags): same shape, format and scale, every level and layer copied over, the old image
+// and its views destroyed once the GPU is done with them. False (the old image kept) when the GPU refuses the combination.
+static bool remake_with_usage(Texture* t, TexGpu* g, Frame& f, VkImageUsageFlags nu, VkImageCreateFlags nf, const char* what) {
     Shape s = shape_of(*t);
     s.base = g->base;
-    if (!device().features().attachment_feedback_loop || g->sparse || g->depth || s.samples > 1 || g->type != VK_IMAGE_TYPE_2D ||
-        !(g->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) || !(g->usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
-        return false;
+    s.levels = g->levels;
     if (g_tex_touch_hook) g_tex_touch_hook(f, g);   // [nvn] clear_carry: a carried clear of the image goes first
-    const VkImageUsageFlags nu = g->usage | VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT;
     gfx::Image ni;
     std::string err;
-    if (!device().image_supported(make_desc(s, g->format, nu, g->cflags), &err) ||
-        device().create_image(make_desc(s, g->format, nu, g->cflags), &ni, &err) != VK_SUCCESS) {
-        NXLOG_W(kTag, "texture %u (%s %ux%u): no feedback loop usage (%s): its feedback draws keep the copy", t->id, g->fmt ? g->fmt->name : "?", g->base.width,
-                g->base.height, err.c_str());
+    if (!device().image_supported(make_desc(s, g->format, nu, nf), &err) || device().create_image(make_desc(s, g->format, nu, nf), &ni, &err) != VK_SUCCESS) {
+        NXLOG_W(kTag, "texture %u (%s %ux%u): not remade with %s usage (%s)", t->id, g->fmt ? g->fmt->name : "?", g->base.width, g->base.height, what, err.c_str());
         return false;
     }
     static int logged = 0;
     if (logged++ < 40)
-        NXLOG_I(kTag, "texture %u: %s %ux%u (%u levels) remade with feedback loop usage (a draw samples it while rendering to it)", t->id, g->fmt ? g->fmt->name : "?",
-                g->base.width, g->base.height, g->levels);
+        NXLOG_I(kTag, "texture %u: %s %ux%u (%u levels) remade with %s usage", t->id, g->fmt ? g->fmt->name : "?", g->base.width, g->base.height, g->levels, what);
     VkImageLayout nl = VK_IMAGE_LAYOUT_UNDEFINED;
     if (g->layout != VK_IMAGE_LAYOUT_UNDEFINED) {
         move_layout(f, *g, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -827,8 +846,37 @@ bool tex_enable_feedback_loop(Texture* t, Frame& f) {
     g->img = ni;
     g->layout = nl;
     g->usage = nu;
+    g->cflags = nf;
     bump_gen(*g, -1);
     return true;
+}
+
+// Only images that show a feedback draw get the usage: on some GPUs it costs the colour compression of the image (RADV turns DCC off for
+// feedback loop images on older chips), so it is not given to every render target at creation.
+bool tex_enable_feedback_loop(Texture* t, Frame& f) {
+    TexGpu* g = tex_or_null(t);
+    if (!g) return false;
+    if (g->usage & VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT) return true;
+    if (g->fb_loop_tried) return false;
+    g->fb_loop_tried = true;
+    if (!device().features().attachment_feedback_loop || g->sparse || g->depth || shape_of(*t).samples > 1 || g->type != VK_IMAGE_TYPE_2D ||
+        !(g->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) || !(g->usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
+        return false;
+    return remake_with_usage(t, g, f, g->usage | VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT, g->cflags, "feedback loop");
+}
+
+// [gfx] storage_lazy: a 2D colour image gets storage usage only when a shader first binds it as a
+// storage image (most never are). Storage usage costs the framebuffer compression of the image on Mali (AFBC) and on other GPUs.
+bool tex_enable_storage(Texture* t, Frame& f) {
+    TexGpu* g = tex_or_null(t);
+    if (!g) return false;
+    if (g->usage & VK_IMAGE_USAGE_STORAGE_BIT) return true;
+    if (!g->storage_lazy) return false;
+    g->storage_lazy = false;   // one try
+    VkImageCreateFlags nf = g->cflags;
+    const VkFormat unorm = is_srgb(g->format) ? srgb_partner(g->format) : VK_FORMAT_UNDEFINED;
+    if (unorm != VK_FORMAT_UNDEFINED) nf |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;   // an sRGB image is stored to through its UNORM view
+    return remake_with_usage(t, g, f, g->usage | VK_IMAGE_USAGE_STORAGE_BIT, nf, "storage");
 }
 
 uint64_t tex_write_gen(Texture* t, uint32_t level) {

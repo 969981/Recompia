@@ -81,6 +81,8 @@ struct ImageDesc {
     VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL;
     bool create_view = true;              // a view of the whole image (2D / 2D array / 3D / cube by flags and layer count)
     const char* name = nullptr;           // debug name
+    VkFormat view_formats[4] = {};        // a MUTABLE_FORMAT image: every format its views take (VkImageFormatListCreateInfo), unset: no list
+    uint32_t view_format_count = 0;
 };
 
 struct Image {
@@ -195,6 +197,10 @@ public:
     // was doing: the checkpoints each pipeline stage last reached (below) and the driver's fault report (VK_EXT_device_fault). It may be
     // called with or without queue_mutex held (vkGetQueueCheckpointData2NV does not synchronize the queue).
     void note_result(VkResult result, const char* operation);
+    // A back end's own account of the work it had on the GPU (the NVN back end: the shaders of its unfinished submissions), logged line
+    // by line after the checkpoints by that first call. Set at the back end's start, null before it goes; it must neither block nor take
+    // queue_mutex.
+    void set_lost_report(std::string (*fn)()) { lost_report_.store(fn, std::memory_order_release); }
     bool device_lost() const { return device_lost_.load(std::memory_order_acquire); }
 
     // GPU checkpoints ([gfx] gpu_checkpoints, VK_NV_device_diagnostic_checkpoints, so NVIDIA only): a marker before each dispatch (and
@@ -266,10 +272,12 @@ private:
     size_t gpu_index_ = 0;
     bool gpu_override_matched_ = true;
     bool validation_ = false;
+    bool compression_query_ = false;   // [prof] image_compression: VK_EXT_image_compression_control enabled to log each render target's compression
     bool debug_utils_ = false;
     bool owns_platform_surface_ = false;
     std::atomic<bool> device_lost_{false};
     int checkpoint_level_ = 0;            // 0 off, 1 dispatches, 2 dispatches and draws (set once in init)
+    std::atomic<std::string (*)()> lost_report_{nullptr};
     Impl* impl_ = nullptr;
 };
 

@@ -142,6 +142,10 @@ void prewarm_record_compute(const ShaderInfo* cs, uint64_t layout_key);
 // Render thread: built here when nobody has it, waited for when a background thread is building it (the dispatch path, as before).
 VkPipeline compute_pipeline(const ShaderInfo* cs, const ProgLayout& layout);
 bool compute_pipeline_done(const ShaderInfo* cs, const ProgLayout& layout);   // built (or failed): compute_pipeline returns at once
+// The game's compute variants (game::ComputeVariant, nvn_spirv_compute.cpp): the pipeline of cs's variant of that kind (built here the
+// first time, render thread), or null when cs has no such variant or its module is not of the expected shape. Retile: tx x ty groups,
+// *fx / *fy the factors the dispatch's group counts grow by.
+VkPipeline compute_variant_pipeline(const ShaderInfo* cs, const ProgLayout& layout, int kind, uint32_t tx, uint32_t ty, uint32_t* fx, uint32_t* fy);
 // [nvn] async_compute (default true). A compute program the game sets is queued for the async threads (its layout derived there); a dispatch
 // whose pipeline is missing in play goes first in line (compute_queue_front; false: the threads are stopped, build it at the dispatch).
 bool async_compute_on();

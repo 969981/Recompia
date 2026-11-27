@@ -42,6 +42,7 @@
 #include "nvn_present_pass.h"
 #include "nvn_submit_park.h"
 #include "nvn_submit_worker.h"
+#include "nvn_work_log.h"
 #include "extras/output_pass.h"
 
 namespace nxrt::nvn::be::gpu {
@@ -50,7 +51,6 @@ namespace {
 constexpr const char* kTag = "nvn.gpu";
 constexpr uint32_t kSlots = 36;                  // about three frames of submissions (the game submits ~11 times a frame): with fewer, recording waits on
                                                  // the GPU for a submission of a recent frame and the CPU cannot get frames ahead
-constexpr VkDeviceSize kUploadBytes = 8ull << 20;   // per slot; larger uploads get their own staging buffer
 // Frame::vram_ring: a slot whose upload memory is in system memory gets this much device-local, host-visible memory of its own the first
 // time it is asked (uniform snapshots: about 130 KB a submission on a GTX 1650 / RTX 2060 in the 2026-11-17 traces, 1 MiB leaves room).
 // Without resizable BAR that memory is a ~214 MiB window, and 24 of the 36 upload rings (8 MiB each) already fill most of it.
@@ -89,6 +89,7 @@ struct Slot {
     size_t dpool_cur = 0;
     gfx::Buffer upload;
     VkDeviceSize upload_off = 0;
+    VkDeviceSize upload_size = 0;         // bytes of `upload` ([nvn] upload_slot_kb when it was made)
     bool upload_dl = false;               // `upload` is in device-local memory (Frame::vram_ring uses it then)
     // Frame::vram_ring when `upload` is in system memory: made on first use (kVramRingBytes); vram_state 0 not tried, 1 in video memory,
     // 2 none (the allocation failed or landed in system memory: no second try)
@@ -98,6 +99,7 @@ struct Slot {
     std::vector<gfx::Buffer> extra;       // staging / overflow buffers of the submission
     uint64_t serial = 0;                  // last submission that used the slot
     uint64_t sets_live = 0;               // descriptor sets allocated from this slot's pools since the last reset (vk.descriptor_sets)
+    WorkLog work;                         // the shaders the submission ran (Frame::work): in_flight_report names them while it is on the GPU
 };
 
 struct Deferred {
@@ -113,6 +115,9 @@ struct Gpu {
     bool installed_entry_points = false;
     VkSemaphore timeline = VK_NULL_HANDLE;
     std::atomic<uint64_t> completed{0};
+    // The last timeline value read from the GPU (read_completed). After a device loss `completed` is advanced on the CPU by every thread
+    // that sees it; in_flight_report goes by this one.
+    std::atomic<uint64_t> gpu_reached{0};
     uint64_t submitted = 0;               // render thread: last serial recorded (handed to vkQueueSubmit2, or waiting in `batch`)
     uint64_t flushed = 0;                 // render thread: last serial handed to vkQueueSubmit2
     // [nvn] submit_batch: recorded submissions wait here and go to the GPU in one vkQueueSubmit2 (flush_batch). Render thread.
@@ -234,6 +239,7 @@ uint64_t read_completed() {
     if (g && g->dev->device_lost()) return g->completed.load();
     uint64_t v = 0;
     if (g && g->timeline) vkGetSemaphoreCounterValue(g->dev->device(), g->timeline, &v);
+    if (g) for (uint64_t r = g->gpu_reached.load(std::memory_order_relaxed); r < v && !g->gpu_reached.compare_exchange_weak(r, v);) {}
     // [nvn] pool_copy: the GPU writes of every serial up to v go back into guest memory before v is published, so no caller (a sync wait,
     // a poll, the render thread's touch) sees a serial complete whose writes have not landed (nvn_pool_copy.cpp)
     if (g && pool_copy_any()) pcopy_land(v);
@@ -361,12 +367,8 @@ bool create_slot(Slot& s) {
     if (vkAllocateCommandBuffers(d.device(), &ai, &s.cb) != VK_SUCCESS) return false;
     vk_gauge_command_buffers().add(1);
     s.cbs[0] = s.cb;
-    const VkBufferUsageFlags usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
-                                     VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |  // quad_args_gpu: indexed indirect arguments a dispatch writes
-                                     // phones (facts::kPhone): copies of texel buffers at an offset the GPU cannot view
-                                     (facts::kPhone ? VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT : 0u);
-    if (d.create_buffer(kUploadBytes, usage, gfx::MemoryUse::Upload, &s.upload, "nvn upload") != VK_SUCCESS) return false;
+    s.upload_size = upload_ring_bytes();
+    if (d.create_buffer(s.upload_size, upload_ring_usage(), gfx::MemoryUse::Upload, &s.upload, "nvn upload") != VK_SUCCESS) return false;
     const VkMemoryPropertyFlags mp = d.memory_flags(s.upload);
     s.upload_dl = (mp & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0;
     return true;
@@ -657,10 +659,12 @@ Slot* acquire_slot() {
     vk_gauge_descriptor_sets().sub(static_cast<int64_t>(s.sets_live));   // the reset freed them
     s.sets_live = 0;
     s.dpool_cur = 0;
+    upload_ring_note(s.upload_off);
     s.upload_off = 0;
     s.vram_off = 0;
     for (auto& b : s.extra) g->dev->destroy_buffer(b);
     s.extra.clear();
+    s.work.reset();
     return &s;
 }
 
@@ -671,7 +675,7 @@ UploadAlloc Frame::upload_ring(VkDeviceSize size, VkDeviceSize align) {
     Slot& s = *static_cast<Slot*>(slot);
     if (align == 0) align = 16;
     VkDeviceSize off = (s.upload_off + align - 1) & ~(align - 1);
-    if (off + size > kUploadBytes) return {};
+    if (off + size > s.upload_size || !s.upload.buffer) return {};
     s.upload_off = off + size;
     UploadAlloc a;
     a.buffer = s.upload.buffer;
@@ -683,7 +687,11 @@ UploadAlloc Frame::upload_ring(VkDeviceSize size, VkDeviceSize align) {
 
 UploadAlloc Frame::upload(VkDeviceSize size, VkDeviceSize align) {
     if (UploadAlloc a = upload_ring(size, align)) return a;
-    return staging(size + (align ? align : 16));
+    upload_ring_overflow_begin();
+    const auto t0 = std::chrono::steady_clock::now();
+    UploadAlloc st = staging(size + (align ? align : 16));
+    upload_ring_overflow_end(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count()));
+    return st;
 }
 
 UploadAlloc Frame::vram_ring(VkDeviceSize size, VkDeviceSize align) {
@@ -908,7 +916,7 @@ void image_barrier(VkCommandBuffer cb, VkImage image, VkImageLayout from, VkImag
     b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     b.image = image;
     b.subresourceRange = {aspect, base_level, level_count, base_layer, layer_count};
-    if constexpr (facts::kPhone) { if (barrier_batch().on(cb)) { barrier_batch().img.push_back(b); return; } }
+    if (barrier_batch().on(cb)) { barrier_batch().img.push_back(b); return; }
     VkDependencyInfo di = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO}; di.imageMemoryBarrierCount = 1;
     di.pImageMemoryBarriers = &b;
     ft::split_count(ft::kCntCmdBarrier);
@@ -916,7 +924,7 @@ void image_barrier(VkCommandBuffer cb, VkImage image, VkImageLayout from, VkImag
 }
 
 void memory_barrier(VkCommandBuffer cb) {
-    g_gauge_barriers_mem.add(1); if constexpr (facts::kPhone) { if (mem_barrier_phone(cb)) return; }   // nvn_gpu_internal.h
+    g_gauge_barriers_mem.add(1); if (mem_barrier_track(cb)) return;   // nvn_gpu_internal.h
     VkMemoryBarrier2 b = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
     b.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     b.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
@@ -970,9 +978,10 @@ uint64_t submit_on_render_thread(const std::function<void(Frame&)>& record, uint
     f.cb = s.cb;
     f.serial = serial;
     f.slot = &s;
+    f.work = &s.work;
     VkCommandBufferBeginInfo bi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(s.cb, &bi); if constexpr (facts::kPhone) gfx::work_cb() = s.cb;
+    vkBeginCommandBuffer(s.cb, &bi); gfx::work_cb() = s.cb;
     const uint32_t slot_i = static_cast<uint32_t>(&s - g->slots);
     timing::begin(s.cb, slot_i);
     if (t_cb0) ft::event(z_cbsetup, t_cb0, ft::now_ns());   // slot, begin command buffer, query resets
@@ -982,6 +991,7 @@ uint64_t submit_on_render_thread(const std::function<void(Frame&)>& record, uint
     vkEndCommandBuffer(s.cb);
     if (!unsignalled) {
         s.serial = serial;
+        s.work.seal(serial);
         g->submitted = serial;
         g->last_submitted.store(serial);
         g->recording = 0;
@@ -1062,7 +1072,7 @@ bool split_piece(Frame& f) {
     f.cb = next;
     VkCommandBufferBeginInfo bi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(next, &bi); if constexpr (facts::kPhone) gfx::work_cb() = next;
+    vkBeginCommandBuffer(next, &bi); gfx::work_cb() = next;
     if (g->split_pieces.fetch_add(1, std::memory_order_relaxed) == 0)
         NXLOG_I(kTag, "gpu_split: first piece sent while its submission (serial %llu) is still being recorded", static_cast<unsigned long long>(f.serial));
     return true;
@@ -1351,6 +1361,34 @@ std::atomic<uint64_t> g_waits_begun{0}, g_waits_done{0};   // sync waits entered
 std::atomic<int> g_waiters{0};                 // game threads inside wait_serial (freeze report)
 std::atomic<uint64_t> g_wait_serial{0}, g_wait_timeout{0};   // the latest wait: serial and timeout
 
+// The submissions handed to the GPU and not finished, oldest first, each with its work log (nvn_work_log.h): on one queue the oldest is
+// the one the GPU was running when it stopped (the timeline signals only a batch's last serial, so the first ones listed may have run
+// already, and with [nvn] submit_batch = frame one batch is a whole frame). Every one lists its dispatches; the draws only of the oldest
+// few. The device-lost log (gfx::Device::set_lost_report) and the freeze dump / crash report (gpu_report). The recording slot is
+// not listed, also when [nvn] gpu_split has already sent pieces of it. No lock: a slot reused while this reads is left out. Any thread.
+std::string in_flight_report() {
+    Gpu* gp = g;
+    if (!gp) return {};
+    const uint64_t done = gp->gpu_reached.load(), handed = gp->flushed_pub.load();
+    constexpr uint32_t kDrawsOf = 4, kDrawLines = 24;     // the oldest submissions whose distinct draws are listed, and how many
+    std::pair<uint64_t, const Slot*> fl[kSlots];
+    uint32_t n = 0;
+    for (const Slot& s : gp->slots) {
+        const uint64_t sv = s.work.sealed.load(std::memory_order_acquire);
+        if (sv > done && sv <= handed) fl[n++] = {sv, &s};
+    }
+    std::sort(fl, fl + n, [](const auto& a, const auto& b) { return a.first < b.first; });
+    char b[200];
+    std::snprintf(b, sizeof b, "NVN submissions on the GPU and not finished: %u (the GPU had finished serial %llu, %llu were handed to it)\n", n,
+                  static_cast<unsigned long long>(done), static_cast<unsigned long long>(handed));
+    std::string out = b;
+    for (uint32_t i = 0; i < n; ++i) {
+        std::string t = work_log_text(fl[i].second->work, fl[i].first, "  ", i < kDrawsOf ? kDrawLines : 0);
+        if (fl[i].second->work.sealed.load(std::memory_order_acquire) == fl[i].first) out += t;
+    }
+    return out;
+}
+
 std::string gpu_report() {
     if (!g) return {};
     uint64_t v = 0;
@@ -1371,6 +1409,7 @@ std::string gpu_report() {
                       static_cast<unsigned long long>(g->sw->submitted()), g->sw->depth());
         out += b;
     }
+    out += in_flight_report();
     return out;
 }
 }  // namespace
@@ -1654,7 +1693,7 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
     {
         uint32_t n_dl = 0;
         for (const Slot& s : gp->slots) n_dl += s.upload_dl ? 1 : 0;
-        NXLOG_I(kTag, "upload memory: %u of %u slots in video memory (%llu MiB each)", n_dl, kSlots, static_cast<unsigned long long>(kUploadBytes >> 20));
+        NXLOG_I(kTag, "upload memory: %u of %u slots in video memory (%llu MiB each)", n_dl, kSlots, static_cast<unsigned long long>(upload_ring_bytes() >> 20));
     }
     timing::init(dev, kSlots);
     if (ft::on()) extras::lowlat_set_backlog_fn([]() -> uint64_t {      // latency probe: submissions the GPU has not finished
@@ -1667,6 +1706,7 @@ bool bring_up(gfx::Device& dev, gfx::Renderer* rend, FrameLimiter* limiter, bool
     extras::lowlat_set_gpu_wait_fn(&gpu_wait_frames);
     static const bool report_registered = (diag_add_report(gpu_report), true);   // the freeze dump shows the GPU state
     (void)report_registered;
+    dev.set_lost_report(&in_flight_report);     // the device-lost log names the shaders of the unfinished submissions
     register_counter_gauges();
     // [nvn] submit_thread: see Gpu::sw. Started before the render thread, so every submission of the run goes through it. auto = on on
     // Linux, where a kernel submission can block the render thread for most of a frame (Steam Deck: 25-41 ms, 26 -> 53 fps with the
@@ -1750,6 +1790,7 @@ void tear_down() {
     if (!g) return;
     for (const char* n : kCounterGauges) nxrt::gauge_unregister(n);
     Gpu* gp = g;
+    gp->dev->set_lost_report(nullptr);     // the slots go with gp
     run_on_render_thread([&] {
         {
             std::lock_guard<std::mutex> l2(gp->pmu);

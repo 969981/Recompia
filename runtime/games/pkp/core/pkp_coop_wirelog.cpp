@@ -158,6 +158,8 @@ const char* type_name(uint32_t type) {
     case wire::Type::AreaLevels: return "AreaLevels";
     case wire::Type::StoryFlags: return "StoryFlags";
     case wire::Type::StoryFlagSet: return "StoryFlagSet";
+    case wire::Type::StageAsk: return "StageAsk";
+    case wire::Type::StageTable: return "StageTable";
     }
     return "?";
 }

@@ -186,6 +186,10 @@ struct Pass {
     VkRenderingAttachmentInfo att_c[8] = {};
     VkRenderingAttachmentInfo att_d = {}, att_s = {};
     VkRenderingInfo ri = {};
+    // [gfx] edge_lazy (phones): the area the draw that began the pass can write (area_known), and the area every later draw and clear must
+    // keep to because a guard of an attachment was left waiting (keep; zero size: none)
+    VkRect2D area = {}, keep = {};
+    bool area_known = false;
 };
 bool clear_fold_on();
 void pass_flush();                                                   // records a deferred vkCmdBeginRendering (no-op otherwise)
@@ -200,6 +204,8 @@ void pass_stats_discard(bool depth);
 extern Pass P;   // owner: nvn_replay_pass.cpp (ensure_pass, end_pass)
 extern float g_csr_scale;                                           // gfx::Tuning::csr_*: the reduction dispatch being set up (nvn_replay_bind.cpp)
 float csr_scale_for(const ProgLayout& pl);
+bool shadow_half_clip_clear(VkClearRect* r);   // [gfx] shadow_half (nvn_replay_draw.cpp)
+uint64_t camera_block_hash();                 // [gfx] shadow_half: the camera block a G-buffer draw binds, hashed (nvn_replay_upscale.cpp)
 // [nvn] pass_barriers = tracked (S38). A pass whose draws can only have written its attachments (no storage buffers or images, no stream-out)
 // does not end with a barrier: its written attachments are remembered here, and the next command that could depend on them gets one. A
 // layout change of such an image is that barrier for the image (narrow masks, set_narrow_barriers); a later pass that renders to it again in
@@ -471,18 +477,18 @@ inline void gstamp(const char* label) {
     if (gpass_on()) gpass_stamp(*F, label, 0);
 }
 void end_pass(bool to_pass = false);
-// Phones (A/B name "barrier_dedupe", default on): end_pass() and then a full memory barrier, without the second barrier when end_pass already
+// end_pass() and then a full memory barrier, without the second barrier when end_pass already
 // ended with one (it does whenever it closes a pass or flushes pending pass writes): two full barriers back to back are one.
-template <bool kOn = facts::kPhone>
-void end_pass_full_barrier() {
-    if (diag::ab("barrier_dedupe", true) && (P.open || !g_bar.pending.empty())) {
+inline void end_pass_full_barrier() {
+    if (P.open || !g_bar.pending.empty()) {
         end_pass();
         return;
     }
     end_pass();
     memory_barrier(F->cb);
 }
-// Phones, [nvn] barrier_bits (default on: measured on a Tensor G2, full barriers -58 %, passes -25 %, GPU Mcycles -8.8 %; A/B name "barrier_bits"): the game's nvnCommandBufferBarrier, about 133 a frame
+// [nvn] barrier_bits (default on: measured on a Tensor G2, full barriers -58 %, passes -25 %, GPU Mcycles -8.8 %; on a desktop integrated GPU
+// under RADV, full barriers 278 -> 157 a frame, passes -16 %, GPU time -0.6 %): the game's nvnCommandBufferBarrier, about 133 a frame
 // outdoors (census: 0x3 ORDER_PRIMITIVES|ORDER_FRAGMENTS 69, 0x10 INVALIDATE_TEXTURE 51, 0x8 ORDER_INDIRECT_DATA 5, 0x12 4, 0x21 3,
 // 0x11 1; about 63 with a pass open, 70 with none), each ending the pass with full barriers.
 // With a pass open whose draws wrote only their attachments:
@@ -496,13 +502,12 @@ void end_pass_full_barrier() {
 //   stages (an image a transfer wrote changes layout before it is an attachment: that transition orders it);
 // - ORDER_INDIRECT_DATA (with ordering): all writes to the indirect reads (and the compute that fixes up indirect arguments) only.
 // Anything else (INVALIDATE_SHADER, compute, storage or draw work, a pass with storage writes): the full barrier as before.
-template <bool kOn = facts::kPhone>
-void barrier_op(uint32_t bits) {
+inline void barrier_op(uint32_t bits) {
     constexpr uint32_t kOrderBits = 0x1 | 0x2 | 0x4 | 0x80;       // ORDER_PRIMITIVES, ORDER_FRAGMENTS, ORDER_FRAGMENTS_TILED, INVALIDATE_ZCULL
     constexpr uint32_t kTexBits = 0x10 | 0x40;                    // INVALIDATE_TEXTURE, INVALIDATE_TEXTURE_DESCRIPTOR
     constexpr uint32_t kIndirect = 0x8;                           // ORDER_INDIRECT_DATA
     static const bool cfg = config_get_bool("nvn", "barrier_bits", true);
-    if (!g_bar.tracked || g_bar.pass_unsafe || !diag::ab("barrier_bits", cfg)) return end_pass_full_barrier();
+    if (!g_bar.tracked || g_bar.pass_unsafe || !cfg) return end_pass_full_barrier();
     if (P.open) {
         if ((bits & ~(kOrderBits | kTexBits)) != 0) return end_pass_full_barrier();
         static nxrt::GaugeCounter kept("nvn.cnt.barrier_pass_kept");   // game barriers that left the pass open (breaks avoided)
@@ -822,6 +827,16 @@ void scene_sharpen_for_draw(const ProgLayout& pl);   // [gfx] scene_sharpen at t
 // part repeated past it
 void edge_guard_note(float x, float y, float w, float h, const VkRect2D& scissor);
 void edge_guard_after_pass();
+// [gfx] edge_lazy: a guard waits for the target's next other use; touch_hook_sync() (nvn_replay_pass.cpp) keeps g_tex_touch_hook set
+// while clear_carry or edge_lazy hold anything. edge_before_begin: before a pass begins on t, whose first draw can write `area` (known:
+// the pass was begun by a draw): a waiting guard of t is left waiting when the area is inside t's part (keep narrows to the part), else
+// recorded now (true: t is in GENERAL then); clears: the pass begins t with LOAD_OP_CLEAR, which makes the guard moot.
+bool edge_lazy_pending();
+void edge_touch(TexGpu* g);
+void edge_flush_all();
+bool edge_before_begin(Texture* t, const VkRect2D& area, bool known, VkRect2D* keep, bool clears);
+void edge_lazy_stats(uint64_t* saved, uint64_t* done);
+void touch_hook_sync();
 // A phone: the scene part (image pixels) of colour target t (w x h) as the frame being replayed drew it (the last pass into it); false:
 // no such pass seen
 bool frame_scene_part(const Texture* t, uint32_t w, uint32_t h, uint32_t* pw, uint32_t* ph);

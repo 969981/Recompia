@@ -22,6 +22,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -495,18 +496,18 @@ static VkShaderModule create_module(const std::vector<uint32_t>& words, const ch
         }
     }
     // [nvn] loop_guard: the game's compute loops whose count is a constant buffer word get it limited (game::Render::loop_guards,
-    // spirv_limit_count). auto (default): by the table's size on NVIDIA and on Linux (Mesa's drivers: RADV on the Deck and other AMD
-    // handhelds, #531); a plain cap of 16384 elsewhere (AMD's Windows driver crashed making the parent project's size-query version). A loop of
-    // up to 16384 items a lane can still pass the Deck's 5 s GPU timeout, so the table size is used wherever it builds. table / cap: that on
-    // any GPU. off: never.
+    // spirv_limit_count). auto (default): by the table's size and at most 16384 on NVIDIA and on Linux (Mesa's drivers: RADV on the Deck and
+    // other AMD handhelds, #531); a plain cap of 16384 elsewhere (AMD's Windows driver crashed making the parent project's size-query version).
+    // A loop of up to 16384 items a lane can still pass the Deck's 5 s GPU timeout, so the table size is used wherever it builds; the table is
+    // the whole texel buffer bound, so its size alone did not stop an NVIDIA hang. table / cap: that on any GPU. off: never.
     static const int loop_guard = [] {   // 0 off, 1 table, 2 cap
         const game::Render* gr = game::info().render;
         if (!gr || !gr->loop_guard_count) return 0;
         const std::string v = config_get_str("nvn", "loop_guard", "auto");
         const uint32_t vendor = device().properties().vendorID;
         const int m = v == "off" || v == "false" || v == "0" ? 0 : v == "table" ? 1 : v == "cap" ? 2 : vendor == 0x10de || host_is_linux() ? 1 : 2;
-        NXLOG_I(kTag, "loop_guard = %s (%s, vendor 0x%04x%s)", v.c_str(), m == 0 ? "off" : m == 1 ? "table size" : "cap 16384", vendor,
-                host_is_linux() ? ", Linux" : "");
+        NXLOG_I(kTag, "loop_guard = %s (%s, vendor 0x%04x%s)", v.c_str(), m == 0 ? "off" : m == 1 ? "table size, at most 16384" : "cap 16384",
+                vendor, host_is_linux() ? ", Linux" : "");
         return m;
     }();
     std::vector<uint32_t> guarded[2];
@@ -1227,6 +1228,40 @@ VkPipeline compute_pipeline(const ShaderInfo* cs, const ProgLayout& layout) {
     NXLOG_I(kTag, "compute built at the dispatch %s (%.1f ms%s)", cs->hash.c_str(), ms, gpl_gate_open() ? "" : ", loading");
     if (p) prewarm_record_compute(cs, compute_layout_key(layout));
     return p;
+}
+
+VkPipeline compute_variant_pipeline(const ShaderInfo* cs, const ProgLayout& layout, int kind, uint32_t tx, uint32_t ty, uint32_t* fx, uint32_t* fy) {
+    struct Variant { VkPipeline pipe = VK_NULL_HANDLE; uint32_t fx = 1, fy = 1; };
+    static std::map<std::tuple<const ShaderInfo*, VkPipelineLayout, int, uint32_t, uint32_t>, Variant> variants;   // render thread only
+    const auto key = std::make_tuple(cs, layout.layout, kind, tx, ty);
+    auto it = variants.find(key);
+    if (it == variants.end()) {
+        Variant v;
+        const SpirvWords w = shader_words(cs);
+        std::vector<uint32_t> patched;
+        const bool ok = w && (kind == static_cast<int>(game::ComputeVariantKind::Retile) ? spirv_retile(*w, tx, ty, patched, &v.fx, &v.fy)
+                                                                                         : spirv_vote_all_false(*w, patched));
+        VkShaderModule m = ok ? create_module(patched, cs->hash.c_str()) : VK_NULL_HANDLE;
+        if (m) {
+            ensure_cache();
+            VkComputePipelineCreateInfo ci = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+            ci.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+            ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+            ci.stage.pNext = subgroup32_info(VK_SHADER_STAGE_COMPUTE_BIT, kind == static_cast<int>(game::ComputeVariantKind::Retile)
+                                                                             ? uint64_t{tx} * ty : uint64_t{cs->local_size[0]} * cs->local_size[1] * cs->local_size[2]);
+            ci.stage.module = m;
+            ci.stage.pName = "main";
+            ci.layout = layout.layout;
+            if (vkCreateComputePipelines(vkdev(), g_cache, 1, &ci, nullptr, &v.pipe) != VK_SUCCESS) v.pipe = VK_NULL_HANDLE;
+            else ++g_pipeline_count;
+        }
+        NXLOG_I(kTag, "compute variant %s of %s (%ux%u): %s", kind == static_cast<int>(game::ComputeVariantKind::Retile) ? "retile" : "vote",
+                cs->hash.c_str(), tx, ty, v.pipe ? "built" : ok ? "pipeline failed" : "module not of the expected shape");
+        it = variants.emplace(key, v).first;
+    }
+    *fx = it->second.fx;
+    *fy = it->second.fy;
+    return it->second.pipe;
 }
 
 bool compute_pipeline_done(const ShaderInfo* cs, const ProgLayout& layout) {

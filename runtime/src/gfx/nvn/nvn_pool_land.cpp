@@ -18,6 +18,7 @@
 #include <thread>
 #include <vector>
 
+#include "nxrt/fault_guard.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/log.h"
 #include "nxrt/write_watch.h"
@@ -185,6 +186,43 @@ uint64_t land_one(PoolGpu* pool, const PoolChunk* c, uint64_t off, uint64_t size
     return bad;
 }
 
+// [nvn] pool_land_diff (default on): a record lands only on the pages whose bytes differ from guest memory. A storage
+// buffer a shader may write is recorded whole, but a shader often writes little of it: of the pages such records landed on a Tensor G2
+// (Mali-G710) 0.56 % differed. A page that already holds the
+// GPU's bytes needs no copy, no protection change of the write tracker (it stays armed and current) and no write-watch write; the result
+// in guest memory is the same bytes. A CPU write racing the landing wins or loses exactly as with the copy (the compare reads first, as
+// the copy did). The compare runs per page under one fault guard; a page that cannot be read, or a fault, lands as before.
+bool land_diff() {
+    static const bool on = config_get_bool("nvn", "pool_land_diff", true);
+    return on;
+}
+uint64_t land_diff_one(PoolGpu* pool, const PoolChunk* c, uint64_t off, uint64_t size, std::vector<KeptRun>& kept, const uint8_t* ring) {
+    if (size <= kPage || !land_diff()) return land_one(pool, c, off, size, kept, ring);
+    const uint8_t* const base = pool->base;
+    const auto src = [&](uint64_t pool_off) { return ring ? ring + (pool_off - off) : static_cast<const uint8_t*>(c->shadow.mapped) + (pool_off - c->off); };
+    static thread_local std::vector<uint8_t> differs;   // the landing thread (or a polling game thread): per page of the record
+    const uint64_t end = off + size, np = (end - 1) / kPage - off / kPage + 1;
+    differs.assign(static_cast<size_t>(np), 1);
+    fault_guarded([&] {
+        uint64_t a = off;
+        for (uint64_t i = 0; i < np; ++i) {
+            const uint64_t e = std::min(end, (a / kPage + 1) * kPage);
+            differs[static_cast<size_t>(i)] = std::memcmp(base + a, src(a), static_cast<size_t>(e - a)) != 0;
+            a = e;
+        }
+    });   // a fault leaves the pages after it marked as differing
+    uint64_t bad = 0;
+    for (uint64_t i = 0; i < np;) {
+        if (!differs[static_cast<size_t>(i)]) { ++i; continue; }
+        uint64_t j = i + 1;
+        while (j < np && differs[static_cast<size_t>(j)]) ++j;
+        const uint64_t a = i ? (off / kPage + i) * kPage : off, e = std::min(end, (off / kPage + j) * kPage);
+        bad += land_one(pool, c, a, e - a, kept, ring ? ring + (a - off) : nullptr);
+        i = j;
+    }
+    return bad;
+}
+
 // [nvn] pool_land_slice_ms: the longest single wait for the serial of the oldest record. The wait ends the moment the timeline reaches
 // the serial, so its length adds nothing to a landing; it only bounds how long the thread takes to see a stop or a lost device. The
 // queue is in serial order and a record is only ever added behind the oldest, so the serial waited for is never too late a one. A wait
@@ -337,7 +375,7 @@ uint64_t pcopy_land(uint64_t reached) {
                 ring = static_cast<const uint8_t*>(g_ring.buf.mapped) + r.ring_off;
                 ring_free = std::max(ring_free, r.ring_end);
             }
-            bad += land_one(r.pool, r.chunk, r.pool_off, r.size, kept, ring);
+            bad += land_diff_one(r.pool, r.chunk, r.pool_off, r.size, kept, ring);
             bytes += r.size;
         }
         if (ring_free) {

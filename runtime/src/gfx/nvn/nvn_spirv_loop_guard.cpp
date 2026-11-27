@@ -107,13 +107,17 @@ int spirv_limit_count(const std::vector<uint32_t>& in, const SpvCountLimit& lim,
         }
         out.insert(out.end(), w.begin() + i, w.begin() + i + len);
         if (op == OpBitcast && len == 4 && w[i + 2] < bound && bc[w[i + 2]]) {
-            // the count read: min(count, (texels + stride - 1) / stride), or min(count, 16384)
+            // the count read: min(count, (texels + stride - 1) / stride, 16384), or min(count, 16384). The table is the whole texel
+            // buffer the game bound (tex_buffer_view: the BUFFER texture's width, up to maxTexelBufferElements), which can hold far
+            // more items than the walk uses, so its size alone still lets a garbage count run a loop for seconds and lose the device.
+            // A count below both limits is unchanged.
             uint32_t cap = c[0];
             if (table) {
-                const uint32_t tex = bound++, img = bound++, sz = bound++, tr = bound++;
+                const uint32_t tex = bound++, img = bound++, sz = bound++, tr = bound++, items = bound++;
                 cap = bound++;
                 put({4u << 16 | OpLoad, sit, tex, tv, 4u << 16 | OpImage, it, img, tex, 4u << 16 | OpImageQuerySize, ti, sz, img,
-                     5u << 16 | OpIAdd, ti, tr, sz, c[1], 5u << 16 | OpSDiv, ti, cap, tr, c[2]});
+                     5u << 16 | OpIAdd, ti, tr, sz, c[1], 5u << 16 | OpSDiv, ti, items, tr, c[2],
+                     7u << 16 | OpExtInst, ti, cap, glsl, GlslSMin, items, c[0]});
             }
             const uint32_t r = bound++;
             if (bc[w[i + 2]] == 1) {

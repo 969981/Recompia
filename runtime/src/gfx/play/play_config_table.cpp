@@ -28,6 +28,7 @@ constexpr const char* kWindowModeWords[] = {"windowed", "borderless", "exclusive
 constexpr const char* kRenderModeWords[] = {"console", "window"};
 constexpr const char* kAstcWords[] = {"fast", "high", "uncompressed"};
 constexpr const char* kUniformSnapshotWords[] = {"auto", "on", "off"};
+constexpr const char* kShadowHalfWords[] = {"auto", "on", "off"};
 constexpr const char* kFpsSnapWords[] = {"auto", "true", "false"};
 constexpr const char* kPicturePresetWords[] = {"neutral", "vivid"};
 constexpr int kAnisotropyValues[] = {0, 2, 4, 8, 16};
@@ -323,6 +324,9 @@ const SettingDef kTable[] = {
      .doc = "Build the pipelines recorded by earlier runs ahead of the draws. Next start."},
     {ROW("display", "uniform_snapshot", Choice), TEXT(display.uniform_snapshot), .words = kUniformSnapshotWords, .nxrt_key = "nvn.uniform_snapshot",
      .doc = "Shader constants read from video memory: auto (discrete GPUs with under 7 GiB of video memory or without resizable BAR), on or off. Next start."},
+    {ROW("display", "shadow_half", Choice), TEXT(display.shadow_half), .words = kShadowHalfWords, .nxrt_key = "gfx.shadow_half",
+     .doc = "Far shadows every other frame: the far shadow cascade is redrawn every other frame while it and the camera stand still "
+            "(a far shadow can be a frame late); auto (phones), on or off. Next start."},
     {ROW("display", "astc_quality", Choice), TEXT(display.astc_quality), .words = kAstcWords, .nxrt_key = "gfx.astc_quality",
      .doc = "ASTC texture quality on this GPU (uncompressed: RGBA8, lots of video memory). Next start."},
     {ROW("display", "monitor", Int), WHOLE(display.monitor), .lo = 0, .hi = 32, .auto_word = "auto", .auto_at = 0,

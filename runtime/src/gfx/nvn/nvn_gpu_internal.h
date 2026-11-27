@@ -22,6 +22,7 @@
 #include "nxrt/ab_switch.h"
 #include "nxrt/gfx.h"
 #include "nvn_present_pass.h"
+#include "nvn_work_log.h"
 
 namespace nxrt::extras { class OutputPass; }
 #include "nvn_core.h"
@@ -83,6 +84,9 @@ struct Frame {
     VkCommandBuffer cb = VK_NULL_HANDLE;
     uint64_t serial = 0;          // the timeline value this submission signals when the GPU has run it
     void* slot = nullptr;         // nvn_gpu.cpp: the submission slot (command pool, descriptor pools, upload memory)
+    // The slot's record of the shaders this submission runs (the replay notes each dispatch and draw), named in the device-lost log and
+    // the freeze dump while the GPU has not finished it. Never null in a recording.
+    WorkLog* work = nullptr;
     // Host-visible memory valid until the submission has completed: small per-draw data (support buffer, driver constants,
     // inline uniform data). align is a power of two.
     UploadAlloc upload(VkDeviceSize size, VkDeviceSize align);
@@ -125,33 +129,29 @@ void image_barrier(VkCommandBuffer cb, VkImage image, VkImageLayout from, VkImag
                    uint32_t base_level, uint32_t level_count, uint32_t base_layer, uint32_t layer_count);
 // All commands before, all commands after, all memory (used after passes, dispatches, copies and fills).
 void memory_barrier(VkCommandBuffer cb);
-// Phones (A/B name "barrier_batch", default on): between barrier_batch_begin(cb) and barrier_batch_end(), image_barrier / memory_barrier
-// on that command buffer are collected and recorded as ONE vkCmdPipelineBarrier2 (the union of their dependencies; each barrier command is
-// a sync point of its own on a tiler). Render thread only; other command buffers are not affected. Templates: a build without the fact has none.
+// Between barrier_batch_begin(cb) and barrier_batch_end(), image_barrier / memory_barrier on that
+// command buffer are collected and recorded as ONE vkCmdPipelineBarrier2 (the union of their dependencies; each barrier command is a sync
+// point of its own on a tiler, and a driver call each on the render thread). Render thread only; other command buffers are not affected.
 struct BarrierBatch {
     std::atomic<VkCommandBuffer> cb{VK_NULL_HANDLE}; bool on(VkCommandBuffer c) const { return cb.load(std::memory_order_relaxed) == c; }
     bool mem = false;
     std::vector<VkImageMemoryBarrier2> img;
 };
-template <bool kOn = facts::kPhone>
-BarrierBatch& barrier_batch() {
+inline BarrierBatch& barrier_batch() {
     static BarrierBatch b;
     return b;
 }
-template <bool kOn = facts::kPhone>
-bool barrier_batch_begin(VkCommandBuffer cb) {
-    if (!diag::ab("barrier_batch", true)) return false;
+inline bool barrier_batch_begin(VkCommandBuffer cb) {
     BarrierBatch& b = barrier_batch();
     b.mem = false;
     b.img.clear();
     b.cb.store(cb, std::memory_order_relaxed);
     return true;
 }
-template <bool kOn = facts::kPhone>
 // One vkCmdPipelineBarrier2 for the collected barriers. Merging is exact: the global barrier keeps its all-commands / all-memory scopes,
 // and every image barrier carries its own stage, access and layout masks, which a dependency info applies to each barrier on its own; the
 // only change is that they become one dependency instead of several in a row, which orders nothing less.
-void barrier_batch_end() {
+inline void barrier_batch_end() {
     BarrierBatch& b = barrier_batch();
     const VkCommandBuffer cb = b.cb.exchange(VK_NULL_HANDLE, std::memory_order_relaxed);
     if (!cb || (!b.mem && b.img.empty())) return;
@@ -167,10 +167,20 @@ void barrier_batch_end() {
     di.pImageMemoryBarriers = b.img.data();
     vkCmdPipelineBarrier2(cb, &di);
 }
-// Phones, memory_barrier: true when an open barrier batch on cb collects it; else a full barrier in the replay's command buffer resets the
-// GPU work record (vk_work_track.h).
-template <bool kOn = facts::kPhone>
-bool mem_barrier_phone(VkCommandBuffer cb) {
+// For code that records commands other than barriers while a batch may be open on cb (a layout change's touch hook, the end of a
+// pass): the barriers collected so far are recorded now, the code's own barriers go straight into the command buffer, and the batch
+// opens again at the end of the scope. Without it the commands ran before the barriers meant to come first (an edge guard's copy before
+// the end-of-pass barrier and its own layout change: corrupt compressed blocks on a Mali-G710).
+struct BarrierBatchPause {
+    VkCommandBuffer cb;
+    explicit BarrierBatchPause(VkCommandBuffer c) : cb(barrier_batch().on(c) ? c : VK_NULL_HANDLE) { if (cb) barrier_batch_end(); }
+    ~BarrierBatchPause() { if (cb) barrier_batch_begin(cb); }
+    BarrierBatchPause(const BarrierBatchPause&) = delete;
+    BarrierBatchPause& operator=(const BarrierBatchPause&) = delete;
+};
+// memory_barrier: true when an open barrier batch on cb collects it; else a full barrier in the replay's command buffer resets
+// the GPU work record (vk_work_track.h).
+inline bool mem_barrier_track(VkCommandBuffer cb) {
     if (barrier_batch().on(cb)) { barrier_batch().mem = true; return true; }
     if (on_render_thread()) gfx::work_reset_for(cb);
     return false;
@@ -308,7 +318,7 @@ extern void (*g_tex_touch_hook)(Frame& f, TexGpu* g);
 TexGpu* tex_gpu_attachment(Texture* t);
 TexGpu* tex_gpu_scaled(Texture* t, float scale);
 float ui_native_scale(const Texture& t);                // [gfx] ui_native: the window textures' scale, 0 = off
-void ui_native_note_depth(const Texture& t);            // [gfx] ui_native: a depth target of a pass on a window texture
+void ui_native_note_depth(const Texture& t, bool window_pass);   // [gfx] ui_native: a pass's depth target (window_pass: on a window texture)
 float render_scale();                                   // [gfx] render_scale (1 until known)
 float tex_scale(Texture* t);                            // the image size over the NVN size (1 for most textures)
 VkExtent3D tex_image_extent(Texture* t, uint32_t level = 0);   // the image's own size (tex_extent times tex_scale)
@@ -338,6 +348,8 @@ uint64_t tex_write_gen(Texture* t, uint32_t level);
 // Remakes the image with VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT (content copied over) unless it has it. Once per image; false
 // when the image cannot have it (the caller keeps the feedback copy). No render pass open.
 bool tex_enable_feedback_loop(Texture* t, Frame& f);
+bool tex_enable_storage(Texture* t, Frame& f);   // [gfx] storage_lazy: the image remade with storage usage (true when it has it)
+bool tex_storage_lazy(Texture* t);               // storage usage would be added on first storage use
 bool tex_has_feedback_loop(Texture* t);
 // tex_ensure_current would do nothing: the image holds the newest content (rendered or uploaded, the CPU did not write since).
 bool tex_current_on_gpu(Texture* t);
@@ -509,6 +521,13 @@ inline PoolReason pool_reason() { return t_pool_reason; }
 // one about to wait in the frame limiter). No-ops when one_submit is off.
 void present_take_parked();
 void present_give_back();
+// The slots' upload rings (nvn_gpu_upload_ring.cpp): the ring size ([nvn] upload_slot_kb), its buffer usage, the use of a slot's ring at
+// each acquire (peak, histogram, a log line every 5000), and an upload that missed the ring and took a staging buffer (count, then time).
+VkDeviceSize upload_ring_bytes();
+VkBufferUsageFlags upload_ring_usage();
+void upload_ring_note(VkDeviceSize used);
+void upload_ring_overflow_begin();
+void upload_ring_overflow_end(uint64_t ns);
 
 }  // namespace nxrt::nvn::be::gpu
 

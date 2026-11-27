@@ -36,7 +36,8 @@ constexpr game::ToneMapMatch kToneMaps[] = {
 // clustered light lists, is four variants here: 0f9696499923d6d3, 95a73c014ee1eb95, 99a5312bd3dbfc27 and b81c48ff486acef4, each with
 // loops to c3 words 12 and 13 (compared as unsigned) over cp_t_cb0_10 and cp_t_cb0_12, one texel an item. An RTX 3060 log that fell to
 // 3 fps after 8 minutes (#309) loads 95a73c01 and b81c48ff. Their third (2cb5df5c, a loop bound held in a variable) has no match found
-// here yet.
+// here yet. An RTX 4060 (driver 621.14) still lost the device in a 16x16-group dispatch of 3a718dcc with its table-size guard on: the
+// table is the whole texel buffer bound, so the guard also stops at 16384 items (in play the walk is 8).
 constexpr game::LoopGuard kLoopGuards[] = {
     {"3a718dcc49952e74", "cp_c3", 0, "cp_t_cb0_10", 5},
     {"dc36e3636f3c2221", "cp_c3", 0, "cp_t_cb0_10", 5},
@@ -81,9 +82,24 @@ constexpr const char* kSquareQuadFs = "eaa545bbb9251212";
 constexpr const char* kMarkerVs = "8ef279a6af886a66";
 constexpr const char* kMarkerFs = "bd95575680cf77b1";
 
+// Compute variants (game::ComputeVariant). 3a718dcc49952e74: 32x32 groups over a 512x512 grid of 5-word storage cells, each cell from
+// WorkgroupId * 32 + LocalInvocationId only, no shared memory or subgroup operation. 62619a57fc0feb43, the exposure histogram: 8x8 lanes,
+// lane (x, y) owns bin 8y+x of the shared histogram after the last barrier and adds it to the storage histogram at 4 * bin past a uniform
+// base; two lanes of a group never share an address (offsets differ by 4..252), so the translated same-address subgroup reduction's vote is
+// never true for more than one lane and the per-lane atomic it falls back to adds the same counts.
+constexpr game::ComputeVariant kComputeVariants[] = {
+    {"3a718dcc49952e74", game::ComputeVariantKind::Retile},
+    {"62619a57fc0feb43", game::ComputeVariantKind::VoteAllFalse},
+};
+
+// [gfx] shadow_half: the game's 2048x2048 shadow map holds two cascades, the near one in the top half and the far one in the bottom half.
+// Standing still the far half changes in about 0.01 % of its texels from frame to frame, the near half in 2-3 % (animated casters).
+constexpr game::ShadowHalves kShadowHalves = {true};
+
 constexpr game::Render kRender = {&kReadbackDefer, &kCamera, kToneMaps, sizeof kToneMaps / sizeof kToneMaps[0],
                                   kLoopGuards, sizeof kLoopGuards / sizeof kLoopGuards[0], true, kSceneStretch, sizeof kSceneStretch / sizeof kSceneStretch[0], kSceneScaleMin,
-                                  kSquareQuadFs, kMarkerVs, kMarkerFs};
+                                  kSquareQuadFs, kMarkerVs, kMarkerFs, kComputeVariants, sizeof kComputeVariants / sizeof kComputeVariants[0],
+                                  &kShadowHalves};
 
 }  // namespace
 

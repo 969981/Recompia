@@ -117,6 +117,9 @@ bool load() {
     if (!config_has("nvn", "pass_barriers")) config_set("nvn", "pass_barriers", st.settings.display.fewer_gpu_waits ? "tracked" : "full");
     // Uniform snapshots: the file's choice becomes [nvn] uniform_snapshot unless the ini or the environment set it (read once, at the first uniform bind).
     if (!config_has("nvn", "uniform_snapshot")) config_set("nvn", "uniform_snapshot", st.settings.display.uniform_snapshot.c_str());
+    // Far shadows every other frame: the file's choice becomes [gfx] shadow_half unless the ini or the environment set it (read once, at
+    // the first draw; auto is the replay's default, phones only).
+    if (!config_has("gfx", "shadow_half")) config_set("gfx", "shadow_half", st.settings.display.shadow_half.c_str());
     // Prewarm: the file's choice becomes [nvn] prewarm unless the ini or the environment set it (read once, by the pipeline prewarm).
     if (!config_has("nvn", "prewarm")) config_set("nvn", "prewarm", st.settings.display.shader_prewarm ? "true" : "false");
     // ASTC texture quality: the file's choice becomes [gfx] astc_quality unless the ini or the environment set it (the texture back end reads it at its first ASTC texture).

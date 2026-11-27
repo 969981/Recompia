@@ -46,7 +46,7 @@ constexpr double kSampleStreakS = 30.0;     // GPU-bound under kSampleFps this l
 constexpr double kSampleFps = 55.0;
 constexpr double kSampleGapS = 120.0;
 constexpr int kSampleMax = 5;
-constexpr size_t kSampleRows = 10;
+constexpr size_t kSampleRows = facts::kPhone ? 64 : 10;   // a phone lists every pass kind ([prof] pass_sample_s)
 
 enum Cls : uint64_t { kFree = 0, kCapped, kUnfocused, kLong, kClasses };
 enum Verdict : int { kGpu = 0, kRender, kGame, kPaced, kVerdicts };

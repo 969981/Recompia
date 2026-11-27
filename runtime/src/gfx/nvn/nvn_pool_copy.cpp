@@ -36,6 +36,7 @@
 #include <vector>
 
 #include "nxrt/config.h"
+#include "nxrt/platform_facts.h"
 #include "nxrt/fault_guard.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/gauge.h"
@@ -121,6 +122,15 @@ const Cfg& cfg() {
         // an AHB cell is GPU memory the phone cannot swap, held whole while any byte of it is bound, and a range across two cells is
         // merged into one import (nvn_gpu_pool.cpp ahb_merge), so fewer, larger cells keep the merges and the fds down.
         r.cell = static_cast<uint64_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_cell_mb", pool_ahb_on() ? 4 : 2), 1, 1024)) << 20;
+        // Phones without pool_ahb: 512 KiB cells by default (with 32 MiB of spares, nvn_pool_stock.cpp: Tensor G2 outdoors, Graphics -560 MB)
+        if (facts::kPhone && !pool_ahb_on() && config_get_int("nvn", "pool_copy_cell_mb", 0) <= 0) r.cell = 512ull << 10;
+        // [nvn] pool_copy_cell_kb (256..1048576, a power of two; wins over pool_copy_cell_mb): cells below 1 MiB, for less shadow memory
+        // that holds no copy (2 MiB cells: 440 MiB live of which 145 MiB held a copy, Tensor G2).
+        if (const int64_t kb = config_get_int("nvn", "pool_copy_cell_kb", 0); kb > 0) {
+            uint64_t c = 256ull << 10;
+            while (c < (static_cast<uint64_t>(kb) << 10) && c < (1ull << 30)) c <<= 1;
+            r.cell = c;
+        }
         r.idle = static_cast<uint32_t>(std::clamp<int64_t>(config_get_int("nvn", "pool_copy_idle", 600), 0, 1 << 30));
         // Default: 1536 MiB, or an eighth of the RAM Windows sees when that is less. The shadows are system RAM; at 1536 MiB an 8 GB laptop
         // (about 6 GB seen, the rest reserved for its integrated GPU) ran out of memory in the first area and was ended with 0xC0000409.
@@ -148,9 +158,9 @@ void log_cfg(const Cfg& c, bool on) {
 #endif
         NXLOG_I(kTag, "pool_copy %s (%s%s)", on ? "on" : "off", c.mode.c_str(), why);
         if (on)
-            NXLOG_I(kTag, "pool_copy: shadows in cells of %llu MiB, dropped after %u idle presents, cap %llu MiB; pool_lazy, pool_lazy_chunk_mb, "
+            NXLOG_I(kTag, "pool_copy: shadows in cells of %llu KiB, dropped after %u idle presents, cap %llu MiB; pool_lazy, pool_lazy_chunk_mb, "
                           "pool_lazy_idle, pool_lazy_cpu_untile and compute_out_lazy are ignored",
-                    static_cast<unsigned long long>(c.cell >> 20), c.idle, static_cast<unsigned long long>(c.cap >> 20));
+                    static_cast<unsigned long long>(c.cell >> 10), c.idle, static_cast<unsigned long long>(c.cap >> 20));
         if (on)
             NXLOG_I(kTag, "pool_copy: a copy of a page serves %s", c.once_queued ? "every submission the game had queued when it was made (pool_copy_once_queued)"
                                                                                : "the submission being recorded only (pool_copy_once_queued off)");
@@ -444,6 +454,17 @@ static uint64_t copy_around(PoolGpu* g, PoolChunk* c, uint64_t p0, uint64_t p1) 
     return bytes;
 }
 
+// [nvn] pool_touch_mark (default on): a page the write tracker finds current at a bind is marked as serving every
+// submission queued so far, as a copy made then would be. A bind scans every page of its range (a 4 MiB storage buffer is 1024 pages), and
+// a current page cost three loads, one of them acquire, and a tracker call at every bind of every submission; marked, it costs one load
+// until the game queues a newer submission. A CPU write to a page after that belongs to a later submission (the game leaves the bytes of
+// a queued submission alone), which the mark does not cover; a GPU write recorded later through another shadow lowers the mark as it
+// lowers a copy's (stop_serving). Render thread only, as every page_copied write.
+static bool touch_mark() {
+    static const bool on = config_get_bool("nvn", "pool_touch_mark", true);
+    return on;
+}
+
 void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
     const uint64_t cend = c->off + c->size;
     if (off < c->off || off >= cend) return;
@@ -466,11 +487,17 @@ void pcopy_touch(PoolGpu* g, PoolChunk* c, uint64_t off, uint64_t size) {
     // memory is the better source.
     // ... or (0 too) the CPU has not written the page since this chunk copied it (the write tracker; render thread only).
     PoolTrack* const trk = rt ? g->track : nullptr;
+    const bool mark = trk && cur && touch_mark();
     const auto need = [&](uint64_t p) -> int {
         const uint64_t pc = c->page_copied[static_cast<size_t>(p)];
         if (cur && pc > cur) return 0;
         if (g->page_gpu[static_cast<size_t>(pbase + p)].load(std::memory_order_acquire) > done && (!rt || pc != 0)) return 2;
-        if (trk && ptrack_current(trk, pbase + p, c->page_gen[static_cast<size_t>(p)])) return 0;
+        if (trk && ptrack_current(trk, pbase + p, c->page_gen[static_cast<size_t>(p)])) {
+            // [nvn] pool_touch_mark: the copy is current for every submission queued so far (the argument of pool_copy_once_queued),
+            // so the next touch of this page before a newer submission is queued takes the first test above instead of these three
+            if (mark && pc < through + 1) c->page_copied[static_cast<size_t>(p)] = through + 1;
+            return 0;
+        }
         return 1;
     };
     const uint32_t frame = static_cast<uint32_t>(counters().presents.load(std::memory_order_relaxed));

@@ -52,8 +52,12 @@ struct CoopLaunch {
 // (pkp_coop_party_table.inc, the predicate and leader rows), and the story flags are the group's (pkp_coop_story_flags.cpp); a
 // build without them would offer the talks of somebody else's creature, and neither send its flag sets to the authority nor take
 // the authority's flags, so its records would go another way than the group's.
+// 12: co-op stage mode (pkp_coop_stage.cpp): every process uses Cloud Island's record set for the talk record's talk fields, the
+// authority's seeded from its own records and a member's from the authority's StageTable; a build without it reads and writes those
+// fields in its own records (a member: its copy of the host's), so the two would keep a creature's walk-up timer and event-talk flag
+// in different records, and its authority would never answer a member's StageAsk.
 // The launcher knows the "Recompia co-op rules" prefix.
-inline constexpr const char* kCoopRules = "Recompia co-op rules 11";
+inline constexpr const char* kCoopRules = "Recompia co-op rules 12";
 
 // Pure: the launch's co-op facts from the settings' text. False when a value is missing or malformed, with the reason in *why.
 bool coop_launch_parse(const std::string& role, const std::string& group, const std::string& member, CoopLaunch* out, const char** why);

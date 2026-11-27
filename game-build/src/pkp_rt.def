@@ -16,3 +16,7 @@ EXPORTS
     nx_hook_entry
     stx_diag
     nx_catch_call
+    nx_fn_slots DATA
+    nx_fn_index
+    nx_import_leaf
+    nx_import_epoch_word DATA

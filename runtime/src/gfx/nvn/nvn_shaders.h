@@ -359,6 +359,7 @@ private:
     struct PackEntry {
         uint64_t offset;
         uint32_t csize, usize;
+        uint32_t slot;   // position in the pack's index (the reflection catalogue's index)
     };
     void pack_open();                                                  // open(), lock_ held
     bool pack_read(const std::string& hash, std::string& out);         // the pack's frame, stale or not; any thread, no lock
@@ -378,6 +379,23 @@ private:
     BigThread pack_prefetch_thread_, pack_build_thread_;
     std::atomic<int> pre_live_{0};                                     // preload workers still running
     std::atomic<uint64_t> pre_from_pack_{0}, pre_from_files_{0};       // .spv reads served by the pack / by separate files
+
+    // The reflection catalogue (<dir>.preload.pack.refl, nvn_shaders_refl.cpp): reflect_spirv's result for each
+    // entry of this exact preload.pack, so a launch neither decompresses nor walks the pack's 1.1 GiB of words to reflect them.
+    void cat_open();                                                   // pack_open(), lock_ held
+    std::unique_ptr<Preloaded> cat_preload(const std::string& hash, const std::string* record);   // null: not in it (or off)
+    void cat_note(const std::string& hash, const ShaderReflection& refl);   // a pack entry reflected by the parser
+    bool cat_has(const std::string& hash) const;
+    void cat_write();                                                  // preload_done(): new records, if any
+    uint64_t pack_digest_ = 0, pack_size_ = 0;                         // the pack's generation: FNV-1a 64 of its index, its size
+    uint32_t pack_count_ = 0;
+    std::string cat_bytes_;                                            // the catalogue file; set in open(), then read-only
+    std::vector<uint32_t> cat_index_;                                  // pack slot -> record (~0u: none); set in open()
+    std::vector<uint32_t> cat_offs_;                                   // record -> offset in cat_bytes_, one past the last at the end
+    bool cat_on_ = false;
+    std::mutex cat_mu_;
+    std::unordered_map<uint32_t, std::string> cat_new_;               // pack slot -> serialized record, reflected this run (cat_mu_)
+    std::atomic<uint64_t> cat_hits_{0};
     uint64_t pre_start_ms_ = 0;
 
     // The shader archive (<dir>.archive/NNNNNN.pack, nvn_shaders.cpp "the shader archive"): every translated shader in a few compressed

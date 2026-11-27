@@ -25,6 +25,7 @@ struct PassStats {
 };
 PassStats g_ps;
 }  // namespace
+static uint64_t g_keep_breaks = 0;   // [prof] pass_stats: [gfx] edge_lazy, passes ended by a draw or clear past the part
 
 void pass_stats_discard(bool depth) { (depth ? g_ps.discard_d : g_ps.discard_c)++; }
 
@@ -68,6 +69,11 @@ static void pass_stats_end() {
                 static_cast<unsigned long long>(frames), s.passes / f, s.empty / f, s.fbl / f, s.ro / f, s.layered / f, s.draws / f, s.color_att / f, s.color_load / f,
                 s.depth_att / f, s.depth_load / f, s.px_color / f / 1e6, s.px_depth / f / 1e6, s.px_load / f / 1e6, s.clears_first / f, s.clears_mid / f, s.dclears / f,
                 s.discard_c / f, s.discard_d / f);
+        uint64_t es = 0, ed = 0;
+        edge_lazy_stats(&es, &ed);
+        NXLOG_I("nvn.passes", "edge_lazy, per frame: guards replaced by a later pass's %.1f, recorded %.1f, passes ended by a draw past the part %.1f", es / f,
+                ed / f, g_keep_breaks / f);
+        g_keep_breaks = 0;
         s = PassStats();
         s.first_present = now;
         s.listed_frame = now + 150;   // list the passes of one frame in the middle of the next window (level 2)
@@ -206,8 +212,24 @@ float attach_targets(bool fix) {
     float lo = 0.0f, hi = 0.0f;
     // [gfx] ui_native: a pass on a window texture brings its other attachments (the 2D's depth buffer) to the window texture's scale
     float ui = 0.0f;
-    for (uint32_t i = 0; i < n && ui == 0.0f; ++i) ui = ui_native_scale(*ts[i]);
-    if (ui > 0.0f && fix && S.depth_tex) ui_native_note_depth(*S.depth_tex);
+    if constexpr (facts::kPhone) {
+        for (uint32_t i = 0; i < n && ui == 0.0f; ++i) ui = ui_native_scale(*ts[i]);
+        if (ui > 0.0f && fix && S.depth_tex) ui_native_note_depth(*S.depth_tex, true);
+    } else {
+        // Desktop: the window texture is a colour target. A pass with only a depth target keeps the scale that depth target has (a 2D
+        // depth clear); a pass with colour notes its depth target on the side of its colour, and a depth target found on both sides turns
+        // ui_native off for the run (ui_native_note_depth): every scale here is the render scale again.
+        const uint32_t ncol = S.depth_tex ? n - 1 : n;
+        for (uint32_t i = 0; i < ncol && ui == 0.0f; ++i) ui = ui_native_scale(*ts[i]);
+        if (ncol == 0 && S.depth_tex) ui = ui_native_scale(*S.depth_tex);
+        else if (fix && S.depth_tex) {
+            ui_native_note_depth(*S.depth_tex, ui > 0.0f);
+            if (ui > 0.0f) {   // 0 when the note found the depth target in 3D passes too
+                ui = 0.0f;
+                for (uint32_t i = 0; i < ncol && ui == 0.0f; ++i) ui = ui_native_scale(*ts[i]);
+            }
+        }
+    }
     for (uint32_t i = 0; i < n; ++i) {
         if (!tex_gpu_attachment(ts[i])) continue;
         if (fix) {
@@ -273,6 +295,13 @@ bool clear_fold_on() {
 }
 void pass_flush() {
     if (!P.deferred) return;
+    if constexpr (facts::kPhone) {   // [gfx] edge_lazy: a waiting guard of an attachment goes first unless the pass keeps to the part
+        if (edge_lazy_pending())
+            for (uint32_t i = 0; i < P.ncolor && i < 8; ++i)
+                if (P.att_c[i].imageView && edge_before_begin(P.color[i].tex, P.area, P.area_known, &P.keep,
+                                                                P.att_c[i].loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR))
+                    tex_transition_attach(P.color[i].tex, *F, color_layout(P.fbl, i), P.color[i].level);
+    }
     P.deferred = false;
     VkRenderingInfo ri = P.ri;
     ri.pColorAttachments = P.att_c;
@@ -324,7 +353,12 @@ struct PendingClear {
 static std::vector<PendingClear> g_pc;
 static uint64_t g_pc_taken = 0, g_pc_recorded = 0, g_pc_carried = 0;   // [prof] pass_stats: carried clears taken by a pass's begin / recorded alone
 static void touch_hook(Frame& f, TexGpu* g);
-static void pc_sync_hook() { g_tex_touch_hook = g_pc.empty() ? nullptr : &touch_hook; }
+static void pc_sync_hook() {
+    bool lazy = false;
+    if constexpr (facts::kPhone) lazy = edge_lazy_pending();
+    g_tex_touch_hook = g_pc.empty() && !lazy ? nullptr : &touch_hook;
+}
+void touch_hook_sync() { pc_sync_hook(); }
 bool clear_carry_on() {
     static const bool v = clear_fold_on() && nxrt::config_get_bool("nvn", "clear_carry", host_is_phone());
     return v;
@@ -352,6 +386,8 @@ static void record_clear(VkCommandBuffer cb, const PendingClear& c) {
     memory_barrier(cb);
 }
 static void touch_hook(Frame& f, TexGpu* g) {
+    const BarrierBatchPause pause(f.cb);   // its guard copies and clear passes come after the barriers collected so far
+    if constexpr (facts::kPhone) edge_touch(g);   // [gfx] edge_lazy: the guard before anything else uses the image
     for (size_t i = 0; i < g_pc.size();) {
         if (g_pc[i].g == g) {
             record_clear(f.cb, g_pc[i]);
@@ -375,6 +411,7 @@ void pending_clears_flush_all() {
             since = now;
         }
     }
+    if constexpr (facts::kPhone) edge_flush_all();   // [gfx] edge_lazy
     if (g_pc.empty()) return;
     for (const PendingClear& c : g_pc) record_clear(F->cb, c);
     g_pc.clear();
@@ -452,6 +489,45 @@ static void take_carried(VkRenderingAttachmentInfo* colors, VkRenderingAttachmen
     pc_sync_hook();
 }
 
+// ---- [gfx] edge_lazy: the area a draw can write ------------------------------------------------------------------------------
+// Viewport 0 (the translated shaders never pick another, and a primitive is clipped to it) rounded outwards, within scissor 0, clamped to
+// the pass's extent.
+static VkRect2D draw_area() {
+    const int32_t W = static_cast<int32_t>(P.extent.width), H = static_cast<int32_t>(P.extent.height);
+    int32_t x0 = 0, y0 = 0, x1 = W, y1 = H;
+    if (S.nvp) {
+        const VkViewport v = vk_viewport_of(S.vp[0][0], S.vp[0][1], S.vp[0][2], S.vp[0][3], 0);
+        x0 = static_cast<int32_t>(std::floor(std::min(v.x, v.x + v.width)));
+        y0 = static_cast<int32_t>(std::floor(std::min(v.y, v.y + v.height)));
+        x1 = static_cast<int32_t>(std::ceil(std::max(v.x, v.x + v.width)));
+        y1 = static_cast<int32_t>(std::ceil(std::max(v.y, v.y + v.height)));
+    }
+    if (S.nsc) {
+        const VkRect2D sc = scissor_rect(S.sc[0]);
+        x0 = std::max(x0, sc.offset.x);
+        y0 = std::max(y0, sc.offset.y);
+        x1 = std::min(x1, sc.offset.x + static_cast<int32_t>(sc.extent.width));
+        y1 = std::min(y1, sc.offset.y + static_cast<int32_t>(sc.extent.height));
+    }
+    x0 = std::clamp(x0, 0, W);
+    y0 = std::clamp(y0, 0, H);
+    x1 = std::clamp(x1, x0, W);
+    y1 = std::clamp(y1, y0, H);
+    return {{x0, y0}, {static_cast<uint32_t>(x1 - x0), static_cast<uint32_t>(y1 - y0)}};
+}
+static bool area_inside(const VkRect2D& a, const VkRect2D& b) {   // a within b
+    return a.offset.x >= b.offset.x && a.offset.y >= b.offset.y &&
+           a.offset.x + static_cast<int64_t>(a.extent.width) <= b.offset.x + static_cast<int64_t>(b.extent.width) &&
+           a.offset.y + static_cast<int64_t>(a.extent.height) <= b.offset.y + static_cast<int64_t>(b.extent.height);
+}
+// A pass begun by a draw: that draw's area, for edge_before_begin.
+static void note_first_area() {
+    if constexpr (facts::kPhone) {
+        P.area = draw_area();
+        P.area_known = true;
+    }
+}
+
 bool ensure_pass_for_clear() {
     g_for_clear = true;
     const bool ok = ensure_pass();
@@ -464,11 +540,17 @@ bool ensure_pass_for_clear() {
 bool ensure_pass(bool depth_ro, uint8_t fbl) {
     // Every draw comes through here. The targets are compared only after a SetRenderTargets (the game often sets the ones it has): a
     // target is made from S's target fields, which only that op writes, and from fields of the texture that never change after its init.
-    if (P.open && P.depth_ro == depth_ro && P.fbl == fbl && (P.targets_gen == S.targets_gen || targets_match())) {
+    // [gfx] edge_lazy: a pass that let a guard wait must keep to the part; a draw or clear past it ends the pass (the guard goes first then)
+    const bool past = P.keep.extent.width && (g_for_clear || !area_inside(draw_area(), P.keep));
+    if (P.open && P.depth_ro == depth_ro && P.fbl == fbl && (P.targets_gen == S.targets_gen || targets_match()) && !past) {
         P.targets_gen = S.targets_gen;
-        if (P.deferred && !g_for_clear) pass_flush();
+        if (P.deferred && !g_for_clear) {
+            note_first_area();
+            pass_flush();
+        }
         return true;
     }
+    if (P.open && past) ++g_keep_breaks;
     static const bool report_registered = (diag_add_report(pass_report), true);   // crash report and freeze dump
     (void)report_registered;
     end_pass(true);
@@ -590,7 +672,10 @@ bool ensure_pass(bool depth_ro, uint8_t fbl) {
         P.ri = ri;
         P.deferred = true;
         P.open = true;
-        if (!g_for_clear) pass_flush();
+        if (!g_for_clear) {
+            note_first_area();                   // [gfx] edge_lazy
+            pass_flush();
+        }
     } else {
         vkCmdBeginRendering(F->cb, &ri);
         P.open = true;

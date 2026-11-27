@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Compute in the replay: compute shadows and held compute results ("compute out"), async-compute skipping, dispatches.
 #include "nvn_replay_internal.h"
+#include <cstdio>
+#include "nxrt/game_render.h"
+#include "nxrt/game.h"
 
 namespace nxrt::nvn::be::gpu {
 namespace replay {
@@ -383,6 +386,39 @@ static bool dispatch_cpu_blind(const ProgLayout& pl) {
     return true;
 }
 
+// The game's compute variants (game::ComputeVariant): [nvn] cs_vote (default on with subgroups >= 32 wide) runs a VoteAllFalse program as its
+// variant; [nvn] cs_retile (default off) runs a Retile program with [nvn] cs_retile_size workgroups (default 8x8). The
+// pipeline of the variant, with *fx / *fy the factors the group counts grow by; null: the program's own.
+static VkPipeline variant_pipeline(const ShaderInfo* cs, const ProgLayout& pl, uint32_t* fx, uint32_t* fy) {
+    static std::unordered_map<const ShaderInfo*, int> kind_of;   // -1: no variant
+    auto it = kind_of.find(cs);
+    if (it == kind_of.end()) {
+        int k = -1;
+        if (const game::Render* gr = game::info().render)
+            for (uint32_t i = 0; i < gr->cs_variant_count; ++i)
+                if (cs->hash == gr->cs_variants[i].shader) k = static_cast<int>(gr->cs_variants[i].kind);
+        it = kind_of.emplace(cs, k).first;
+    }
+    if (it->second < 0) return VK_NULL_HANDLE;
+    if (it->second == static_cast<int>(game::ComputeVariantKind::VoteAllFalse)) {
+        // Default on only where the hardware subgroups are at least 32 wide: on Mali's 16-wide subgroups (the 32-lane emulation) one
+        // histogram in 6 differed from the original's on a Tensor G2 / Mali-G710 (Adreno 58/58 and RADV 237/237 identical), and the
+        // dispatch costs 0.3 ms there.
+        static const bool on = config_get_bool("nvn", "cs_vote", device().limits_ext().subgroup_size >= 32);
+        return on ? compute_variant_pipeline(cs, pl, it->second, 0, 0, fx, fy) : VK_NULL_HANDLE;
+    }
+    static const bool on = config_get_bool("nvn", "cs_retile", false);
+    static uint32_t tx = 8, ty = 8;
+    static const bool size_read = [] {
+        const std::string v = config_get_str("nvn", "cs_retile_size", "8x8");
+        unsigned a = 0, b = 0;
+        if (std::sscanf(v.c_str(), "%ux%u", &a, &b) == 2 && a && b) { tx = a; ty = b; }
+        return true;
+    }();
+    (void)size_read;
+    return on ? compute_variant_pipeline(cs, pl, it->second, tx, ty, fx, fy) : VK_NULL_HANDLE;
+}
+
 void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
     RpScope rp_all(kRpDispatch);
     const ShaderInfo* cs = S.stage[kCompute];
@@ -409,6 +445,14 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
     }
     VkPipeline pipe = compute_pipeline(cs, *pl);
     if (!pipe) return;
+    uint32_t vfx = 1, vfy = 1;
+    if (!indirect) {
+        const VkPhysicalDeviceLimits& lim = device().properties().limits;
+        if (VkPipeline vp = variant_pipeline(cs, *pl, &vfx, &vfy); vp && uint64_t{x} * vfx <= lim.maxComputeWorkGroupCount[0] &&
+                                                                  uint64_t{y} * vfy <= lim.maxComputeWorkGroupCount[1])
+            pipe = vp;
+        else vfx = vfy = 1;
+    }
     vkCmdBindPipeline(F->cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipe);
     g_cmd.bound_pipeline = VK_NULL_HANDLE;
     g_csr_scale = indirect ? 1.0f : csr_scale_for(*pl);   // a game's screen-space reduction over a scaled image (gfx::Tuning::csr_*)
@@ -422,8 +466,11 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
         memory_barrier(F->cb);     // the copies into the shadows before the dispatch reads them
         gstamp("shadow in");
     }
-    // [gfx] gpu_checkpoints: a checkpoint before the dispatch names it (shader, groups or the guest address of indirect arguments) if the
-    // device is lost while it runs. One compare when off or without NVIDIA's extension.
+    // The submission's work log names the dispatch (shader, groups or the guest address of indirect arguments) in the device-lost log and
+    // the freeze dump while the GPU has not finished it, on every vendor. [gfx] gpu_checkpoints: a checkpoint before it says how far the
+    // GPU got (one compare when off or without NVIDIA's extension).
+    if (indirect) F->work->dispatch(cs->hash, static_cast<uint32_t>(indirect), static_cast<uint32_t>(indirect >> 32), 0, true);
+    else F->work->dispatch(cs->hash, x, y, z, false);
     if (device().checkpoints_on(gfx::Device::Checkpoint::Dispatch)) {
         if (indirect) device().checkpoint(F->cb, gfx::Device::Checkpoint::Dispatch, &cs->hash, nullptr, static_cast<uint32_t>(indirect),
                                           static_cast<uint32_t>(indirect >> 32), 0, true);
@@ -439,7 +486,7 @@ void do_dispatch(uint32_t x, uint32_t y, uint32_t z, uint64_t indirect) {
             if (!told) { told = true; NXLOG_I(kTag, "compute: %s dispatched over its scaled image: %ux%u groups (scale %.3f)", cs->hash.c_str(), x, y, g_csr_scale); }
             g_csr_scale = 1.0f;
         }
-        vkCmdDispatch(F->cb, x, y, z);
+        vkCmdDispatch(F->cb, x * vfx, y * vfy, z);   // a retiled variant: the same grid in smaller groups
         if (gpass_on()) gstamp(("cs " + cs->hash.substr(0, 8)).c_str());
     }
     shadows_after_dispatch();

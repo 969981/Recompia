@@ -23,6 +23,7 @@
 #include "nxrt/log.h"
 #include "nxrt/perf_report.h"
 #include "nxrt/platform_facts.h"
+#include "nxrt/qpc.h"
 #include "vk_gauges.h"
 
 namespace nxrt::nvn::be::gpu::timing {
@@ -61,6 +62,8 @@ struct Timing {
     bool report_exec = false;          // discrete GPU, report on: GPU busy time
     bool trace_passes = false;         // frame trace + [prof] gpu_passes: every submission stamped, gp:<label> events
     bool sampling = false;             // report pass samples (report_exec without trace_passes)
+    double sample_every_s = 0.0;       // a phone: [prof] pass_sample_s, a pass sample every that many seconds (no report needed)
+    double last_sample_s = 0.0;
     std::vector<SlotTiming> slot;
     std::atomic<bool> recording_profiled{false};
     uint64_t busy_end = 0;             // GPU ticks: the end of the last collected exec pair
@@ -98,7 +101,10 @@ bool sample_this(Timing& t) {
     const uint64_t f = perf::frame_index();
     switch (t.state) {
         case Sample::Idle:
-            if (!perf::pass_sample_take()) return false;
+            if (!perf::pass_sample_take()) {
+                if (t.sample_every_s <= 0.0 || qpc::seconds() - t.last_sample_s < t.sample_every_s) return false;
+                t.last_sample_s = qpc::seconds();
+            }
             if (!t.gpool && !make_pool(t, t.slots * kGpMax, &t.gpool)) return false;
             t.state = Sample::Waiting;
             t.sample_frame = f;
@@ -142,6 +148,14 @@ void init(gfx::Device& dev, uint32_t slots) {
     }
     if (t->trace_passes && !make_pool(*t, slots * kGpMax, &t->gpool)) t->trace_passes = false;
     t->sampling = t->report_exec && !t->trace_passes;
+    if constexpr (facts::kPhone) {
+        // [prof] pass_sample_s = N: the report's one-frame pass sample every N seconds, logged as "GPU pass sample" (every pass kind)
+        const int64_t every = config_get_int("prof", "pass_sample_s", 0);
+        if (every > 0 && dev.timestamps_supported() && !t->trace_passes) {
+            t->sample_every_s = static_cast<double>(every);
+            t->sampling = true;
+        }
+    }
     perf::set_gpu_timing(t->report_exec);
     if (perf::enabled())
         NXLOG_I(kTag, "performance report: %s", t->report_exec ? "GPU busy time from two timestamps per submission; a one-frame pass sample when the frame rate is GPU-bound (discrete GPU)"

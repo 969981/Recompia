@@ -33,6 +33,7 @@
 #include "nxrt/gauge.h"
 #include "nxrt/kernel.h"
 #include "nxrt/log.h"
+#include "nxrt/platform_facts.h"
 #include "nxrt/qpc.h"
 
 namespace nxrt::kernel {
@@ -47,9 +48,18 @@ std::vector<KThread*> g_cv_waiters;      // waiting on a process-wide key
 std::vector<KThread*> g_addr_waiters;    // WaitForAddress
 
 // [kernel] sync_wait (above), [kernel] sync_spin_us, [diag] sync_stats; read once, at the first kernel sync call.
-// sync_spin_us (default 0 = none, 200 at most; address only): before a thread blocks it watches its park word for that long in a pause
-// loop. Off by default: on a machine whose processors are all busy the spin takes time from a thread that has work, and on SMT from the
-// sibling thread of its core.
+// sync_spin_us (200 at most; address only): before a thread blocks it watches its park word for that long in a pause loop. On a machine whose
+// processors are all busy the spin takes time from a thread that has work, and on SMT from the sibling thread of its core.
+// Defaults: Linux and Android wait on an address (the futex; the shim's condition variable woke a thread through a second sleep on the kernel
+// lock), phones also spin 50 us first (a worker thread that sleeps and wakes often is mostly woken within tens of microseconds, and a
+// phone has idle little cores). Snapdragon 8 Gen 3, Res 15, live A/B, 12 pairs: +14.5 % fps, process CPU -4.5 % per
+// frame; desktop Linux (address alone): +3.3 % fps. Windows (and so Proton) keeps cv.
+#if defined(__linux__)
+constexpr const char* kSyncWaitDefault = "address";
+#else
+constexpr const char* kSyncWaitDefault = "cv";
+#endif
+constexpr int64_t kSyncSpinUsDefault = facts::kPhone ? 50 : 0;
 struct SyncCfg {
     bool address = false;
     int64_t spin_ns = 0;
@@ -58,10 +68,10 @@ struct SyncCfg {
 const SyncCfg& sync_cfg() {
     static const SyncCfg cfg = [] {
         SyncCfg c;
-        const std::string m = config_get_str("kernel", "sync_wait", "cv");
+        const std::string m = config_get_str("kernel", "sync_wait", kSyncWaitDefault);
         const bool want = m == "address";
         c.address = want && address_wait_available();
-        if (c.address) c.spin_ns = std::clamp<int64_t>(config_get_int("kernel", "sync_spin_us", 0), 0, 200) * 1000;
+        if (c.address) c.spin_ns = std::clamp<int64_t>(config_get_int("kernel", "sync_spin_us", kSyncSpinUsDefault), 0, 200) * 1000;
         c.stats = config_get_bool("diag", "sync_stats", false);
         if (c.address)
             NXLOG_I("kernel", "guest waits: on an address ([kernel] sync_wait = address): woken after the kernel lock is released, a woken thread returns without the lock; spin before blocking %lld us ([kernel] sync_spin_us)",

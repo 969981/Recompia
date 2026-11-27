@@ -346,6 +346,23 @@ constexpr uint64_t kPlayedScenes = 0x4a2cec;        // save root +: m_playedCont
 // ---- co-op, a creature's talk record (pkp_coop_talkrec.cpp): 0x38 bytes per chara (< kFriendCount), save root + ----
 constexpr uint64_t kTalkRecOwn = 0x93ba0, kTalkRecHostCopy = 0x15567a8, kTalkRecCloud = 0xae5138, kTalkRecSize = 0x38;
 constexpr uint64_t kTalkRecArmed = 0x10;   // u8, set by script callback slot 195 (0x4ae68c), read by conditions 29 / 31 of main+0x34c3060
+// talk record + : m_TalkComponentSaveParam (+8 f32 walk-up timer, +0xc u16, +0xe / +0xf / +0x10 / +0x11 u8, +0x12 pad); the story
+// skit fields follow from +0x14 (serializer 0x5eb6c0)
+constexpr uint64_t kTalkRecParams = 0x8, kTalkRecParamBytes = 0xc;
+// ---- co-op stage mode (pkp_coop_stage.cpp): the save and area-load points of Cloud Island's record set (m_saveStage, STGDAT) ----
+// The pre-save fixups (R): called by the autosave snapshot 0x5ae428 (game thread) and by the serialize 0x5aa0e0 for every save type
+// but 5 (TaskMgr thread), before either copies the save data.
+constexpr uint64_t kPreSave = 0x5aa8b8;
+// The save request (MGR, req*, mode, flag), game thread: the type-5 CMNDAT saves (menu save, save_now, the pause menu's Save and
+// Quit), which 0x5aa0e0 later serializes from live data without the pre-save fixups.
+constexpr uint64_t kSaveRequest = 0x241324;
+// A stage data load posted (job, &GM+0x18, mode, slot), from the loader 0x241b20 (0x241cf0 / 0x241e14) and the boot load 0x2458c0:
+// mode 0 with the entry kind (x1 + kLoadEntryKind, GM+0x24) 1 reads a visited area's STGDAT, which replaces all of m_saveStage, the
+// Cloud set included. u8 [x1] is the load's stage.
+constexpr uint64_t kLoadJob = 0x5a8748;
+constexpr uint64_t kLoadEntryKind = 0xc;
+// The post-STGDAT-load fix-up (R), called from stage start 0xb2920 (at 0xb29d4) only when GM+0x24 == 1, before the actors spawn.
+constexpr uint64_t kLoadFixup = 0x5af540;
 // ---- a dropped player is waited for (pkp_coop_drop.cpp; modding-docs coop-session/LEAVE-DOORS-RE.md, DISCONNECT-RE.md) ----
 // The trip filers (main offsets of their entries): 0xbd45c(record, reason, member, flag) files a leave or a send-home, 0xbdc68(record)
 // the host's Close the Connection; both file only while the record's u32 phase (game state + kTripRecord) is >= kTripRecordReady.
