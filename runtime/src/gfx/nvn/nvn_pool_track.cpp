@@ -170,6 +170,10 @@ void ptrack_land_differs(PoolTrack* t, uint64_t first, uint64_t count) {
     g_land_differ.fetch_add(count, std::memory_order_relaxed);
 }
 
+void ptrack_land_same(PoolTrack* t, uint64_t count) {
+    if (t && !t->stopped) g_land_kept.fetch_add(count, std::memory_order_relaxed);
+}
+
 PoolTrackStats ptrack_stats() {
     PoolTrackStats s;
     s.arms = g_arms.load(std::memory_order_relaxed);

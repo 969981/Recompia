@@ -31,7 +31,12 @@ const uint32_t kShader[] = {
 
 constexpr uint64_t kIdleAfterNs = 250ull * 1000 * 1000;      // stop this long after the last present
 constexpr uint64_t kReportNs = 10ull * 1000 * 1000 * 1000;   // one summary line every 10 s of running
-constexpr double kOffMs = 2.0;                                // the requested pause between dispatches (the measured one is used)
+// The requested pause between dispatches (the measured one is used); at the default 50 % duty the kernel runs as long. Short slices:
+// a GPU that takes turns between its queues (NVIDIA) can hold a frame's work behind a running keep-alive dispatch, and with 2 ms
+// slices a frame of 13-17 ms (60-75 Hz) can miss its refresh (an RTX 3060 under native Linux at 75 Hz logged present stalls of
+// 25-260 ms only with the keep-alive on). The driver's load measure sees the same share of time either way.
+constexpr double kOffMs = 0.5;
+constexpr double kOnMaxMs = 2.0;                              // the longest kernel time per dispatch (duty 100 %, or a long measured pause)
 constexpr uint32_t kMinIters = 1000, kMaxIters = 8u << 20;    // 8M iterations: ~6 ms at 2.8 GHz, well under a second at 210 MHz
 
 // A pause of about ms without spinning: a high-resolution waitable timer on Windows (Sleep would round up to the timer tick).
@@ -199,7 +204,7 @@ bool GpuKeepAlive::Impl::dispatch(uint32_t iters, double* gpu_ms) {
 void GpuKeepAlive::Impl::run() {
     log_set_thread_name("gpu-keepalive");
     uint32_t iters = 100000;
-    double on_ms = duty >= 1.0 ? 2.0 : kOffMs * duty / (1.0 - duty);   // kernel time per dispatch, steered so on / (on + off) = duty
+    double on_ms = duty >= 1.0 ? kOffMs : std::min(kOnMaxMs, kOffMs * duty / (1.0 - duty));   // kernel time per dispatch, steered so on / (on + off) = duty
     double off_avg_ms = kOffMs;
     bool active = false;
     uint64_t rep_t0 = 0, rep_n = 0;
@@ -237,7 +242,7 @@ void GpuKeepAlive::Impl::run() {
             pause_ms(kOffMs);
             off_ms = static_cast<double>(FrameLimiter::now_ns() - p0) * 1e-6;
             off_avg_ms = off_avg_ms * 0.9 + off_ms * 0.1;
-            on_ms = std::min(8.0, std::max(0.25, off_avg_ms * duty / (1.0 - duty)));
+            on_ms = std::min(kOnMaxMs, std::max(0.1, off_avg_ms * duty / (1.0 - duty)));
         }
         rep_n++;
         rep_on_ms += gpu_ms;
