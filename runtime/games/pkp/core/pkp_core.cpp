@@ -104,7 +104,7 @@ const game::Info& core_info() {
     static const game::Info info = [] {
         game::Info g = data_info();
         g.title_defaults = &title_defaults;
-#if NXRT_TESTTOOLS
+#if NXRT_TESTTOOLS || NXRT_TEST_SCRIPTS
         g.probes = &tt::pkp::pkp_game_probes();
 #endif
         g.poll_sleeps = kPollSleeps;

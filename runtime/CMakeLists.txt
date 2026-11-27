@@ -84,10 +84,16 @@ set(NXRT_GAMES "pkp" CACHE STRING "ids of the game modules to build (games/<id>/
 # builds without it and src/core/tt_off.cpp answers its entry points (everything off). Release packages turn it off (game-build: PKP_RELEASE).
 # Code outside the runtime library tests the compile definition NXRT_TESTTOOLS (0 or 1).
 option(NXRT_TESTTOOLS "Build the test tooling (src/testtools)" ON)
+# Scripted runs only (release packages, game-build: PKP_RELEASE): src/testtools is built so a [test] script plays (the optimized build's
+# play-test, game-build/release_b/pgo), and nothing else of the test tooling turns on: NXRT_TESTTOOLS stays 0 for every other source
+# (no test features, no co-op test channel), and tt_core.cpp init() turns on for a script only (record, replay, deterministic, trace
+# and enabled do not: NXRT_TT_SCRIPTS_ONLY). A game module may build its read-only state probes for script steps (@mashuntil ... until
+# area, state: NXRT_TEST_SCRIPTS=1). Without a [test] script the runtime is the same as with the tooling off.
+option(NXRT_TEST_SCRIPTS "With NXRT_TESTTOOLS off: build the test tooling for scripted runs only" OFF)
 
 file(GLOB_RECURSE NXRT_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 list(FILTER NXRT_SOURCES EXCLUDE REGEX "/src/gfx/")   # the graphics shell is its own library (cmake/gfx.cmake)
-if(NXRT_TESTTOOLS)
+if(NXRT_TESTTOOLS OR NXRT_TEST_SCRIPTS)
     list(FILTER NXRT_SOURCES EXCLUDE REGEX "/src/core/tt_off[.]cpp$")
 else()
     list(FILTER NXRT_SOURCES EXCLUDE REGEX "/src/testtools/")
@@ -120,6 +126,10 @@ endif()
 add_library(nxrt STATIC ${NXRT_SOURCES})
 target_include_directories(nxrt PUBLIC include)
 target_compile_definitions(nxrt PUBLIC NXRT_TESTTOOLS=$<BOOL:${NXRT_TESTTOOLS}>)
+target_compile_definitions(nxrt PUBLIC NXRT_TEST_SCRIPTS=$<BOOL:${NXRT_TEST_SCRIPTS}>)
+if(NOT NXRT_TESTTOOLS AND NXRT_TEST_SCRIPTS)
+    target_compile_definitions(nxrt PRIVATE NXRT_TT_SCRIPTS_ONLY=1)
+endif()
 if(NOT NXRT_WINDOWS)
     # The signal handler's thread-locals (t_guard, t_thread_name) must be a plain thread-pointer access: with the default
     # global-dynamic model the handler calls __tls_get_addr, which is not async-signal-safe, and the guarded-call machinery

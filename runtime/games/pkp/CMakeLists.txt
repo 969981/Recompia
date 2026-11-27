@@ -6,7 +6,7 @@
 set(_pkp "${CMAKE_CURRENT_SOURCE_DIR}")
 set(_rt "${PROJECT_SOURCE_DIR}")
 set(NXRT_GAME_PKP_INCLUDES "${_rt}/include" "${_rt}/games" "${_pkp}" "${_rt}/src/gfx" "${_rt}/src/gfx/play")
-if(NXRT_TESTTOOLS)
+if(NXRT_TESTTOOLS OR NXRT_TEST_SCRIPTS)
     list(APPEND NXRT_GAME_PKP_INCLUDES "${_rt}/src/testtools")   # test/pkp_tt_probe.cpp
 endif()
 
@@ -20,8 +20,10 @@ target_compile_definitions(nxrt_game_pkp_data PRIVATE PKP_GAMEPLAY_DEFAULTS_CHEC
 target_compile_features(nxrt_game_pkp_data PUBLIC cxx_std_20)
 
 add_library(nxrt_game_pkp_core STATIC "${_pkp}/core/pkp_core.cpp")
-if(NXRT_TESTTOOLS)
-    target_sources(nxrt_game_pkp_core PRIVATE "${_pkp}/test/pkp_tt_probe.cpp")   # the test tooling's probes (registered in pkp_core.cpp)
+if(NXRT_TESTTOOLS OR NXRT_TEST_SCRIPTS)
+    # the test tooling's read-only state probes (registered in pkp_core.cpp); release packages build them for scripted runs (the
+    # optimized build's play-test waits until the player is in the world and outdoors)
+    target_sources(nxrt_game_pkp_core PRIVATE "${_pkp}/test/pkp_tt_probe.cpp")
 endif()
 target_link_libraries(nxrt_game_pkp_core PUBLIC nxrt_game_pkp_data nxrt)
 
