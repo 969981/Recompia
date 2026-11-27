@@ -1,0 +1,157 @@
+# The play-test session of an optimized build (pkp_pgo.py): the test version of the game plays this on a COPY of the player's save
+# while it counts which code runs. Title -> Continue -> the world -> outdoors, then a tour: walk and run in every direction, turn the
+# camera, open and leave the menu. Grammar: runtime/include/nxrt/tt_script.h; the state steps read the game's probes
+# (runtime/games/pkp/test/pkp_tt_probe.cpp). Every wait that the tour needs is a state check: a run that never gets into the world,
+# that plays a save from before the first house, or that never gets outdoors fails (exit 1, pkp_pgo.off_track) and is never a
+# profile. The profile writer saves the counts every 10 s, so the run ends with a pause before @pass.
+@timeout 0
+@log PGO: start
+@sleep 30000
+press A
+@sleep 3000
+press A
+@sleep 3000
+press A
+@sleep 3000
+press A
+@sleep 3000
+press A
+@sleep 3000
+press A
+@sleep 3000
+press A
+@sleep 3000
+press A
+@sleep 3000
+press A
+@sleep 3000
+press A
+@sleep 3000
+# in the world: the game clock (the save's play time) only runs in play; 10 s of it within about 10 minutes of frames
+@run 10 timeout=36000
+@log PGO: in world
+# a save from before the first house plays the opening instead of the island: its tutorial history is still short (the game's own
+# m_tutorialHistory, probe `prog`: a new game reads 379 set bits, a save in its first house 496, a later one 615)
+@assert prog >= 440
+@sleep 10000
+# outdoors: building interiors lie far from the island (x about 94000, the island about -5000 to 0): walk down, then left, right and
+# up, pressing A for a door, until the player stands outdoors; never outdoors: no pass
+stick left 0 -1
+@mashuntil A every 90 until px < 50000 timeout=900 soft
+stick left -1 0
+@mashuntil A every 90 until px < 50000 timeout=600 soft
+stick left 1 0
+@mashuntil A every 90 until px < 50000 timeout=600 soft
+stick left 0 1
+@mashuntil A every 90 until px < 50000 timeout=600
+stick left 0 0
+@log PGO: outdoors
+press B
+@sleep 2000
+press B
+@sleep 4000
+@log PGO: tour 1
+stick left 0 1 for 240
+stick left 1 0 for 180
+stick left 0 -1 for 240
+stick left -1 0 for 180
+hold B
+stick left 0.7 0.7 for 180
+stick left -0.7 -0.7 for 180
+release B
+stick right 1 0 for 120
+stick right -1 0 for 240
+stick right 0 0.6 for 60
+stick right 0 -0.6 for 60
+press PLUS
+@sleep 3000
+press RIGHT
+@sleep 1500
+press RIGHT
+@sleep 1500
+press B
+@sleep 3000
+press X
+@sleep 3000
+press B
+@sleep 3000
+@log PGO: tour 2
+stick left 0 1 for 240
+stick left 1 0 for 180
+stick left 0 -1 for 240
+stick left -1 0 for 180
+hold B
+stick left 0.7 0.7 for 180
+stick left -0.7 -0.7 for 180
+release B
+stick right 1 0 for 120
+stick right -1 0 for 240
+stick right 0 0.6 for 60
+stick right 0 -0.6 for 60
+press PLUS
+@sleep 3000
+press RIGHT
+@sleep 1500
+press RIGHT
+@sleep 1500
+press B
+@sleep 3000
+press X
+@sleep 3000
+press B
+@sleep 3000
+@log PGO: tour 3
+stick left 0 1 for 240
+stick left 1 0 for 180
+stick left 0 -1 for 240
+stick left -1 0 for 180
+hold B
+stick left 0.7 0.7 for 180
+stick left -0.7 -0.7 for 180
+release B
+stick right 1 0 for 120
+stick right -1 0 for 240
+stick right 0 0.6 for 60
+stick right 0 -0.6 for 60
+press PLUS
+@sleep 3000
+press RIGHT
+@sleep 1500
+press RIGHT
+@sleep 1500
+press B
+@sleep 3000
+press X
+@sleep 3000
+press B
+@sleep 3000
+@log PGO: tour 4
+stick left 0 1 for 240
+stick left 1 0 for 180
+stick left 0 -1 for 240
+stick left -1 0 for 180
+hold B
+stick left 0.7 0.7 for 180
+stick left -0.7 -0.7 for 180
+release B
+stick right 1 0 for 120
+stick right -1 0 for 240
+stick right 0 0.6 for 60
+stick right 0 -0.6 for 60
+press PLUS
+@sleep 3000
+press RIGHT
+@sleep 1500
+press RIGHT
+@sleep 1500
+press B
+@sleep 3000
+press X
+@sleep 3000
+press B
+@sleep 3000
+# still outdoors (the tour did not walk into a building and stay there)
+@assert px < 50000
+@log PGO: end
+@sleep 25000
+@pass

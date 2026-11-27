@@ -91,9 +91,9 @@ fn main() {
         Ok(false) => fail("paused".into()),
         Err(e) => fail(e),
     }
-    if !gamebuild::is_built(&game, &tools_dir) {
+    if !gamebuild::is_built(&game, &tools_dir, gamebuild::Options::default()) {
         let tools = gamebuild::find_tools(&tools_dir, &game).unwrap_or_else(|e| fail(e));
-        let job = gamebuild::Job { game_dir: game.clone(), exefs: PathBuf::from(&a[1]), jobs, idle: false, log: None, prepare: false };
+        let job = gamebuild::Job { game_dir: game.clone(), exefs: PathBuf::from(&a[1]), jobs, idle: false, log: None, prepare: false, options: gamebuild::Options::default(), save_dir: None };
         match gamebuild::run(&job, &tools, &cancel, |t| tick(&t.phase, &t.message)) {
             Ok(true) => {}
             Ok(false) => fail("paused".into()),

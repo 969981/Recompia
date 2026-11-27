@@ -70,6 +70,10 @@ const flow = {
   loaded: false,     // the saved folder has been looked at
   saved: '',         // config dump_dir
   gentle: false,
+  optimize: false,   // config optimized_build (gamebuild.rs Options)
+  tune: false,       // config tune_cpu
+  canOptimize: false,   // readiness.rs Overview can_optimize
+  playTestNote: '',  // readiness.rs Overview optimize_note: why the last play-test did not pass ('first_house', 'play_test')
   small: true,       // a new setup keeps its shaders packed (config loose_shaders: false)
   touched: false,    // the toggle was used: it beats preflight's suggestion
   changing: false,   // "Change": the choose panel over files that are fine
@@ -170,12 +174,21 @@ async function pick(command, args) {
   }
 }
 
+async function refreshOverview() {
+  const o = await api.getOverview().catch(() => null);
+  flow.canOptimize = !!o?.can_optimize;
+  flow.playTestNote = o?.optimize_note || '';
+}
+
 async function loadSaved() {
   flow.loaded = false;
   try {
     const cfg = await api.getConfig();
     flow.saved = cfg.dump_dir || '';
     flow.gentle = !!cfg.gentle_build;
+    flow.optimize = !!cfg.optimized_build;
+    flow.tune = !!cfg.tune_cpu;
+    await refreshOverview();
     flow.small = !cfg.loose_shaders;
     paint?.();
     // a .nup is no folder: readiness read it, app.dump has what there is to say
@@ -189,6 +202,13 @@ async function loadSaved() {
   }
   flow.loaded = true;
   paint?.();
+}
+
+// The build options are saved as they are switched; the next Set up builds with them (a finished build with other options is not current).
+function saveOption(key, on) {
+  savingConfig = savingConfig
+    .then(async () => api.saveConfig({ config: { ...(await api.getConfig()), [key]: on } }))
+    .catch((e) => toast(errText(e), 'error'));
 }
 
 function saveGentle(on) {
@@ -318,6 +338,19 @@ function filesHtml(s) {
 
 const primaryHtml = () => `<button class="btn primary big setup-go" id="primary" data-act="primary" data-focus><span class="setup-go-icon"></span><span class="setup-go-label"></span></button>`;
 const GENTLE_ROW = row(t('Slower, keeps the PC usable'), toggle('gentle', false));   // row() numbers its ids: built once, or every draw differs
+// pkp_build.py --optimize / --tune-cpu (about 10 % fewer CPU cycles per frame measured on a phone with the profile)
+const OPTIMIZE_ROW = row(t('Optimized build (experimental): about 10 % less CPU work per frame. The first build takes about 2.5 times longer: it builds a test version and plays a short automatic session to learn how the game runs.'), toggle('optimize', false));
+const TUNE_ROW = row(t('Tune for this CPU: about 3 to 5 % more fps. The game then only runs on this PC. No extra build time.'), toggle('tune', false));
+// readiness.rs Overview can_optimize: a package without the profile tools offers no switch that could only fail
+const buildRows = () => (flow.canOptimize ? OPTIMIZE_ROW + houseHtml() : '') + TUNE_ROW;
+// pkp_build.py no_house: the play-test did not pass, so the normal game was built (pgo/pkp_pgo.py MESSAGES)
+const PLAY_TEST_NOTES = {
+  first_house: () => t('Optimized build: play until you have your first house, then press Set up again. The normal game is built for now.'),
+  play_test: () => t('Optimized build: the play-test could not finish; the normal game is built. Save outdoors and try Set up again.'),
+};
+const houseHtml = () => (PLAY_TEST_NOTES[flow.playTestNote]
+  ? `<p class="setup-line">${esc(PLAY_TEST_NOTES[flow.playTestNote]())}</p>`
+  : '');
 // Only before the first setup: an existing cache keeps the storage it has (shaders.rs Job::compact).
 const SMALL_ROW = row(t('Packed shader files (about 20 GB smaller)'), toggle('small', true));
 const logButton = () => `<button class="btn quiet" data-act="log">${icon('file-text')}${esc(t('Open setup log'))}</button>`;
@@ -382,7 +415,7 @@ const VIEWS = {
     return `<h1>${esc(flow.again || kind === 'mods' ? t('Set up again') : finish ? t('Finish the update') : kind === 'resume' ? t('Continue setup') : t('Set up the game'))}</h1>
       ${filesHtml(s)}
       ${finish || !['setup', 'resume', 'ready'].includes(kind) ? `<p class="setup-line">${esc(fromBackend(s.app.readiness.detail))}</p>` : ''}
-      <div class="setup-options">${kind === 'setup' ? SMALL_ROW : ''}${GENTLE_ROW}</div>
+      <div class="setup-options">${kind === 'setup' ? SMALL_ROW : ''}${GENTLE_ROW}${buildRows()}</div>
       ${primaryHtml()}
       <p class="faint num setup-fact" id="fact"></p>
       ${flow.again ? `<button class="btn quiet sm setup-link" data-act="not-again">${esc(t('Cancel'))}</button>` : ''}
@@ -392,7 +425,7 @@ const VIEWS = {
   paused: (s) => `<h1>${esc(t('Setup paused'))}</h1>
     ${filesHtml(s)}
     <p class="setup-line">${esc(t('Finished work is kept.'))}</p>
-    <div class="setup-options">${GENTLE_ROW}</div>
+    <div class="setup-options">${GENTLE_ROW}${buildRows()}</div>
     ${primaryHtml()}
     <p class="faint num setup-fact" id="fact"></p>
     <div class="setup-link">${logButton()}</div>`,
@@ -416,6 +449,7 @@ const VIEWS = {
 
   done: (s) => `<h1>${esc(s.setup?.progress?.state === 'done' ? t('Setup finished') : t('Ready to play'))}</h1>
     ${filesHtml(s)}
+    ${houseHtml()}
     <button class="btn primary big setup-go" data-act="home" data-focus>${icon('play')}${esc(t('Play'))}</button>
     <button class="btn quiet sm setup-link" data-act="again">${esc(t('Set up again'))}</button>
     ${detailsHtml()}`,
@@ -454,6 +488,10 @@ export function render(el, ctx) {
     }
     const gentle = part('gentle');
     if (gentle) gentle.checked = flow.gentle;
+    for (const [id, on] of [['optimize', flow.optimize], ['tune', flow.tune]]) {
+      const box = part(id);
+      if (box) box.checked = on;
+    }
     const small = part('small');
     if (small) small.checked = flow.small;
     const fact = part('fact');
@@ -499,6 +537,7 @@ export function render(el, ctx) {
       flow.pausing = false;
       etaReset();
     }
+    if (view === 'done' && shown !== 'done') refreshOverview().then(() => paint?.());   // a finished Set up may have written the house note
     const html = VIEWS[view](s);
     const moved = shown !== null && shown !== view;
     if (panel.dataset.html !== html) {
@@ -517,6 +556,8 @@ export function render(el, ctx) {
   });
   panel.addEventListener('change', (e) => {
     if (e.target.id === 'small') return saveSmall(e.target.checked);
+    if (e.target.id === 'optimize') return saveOption('optimized_build', (flow.optimize = e.target.checked));
+    if (e.target.id === 'tune') return saveOption('tune_cpu', (flow.tune = e.target.checked));
     if (e.target.id !== 'gentle') return;
     saveGentle(e.target.checked);
     draw();

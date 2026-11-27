@@ -11,6 +11,8 @@ sealed interface BuildEvent {
     data class Log(val text: String) : BuildEvent
     data class Done(val path: String) : BuildEvent
     data class Error(val text: String) : BuildEvent
+    /** The optimized build's test version is built: the play-test session's environment and library (JSON, pgo/pkp_pgo.py). */
+    data class Session(val json: String) : BuildEvent
     data class Text(val text: String) : BuildEvent
 }
 
@@ -26,6 +28,7 @@ object BuildProtocol {
             l.startsWith("@@LOG ") -> BuildEvent.Log(l.removePrefix("@@LOG ").trim())
             l.startsWith("@@DONE ") -> BuildEvent.Done(l.removePrefix("@@DONE ").trim())
             l.startsWith("@@ERROR") -> BuildEvent.Error(l.removePrefix("@@ERROR").trim())
+            l.startsWith("@@SESSION ") -> BuildEvent.Session(l.removePrefix("@@SESSION ").trim())
             else -> BuildEvent.Text(l)
         }
     }
@@ -37,6 +40,7 @@ object BuildProtocol {
         check(parse("@@DONE /data/x/libpkpgame.so") == BuildEvent.Done("/data/x/libpkpgame.so"))
         check(parse("@@ERROR not enough free space") == BuildEvent.Error("not enough free space"))
         check(parse("@@LOG hello") == BuildEvent.Log("hello"))
+        check(parse("@@SESSION {\"library\": \"/x\"}") == BuildEvent.Session("{\"library\": \"/x\"}"))
         check(parse("clang: warning") == BuildEvent.Text("clang: warning"))
     }
 }

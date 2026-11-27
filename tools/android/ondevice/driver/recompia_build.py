@@ -2,12 +2,15 @@
 """On-device game build: the entry point the app's build service runs (interface: INTERFACE.md, kept by tools/android/ondevice).
 
     libpython_exec.so -I -u recompia_build.py --dump <dir> --work <dir> --out <libpkpgame.so> --jobs <n>
-                      --native-lib-dir <dir> --toolchain-dir <dir>
+                      --native-lib-dir <dir> --toolchain-dir <dir> [--optimize --save-dir <dir>] [--tune-cpu]
 
 Wraps the player build (kit/tools/build/pkp_build.py --target android-arm64) with the phone's own clang, lld and llvm-ar, and
 turns its output into the app's progress protocol, one event per line on stdout:
     @@STEP <i>/<n> <name>   @@PROGRESS <done>/<total> <text>   @@LOG <text>   @@DONE <path>   @@ERROR <text>
-Exit codes: 0 done, 1 error, 2 cancelled, 3 not enough free space.
+    @@SESSION <json>   (--optimize) the test version is built: the app plays the session with the environment and the library the
+                       JSON names (pgo/pkp_pgo.py session_env, "library"), then runs this again, which builds with the profile
+Exit codes: 0 done, 1 error, 2 cancelled, 3 not enough free space, 5 the play-test session has to run (@@SESSION).
+--optimize and --tune-cpu are the player's build options (pkp_build.py use_options); llvm-profdata is the same multicall executable.
 
 The tools are ONE executable in the app's native library folder (libllvm_exec.so, LLVM's multicall driver: it picks clang, lld
 or llvm-ar by the name it is started under). Android runs code only from that folder, which holds no symlinks, so the names are
@@ -27,11 +30,15 @@ import sys
 import time
 
 STEPS = ['check', 'lift', 'compile', 'link', 'finish']
+SESSION_EXIT = 5                     # pkp_build.py / pgo/pkp_pgo.py SESSION_EXIT
 # Work space of a full build, measured: lift output 0.92 GiB + objects 0.30 + module archives 0.30 + library 0.25 + object cache
 # 0.30, with margin. What a previous run left in <work> counts as already used.
 NEED_WORK = 2600 << 20
 NEED_OUT = 300 << 20
-TOOLS = {'clang++': 'libllvm_exec.so', 'ld.lld': 'libllvm_exec.so', 'llvm-ar': 'libllvm_exec.so'}
+# --optimize on top: the test version's library and archives (about 0.6 GiB) and the session's raw counts (1.07 GiB measured on a
+# Tensor G2 phone, 7 min) stay until the profile is merged
+NEED_PGO = 2 << 30
+TOOLS = {'clang++': 'libllvm_exec.so', 'ld.lld': 'libllvm_exec.so', 'llvm-ar': 'libllvm_exec.so', 'llvm-profdata': 'libllvm_exec.so'}
 
 
 def emit(*parts):
@@ -74,6 +81,9 @@ def main():
     for opt in ('--dump', '--work', '--out', '--native-lib-dir', '--toolchain-dir'):
         ap.add_argument(opt, required=True)
     ap.add_argument('--jobs', type=int, default=0)
+    ap.add_argument('--optimize', action='store_true')
+    ap.add_argument('--tune-cpu', action='store_true')
+    ap.add_argument('--save-dir')
     a = ap.parse_args()
     tc, nl = os.path.abspath(a.toolchain_dir), os.path.abspath(a.native_lib_dir)
     work, out = os.path.abspath(a.work), os.path.abspath(a.out)
@@ -89,7 +99,7 @@ def main():
             return 1
     os.makedirs(work, exist_ok=True)
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    need = max(0, NEED_WORK - tree_size(os.path.join(work, 'build')))
+    need = max(0, NEED_WORK + (NEED_PGO if a.optimize else 0) - tree_size(os.path.join(work, 'build')))
     for d, n in ((work, need), (os.path.dirname(out), NEED_OUT)):
         if free(d) < n:
             emit('@@ERROR', 'not enough free space: need %d MiB in %s, have %d MiB' % (n >> 20, d, free(d) >> 20))
@@ -108,6 +118,10 @@ def main():
     cmd = [sys.executable, '-I', os.path.join(kit, 'pkp_build.py'), '--target', 'android-arm64',
            '--cxx', os.path.join(bindir, 'clang++'), '--ar', os.path.join(bindir, 'llvm-ar'),
            '--sysroot', os.path.join(tc, 'sysroot'), '--exefs', exefs, '--game', work, '--jobs', str(jobs)]
+    if a.optimize:
+        cmd += ['--optimize', '--profdata', os.path.join(bindir, 'llvm-profdata')] + (['--save-dir', a.save_dir] if a.save_dir else [])
+    if a.tune_cpu:
+        cmd.append('--tune-cpu')
     emit('@@LOG', 'Building with %d jobs' % jobs)
     # own process group: pkp_build then ends the whole group (lifter workers, compilers) when it gets SIGTERM
     child = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env,
@@ -138,11 +152,13 @@ def main():
             error = line[7:].replace('\\n', ' / ')
         elif line.startswith('@cancelled'):
             pass
+        elif line.startswith('@session '):
+            emit('@@SESSION', line[9:])
         else:
             emit(line)
     rc = child.wait()
-    if rc == 2:
-        return 2
+    if rc in (2, SESSION_EXIT):
+        return rc
     if rc != 0:
         emit('@@ERROR', error or 'the build stopped (exit %d)' % rc)
         return 1

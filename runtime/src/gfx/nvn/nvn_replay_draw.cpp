@@ -23,6 +23,7 @@ void CmdState::begin_submit() {
     fs_tonemap = -1;
     fs_stretch = -1;
     fs_square = -1;
+    square_clip = false;
 }
 // vkCmdBindIndexBuffer unless the same (buffer, offset, type) is already bound in this command buffer.
 static void bind_index_buffer(VkCommandBuffer cb, VkBuffer buf, VkDeviceSize off, VkIndexType type) {

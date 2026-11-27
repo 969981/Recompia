@@ -32,6 +32,8 @@ Launcher: Inter (OFL 1.1), Lucide (ISC), Font Awesome Free (CC BY 4.0, MIT, OFL 
 Save Editor: PokoHex (GPL-3.0) and BCnEncoder.Net (MIT or Unlicense; the data tool pokohex-extract).
 Linux package: the libraries inside the AppImage, listed in appimage/LIBRARIES.txt, under the LGPL-2.0, LGPL-2.1, LGPL-3.0 and GPL-2.0
   (LICENSE.AppImage-libraries.*.txt) and the other licences in appimage/copyright/.
+Optimized build (Windows x64 and Linux x64 packages, tools/build/pgo/tools): LLVM's llvm-profdata and profile runtime
+  (Apache-2.0 with LLVM exception, LICENSE.LLVM.Apache-2.0-LLVM-exception.txt).
 Windows package: libusb (LGPL-2.1-or-later; the unchanged official libusb-1.0.dll). The packages' bundled build tools (Zig, Python,
   FSR 3 and Streamline libraries) have their licence texts in BUNDLED_TOOLS.txt's list, in this folder on Windows.
 

@@ -5,6 +5,8 @@
     python -I tools/build/pkp_build.py --check [--next] --game <install folder>
     python -I tools/build/pkp_build.py --prepare --exefs <dump>/updates/<v>/exefs --game <install folder> [--jobs N]
     python -I tools/build/pkp_build.py --adopt | --revert --game <install folder>
+    build, --prepare and --check also take the player's options: --optimize [--save-dir <save>] [--profdata <llvm-profdata>],
+    --tune-cpu (use_options(); the optimized build's profile: pgo/pkp_pgo.py)
 
 The package ships no game code. This script
   1. verifies the dump's ExeFS against dump_hashes.json (the supported build: sha256 of every module + main's build ID),
@@ -186,6 +188,14 @@ EXE = 'pkp' if (DARWIN or LINUX) else 'pkp.exe'    # the game executable the bui
 ARCHIVER = [ZIG, 'ar']                  # archive(), except on macOS (Apple's ar)
 TARGET = None                           # None: the host's own build; else a --target (use_target())
 TARGETS = ('android-arm64',)
+# The player's build options (use_options(), the launcher's and the app's "Optimized build" and "Tune for this CPU"). {} is the normal
+# build: nothing below changes it, so its flags, stamps and cache keys stay exactly as they were.
+OPTIONS = {}
+LINK_EXTRA = []                         # use_options(): what the link adds (the test version's profile runtime, the hot-function order)
+BASE_CXXFLAGS = None                    # use_options(): the flags before any option
+STAMP_FORM = {}                         # use_options(): a flag naming a file of the player's -> its form in stamps and cache keys
+PGO_DIR = os.path.join(HERE, 'pgo')     # the optimized build's files (pgo/pkp_pgo.py); pgo/tools: llvm-profdata, the profile runtime
+WRITER_DEFINE = '-DPKP_PROFILE_FILE=%s'  # where pgo/profile_writer.cpp saves the test version's counts (a C string)
 
 
 def use_target(target, ndk=None, cxx=None, ar=None, sysroot=None):
@@ -222,6 +232,89 @@ def use_target(target, ndk=None, cxx=None, ar=None, sysroot=None):
     RUNTIME_LIB = 'libpkp_rt.so'
     EXE = 'libpkpgame.so'
     SDK_FILES = ['pkp_stub.cpp', 'pkp_stub_android.cpp', 'pkpgame_android.ver', 'pkp_rt_api.h']
+
+
+def load_pgo():
+    """pgo/pkp_pgo.py, loaded only for an optimized build (the normal build never reads it)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('pkp_pgo', os.path.join(PGO_DIR, 'pkp_pgo.py'))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def native_cpu(flags):
+    """What -mcpu=native resolves to here (`-###`: the last "-target-cpu" and a hash of the "-target-feature" list, Zig and clang
+    alike). The build compiles with -mcpu=native, so it gets this CPU's real features (a model name would not: a Skylake-family
+    Pentium without AVX is "skylake"); stamps and cache keys hold this, so a copy on another processor is out of date (--check)."""
+    base = [f for f in flags if not f.startswith(('-march=', '-mcpu='))]
+    r = subprocess.run(COMPILER + base + ['-mcpu=native', '-###', '-x', 'c++', '-c', os.devnull, '-o', os.devnull],
+                       capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    text = r.stderr + r.stdout
+    cpus = re.findall(r'"-target-cpu" "([^"]+)"', text)
+    if not cpus:
+        raise Fail('Tune for this CPU: the compiler could not name this processor.')
+    features = re.findall(r'"-target-feature" "([^"]+)"', text)
+    return '%s:%s' % (cpus[-1], hashlib.sha256(' '.join(sorted(features)).encode()).hexdigest()[:12])
+
+
+def profile_tools(profdata=None):
+    """(llvm-profdata, the profile runtime library or None) of an optimized build. Android: clang links its own profile runtime
+    (the kit's lib/clang) and the driver names llvm-profdata (--profdata). PC: the package's pgo/tools."""
+    tools = os.path.join(PGO_DIR, 'tools')
+    exe = '.exe' if os.name == 'nt' else ''
+    profdata = profdata or os.path.join(tools, 'llvm-profdata' + exe)
+    runtime = None if TARGET else os.path.join(tools, 'libclang_rt.profile.a')
+    if DARWIN and not TARGET:
+        raise Fail('The optimized build is not available on macOS yet. Switch it off and press Set up again.')
+    for p in [profdata] + ([runtime] if runtime else []):
+        if not os.path.isfile(p):
+            raise Fail('This package has no profile tools (%s), which the optimized build needs. Switch it off and press Set up '
+                       'again.' % p)
+    return profdata, runtime
+
+
+def use_options(tune_cpu=False, optimize=False, profile=None, order=None, generate=None, runtime=None, profile_hash=None):
+    """Re-binds CXXFLAGS and LINK_EXTRA for the player's build options (main() and check(), after use_target()); the same semantic
+    flags, no fast-math. tune_cpu: -mcpu=native, stamped as native_cpu(). generate: the test version (-fprofile-generate, counter
+    promotion off: it never finishes on some lifted units; pgo/profile_writer.cpp saves the counts to `generate`). profile: -O2 with
+    the profile (cold code size-optimised and split off: Snapdragon 8 Gen 3 cycles per frame -10.7 %, -7.3 % at -O1), function
+    sections, hot functions together; clang's warnings off but the mismatch ones (-Wbackend-plugin), which compile_all() counts.
+    The player's files are named by content in stamps and cache keys (STAMP_FORM), so a moved game folder keeps them."""
+    global CXXFLAGS, LINK_EXTRA, OPTIONS, BASE_CXXFLAGS
+    if BASE_CXXFLAGS is None:           # every call starts from the target's own flags (a build makes the test version first)
+        BASE_CXXFLAGS = list(CXXFLAGS)
+    flags = list(BASE_CXXFLAGS)
+    STAMP_FORM.clear()
+    link = []
+    elf = TARGET or LINUX
+    if tune_cpu:
+        cpu = native_cpu(flags)
+        flags = [f for f in flags if not f.startswith(('-march=', '-mcpu='))] + ['-mcpu=native']
+        STAMP_FORM['-mcpu=native'] = '-mcpu=native:' + cpu
+    if generate:
+        flags += ['-fprofile-generate=' + os.path.dirname(generate), '-mllvm', '-do-counter-promotion=false']
+        STAMP_FORM['-fprofile-generate=' + os.path.dirname(generate)] = '-fprofile-generate'
+        link += [WRITER_DEFINE % json.dumps(generate), os.path.join(PGO_DIR, 'profile_writer.cpp')]
+        if runtime:                     # Zig links no profile runtime of its own
+            link += [runtime, '-Wl,-u,__llvm_profile_runtime']
+    if profile:
+        flags = ['-O2' if f == '-O1' else '-Wno-everything' if f == '-w' else f for f in flags]
+        flags += ['-Wbackend-plugin', '-fprofile-use=' + profile, '-ffunction-sections']
+        STAMP_FORM['-fprofile-use=' + profile] = '-fprofile-use=' + profile_hash
+        if elf:                         # ELF only: COFF has no split machine functions
+            flags.append('-fsplit-machine-functions')
+        # lld sorts by the call-graph profile; Android's clang also takes the order file (Zig drops --symbol-ordering-file)
+        if order and TARGET:
+            link += ['-Wl,--symbol-ordering-file=' + order, '-Wl,--no-warn-symbol-ordering']
+    CXXFLAGS = flags
+    LINK_EXTRA = link
+    OPTIONS = {'tune_cpu': tune_cpu, 'optimize': optimize, 'profile': profile_hash} if (tune_cpu or optimize) else {}
+
+
+def stamped(flags):
+    """The flags as stamps and cache keys see them (STAMP_FORM)."""
+    return [STAMP_FORM.get(f, f) for f in flags]
 
 
 # ObjCache: a one-line function declaration in a generated header ('void f_7100001000(Ctx *__restrict c);') and a C identifier
@@ -378,11 +471,14 @@ def tool_stamp():
     """The part of the build stamp this package decides: a release that changes any of it rebuilds pkp.exe."""
     # with a guest base, guest_layout.py makes the lifter's inputs, so it counts as part of the lifter
     lifter = tree_hash(RECOMP, LIFTER) + (' guest_layout ' + sha256(guest_layout.__file__) if GUEST_SLIDE else '')
-    return {'lifter': lifter, 'sites': tree_hash(RECOMP, sorted(SITES.values())), 'sdk': tree_hash(SDK, SDK_FILES),
-            'runtime': runtime_abi(), 'cxxflags': CXXFLAGS, 'locals': LOCALS,
-            'identity': IDENTITY if DARWIN else 0,
-            'modules': [list(m) for m in MODULES],
-            'modheader': hashlib.sha256(modheader.render(GAME.modules).encode()).hexdigest()}
+    stamp = {'lifter': lifter, 'sites': tree_hash(RECOMP, sorted(SITES.values())), 'sdk': tree_hash(SDK, SDK_FILES),
+             'runtime': runtime_abi(), 'cxxflags': stamped(CXXFLAGS), 'locals': LOCALS,
+             'identity': IDENTITY if DARWIN else 0,
+             'modules': [list(m) for m in MODULES],
+             'modheader': hashlib.sha256(modheader.render(GAME.modules).encode()).hexdigest()}
+    if OPTIONS:                          # only an optimized or tuned build has the key: the normal build's stamp stays as it was
+        stamp['options'] = OPTIONS
+    return stamp
 
 
 def compiler_id():
@@ -424,23 +520,26 @@ class Layout:
     in `dest`, the lift, obj and lib folders, state.json, zig-cache, done.json and MOD_BUILT in `work`. The installed build,
     which the game plays from, has dest = the game folder and work = build/. A prepared one (prepared=True) has both in
     build/next/, so the installed build stays playable until --adopt moves it into place. Every build shares build/objcache
-    (content-keyed), build/lock and build/cancel (one build per game folder at a time)."""
+    (content-keyed), build/lock and build/cancel (one build per game folder at a time). folder: a build of its own there (the
+    optimized build's test version, in build/pgo/gen), made like a prepared one but never adopted."""
 
-    def __init__(self, game, prepared=False):
+    def __init__(self, game, prepared=False, folder=None):
         self.game = game
         self.build = os.path.join(game, 'build')
-        self.prepared = prepared
-        self.work = os.path.join(self.build, NEXT) if prepared else self.build
-        self.dest = self.work if prepared else game
+        self.prepared = prepared or bool(folder)
+        self.work = folder or (os.path.join(self.build, NEXT) if prepared else self.build)
+        self.dest = self.work if self.prepared else game
 
     def at(self, *parts):
         return os.path.join(self.work, *parts)
 
 
-def check(out):
+def check(out, asked=None):
     """Whether the executable and done.json of the build `out` (a Layout) were made with this package's tools:
     (current, reason, relink). relink: not current, but its kept libraries match this package (the dump done.json names,
-    lib_stamp()), so Set up only links again (minutes become seconds, and the launcher says so)."""
+    lib_stamp()), so Set up only links again (minutes become seconds, and the launcher says so). asked: the options a Set up or
+    prepare was started with (asked_options()); another choice than the build's is never current. --check has none: it judges the
+    build by the options it was made with."""
     if not os.path.isfile(os.path.join(out.dest, EXE)):
         return False, '%s is not built yet' % EXE, False
     done = read_json(out.at('done.json'))
@@ -448,6 +547,16 @@ def check(out):
         return False, '%s has no finished build record' % EXE, False
     if done.get('format') != FORMAT or not isinstance(done.get('tools'), dict):
         return False, '%s was built by an older release' % EXE, False
+    made = done['tools'].get('options') or {}
+    if asked is not None and asked != {k: bool(made.get(k)) for k in asked}:
+        return False, 'the build options changed', False
+    if made:
+        why = built_options(out, done, done['tools']['options'])
+        if why:
+            return False, why, False
+        pgo = load_pgo()
+        if made.get('optimize') and not out.prepared and pgo.mismatched(out.at('done.json'), pgo.Store(out.game), pgo.key(done)):
+            return False, 'the game code changed: the optimized build makes a new profile', False
     want = tool_stamp()
     changed = [k for k in want if done['tools'].get(k) != want[k]]
     plan_hash = modplan.read_hash(os.path.join(out.game, MOD_PLAN))
@@ -458,6 +567,24 @@ def check(out):
     if done.get('mod_hooks', '') != plan_hash:
         return False, "the mods' hook points changed", False
     return True, '%s matches this release' % EXE, False
+
+
+def built_options(out, done, opts):
+    """check(): the options a finished build was made with (use_options()), so tool_stamp() compares like with like. The reason it is
+    out of date whatever the tools are, or None: an optimized build without its profile (an update prepared it before the play-test
+    session ran), or whose profile is gone or was made again."""
+    profile = order = None
+    if opts.get('optimize'):
+        store = load_pgo().Store(out.game)
+        k = load_pgo().key(done)
+        profile, order = store.profile(k), store.order(k)
+        if not opts.get('profile') or not os.path.isfile(profile):
+            return 'the optimized build has no profile yet: Set up makes it (a short automatic play-test)'
+        if load_pgo().profile_hash(profile) != opts['profile']:
+            return 'the optimized build\'s profile was made again'
+    use_options(opts.get('tune_cpu', False), opts.get('optimize', False), profile, order if order and os.path.isfile(order) else None,
+                profile_hash=opts.get('profile'))
+    return None
 
 
 def read_json(path):
@@ -912,7 +1039,7 @@ def make_cache(folder, cap_mb, compiler, env):
     if cap_mb <= 0:
         return None
     try:
-        flags = ' '.join(CXXFLAGS)
+        flags = ' '.join(stamped(CXXFLAGS))
         # Android: the flags name the forced include (recomp/native/nx_native.h) by path only; its content and the headers it pulls in
         # go into the key too, so a changed nx_native*.h never reuses an object. Desktop keys are unchanged (no forced include there).
         if TARGET:
@@ -922,8 +1049,18 @@ def make_cache(folder, cap_mb, compiler, env):
         return None
 
 
-def compile_all(runner, gen, obj, jobs, env, cache=None, skip=(), mem_per_job=1 << 30):
+def compile_all(runner, gen, obj, jobs, env, cache=None, skip=(), mem_per_job=1 << 30, count=None):
+    """Compiles every unit of the modules not in skip. count: a function of one line of compiler output that returns how many
+    functions it names as not matching the profile (pkp_pgo.count_mismatches); returns their sum (0 without count)."""
     units = []
+    mismatched = [0]
+    count_lock = threading.Lock()
+
+    def counted(line):
+        n = count(line)
+        if n:
+            with count_lock:
+                mismatched[0] += n
     for name, _, _, _, shards in MODULES:
         if name in skip:
             continue
@@ -959,7 +1096,7 @@ def compile_all(runner, gen, obj, jobs, env, cache=None, skip=(), mem_per_job=1 
         name, src, o = t
         tmp = o + '.tmp'
         cmd = COMPILER + CXXFLAGS + ['-I', os.path.join(RECOMP, 'include'), '-I', os.path.dirname(src), '-c', src, '-o', tmp]
-        rc, tail = runner.run(cmd, env=env)
+        rc, tail = runner.run(cmd, env=env, on_line=counted if count else None)
         if rc != 0:
             return 'Compiling %s/%s failed (exit %d):\n%s' % (name, os.path.basename(src), rc, tail)
         flush_replace(tmp, o)
@@ -999,6 +1136,7 @@ def compile_all(runner, gen, obj, jobs, env, cache=None, skip=(), mem_per_job=1 
         progress('compile', done, total, 'Compiling: %d of %d' % (done, total))
     if cache:
         cache.trim()
+    return mismatched[0]
 
 
 def clear_high_entropy_va(exe):
@@ -1096,7 +1234,7 @@ def link(runner, lib, out, env):
         cmd = list(COMPILER) + CXXFLAGS + ['-Dmain=pkp_stub_main', '-I', SDK, '-I', os.path.join(lib, 'gen')] + stubs + libs + [
             os.path.join(SDK, RUNTIME_LIB), '-shared', '-o', tmp, '-Wl,-soname,' + exe,
             '-Wl,--version-script,' + os.path.join(SDK, 'pkpgame_android.ver'), '-Wl,-z,max-page-size=16384', '-Wl,--no-undefined',
-            '-Wl,--strip-debug', '-Wl,--build-id=sha1', '-Wl,-z,noexecstack', '-Wl,-z,relro', '-Wl,-z,now']
+            '-Wl,--strip-debug', '-Wl,--build-id=sha1', '-Wl,-z,noexecstack', '-Wl,-z,relro', '-Wl,-z,now'] + LINK_EXTRA
         rc, tail = runner.run(cmd, env=env, cwd=SDK)
         if rc != 0:
             raise Fail('Linking %s failed (exit %d):\n%s' % (exe, rc, tail))
@@ -1122,14 +1260,14 @@ def link(runner, lib, out, env):
         # --strip-debug: Zig's Linux output carries full DWARF (1.4 GB against 278 MB stripped); the symbol table stays, so the
         # crash reporter's host frames still resolve.
         cmd = list(COMPILER) + CXXFLAGS + ['-I', SDK, '-I', os.path.join(lib, 'gen'), os.path.join(SDK, 'pkp_stub.cpp')] + libs + [
-            os.path.join(SDK, RUNTIME_LIB), '-o', tmp, '-Wl,-rpath,$ORIGIN', '-Wl,-z,stack-size=134217728', '-Wl,--strip-debug']
+            os.path.join(SDK, RUNTIME_LIB), '-o', tmp, '-Wl,-rpath,$ORIGIN', '-Wl,-z,stack-size=134217728', '-Wl,--strip-debug'] + LINK_EXTRA
         rc, tail = runner.run(cmd, env=env, cwd=SDK)
         if rc != 0:
             raise Fail('Linking %s failed (exit %d):\n%s' % (exe, rc, tail))
     else:
         cmd = [ZIG, 'c++', '-target', 'x86_64-windows-gnu', '-mcpu=x86_64+cx16', '-O1', '-fno-exceptions', '-fno-rtti', '-I', SDK, '-I', os.path.join(lib, 'gen'),
                os.path.join(SDK, 'pkp_stub.cpp'), os.path.join(SDK, 'pkp.rc')] + libs + [os.path.join(SDK, 'pkp_rt.lib'),
-               '-o', tmp, '-Wl,--stack,134217728', '-Wl,--subsystem,windows']
+               '-o', tmp, '-Wl,--stack,134217728', '-Wl,--subsystem,windows'] + LINK_EXTRA
         rc, tail = runner.run(cmd, env=env, cwd=SDK)
         if rc != 0:
             raise Fail('Linking pkp.exe failed (exit %d):\n%s' % (rc, tail))
@@ -1348,9 +1486,12 @@ def exclusive(game, work):
             _release_lock(lock_file)
 
 
-def build(a, out, cancel_file):
-    """Verifies the dump, lifts, compiles, archives and links the build `out` (a Layout); 0 when it is done."""
+def build(a, out, cancel_file, count=None, cache=True):
+    """Verifies the dump, lifts, compiles, archives and links the build `out` (a Layout); 0 when it is done. count: see compile_all
+    (done.json keeps the sum as profile_mismatched); cache: False keeps the objects out of build/objcache (the test version's would
+    push the game's own out of it)."""
     t0 = time.time()
+    mismatched = 0
     times = {}
     # The link needs the runtime library from the package's sdk folder. A payload staged without it fails at the link,
     # after the lift and the compile: say so now instead.
@@ -1418,8 +1559,9 @@ def build(a, out, cancel_file):
         lift(runner, a.exefs, gen, a.jobs, extra, skip)
         times['lift'] = round(time.time() - t, 1)
         t = time.time()
-        compile_all(runner, gen, obj, a.jobs, env, make_cache(os.path.join(out.build, 'objcache'), a.cache_mb, compiler, env), skip,
-                    a.mem_per_job_mb << 20)
+        mismatched = compile_all(runner, gen, obj, a.jobs, env,
+                                 make_cache(os.path.join(out.build, 'objcache'), a.cache_mb if cache else 0, compiler, env), skip,
+                                 a.mem_per_job_mb << 20, count)
         times['compile'] = round(time.time() - t, 1)
     t = time.time()
     progress('link', 0, 1, 'Linking %s' % EXE)
@@ -1442,26 +1584,113 @@ def build(a, out, cancel_file):
     if out.prepared:
         write_json(out.at(OUTPUTS), written, durable=True)
     done = dict(stamp, exe_sha256=sha256(exe), seconds=times, finished=time.strftime('%Y-%m-%d %H:%M:%S'))
+    if count:
+        done['profile_mismatched'] = mismatched
     write_json(out.at('done.json'), done, durable=True)
     progress('finish', 1, 1, '%s is ready (%d s)' % (EXE, time.time() - t0))
     return 0
+
+
+def build_with_options(a, out, cancel_file):
+    """build() with the player's options. --optimize reuses this dump's profile (pkp_pgo.py) or makes one: the test version in
+    build/pgo/gen, the session (here on a PC; Android: exit SESSION_EXIT, the app plays it and builds again), the merge. It needs
+    a save to play a copy of (stops before building otherwise). A prepared build never plays the session: without a profile it is
+    the normal build, which --check --optimize sends to Set up. Too many mismatches: Set up drops a kept profile and remakes it; one
+    made in this run is kept (pkp_pgo.accept: it is of this code); a prepared build keeps it and check() then asks for Set up."""
+    if not a.optimize:
+        if os.path.isdir(os.path.join(out.game, 'build', 'pgo')):
+            load_pgo().Store(out.game).clean_scratch()
+        use_options(a.tune_cpu)
+        return build(a, out, cancel_file)
+    pgo = load_pgo()
+    profdata, runtime = profile_tools(a.profdata)
+    want = verify(a.exefs)
+    k = pgo.key(want)
+    store = pgo.Store(out.game)
+    if not out.prepared and pgo.mismatched(out.at('done.json'), store, k):
+        store.drop(k, 'the last build found too many functions that no longer match it')
+    made_now = False
+    while True:
+        if not pgo.usable(store, k, profdata):
+            if not store.session_done() and out.prepared:
+                print('optimized build: no profile yet, the normal code is built (Set up makes the profile)', flush=True)
+                use_options(a.tune_cpu)
+                return build(a, out, cancel_file)
+            why = pgo.off_track(store) if TARGET else None   # the app's play-test did not pass (no first house, never outdoors)
+            if why:
+                return no_house(a, out, cancel_file, pgo, store, why)
+            if not store.session_done():
+                try:
+                    pgo.require_save(a.save_dir)
+                except RuntimeError as e:
+                    raise Fail('Optimized build: %s' % e)
+                progress('profile', 0, 3, 'Optimized build: building the test version (step 1 of 3)')
+                gen = Layout(out.game, folder=store.gen)
+                use_options(a.tune_cpu, generate=store.raw_file(), runtime=runtime)
+                rc = build(a, gen, cancel_file, cache=False)
+                if rc:
+                    return rc
+                test = os.path.join(store.gen, EXE)
+                if TARGET:              # Android: the app plays the session (pkp_pgo.session_env) and runs the build again
+                    store.start_session(a.save_dir)
+                    say('session', json.dumps(dict(pgo.session_env(store, headless=False), library=test)))
+                    return pgo.SESSION_EXIT
+                progress('profile', 1, 3, 'Optimized build: playing a short automatic session (step 2 of 3)')
+                try:
+                    pgo.run_session(Runner(cancel_file), test, out.game, a.save_dir, store)
+                except RuntimeError as e:
+                    if pgo.off_track(store):
+                        return no_house(a, out, cancel_file, pgo, store, pgo.off_track(store))
+                    raise Fail('Optimized build: %s' % e)
+            progress('profile', 2, 3, 'Optimized build: building with the profile (step 3 of 3)')
+            try:
+                pgo.merge(store, k, profdata)
+            except RuntimeError as e:
+                shutil.rmtree(store.raw, ignore_errors=True)
+                raise Fail('Optimized build: %s' % e)
+            made_now = True
+        store.clean_scratch()
+        prof, order = store.profile(k), store.order(k)
+        use_options(a.tune_cpu, True, prof, order if os.path.isfile(order) and os.path.getsize(order) else None,
+                    profile_hash=pgo.profile_hash(prof))
+        rc = build(a, out, cancel_file, count=pgo.count_mismatches)
+        if rc or out.prepared or not pgo.mismatched(out.at('done.json'), store, k):
+            return rc
+        if made_now:
+            pgo.accept(store, k, out.at('done.json'))
+            print('optimized build: the new profile has many mismatches, it is kept (it is of this code)', flush=True)
+            return rc
+        store.drop(k, 'this build found too many functions that no longer match it')
+
+
+def no_house(a, out, cancel_file, pgo, store, why):
+    """The play-test did not pass (`why`: no first house yet, or it never got where its tour starts): the normal game is built and
+    the player is told (pkp_pgo.wait_after_play_test: the launcher and the app read it)."""
+    pgo.wait_after_play_test(store, why)
+    progress('profile', 3, 3, pgo.MESSAGES[why])
+    use_options(a.tune_cpu)
+    return build(a, out, cancel_file)
+
+
+def asked_options(a):
+    return {'tune_cpu': bool(a.tune_cpu), 'optimize': bool(a.optimize)}
 
 
 def set_up(a, game, cancel_file):
     """The normal build (Set up). A finished build/next/ made with these tools (an update that prepared it, then stopped
     before adopting it) is put in place instead of building again; another one (another release's, or unfinished) goes, its
     objects are in the cache. build/prev/ is only kept while the launcher's update runs."""
-    if finish_adoption(game) and check(Layout(game))[0]:
+    if finish_adoption(game) and check(Layout(game), asked_options(a))[0]:
         return 0
     shutil.rmtree(os.path.join(game, 'build', PREV), ignore_errors=True)
     nxt = Layout(game, prepared=True)
     if os.path.isdir(nxt.work):
-        if check(nxt)[0]:
+        if check(nxt, asked_options(a))[0]:
             adopt(game)
             shutil.rmtree(os.path.join(game, 'build', PREV), ignore_errors=True)
             return 0
         shutil.rmtree(nxt.work)
-    return build(a, Layout(game), cancel_file)
+    return build_with_options(a, Layout(game), cancel_file)
 
 
 def prepare(a, game, cancel_file):
@@ -1471,10 +1700,10 @@ def prepare(a, game, cancel_file):
     finish_adoption(game)
     shutil.rmtree(os.path.join(game, 'build', PREV), ignore_errors=True)
     out = Layout(game, prepared=True)
-    if check(out)[0]:
+    if check(out, asked_options(a))[0]:
         progress('finish', 1, 1, 'The prepared %s matches this release' % EXE)
         return 0
-    if check(Layout(game))[0]:
+    if check(Layout(game), asked_options(a))[0]:
         shutil.rmtree(out.work, ignore_errors=True)
         progress('finish', 1, 1, '%s already matches this release' % EXE)
         return 0
@@ -1482,7 +1711,7 @@ def prepare(a, game, cancel_file):
         if os.path.lexists(out.at(f)):
             os.remove(out.at(f))
     seed_lib(out)
-    return build(a, out, cancel_file)
+    return build_with_options(a, out, cancel_file)
 
 
 def main():
@@ -1503,6 +1732,10 @@ def main():
     ap.add_argument('--cxx', help='with --target: the clang++ to use (instead of the NDK\'s)')
     ap.add_argument('--ar', help='with --target: the llvm-ar to use (instead of the NDK\'s)')
     ap.add_argument('--sysroot', help='with --target: the Android sysroot to give clang++')
+    ap.add_argument('--optimize', action='store_true', help='optimized build: profile-guided, made and kept in <game>/build/pgo')
+    ap.add_argument('--tune-cpu', action='store_true', help='build for this processor only (-mcpu of this machine)')
+    ap.add_argument('--save-dir', help='with --optimize: the save the play-test session plays a copy of')
+    ap.add_argument('--profdata', help='with --optimize: the llvm-profdata to use (instead of the package\'s pgo/tools)')
     ap.add_argument('--lift-one', help=argparse.SUPPRESS)
     a = ap.parse_args()
     if a.lift_one:                       # child process: one lifter run (keeps the lifter's own pool out of this process)
@@ -1518,8 +1751,8 @@ def main():
     game = os.path.abspath(a.game)
     if a.check:
         try:
-            current, reason, relink = check(Layout(game, prepared=a.next))
-        except OSError as e:                 # a tool file that cannot be read: Set up then runs and names it
+            current, reason, relink = check(Layout(game, prepared=a.next), asked_options(a))
+        except (OSError, Fail) as e:         # a tool file that cannot be read: Set up then runs and names it
             current, reason, relink = False, 'cannot read the build tools: %s' % e, False
         print(json.dumps({'current': current, 'reason': reason, 'relink': relink}), flush=True)
         return 0 if current else 4 if relink else 3

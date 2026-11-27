@@ -63,6 +63,8 @@ data class BuildState(
     val shadersMissing: Boolean = false,
     /** Debug test of the real translator on a partial romfs (kept so Continue runs the same way). */
     val small: Boolean = false,
+    /** The optimized build waits for its play-test session: the driver's @@SESSION JSON (GameLauncher.launchSession). */
+    val session: String = "",
 ) {
     val active get() = run == RunState.RUNNING || run == RunState.CANCELLING
     val percent: Int? get() = if (total > 0) ((100 * done) / total).toInt().coerceIn(0, 100) else null
@@ -192,7 +194,7 @@ class BuildService : Service() {
                 Toolchain.python(this).path, "-I", "-u", Toolchain.driver(this).path,
                 "--dump", dump, "--work", work.path, "--out", lib.path, "--jobs", "0",
                 "--native-lib-dir", applicationInfo.nativeLibraryDir, "--toolchain-dir", tc.path,
-            )
+            ) + BuildOptions.driverArgs(this)
             env.putAll(pythonEnv(tc))
         }
         env["HOME"] = filesDir.path
@@ -200,9 +202,15 @@ class BuildService : Service() {
         lib.parentFile?.mkdirs()
         out.println("command: ${cmd.joinToString(" ")}")
         val done = runTool(cmd, env, out)
+        if (state.value.session.isNotEmpty()) {
+            out.println("optimized build: the test version is built, the play-test session is next")
+            return
+        }
         if (!fake) {
             // a PC-built library left in build/ would replace this one at the next start (GameLauncher dev shortcut)
             if (Paths.devGameLibrary.delete()) out.println("removed the older dev library ${Paths.devGameLibrary}")
+            // the optimized build's test version, once its play-test is no longer needed (hundreds of MB of app storage)
+            if (Paths.sessionLibrary(this).delete()) out.println("removed the play-test's test version")
             if (File(done).path != lib.path) File(done).copyTo(lib, overwrite = true)
         }
         record(this, if (fake) "fake" else "built")
@@ -298,6 +306,7 @@ class BuildService : Service() {
                     is BuildEvent.Log -> { state.update { it.copy(message = e.text) }; addLine(e.text) }
                     is BuildEvent.Done -> donePath = e.path
                     is BuildEvent.Error -> { error = e.text; state.update { it.copy(error = e.text) } }
+                    is BuildEvent.Session -> state.update { it.copy(session = e.json) }
                     is BuildEvent.Text -> addLine(e.text)
                 }
             }
@@ -306,6 +315,7 @@ class BuildService : Service() {
         process = null
         out.println("exit code $code")
         if (cancelled || code == 2) throw InterruptedException()
+        if (code == SESSION_EXIT && state.value.session.isNotEmpty()) return ""
         if (code != 0 || donePath == null) throw IOException(error ?: getString(R.string.ui_build_err_exit, code))
         return donePath!!
     }
@@ -551,6 +561,8 @@ class BuildService : Service() {
         }
 
         const val SHADER_TOOL = "libspirv_harness.so"
+        /** The driver's exit when the optimized build's play-test session has to run (recompia_build.py SESSION_EXIT). */
+        private const val SESSION_EXIT = 5
         private val STRAY_TOOLS = listOf(SHADER_TOOL, "libllvm_exec.so", "libpython_exec.so")
         /** Free space build_shaders.py demands at the start (it refuses below that). */
         const val SHADER_FREE = 12L shl 30
@@ -572,7 +584,7 @@ class BuildService : Service() {
                 run = if (run == RunState.RUNNING || run == RunState.CANCELLING) RunState.INTERRUPTED else run,
                 fake = j.optBoolean("fake"), step = j.optString("step"), stepIndex = j.optInt("index"), stepCount = j.optInt("count"),
                 error = j.optString("error"), logFile = j.optString("log"), startedAt = j.optLong("started"),
-                shadersMissing = j.optBoolean("shadersMissing"), small = j.optBoolean("small"),
+                shadersMissing = j.optBoolean("shadersMissing"), small = j.optBoolean("small"), session = j.optString("session"),
             )
         }
 
@@ -586,7 +598,7 @@ class BuildService : Service() {
         private fun persist(ctx: Context, s: BuildState) {
             val j = JSONObject().put("kind", s.kind.name).put("run", s.run.name).put("fake", s.fake).put("step", s.step)
                 .put("index", s.stepIndex).put("count", s.stepCount).put("error", s.error).put("log", s.logFile)
-                .put("started", s.startedAt).put("shadersMissing", s.shadersMissing).put("small", s.small)
+                .put("started", s.startedAt).put("shadersMissing", s.shadersMissing).put("small", s.small).put("session", s.session)
             ctx.getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("last", j.toString()).apply()
         }
 

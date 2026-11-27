@@ -50,7 +50,9 @@ set(PKP_RUNTIME_DIR "${PKP_ROOT}/runtime" CACHE PATH "runtime source tree compil
 set(NXRT_GAMES "pkp" CACHE STRING "" FORCE)            # runtime/games/pkp only
 set(NXRT_RECOMP_INCLUDE "${PKP_ROOT}/recomp/include" CACHE PATH "")
 if(PKP_RELEASE)
-    set(NXRT_TESTTOOLS OFF)                             # release packages carry no test tooling (runtime option, default on)
+    set(NXRT_TESTTOOLS OFF)                             # release packages carry no test tooling (runtime option, default on),
+    set(NXRT_TEST_SCRIPTS ON)                           # except scripted runs: a script only plays when [test] script is set (the
+                                                        # optimized build's play-test, release_b/pgo); runtime/CMakeLists.txt
     set(PKP_GAMEPLAY_DEFAULTS_CHECK ON)                 # and every gameplay mod on by default unless opt_in (runtime/games/pkp/core/pkp_settings_table.h)
 endif()
 # Release model (b) (PKP_RT_DLL=ON, docs/RELEASE.md): the runtime becomes a shared library (pkp_rt.dll, libpkp_rt.dylib,

@@ -473,6 +473,12 @@ void Runner::frame(uint64_t k, const GameState& s, bool valid, ::Ctx* c) {
                 const int64_t to = timeout_of();
                 if (to > 0 && static_cast<int64_t>(k - start_frame_) >= to) {
                     pressing_ = 0;
+                    if (st.soft) {
+                        NXLOG_W("script", "SOFT-TIMEOUT line %d: the @mashuntil condition did not hold within %lld frames (%s), going on", st.line,
+                                static_cast<long long>(to), d.c_str());
+                        advance();
+                        continue;
+                    }
                     fail(st, "timeout after " + std::to_string(to) + " frames waiting for the @mashuntil condition (" + d + ")");
                     return;
                 }

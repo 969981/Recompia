@@ -23,6 +23,38 @@ object GameLauncher {
         context.startActivity(intent)
     }
 
+    /** String extra: the optimized build's play-test session (BuildState.session, the driver's @@SESSION JSON). */
+    const val EXTRA_SESSION = "pgo_session"
+
+    /**
+     * The optimized build's play-test: the test version (built in the shared build folder, which Android does not load code from) is
+     * copied read-only into app storage as [Paths.sessionLibrary], then the game plays the session script with it (GameActivity).
+     * The session ends the game by itself; the next build takes its counts (pgo/pkp_pgo.py Store.session_done).
+     */
+    fun launchSession(context: Context, session: String) {
+        // the library is hundreds of MB: copied off the UI thread, the game started from the main thread once it is in place
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        Thread {
+            try {
+                val src = File(org.json.JSONObject(session).getString("library"))
+                val dst = Paths.sessionLibrary(context)
+                dst.parentFile!!.mkdirs()
+                dst.delete()
+                src.copyTo(dst, overwrite = true)
+                dst.setReadOnly()
+            } catch (e: Exception) {
+                Log.e(Paths.TAG, "play-test: cannot install the test version", e)
+                main.post { android.widget.Toast.makeText(context, e.message ?: e.javaClass.simpleName, android.widget.Toast.LENGTH_LONG).show() }
+                return@Thread
+            }
+            main.post {
+                val intent = Intent(context, GameActivity::class.java).putExtra(EXTRA_SESSION, session)
+                if (context !is android.app.Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+            }
+        }.start()
+    }
+
     /** A game library is installed privately, or a dev copy waits in `<dataRoot>/build/`. */
     fun hasGameLibrary(context: Context): Boolean =
         Paths.gameLibrary(context).isFile || Paths.devGameLibrary.isFile

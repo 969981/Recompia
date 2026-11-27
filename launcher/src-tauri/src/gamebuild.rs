@@ -33,6 +33,29 @@ pub struct Tools {
 /// Where setup writes its log lines (the launcher's setup.log); a closure so this file needs no crate-local import.
 pub type LogFn = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
 
+/// The player's build options: Set up's "Optimized build" and "Tune for this CPU" (launcher.json `optimized_build`, `tune_cpu`;
+/// pkp_build.py `use_options`). The script is asked with them every time (`--check` too), so a build made with other options is
+/// not current and Set up builds it again; the defaults pass nothing, and the script's normal build is unchanged.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Hash)]
+pub struct Options {
+    /// profile-guided: the script makes the game's profile once (a test build and a short automatic play-test on a copy of the
+    /// save, kept in `<game>/build/pgo`) and builds with it
+    pub optimize: bool,
+    /// built for this processor only
+    pub tune_cpu: bool,
+}
+
+impl Options {
+    fn add_to(self, cmd: &mut Command) {
+        if self.optimize {
+            cmd.arg("--optimize");
+        }
+        if self.tune_cpu {
+            cmd.arg("--tune-cpu");
+        }
+    }
+}
+
 pub struct Job {
     pub game_dir: PathBuf,
     pub exefs: PathBuf,
@@ -42,9 +65,12 @@ pub struct Job {
     pub log: Option<LogFn>,
     /// build into `<game>/build/next` for an update (`--prepare`), leaving the build the game plays from alone
     pub prepare: bool,
+    pub options: Options,
+    /// the save the optimized build's play-test copies (saveimport::locate); None: it starts from an empty one
+    pub save_dir: Option<PathBuf>,
 }
 
-/// One progress line of the script: phase ("verify", "lift", "compile", "link", "finish"), done, total, text.
+/// One progress line of the script: phase ("verify", "lift", "compile", "link", "finish"; "profile" for the optimized build's three steps), done, total, text.
 pub struct Tick {
     pub phase: String,
     pub done: u64,
@@ -57,6 +83,30 @@ pub fn is_package_b(tools_dir: &Path) -> bool {
     // The release carries pkp_build.py: on Windows and Linux it links pkp.exe against pkp_rt.dll, on macOS pkp against
     // libpkp_rt.dylib. A development tree (no tools/ next to the launcher) builds the game with CMake instead.
     tools_dir.join("build").join("pkp_build.py").is_file()
+}
+
+/// The package carries what `--optimize` needs: pkp_build.py's pgo folder with llvm-profdata and the profile runtime library for
+/// the bundled Zig (pgo/tools). macOS (Apple clang) has no optimized build yet.
+pub fn can_optimize(tools_dir: &Path) -> bool {
+    let pgo = tools_dir.join("build").join("pgo");
+    !cfg!(target_os = "macos")
+        && pgo.join("pkp_pgo.py").is_file()
+        && pgo.join("tools").join(if cfg!(windows) { "llvm-profdata.exe" } else { "llvm-profdata" }).is_file()
+        && pgo.join("tools").join("libclang_rt.profile.a").is_file()
+}
+
+/// Why the optimized build's last play-test did not pass, so pkp_build.py built the normal game: "first_house" (the save is from
+/// before the first house) or "play_test" (it never got where its tour starts), from `build/pgo/status.json` (pgo/pkp_pgo.py
+/// wait_after_play_test); "" when there is none. Until the player sets up again the build counts as a normal one
+/// (Config::build_options), so Play works, and the Set up page says what to do.
+pub fn play_test_note(game_dir: &Path) -> String {
+    let text = fs::read_to_string(game_dir.join("build").join("pgo").join("status.json")).unwrap_or_default();
+    ["first_house", "play_test"].into_iter().find(|k| text.contains(k)).unwrap_or_default().to_string()
+}
+
+/// Set up again: the optimized build tries its play-test once more (the player may have their house now).
+pub fn retry_optimized(game_dir: &Path) {
+    let _ = fs::remove_file(game_dir.join("build").join("pgo").join("status.json"));
 }
 
 /// What Play says when pkp.exe is from an older release (Built::Stale). No time: it is minutes to an hour, by the PC and by how
@@ -134,11 +184,11 @@ pub fn plan_is_built(game_dir: &Path, plan: &Path) -> bool {
 /// The last check: (done.json path, its mtime and size, pkp.exe's mtime, exe and dll APIs differ, the mods' plan's mtime and size) ->
 /// result. The tools do not change while the launcher runs, and a finished build rewrites done.json, so one python run per finished
 /// build and plan is enough.
-type CheckKey = (PathBuf, Option<std::time::SystemTime>, u64, Option<std::time::SystemTime>, bool, Option<(Option<std::time::SystemTime>, u64)>);
+type CheckKey = (PathBuf, Option<std::time::SystemTime>, u64, Option<std::time::SystemTime>, bool, Option<(Option<std::time::SystemTime>, u64)>, Options);
 static CHECKED: std::sync::Mutex<Option<(CheckKey, Built)>> = std::sync::Mutex::new(None);
 
 /// Whether pkp.exe was built by this release's tools (`pkp_build.py --check`, the stamp's only implementation).
-pub fn built_state(game_dir: &Path, tools_dir: &Path) -> Built {
+pub fn built_state(game_dir: &Path, tools_dir: &Path, options: Options) -> Built {
     // before the stamp: a dll from another release than the tools makes every build useless, whatever pkp.exe is.
     // macOS links the runtime into pkp (libpkp_rt.dylib) and has no pkp_rt.dll to compare, so the check does not apply.
     #[cfg(target_os = "macos")]
@@ -159,7 +209,7 @@ pub fn built_state(game_dir: &Path, tools_dir: &Path) -> Built {
     // built for another API than the dll, however current its stamp: the link gives the dll's, so it is at least Stale
     let exe_stale = api == crate::runtime_api::Agreement::ExeStale;
     let plan = fs::metadata(game_dir.join(MOD_PLAN)).ok().map(|m| (m.modified().ok(), m.len()));
-    let key: CheckKey = (done.clone(), dm.modified().ok(), dm.len(), em.modified().ok(), exe_stale, plan);
+    let key: CheckKey = (done.clone(), dm.modified().ok(), dm.len(), em.modified().ok(), exe_stale, plan, options);
     if let Some((k, b)) = CHECKED.lock().unwrap().as_ref() {
         if *k == key {
             return *b;
@@ -171,6 +221,7 @@ pub fn built_state(game_dir: &Path, tools_dir: &Path) -> Built {
     };
     let mut cmd = script(&tools);
     cmd.arg("--check").arg("--game").arg(game_dir);
+    options.add_to(&mut cmd);
     quiet(&mut cmd, false);
     let Ok(out) = cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status() else {
         return Built::Stale; // not cached: the next look tries again
@@ -186,8 +237,8 @@ pub fn built_state(game_dir: &Path, tools_dir: &Path) -> Built {
 }
 
 /// pkp.exe is in place and was built with this release's tools.
-pub fn is_built(game_dir: &Path, tools_dir: &Path) -> bool {
-    built_state(game_dir, tools_dir) == Built::Current
+pub fn is_built(game_dir: &Path, tools_dir: &Path, options: Options) -> bool {
+    built_state(game_dir, tools_dir, options) == Built::Current
 }
 
 /// The build tools of the package whose `tools` folder is `tools_dir`: the installed one, or a downloaded one an update prepares
@@ -238,9 +289,10 @@ pub enum Next {
     Unsupported,
 }
 
-pub fn next_state(game_dir: &Path, tools: &Tools) -> Next {
+pub fn next_state(game_dir: &Path, tools: &Tools, options: Options) -> Next {
     let mut cmd = script(tools);
     cmd.arg("--check").arg("--next").arg("--game").arg(game_dir);
+    options.add_to(&mut cmd);
     quiet(&mut cmd, false);
     match cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().ok().and_then(|s| s.code()) {
         Some(0) => Next::Current,
@@ -297,6 +349,10 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     cmd.args(["--jobs", &job.jobs.max(1).to_string()]);
     if job.prepare {
         cmd.arg("--prepare");
+    }
+    job.options.add_to(&mut cmd);
+    if let (true, Some(save)) = (job.options.optimize, &job.save_dir) {
+        cmd.arg("--save-dir").arg(save);
     }
     quiet(&mut cmd, job.idle);
     let say = |t: &str| {
@@ -369,4 +425,25 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     let tail = err_tail.join().unwrap_or_default();
     say(&format!("FAILED: game build ({}). Last error output:\n{}", st, tail));
     Err(error.unwrap_or_else(|| format!("The game build failed ({}). {}", st, tail.trim())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The layout make-release.ps1 and make-linux.sh give a package with the profile tools (release.yml pgo-tools).
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn optimize_is_offered_only_with_the_profile_tools() {
+        let tools = std::env::temp_dir().join(format!("nxrt-pgo-tools-{}", std::process::id()));
+        let pgo = tools.join("build").join("pgo");
+        fs::create_dir_all(pgo.join("tools")).unwrap();
+        fs::write(pgo.join("pkp_pgo.py"), "").unwrap();
+        assert!(!can_optimize(&tools), "the pgo folder without its tools");
+        fs::write(pgo.join("tools").join(if cfg!(windows) { "llvm-profdata.exe" } else { "llvm-profdata" }), "").unwrap();
+        assert!(!can_optimize(&tools), "no profile runtime");
+        fs::write(pgo.join("tools").join("libclang_rt.profile.a"), "").unwrap();
+        assert!(can_optimize(&tools));
+        let _ = fs::remove_dir_all(&tools);
+    }
 }
