@@ -28,7 +28,7 @@
 ### Graphics
 - Added the **Far Shadows** row to Settings > Graphics (Every Frame / Every Other Frame (Faster), next start): every other frame keeps the far shadow cascade from the frame before while its casters and the camera stand still, about 3 % fewer GPU cycles on a Snapdragon 8 Gen 3. On by default on phones, off on PC. A far caster that moves can be one frame late. Still not bit-exact with Every Frame
 - Fixed characters turning into glowing white shapes, a checkered player and the frame rate halving on PC after the camera went under water or into a waterfall, with a window larger than the game's 1080p frame (1440p, 4K)
-- Added `[gfx] small_targets` (off by default) for phones with the low-memory profile: the 3D keeps the low-memory size while the 2D stays at the screen's resolution
+- Phones on the low-memory profile draw the menus, HUD, text and touch controls at the screen's resolution: the 3D keeps the low-memory size (`[gfx] small_targets`, on by default)
 - Added the shaders of the work the GPU had not finished to the log when the graphics device is lost (every GPU vendor), so a GPU hang names the shader behind it
 - Fixed a "graphics device lost" crash on NVIDIA GPUs (and on Linux) when a compute pass read a bad item count: its loop now stops after 16384 items, as it already did on other GPUs
 - Fixed the in-game menu's minimap on screens that are not 16:9 (near-square phones, ultrawide): its creature, chest and house icons were stretched and spread along the screen's longer side, and could show outside the map

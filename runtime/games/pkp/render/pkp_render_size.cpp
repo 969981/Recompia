@@ -82,10 +82,7 @@ float phone_res_install(const play::DisplaySettings& d, int window_w, int window
     }
     const double per_pct = static_cast<double>(window_w) / std::max(1, tw) / 100.0;   // render scale per percent of the screen
     const int lowest = static_cast<int>(std::ceil(0.25 / per_pct - 1e-6));
-    // [gfx] small_targets (default off): the targets at the player's percent as under present_scale, with the swapchain at the screen's
-    // size, so the 2D ([gfx] ui_native) stays at the screen's resolution while the 3D targets keep the low-memory size.
-    static const bool small = config_get_bool("gfx", "small_targets", false);
-    const int ceiling = top >= 100 && !small ? 100 : std::clamp(phone_res_setting(), std::min(std::max(lowest, 50), top), top);
+    const int ceiling = top >= 100 ? 100 : std::clamp(phone_res_setting(), std::min(std::max(lowest, 50), top), top);
     g_ph_ceiling.store(ceiling);
     const float scale = static_cast<float>(ceiling * per_pct);
     NXLOG_I(kTag, "resolution: %d%% of the %dx%d screen (live from %d to %d %%%s); the %dx%d targets are made at %d %% of it (scale %.3f)", phone_res_value(),
