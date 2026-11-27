@@ -53,6 +53,7 @@ fun SettingsScreen(onBack: () -> Unit, onUpdate: () -> Unit) {
             CameraCard()
             LinkPlayCard()
             GpuDriverCard()
+            ColoursCard()
             UpdateSettingsCard(onUpdate)
         },
     ) {
@@ -112,6 +113,20 @@ private fun TouchCard() {
             reset = true
         }, Modifier.padding(horizontal = 12.dp), icon = Icons.Rounded.RestartAlt, enabled = !reset)
         Text(stringResource(R.string.ui_set_layout_note), style = MaterialTheme.typography.bodySmall, color = Rc.text3, modifier = Modifier.padding(horizontal = 12.dp))
+    }
+}
+
+/** The launcher's look (Palettes): Automatic follows the time of day, or one of the PC launcher's three themes. */
+@Composable
+private fun ColoursCard() {
+    val ctx = LocalContext.current
+    var choice by remember { mutableStateOf(Palettes.choice(ctx)) }
+    GlassCard(Modifier.fillMaxWidth(), padding = 12.dp) {
+        SectionTitle(stringResource(R.string.ui_set_colours_group))
+        // theme names are proper names: English in every language, as on the PC
+        ChoiceRow(stringResource(R.string.ui_set_colours), listOf(Palettes.AUTO to stringResource(R.string.ui_set_automatic),
+            "sunrise" to "Sunrise", "meadow" to "Meadow", "dusk" to "Dusk"), choice, { choice = it; Palettes.setChoice(ctx, it) })
+        Text(stringResource(R.string.ui_set_colours_note), style = MaterialTheme.typography.bodySmall, color = Rc.text3, modifier = Modifier.padding(horizontal = 12.dp))
     }
 }
 
