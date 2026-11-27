@@ -144,7 +144,7 @@ export const QUALITY_PRESETS = [
   { id: 'steamdeck', label: t('Steam Deck'), lod_bias: 0, anisotropy: 4, shadow_quality: 'default', aa: 'off', render_scale: 75, fps_limit: 40 },
   { id: 'legion_go_s', label: t('Legion Go S'), lod_bias: 0, anisotropy: 8, shadow_quality: 'default', aa: 'off', render_scale: 80, fps_limit: 60 },
   { id: 'laptop', label: t('Laptop'), lod_bias: 0, anisotropy: 4, shadow_quality: 'default', aa: 'off', render_scale: 75, fps_limit: 60 },
-  { id: 'desktop', label: t('Desktop PC'), lod_bias: -0.5, anisotropy: 16, shadow_quality: 'very_high', aa: 'smaa_high', render_scale: 0, fps_limit: -1 },
+  { id: 'desktop', label: t('Desktop PC'), lod_bias: -0.5, anisotropy: 16, shadow_quality: 'very_high', aa: 'smaa_high', render_scale: 0, fps_limit: 60 },
 ];
 
 const PRESET = fromSchema(controls('display', 'quality_preset'));

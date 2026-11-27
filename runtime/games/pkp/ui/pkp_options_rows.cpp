@@ -237,7 +237,7 @@ constexpr Row kDisplay[] = {
           [](S& s, int v) { if (v < kAspectCount) s.display.aspect = kAspectValues[v]; }, true),
     choice("Letterbox", "Black bars keep the picture's shape when it does not fit the window, instead of stretching it.", kOffOn, 2, ROW_BOOL(display.keep_aspect)),
     when(choice("VSync", "Wait for the display between frames: no tearing, a little more delay.", kOffOn, 2, ROW_BOOL(display.vsync)), not_phone),
-    when(names("Frame Rate Limit", "The highest frame rate. Match Display follows the refresh rate.", kFpsNames, kFpsCount + 1,
+    when(names("Frame Rate Limit", "The highest frame rate. 60 is the console's rate; above it the game can show bugs it does not have at 60. Match Display follows the refresh rate.", kFpsNames, kFpsCount + 1,
           [](const S& s) { return index_of(kFpsValues, kFpsCount, s.display.fps_cap, kFpsCount); },
           [](S& s, int v) { if (v < kFpsCount) { s.display.fps_cap = kFpsValues[v]; play::quality_preset_edited(s.display, play::QualityField::FrameLimit); } }), not_phone),
     when(dynamic("Frame Rate Limit", "The highest frame rate, each a whole number of the screen's refreshes (even frames). Lower keeps a hot phone running evenly.",

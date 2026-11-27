@@ -284,7 +284,7 @@ const SettingDef kTable[] = {
      .doc = "Exclusive falls back to borderless when the display refuses it. Alt+Enter and the F1 page switch modes while playing."},
     {ROW("display", "vsync", Bool), FLAG(display.vsync), .doc = "0: no forced vsync (immediate or mailbox presents, VRR friendly) with the frame limit."},
     {ROW("display", "fps_limit", Int), WHOLE(display.fps_cap), .lo = 0, .hi = 1000, .auto_word = "auto", .auto_at = -1, .renamed_from = "fps_cap",
-     .doc = "Frame limit: 0 = unlimited, auto = the display's refresh rate. With vsync on, a limit applies only below the refresh rate."},
+     .doc = "Frame limit: 0 = unlimited, auto = the display's refresh rate. The game's factory value is 60, its console rate. With vsync on, a limit applies only below the refresh rate."},
     {ROW("display", "fps_snap", Custom), CUSTOM(read_fps_snap, write_fps_snap), .words = kFpsSnapWords, .syntax = "choice",
      .nxrt_key = "display.fps_snap",
      .doc = "With vsync on, a frame limit below the refresh rate snaps to a divisor of it. auto: on a detected Steam Deck only."},
