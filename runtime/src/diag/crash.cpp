@@ -466,8 +466,17 @@ DWORD WINAPI overflow_thread(LPVOID) {
     return 0;
 }
 
+// 0x406D1388 is the old way to name a thread for a debugger: RaiseException with this code, which the debugger takes and the
+// raiser's own __except swallows. Code built without that __except (or a library that only raises while a debugger seems to be
+// attached) lets it reach the unhandled filter, which reported it as a crash on the first boot (#711). It is continuable and
+// carries no error, so it is dismissed here before any report.
+constexpr DWORD kThreadNameException = 0x406D1388;
+
 LONG WINAPI crash_vectored(EXCEPTION_POINTERS* ep) {
     if (!ep || !ep->ExceptionRecord || !ep->ContextRecord) return EXCEPTION_CONTINUE_SEARCH;
+    if (ep->ExceptionRecord->ExceptionCode == kThreadNameException &&
+        (ep->ExceptionRecord->ExceptionFlags & EXCEPTION_NONCONTINUABLE) == 0)
+        return EXCEPTION_CONTINUE_EXECUTION;
     if (ep->ExceptionRecord->ExceptionCode != EXCEPTION_STACK_OVERFLOW) return EXCEPTION_CONTINUE_SEARCH;
     if (g_in_handler.exchange(true)) second_exception();
     g_ov_rec = *ep->ExceptionRecord;

@@ -5,6 +5,9 @@
 ### Android
 - Added the PC launcher's Sunrise and Meadow looks to the phone app: Automatic (the default) picks Sunrise, Meadow or Dusk by the time of day, or choose one in Settings > Look > Colours
 
+### Fixed
+- Fixed a crash on the first boot on some Windows PCs that reported `HOST EXCEPTION 0x406D1388`: that code only names a thread for a debugger and is now ignored
+
 ## 0.18.0 (build V: Vaquita)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (the game code is lifted again and there are new hook sites; saves and shaders are kept, no shader is rebuilt). On Android, the app updates from inside it. Everyone in a co-op session needs this version: an older build cannot join a newer one.
