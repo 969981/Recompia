@@ -48,7 +48,8 @@ pub fn setup_status(app: AppHandle, state: SetupArg) -> SetupStatus {
     let dir = game_dir(&app);
     let progress = state.progress.lock().unwrap().clone();
     let tools_dir = exe_dir().join("tools");
-    let state = if gamebuild::is_package_b(&tools_dir) { gamebuild::built_state(&dir, &tools_dir) } else { gamebuild::Built::Current };
+    let options = load_config(&app).build_options();
+    let state = if gamebuild::is_package_b(&tools_dir) { gamebuild::built_state(&dir, &tools_dir, options) } else { gamebuild::Built::Current };
     let started = setup_started(&dir);
     SetupStatus {
         progress,
@@ -65,6 +66,9 @@ pub fn start_setup(app: AppHandle, state: SetupArg, gentle: Option<bool>) -> Res
     ensure_idle(&app, &[Need::Update, Need::Storage])?;
     let mut cfg = load_config(&app);
     cfg.gentle_build = gentle.unwrap_or(cfg.gentle_build);
+    if cfg.optimized_build {
+        gamebuild::retry_optimized(&game_dir_of(&cfg));
+    }
     // Linux and macOS: the player's dump is the source of everything. The same flow as the Windows Set up, from
     // host.rs native_set_up_install: pkp.ini from the chosen dump, the tools, the game build, then the shader corpus.
     if host::native_game() {
@@ -95,7 +99,8 @@ pub fn start_setup(app: AppHandle, state: SetupArg, gentle: Option<bool>) -> Res
                 *st.progress.lock().unwrap() = p.clone();
                 let _ = app.emit("setup-status", p);
             };
-            let result = host::native_set_up_install(&cfg, Some(&log), &st.cancel, &mut |phase, done, total, message| {
+            let save = crate::saveimport::locate(&game_dir_of(&cfg)).0;
+            let result = host::native_set_up_install(&cfg, Some(save), Some(&log), &st.cancel, &mut |phase, done, total, message| {
                 emit(shaders::Progress { state: RunState::Running, phase: phase.to_string(), done, total, message: message.to_string() })
             });
             let end = match result {
@@ -118,7 +123,7 @@ pub fn start_setup(app: AppHandle, state: SetupArg, gentle: Option<bool>) -> Res
     }
     // a pkp_rt.dll from another release than the tools: the build would finish and the game still refuse to start
     if package_b {
-        if let gamebuild::Built::Mixed { dll, sdk } = gamebuild::built_state(&dir, &tools_dir) {
+        if let gamebuild::Built::Mixed { dll, sdk } = gamebuild::built_state(&dir, &tools_dir, cfg.build_options()) {
             return Err(gamebuild::mixed_message(dll, sdk));
         }
     }
@@ -153,7 +158,16 @@ pub fn start_setup(app: AppHandle, state: SetupArg, gentle: Option<bool>) -> Res
         if gentle { ", gentle (idle priority)" } else { "" }
     ));
     log(&format!("game files: {}", dump::fwd(Path::new(&chosen.exefs))));
-    let build_job = gamebuild::Job { game_dir: dir.clone(), exefs: PathBuf::from(&chosen.exefs), jobs: build_jobs, idle: gentle, log: Some(log.clone()), prepare: false };
+    let build_job = gamebuild::Job {
+        game_dir: dir.clone(),
+        exefs: PathBuf::from(&chosen.exefs),
+        jobs: build_jobs,
+        idle: gentle,
+        log: Some(log.clone()),
+        prepare: false,
+        options: cfg.build_options(),
+        save_dir: Some(crate::saveimport::locate(&dir).0),
+    };
     let romfs_base = (!chosen.romfs_base.is_empty()).then(|| PathBuf::from(&chosen.romfs_base));
     let job = shaders::Job { game_dir: dir, romfs: PathBuf::from(&chosen.romfs), romfs_base, main: PathBuf::from(&chosen.exefs).join("main"), jobs, idle: gentle, log: Some(log.clone()), limit: 0, compact: !cfg.loose_shaders };
     std::thread::spawn(move || {
@@ -167,7 +181,7 @@ pub fn start_setup(app: AppHandle, state: SetupArg, gentle: Option<bool>) -> Res
         };
         let result = (|| {
             // no build yet, or one from an older release (stale tools stamp): build pkp.exe (again)
-            if package_b && !gamebuild::is_built(&build_job.game_dir, &tools_dir) {
+            if package_b && !gamebuild::is_built(&build_job.game_dir, &tools_dir, build_job.options) {
                 let tools = gamebuild::find_tools(&tools_dir, &build_job.game_dir)?;
                 let built = gamebuild::run(&build_job, &tools, &st.cancel, |t| {
                     emit(shaders::Progress { state: RunState::Running, phase: t.phase, done: t.done, total: t.total, message: t.message })
@@ -213,7 +227,7 @@ pub async fn preflight(app: AppHandle) -> Result<preflight::Report, String> {
     let compact = !cfg.loose_shaders;
     let tools_dir = exe_dir().join("tools");
     tauri::async_runtime::spawn_blocking(move || {
-        let build_pending = gamebuild::is_package_b(&tools_dir) && !gamebuild::is_built(&dir, &tools_dir);
+        let build_pending = gamebuild::is_package_b(&tools_dir) && !gamebuild::is_built(&dir, &tools_dir, cfg.build_options());
         let facts = preflight::probe(&dir, &preflight::remaining_of(&dir, build_pending, compact));
         let report = preflight::evaluate(&facts);
         // into the setup log too: a failed setup report then shows what the PC looked like

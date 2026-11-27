@@ -46,8 +46,9 @@
 //                                     position and velocity (closed loop, so it works with a camera-relative stick whatever the camera does);
 //                                     [test] goto_mirror = true for games whose stick-right turns the heading the other way. soft: a timeout
 //                                     logs and the script goes on
-//   @mashuntil <keys> every <n> until <field> <op> <value> [timeout=<n>]   press the buttons for 4 frames every n frames until the condition
-//                                     (same fields and operators as @assert) holds, e.g. `@mashuntil A every 120 until state >= 0` drives menus
+//   @mashuntil <keys> every <n> until <field> <op> <value> [timeout=<n>] [soft]   press the buttons for 4 frames every n frames until the
+//                                     condition (same fields and operators as @assert) holds, e.g. `@mashuntil A every 120 until state >= 0` drives
+//                                     menus. soft: a timeout logs "SOFT-TIMEOUT" and the script goes on (try one way, then another)
 //   @watch on [vely|posy|both] | off    hardware write watch (debug registers) on the player's physics velocity.y and/or transform position.y; every write is logged with
 //                                     the writing instruction, the frame and the value (lines `watch:` in the log); off stops it and logs how many hits were seen
 //   @objs <class>...                  list every live object of the named classes with its position (door dock pickup special actor platform trigger player, or a main-module

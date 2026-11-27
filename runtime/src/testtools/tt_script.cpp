@@ -699,13 +699,16 @@ bool parse_stmt(const std::string& body, const std::vector<std::string>& t, cons
     }
 
     if (kw == "@mashuntil") {
-        // @mashuntil <keys> every <n> until <field> <op> <value> [timeout=<n>]: press the keys for 4 frames every n frames until the condition holds
+        // @mashuntil <keys> every <n> until <field> <op> <value> [timeout=<n>] [soft]: press the keys for 4 frames every n frames until the condition holds
         std::vector<std::string> pos;
         int64_t timeout = -1;
         if (!take_timeout(t, 1, pos, &timeout, msg)) return false;
+        bool soft = false;
+        if (pos.size() == 8 && lower(pos[7]) == "soft") { soft = true; pos.pop_back(); }
         if (pos.size() != 7 || lower(pos[1]) != "every" || lower(pos[3]) != "until")
-            return usage(msg, "@mashuntil <keys> every <n> until <field> <op> <value> [timeout=<n>]");
+            return usage(msg, "@mashuntil <keys> every <n> until <field> <op> <value> [timeout=<n>] [soft]");
         Step s = make(StepKind::PressUntil);
+        s.soft = soft;
         if (!keys_mask(pos[0], &s.buttons, msg)) return false;
         if (!count_arg(pos[2], &s.count, msg)) return false;
         if (s.count < 5) return fail_with(msg, "@mashuntil interval must be at least 5 frames");
@@ -878,6 +881,19 @@ bool parse_script(const std::string& text_in, const std::string& path, const Reg
             return false;
         }
         for (Step& s : made) {
+#if NXRT_TT_SCRIPTS_ONLY
+            // a release package (NXRT_TEST_SCRIPTS): scripts read the game and press inputs, nothing more. Steps that write guest
+            // memory or game state, call guest code, change the game's step or the co-op channel, or write files named by the script
+            // are refused when the script loads
+            switch (s.kind) {
+                case StepKind::Poke: case StepKind::Peek: case StepKind::Give: case StepKind::Grant: case StepKind::Warp:
+                case StepKind::Call: case StepKind::Objs: case StepKind::Probe: case StepKind::Rays: case StepKind::Watch:
+                case StepKind::Coop: case StepKind::Rate:
+                    set_err(err, path + ":" + std::to_string(lineno) + ": '" + first_word(body) + "' is not in this build (scripted runs only)");
+                    return false;
+                default: break;
+            }
+#endif
             s.line = lineno;
             s.src = body;
             script.steps.push_back(std::move(s));

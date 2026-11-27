@@ -325,6 +325,7 @@ pub fn native_setup_tools(game_dir: &Path) -> Result<SetupTools, String> {
 /// (phase, done, total, message), as the shader job's own.
 pub fn native_set_up_install(
     cfg: &crate::config::Config,
+    save_dir: Option<PathBuf>,
     log: Option<&crate::shaders::LogFn>,
     cancel: &std::sync::atomic::AtomicBool,
     progress: &mut dyn FnMut(&str, u64, u64, &str),
@@ -342,11 +343,20 @@ pub fn native_set_up_install(
         if !ready {
             return Err("Setup paused.".into());
         }
-        if !crate::gamebuild::is_built(&dir, &tools_dir) {
+        if !crate::gamebuild::is_built(&dir, &tools_dir, cfg.build_options()) {
             let tools = crate::gamebuild::find_tools(&tools_dir, &dir)?;
             let exefs = native_exefs(&dir);
             let jobs = std::thread::available_parallelism().map(|n| n.get().saturating_sub(1).max(1)).unwrap_or(2);
-            let job = crate::gamebuild::Job { game_dir: dir.clone(), exefs, jobs, idle: false, log: None, prepare: false };
+            let job = crate::gamebuild::Job {
+                game_dir: dir.clone(),
+                exefs,
+                jobs,
+                idle: false,
+                log: None,
+                prepare: false,
+                options: cfg.build_options(),
+                save_dir,
+            };
             let built = crate::gamebuild::run(&job, &tools, cancel, |t| progress(&t.phase, t.done, t.total, &t.message))?;
             if !built {
                 return Err("Setup paused.".into());

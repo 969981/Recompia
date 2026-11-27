@@ -37,6 +37,10 @@ pub struct Config {
     pub online_salt: String,
     /// Set up with fewer cores at idle priority (preflight.rs jobs_for)
     pub gentle_build: bool,
+    /// "Optimized build" on the Set up page (gamebuild::Options): profile-guided, made once on this PC. Off unless the player switches it on.
+    pub optimized_build: bool,
+    /// "Tune for this CPU" on the Set up page (gamebuild::Options): the build runs only on this processor. Off unless the player switches it on.
+    pub tune_cpu: bool,
     /// A new setup keeps its translated shaders as ~99,000 loose files (the old storage) instead of the shader archive. Only read when
     /// a setup starts with no translated shader yet (shaders.rs Job::compact). Loose storage is on its way out.
     pub loose_shaders: bool,
@@ -76,6 +80,18 @@ pub struct WindowPlace {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+}
+
+impl Config {
+    /// What Set up and the update build with, and what a finished build is checked against. "Optimized build" counts only where
+    /// this package carries its tools (gamebuild::can_optimize): a switch saved in another install, or kept from a package that had
+    /// them, must not make every Set up fail.
+    pub fn build_options(&self) -> crate::gamebuild::Options {
+        let optimize = self.optimized_build
+            && crate::gamebuild::can_optimize(&crate::paths::exe_dir().join("tools"))
+            && crate::gamebuild::play_test_note(&crate::paths::game_dir_of(self)).is_empty();
+        crate::gamebuild::Options { optimize, tune_cpu: self.tune_cpu }
+    }
 }
 
 pub fn config_path(app: &AppHandle) -> Result<PathBuf, String> {

@@ -452,7 +452,17 @@ bool init() {
     s.det = config_get_bool("test", "deterministic", false);
     const std::string trace = config_get_str("test", "trace", "");
     const std::string src = config_get_str("test", "frame_source", "hook");
+#if NXRT_TT_SCRIPTS_ONLY
+    // a release package (runtime/CMakeLists.txt NXRT_TEST_SCRIPTS): scripted runs only, the rest of the tooling stays off
+    if (!s.record_path.empty() || !s.replay_path.empty() || s.det)
+        NXLOG_W("tt", "this build plays [test] script only: record, replay and deterministic are ignored");
+    s.record_path.clear();
+    s.replay_path.clear();
+    s.det = false;
+    s.on = !s.script.empty();
+#else
     s.on = !s.script.empty() || !s.record_path.empty() || !s.replay_path.empty() || s.det || !trace.empty() || config_get_bool("test", "enabled", false);
+#endif
     if (!s.on) return false;
     s.script_mode = !s.script.empty();
     s.out = config_get_str("test", "out", "testout");
@@ -617,6 +627,14 @@ bool key_event(const std::string& name, bool down) {
 
 bool take_shot(const std::string& name, std::string* why_not) {
     State& s = S();
+#if NXRT_TT_SCRIPTS_ONLY
+    // a release package: a screenshot stays a plain file in the run's shot folder (no path out of it, no GPU trace by name)
+    if (name.find_first_of("/\\:") != std::string::npos || name.find("..") != std::string::npos || name.rfind("nvntrace_", 0) == 0) {
+        if (why_not) *why_not = "this build takes screenshots by plain name only";
+        NXLOG_W("tt", "@shot %s: refused, this build takes screenshots by plain name only", name.c_str());
+        return false;
+    }
+#endif
     const std::string path = join(s.shot_dir, name + ".png");
     if (!screenshot::request(path.c_str(), false)) {
         s.missing_shots.push_back(name);

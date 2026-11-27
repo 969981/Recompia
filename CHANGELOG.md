@@ -10,6 +10,7 @@
 - Added a **Far Shadows** row to Settings > Graphics: phones draw the far shadows every other frame while the camera stands still
 
 ### Performance
+- Added two Set up options, both off by default: **Optimized build** (about 10 % less CPU work per frame measured on a phone; the first build takes about 2.5 times longer, because it builds a test version and plays a short automatic session on a copy of your save to learn how the game runs; later updates reuse what it learned) and **Tune for this CPU** (the game then only runs on that PC or phone)
 - Changed how a waiting game thread sleeps on Linux and Android: it waits on its own word and, on phones, watches it for 50 us before it sleeps. Before, every wake slept a second time on the kernel lock. Now a Snapdragon 8 Gen 3 shows about 14 % more fps. Still not changed on Windows and Proton
 - Added an Android performance hint session for the game's busy threads: before, the phone kept them on the little cores at low clocks; now it raises their clocks only as far as the frame needs (Tensor G2 about 13 % more fps)
 - Changed the guest kernel's locks on Linux and Android to need no system call when nobody waits

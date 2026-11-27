@@ -829,8 +829,11 @@ zone = host
 
 ## Test tooling keys (`[test]`, work area S5)
 
-All off by default; details in `include/nxrt/tt.h`. Environment variable = `NXRT_TEST_<KEY>`. Developer builds only: release packages
-(`PKP_RELEASE=ON`) are built without the test tooling (CMake option `NXRT_TESTTOOLS=OFF`) and ignore these keys.
+All off by default; details in `include/nxrt/tt.h`. Environment variable = `NXRT_TEST_<KEY>`. Developer builds have all of them. Release
+packages (`PKP_RELEASE=ON`: CMake options `NXRT_TESTTOOLS=OFF`, `NXRT_TEST_SCRIPTS=ON`) play a `script` and take the keys that shape
+a scripted run (`out`, `frame_source`, `shot_dir`, ...), for the optimized build's play-test (`game-build/release_b/pgo`); `record`,
+`replay`, `deterministic`, `trace` and `enabled` do not turn the tooling on there. The game's read-only state probes are built for the
+script steps that wait on them (`@run`, `@assert`, `@mashuntil ... until <field>`); its test features are not.
 
 | Key | Default | Meaning |
 |---|---|---|

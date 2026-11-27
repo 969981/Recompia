@@ -22,6 +22,10 @@ pub struct Overview {
     pub builds_exe: bool,
     /// RecompLauncher keeps this install (managed.rs): it is its own game folder, so the page offers no Install folder
     pub managed: bool,
+    /// the package carries the optimized build's tools (gamebuild::can_optimize): the Set up page offers "Optimized build"
+    pub can_optimize: bool,
+    /// why the optimized build's play-test did not pass ("first_house", "play_test"; gamebuild::play_test_note): the Set up page says so
+    pub optimize_note: String,
 }
 
 pub fn overview_of(cfg: &Config) -> Overview {
@@ -34,6 +38,8 @@ pub fn overview_of(cfg: &Config) -> Overview {
         exe_exists: crate::host::game_exe(&dir).is_file(),
         builds_exe: gamebuild::is_package_b(&exe_dir().join("tools")),
         managed: crate::managed::by_recomplauncher(),
+        can_optimize: gamebuild::can_optimize(&exe_dir().join("tools")),
+        optimize_note: if cfg.optimized_build { gamebuild::play_test_note(&dir) } else { String::new() },
     }
 }
 
@@ -153,7 +159,7 @@ pub fn readiness(cfg: &Config) -> Probe {
             if cfg.dump_dir.trim().is_empty() {
                 return refuse(Readiness::of("no_files", "Choose your game files first."));
             }
-            if !exe.is_file() || !crate::gamebuild::is_built(&dir, &tools) {
+            if !exe.is_file() || !crate::gamebuild::is_built(&dir, &tools, cfg.build_options()) {
                 return refuse(Readiness::of("setup", "Press Set up to build the game from your files and prepare its shaders."));
             }
         } else if !exe.is_file() {
@@ -206,7 +212,7 @@ pub fn readiness(cfg: &Config) -> Probe {
         exe_exists: crate::host::game_exe(&dir).is_file(),
         runtime_missing: !crate::host::runtime_lib(&dir).is_file() && !crate::host::runtime_lib(&exe_dir()).is_file(),
         builds_exe,
-        built: if builds_exe { gamebuild::built_state(&dir, &tools_dir) } else { gamebuild::Built::Current },
+        built: if builds_exe { gamebuild::built_state(&dir, &tools_dir, cfg.build_options()) } else { gamebuild::Built::Current },
         mod_plan_changed: gamebuild::mod_plan_changed(&dir),
         needs_retranslation: shaders::needs_retranslation(&dir),
         shaders_complete: shaders::is_complete(&dir),
