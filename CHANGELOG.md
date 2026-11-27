@@ -5,6 +5,10 @@
 ### Android
 - Added the PC launcher's Sunrise and Meadow looks to the phone app: Automatic (the default) picks Sunrise, Meadow or Dusk by the time of day, or choose one in Settings > Look > Colours
 
+### Changed
+- Changed the frame rate limit to 60 fps by default on every PC and handheld, the rate the game runs at on the console: many bugs only show above 60. Players on the old default (Match Display) move to 60 once; a limit you picked yourself stays. To play above 60, pick Match Display, a higher rate or Unlimited in Settings > Display > Frame Rate Limit
+- Changed the Desktop PC quality preset to 60 fps instead of the display's refresh rate
+
 ### Fixed
 - Fixed a black picture in play with the DLAA upscaler when the window is taller than the game's 1080p frame (1440p, ultrawide)
 - Fixed judder and long frame stalls on NVIDIA cards with `[gfx] gpu_keepalive` on: the keep-alive runs in 0.5 ms slices instead of 2 ms, so a frame's GPU work waits less behind it

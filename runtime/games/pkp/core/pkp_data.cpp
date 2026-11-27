@@ -17,11 +17,11 @@ namespace {
 // + main menu, - camera, D-pad follow/emote/swap move. Pads keep the console layout.
 constexpr const char* kSettingsText = R"INI(
 [meta]
-defaults_rev = 6
+defaults_rev = 7
 
 [display]
 render_scale = auto
-fps_limit = auto
+fps_limit = 60
 
 [bindings.all]
 W = move_forward
@@ -67,6 +67,9 @@ WheelDown = dpad_down
 // Revision 4: in the menus the right button is B (back) and the wheel moves the selection (pkp_menu.cpp: hover and click).
 // Revision 5: the middle mouse button is the Mouse mode key in play (the Joy-Con 2 mouse, pkp_play.cpp play_frame).
 // Revision 6: F5 saves in the world. An all-context default leaves existing context-specific uses of F5 in force.
+// Revision 7: the frame limit is 60 again, the console's rate, on every machine (phones keep 30). Many bugs only show above 60, so a
+// higher rate is the player's choice in Settings > Display > Frame Rate Limit. A file still on the old factory auto takes 60; a limit
+// the player picked (90, 120, Unlimited, ...) stays.
 constexpr play::GameDefaultAddition kAdditions[] = {
     {6, play::Ctx::All, "F5", play::Act::Save},
     {5, play::Ctx::Play, "Mouse2", play::Act::MouseMode},
@@ -78,13 +81,14 @@ constexpr play::GameDefaultAddition kAdditions[] = {
 constexpr play::GameDefaultChange kChanges[] = {
     {2, "display", "render_scale", "100", "auto"},
     {3, "display", "fps_limit", "60", "auto"},
+    {7, "display", "fps_limit", "auto", "60"},
 };
 
 const play::GameDefaults& game_defaults() {
     static const play::GameDefaults d = [] {
         play::GameDefaults g;
         g.settings_text = kSettingsText;
-        g.defaults_rev = 6;
+        g.defaults_rev = 7;
         g.additions = kAdditions;
         g.addition_count = sizeof kAdditions / sizeof kAdditions[0];
         g.changes = kChanges;

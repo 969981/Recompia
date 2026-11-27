@@ -540,7 +540,7 @@ The play-mode settings file `controls.ini` (key `[play] controls`) holds the key
 
 | Section | Key | Default | Values | Overridden by | Meaning |
 |---|---|---|---|---|---|
-| `meta` | `defaults_rev` | `6` | `0` to `1000` |  | The factory-defaults revision the file was written with (the game writes it; a file without it counts as 0). An older file gets the newer factory bindings and values at the next start. |
+| `meta` | `defaults_rev` | `7` | `0` to `1000` |  | The factory-defaults revision the file was written with (the game writes it; a file without it counts as 0). An older file gets the newer factory bindings and values at the next start. |
 | `meta` | `display_rev` | `0` | `0` to `1000` |  | The display-defaults revision the file was written with (the game writes it; a file without it counts as 0). macOS turns vsync on for an older file. |
 | `mouse` | `yaw` | `0.000767945` | a number |  | Horizontal mouse sensitivity in radians per count. |
 | `mouse` | `pitch` | `0.000767945` | a number |  | Vertical mouse sensitivity in radians per count. |
@@ -572,7 +572,7 @@ The play-mode settings file `controls.ini` (key `[play] controls`) holds the key
 | `display` | `render_mode` | `console` | `console` `window` |  | What an unset internal resolution follows: console renders 1920x1080 docked (1280x720 handheld) and the window upscales, window renders at the window's size. render_scale and a fixed size override it. Next start. |
 | `display` | `window_mode` | `windowed` | `windowed` `borderless` `exclusive` |  | Exclusive falls back to borderless when the display refuses it. Alt+Enter and the F1 page switch modes while playing. |
 | `display` | `vsync` | `0` | `1` `0` |  | 0: no forced vsync (immediate or mailbox presents, VRR friendly) with the frame limit. |
-| `display` | `fps_limit` (older: `fps_cap`) | `auto` | `auto`, `0` to `1000` |  | Frame limit: 0 = unlimited, auto = the display's refresh rate. With vsync on, a limit applies only below the refresh rate. |
+| `display` | `fps_limit` (older: `fps_cap`) | `60` | `auto`, `0` to `1000` |  | Frame limit: 0 = unlimited, auto = the display's refresh rate. The game's factory value is 60, its console rate. With vsync on, a limit applies only below the refresh rate. |
 | `display` | `fps_snap` | `auto` | `auto` `true` `false` | `[display] fps_snap`, `NXRT_DISPLAY_FPS_SNAP` | With vsync on, a frame limit below the refresh rate snaps to a divisor of it. auto: on a detected Steam Deck only. |
 | `display` | `width` | `1280` | `320` to `16384` |  | Windowed client width, remembered. |
 | `display` | `height` | `720` | `320` to `16384` |  | Windowed client height, remembered. |
