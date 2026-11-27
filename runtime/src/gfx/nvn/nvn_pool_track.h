@@ -44,6 +44,9 @@ uint64_t ptrack_land_begin(PoolTrack* t, uint64_t first, uint64_t count);
 bool ptrack_land_end(PoolTrack* t, uint64_t first, uint64_t count);
 // The landing found the CPU's bytes of a page of such a run different from the shadow's (a CPU write between begin and end): written.
 void ptrack_land_differs(PoolTrack* t, uint64_t first, uint64_t count);
+// The landing left count pages alone because they already held the GPU's bytes ([nvn] pool_land_diff): they stay as current as they were
+// (no protection change, no write); counted with the pages a landing left current. t may be null.
+void ptrack_land_same(PoolTrack* t, uint64_t count);
 
 struct PoolTrackStats {
     uint64_t arms = 0;          // arm calls
