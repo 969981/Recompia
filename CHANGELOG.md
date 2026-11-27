@@ -1,10 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.18.0 (build V: Vaquita)
 
-**Update:** press **Update** in the launcher, then **Set up again** once (the game code is lifted again and there are new hook sites; saves and shaders are kept, no shader is rebuilt). On Android, the app updates from inside it.
+**Update:** press **Update** in the launcher, then **Set up again** once (the game code is lifted again and there are new hook sites; saves and shaders are kept, no shader is rebuilt). On Android, the app updates from inside it. Everyone in a co-op session needs this version: an older build cannot join a newer one.
 
 ### Highlights
+- Co-op talk is the same for the whole group: the creatures' walk-up talks and event talks are shared, as on Cloud Island, and kept through area gates and saves
 - Phones play smoother and load faster: threads wake on time, the phone raises its clocks for the game, and many smaller CPU and GPU savings (each with its gain below)
 - Phones without AHardwareBuffer pools (Tensor G2) use about 350-470 MB less graphics memory
 - Added a **Far Shadows** row to Settings > Graphics: phones draw the far shadows every other frame while the camera stands still
@@ -44,6 +45,10 @@
 
 ### Gameplay
 - Changed co-op to keep the creatures' talk state (walk-up timers, event talks) in the game's own Cloud Island record set, shared by the whole group as on Cloud Island; everyone in a co-op session needs this version
+
+### Known issues
+- A Cloud Islands account made before 24 November with no signed-in PC left cannot sign in: ask on Discord for a recovery link, and do not make a second account
+- Online presence is paused: its server is gone
 
 ## 0.17.7 (build U: Urchin Hotfix a3)
 
