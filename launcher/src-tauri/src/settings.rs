@@ -218,8 +218,10 @@ pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str, romfs_base: &str,
 }
 
 /// Re-checks `[fs] aoc_dir` the way exefs and romfs are: a value that names a folder that is gone (the dump was moved or deleted
-/// after Set up) is reset to this dump's add-on folder (`aoc_dir`, kept relative) when it has one, else to empty (none). An existing
-/// folder and an empty value stay as they are. Returns the notice for the player when it reset the value.
+/// after Set up) is reset to this dump's add-on folder (`aoc_dir`, kept relative) when it has one. When the dump has none the value
+/// is left as it is (an empty value would read as "none chosen" and block a later dump's add-ons), so the next check with add-ons
+/// in the chosen files resets it. An existing folder and an empty value stay as they are. Returns the notice for the player when
+/// the folder is missing.
 fn recheck_aoc_dir(dir: &Path, ini: &mut Ini, aoc_dir: &str) -> Option<String> {
     let cur = ini.get("fs", "aoc_dir").unwrap_or_default();
     let cur = cur.trim();
@@ -230,13 +232,11 @@ fn recheck_aoc_dir(dir: &Path, ini: &mut Ini, aoc_dir: &str) -> Option<String> {
     if (if cur_path.is_absolute() { cur_path.to_path_buf() } else { dir.join(cur_path) }).is_dir() {
         return None;
     }
-    let (now, notice) = if aoc_dir.is_empty() {
-        (String::new(), "The add-on content folder was not found, so add-on areas, creatures and shop items stay locked. Choose game files that include the add-ons on the Set up page.")
-    } else {
-        (portable(dir, aoc_dir), "The add-on content folder was not found, so it now points at the add-ons in your chosen game files.")
-    };
-    ini.set("fs", "aoc_dir", &now);
-    Some(notice.to_string())
+    if aoc_dir.is_empty() {
+        return Some("The add-on content folder was not found, so add-on areas, creatures and shop items stay locked. Choose game files that include the add-ons on the Set up page.".to_string());
+    }
+    ini.set("fs", "aoc_dir", &portable(dir, aoc_dir));
+    Some("The add-on content folder was not found, so it now points at the add-ons in your chosen game files.".to_string())
 }
 
 /// The folder add-ons (DLC) are unpacked into: the one `[fs] aoc_dir` names, else `<dir>/aoc`, which is then written to pkp.ini.
@@ -392,13 +392,19 @@ aoc_dir = D:/gone/aoc
         assert_eq!(ini.get("fs", "aoc_dir").as_deref(), Some("dump/aoc"));
         // an existing folder is kept
         assert!(recheck_aoc_dir(&dir, &mut ini, "").is_none());
-        // no add-ons in the dump: reset to empty; an empty value is then left alone
+        // no add-ons in the dump: the player is told, the value stays so a later dump with add-ons resets it
         let mut ini = Ini::parse("[fs]
 aoc_dir = D:/gone/aoc
 ");
         assert!(recheck_aoc_dir(&dir, &mut ini, "").is_some());
-        assert_eq!(ini.get("fs", "aoc_dir").as_deref(), Some(""));
-        assert!(recheck_aoc_dir(&dir, &mut ini, "").is_none());
+        assert_eq!(ini.get("fs", "aoc_dir").as_deref(), Some("D:/gone/aoc"));
+        assert!(recheck_aoc_dir(&dir, &mut ini, &dump).is_some());
+        assert_eq!(ini.get("fs", "aoc_dir").as_deref(), Some("dump/aoc"));
+        // an empty value is left alone
+        let mut ini = Ini::parse("[fs]
+aoc_dir =
+");
+        assert!(recheck_aoc_dir(&dir, &mut ini, &dump).is_none());
         let _ = fs::remove_dir_all(&dir);
     }
 }
