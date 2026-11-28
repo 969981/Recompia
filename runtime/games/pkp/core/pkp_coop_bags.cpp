@@ -506,6 +506,56 @@ int on_bag_screen(::Ctx* c) {
     return 0;
 }
 
+// The host's stand trade 0x223760 (sender, request) balances request bag + payment against mirror + bought item and refuses on any
+// rest; on a refusal it copies the mirror into the reply bag, which the member's game writes into its bag. The member's game took
+// the payment and added the item before the request was queued (0xefb1e0, then 0xefb380 -> 0x214974 copies the bag), and the
+// member's record (so the mirror) can already lack the payment when the confirmation came late: the trade was refused, the reply
+// gave back no payment and the stand kept its stock (bug 10). So the mirror is set to the bag before the trade, request bag - bought
+// item + payment, before the game's checks run: the balance holds, the lineup checks and the stand transaction 0x7d27e0 decide, and
+// a refusal returns the payment. The bought item is taken out only as far as the request bag holds it (an add that did not fit).
+int on_stand_trade(::Ctx* c) {
+    if (role() != CoopRole::Host) return 0;
+    constexpr uint64_t kKind = 0x3b8, kCounts = 0x2cf;                   // request: u16 kind; u8 count per slot (u32 words at +0)
+    constexpr uint64_t kEntry = 0x28e, kPayWords = 0x278, kPayCounts = 0x291;   // {u16 entry, u8 flag}; 5 x u32 / 5 x u8
+    constexpr uint32_t kPays = 5, kLastId = 0x11f7, kStandTradeKind = 0x1e;
+    const uint64_t rec = c->x[2];
+    if (!guest::ok(rec, kKind + 2) || guest::rd<uint16_t>(rec + kKind) != kStandTradeKind) return 0;
+    const uint64_t mirror = guest::call(c, base() + layout::kMirrorOf, c->x[1] & 0xff);
+    if (!mirror || !guest::ok(mirror, kBagBytes)) return 0;
+    Record pre;
+    for (size_t i = 0; i < kSlots; ++i)
+        pre.slot[i] = items::moved_of(guest::rd<uint32_t>(rec + i * 4) | uint64_t{guest::rd<uint8_t>(rec + kCounts + i)} << 32);
+    const uint64_t sp = guest::scratch(c), slot = sp + 0x10;
+    guest::wr<uint64_t>(slot + items::kSlotPayload, 0);
+    guest::call(c, base() + layout::kShopEntryItem, rec + kEntry, slot, 0, 0, 0, sp);
+    const uint64_t bought = word_of(guest::rd<uint32_t>(slot + items::kSlotPayload));
+    uint32_t left = guest::rd<uint8_t>(slot + items::kSlotPayload + 4);
+    for (size_t i = kSlots; i-- > 0 && left && items::id_of(bought);) {
+        uint64_t& p = pre.slot[i];
+        if (!items::id_of(p) || word_of(p) != bought) continue;
+        const uint32_t n = std::min(left, items::count_of(p));
+        left -= n;
+        p = n == items::count_of(p) ? 0 : items::with_count(p, items::count_of(p) - n);
+    }
+    const uint32_t max = max_stack(c);
+    uint32_t lost = 0;
+    for (uint32_t j = 0; j < kPays; ++j) {
+        const Credit g{word_of(guest::rd<uint32_t>(rec + kPayWords + j * 4)), guest::rd<uint8_t>(rec + kPayCounts + j), kSlots};
+        const uint32_t id = items::id_of(g.word);
+        if (!id || id > kLastId || !g.n || place(pre, g, max)) continue;
+        size_t i = 0;   // place() keeps below the last slot in use; the payment may have emptied that one
+        while (i < layout::kBagSlots && items::id_of(pre.slot[i])) ++i;
+        if (i < layout::kBagSlots) pre.slot[i] = items::with_count(g.word, g.n);
+        else lost += g.n;
+    }
+    write_bag(mirror, pre);
+    const auto [slots, count] = totals(pre);
+    NXLOG_I(kTag, "Co-op bags: member %u's stand trade; the host's copy of its bag is the bag before the trade (%u slots, %u items; "
+                  "%u bought items not in the request, %u payment items fit nowhere)",
+            static_cast<unsigned>(c->x[1] & 0xff), slots, count, left, lost);
+    return 0;
+}
+
 void on_record_message(::Ctx*, int from, uint8_t, wire::Reader& r) {
     Key k;
     r.bytes(k.data(), k.size());

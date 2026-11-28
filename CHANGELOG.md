@@ -10,6 +10,7 @@
 - Changed the Desktop PC quality preset to 60 fps instead of the display's refresh rate
 
 ### Fixed
+- Fixed a co-op member's buy at a creature's stand being refused: the item comes, the stock is sold, and a refused trade gives the payment back
 - Fixed a black picture in play with the DLAA upscaler when the window is taller than the game's 1080p frame (1440p, ultrawide)
 - Fixed judder and long frame stalls on NVIDIA cards with `[gfx] gpu_keepalive` on: the keep-alive runs in 0.5 ms slices instead of 2 ms, so a frame's GPU work waits less behind it
 - Fixed the log's pool copy figures counting pages a GPU write left unchanged as copied after a landing

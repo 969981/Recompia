@@ -333,14 +333,16 @@ entryhook 0x71005affe0
 entryhook 0x71005b0d60
 entryhook 0x71005b0a60
 entryhook 0x71005af6a0
-#   and in the member's handler of the host's request answers 0x7100226280, the `cbz x0` after the bag selector 0x71002ecc04 in the six
-#   refused-request bag resets (kinds 0xb, 0xf, 0x1a, 0x1d, 0x1e, 0x1f)
+#   and in the member's handler of the host's request answers 0x7100226280, the `cbz x0` after the bag selector 0x71002ecc04 in five
+#   refused-request bag resets (kinds 0xb, 0xf, 0x1a, 0x1d, 0x1f; kind 0x1e keeps the game's reset, see the stand trade below)
 midhook 0x71002288c4
 midhook 0x7100228f38
 midhook 0x710022a298
 midhook 0x71002267fc
-midhook 0x7100226684
 midhook 0x7100226868
+#   and the host's stand trade 0x7100223760 (sender, request; kind 0x1e from the dispatch 0x7100216860): the member's working copy of
+#   its bag is set to the bag before the trade (pkp_coop_bags.cpp)
+entryhook 0x7100223760
 #   Seamless co-op, the shops (pkp_coop_purchases.cpp): a purchase's give 0x7100e889f8 (the shop's buy 0x7100e88868 tail-calls it; on a
 #   visitor the host's answer to its buy, 0x7100226280, calls it), and "this shop row is for offline play only" 0x7100e87260 (the bag
 #   upgrades; its callers, the listing tests 0x7100e86494 / 0x7100e87424, hide such rows whenever the game is online)

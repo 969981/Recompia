@@ -132,6 +132,8 @@ constexpr uint8_t kCommonFlagShare = 2;
 // none for the index at kOwnMirrorIndex): the host's request checks read and change it.
 constexpr uint64_t kBagMirror = 0x17154a8;
 constexpr uint64_t kOwnMirrorIndex = 0xb3380;   // u8 of **(main + kOwnMemberIndexRef): the member index 0x5bc840 has no mirror for
+constexpr uint64_t kMirrorOf = 0x5bc840;        // (member index) -> that member's mirror; 0 for the own index, >= 4 or offline
+constexpr uint64_t kShopEntryItem = 0xa9577c;   // (&{u16 shop entry, u8 flag}, out slot): the entry's item into slot +8 (id only) / +0xc
 constexpr uint64_t kStageContainerStore = 0x13ea9a8; // save root: stage item slots (pkp_items.h)
 constexpr uint64_t kCabinetRecords = 0xa0ee28;   // save root: stage cabinet records (m_gimmickSaveData)
 constexpr uint32_t kCabinetRecordCount = 0x610;

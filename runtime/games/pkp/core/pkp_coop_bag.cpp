@@ -16,12 +16,15 @@
 //   0x5b0a60 (entry, the host): on Cloud Island, the host's own S entry written over its bag (overflow into the PC). Skipped.
 //   0x5af6a0 (entry, the host): before a host save, each visitor's mirror (and on Cloud Island the host's own bag) stored into S.
 //     Skipped: S is never read back into a bag in co-op, and the records are kept by pkp_coop_bags.cpp.
-//   Six midhooks (a member): the member's handler of the host's answer to a request (0x226280) resets the whole selected bag to the
-//     host's mirror when the host refused one of six request kinds ("Your items have been reset"). Each `cbz x0` right after the bag
-//     selector 0x2ecc04 gets x0 = 0, so the game's own "no bag" path runs. Kind 0xb's null path also skips its wait release 0x46aa6c,
-//     which the hook calls itself. Kinds 0xf (PC storage), 0x1a (container), 0x1d (drop), 0x1e and 0x1f took items out of the bag
+//   Five midhooks (a member): the member's handler of the host's answer to a request (0x226280) resets the whole selected bag to the
+//     host's mirror when the host refused one of these request kinds ("Your items have been reset"). Each `cbz x0` right after the
+//     bag selector 0x2ecc04 gets x0 = 0, so the game's own "no bag" path runs. Kind 0xb's null path also skips its wait release
+//     0x46aa6c, which the hook calls itself. Kinds 0xf (PC storage), 0x1a (container), 0x1d (drop) and 0x1f took items out of the bag
 //     before the request went: the record, which is not taken while a request is unanswered (pkp_coop_bags.cpp), still holds them
-//     and is written back instead of the mirror. Kind 0xb (a talk's items, added) keeps the bag as it is.
+//     and is written back instead of the mirror. Kind 0xb (a talk's items, added) keeps the bag as it is. Kind 0x1e (a stand trade)
+//     keeps the game's reset: its payment leaves the bag while the bag screen is still open, so the record can already lack it
+//     (bug 10), and the host sets that member's mirror to the bag before the trade instead (bags::on_stand_trade), which the
+//     reset then writes back, payment included.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
