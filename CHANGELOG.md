@@ -14,6 +14,7 @@
 - Fixed judder and long frame stalls on NVIDIA cards with `[gfx] gpu_keepalive` on: the keep-alive runs in 0.5 ms slices instead of 2 ms, so a frame's GPU work waits less behind it
 - Fixed the log's pool copy figures counting pages a GPU write left unchanged as copied after a landing
 - Fixed a crash on the first boot on some Windows PCs that reported `HOST EXCEPTION 0x406D1388`: that code only names a thread for a debugger and is now ignored
+- Fixed a co-op member's start of a town building kit being lost: the start now counts like the host's own and is kept in the host's save
 
 ## 0.18.0 (build V: Vaquita)
 

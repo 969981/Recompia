@@ -922,6 +922,14 @@ void on_state_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace deposit
+// ---- a member's building kit start, applied on the authority (pkp_coop_buildstart.cpp) ----
+namespace buildstart {
+// The hook sites (pkp_coop.cpp; site: its main offset): entry 0x8603dc (the kit's apply of request kind 0x1a), entry 0x86bc20 (its
+// requirement check: passed over for a member's start, returns 1), midhooks 0x86322c (the commit), 0x2227b0 (the apply's end), and in
+// 0x221d00 0x222778, 0x221d84, 0x22292c, 0x2229a8 (the gates, journalled). Every other site returns 0.
+int on_site(::Ctx* c, uint64_t site);
+void reset();
+}  // namespace buildstart
 // ---- a story follow on a member (pkp_coop_follow.cpp) ----
 namespace follow {
 // The hook site (pkp_coop.cpp): entry 0x2a1ed4, the contents' "follow this player" attach (command 0xdac mode 3, through 0x117b18).
