@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Play and the game's state.
 
-use tauri::AppHandle;
+use serde::Serialize;
+use tauri::{AppHandle, Emitter};
 
 use crate::states::{PlayArg, States};
 use crate::config::load_config;
@@ -23,6 +24,12 @@ pub fn play(app: AppHandle, without_mods: Option<bool>) -> Result<(), String> {
     play::start(&app, &dir, &cfg, without_mods.unwrap_or(false), None)
 }
 
+/// A one-off message for the player's toast (store.js `launcher-notice`).
+#[derive(Serialize, Clone)]
+struct Notice {
+    message: String,
+}
+
 /// What every start needs before the game runs (singleplayer Play, co-op Play): nothing busy, setup finished, the game's paths in
 /// pkp.ini. The caller holds `hold_swap` (see `play`) until its game has started. Returns the game folder and the launcher's config.
 pub fn prepare(app: &AppHandle) -> Result<(std::path::PathBuf, crate::config::Config), String> {
@@ -36,7 +43,10 @@ pub fn prepare(app: &AppHandle) -> Result<(std::path::PathBuf, crate::config::Co
     // macOS: Set up wrote pkp.ini from the player's dump and there is no dump choice to apply here, so readiness carries no
     // paths. Everywhere else they name the exefs and romfs to write.
     if let Some(paths) = probe.paths {
-        settings::ensure_play_paths(&dir, &paths.exefs, &paths.romfs, &paths.romfs_base, &paths.aoc_dir)?;
+        if let Some(text) = settings::ensure_play_paths(&dir, &paths.exefs, &paths.romfs, &paths.romfs_base, &paths.aoc_dir)? {
+            crate::setuplog::SetupLog::open(&dir).line(&text);
+            let _ = app.emit("launcher-notice", Notice { message: text });
+        }
     }
     Ok((dir, cfg))
 }
