@@ -11,10 +11,13 @@
 
 ### Fixed
 - Fixed co-op story steps and newly met creatures from a teammate's talk being lost when the host stood still or sat in a menu for two minutes: the host now keeps them until it can run them, so the step happens and the creature moves in
+- Fixed add-on content (extra areas, creatures and shop items) staying hidden after the game files moved: Play now re-checks the add-on folder in pkp.ini like the other game paths and points it at the add-ons in your chosen game files, with a notice when it was missing
+- Fixed a co-op travel poll closing with "Staying in ..." when a player did not answer: no answer now counts as yes, and a No still keeps everyone where they are
 - Fixed a black picture in play with the DLAA upscaler when the window is taller than the game's 1080p frame (1440p, ultrawide)
 - Fixed judder and long frame stalls on NVIDIA cards with `[gfx] gpu_keepalive` on: the keep-alive runs in 0.5 ms slices instead of 2 ms, so a frame's GPU work waits less behind it
 - Fixed the log's pool copy figures counting pages a GPU write left unchanged as copied after a landing
 - Fixed a crash on the first boot on some Windows PCs that reported `HOST EXCEPTION 0x406D1388`: that code only names a thread for a debugger and is now ignored
+- Fixed a co-op member's start of a town building kit being lost: the start now counts like the host's own and is kept in the host's save
 
 ## 0.18.0 (build V: Vaquita)
 

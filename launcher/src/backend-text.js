@@ -30,6 +30,9 @@ const TEXTS = [
   msg('Setup is running. Pause it first.'),
   msg('An update is being installed. Wait for it to finish.'),
   msg('The shader files are being repacked. Wait for it to finish, or stop it in Settings.'),
+  // settings.rs: the add-on folder in pkp.ini was gone at Play
+  msg('The add-on content folder was not found, so add-on areas, creatures and shop items stay locked. Choose game files that include the add-ons on the Set up page.'),
+  msg('The add-on content folder was not found, so it now points at the add-ons in your chosen game files.'),
   msg('The launcher settings folder is not known.'),
   msg('That link cannot be opened from here.'),
   msg('Could not open {1}: {2}'),
