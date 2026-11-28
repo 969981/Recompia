@@ -466,6 +466,8 @@ midhook 0x7100126f58
 entryhook 0x71001273a0
 entryhook 0x7100127480
 entryhook 0x7100284ef4
+midhook 0x710049abd0
+midhook 0x710049b584
 midhook 0x71004dbcbc
 midhook 0x7100614028
 midhook 0x7100614560

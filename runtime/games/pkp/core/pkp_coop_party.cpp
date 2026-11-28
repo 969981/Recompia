@@ -36,25 +36,28 @@ constexpr uint64_t kListMost = 64;          // a count above this is no list (th
 
 bool follower_id(uint16_t id) { return !(id & 0x800) && static_cast<uint32_t>((id >> 12) - 1) <= 3; }
 
+// Calls fn(guest address of a follower's u16 actor id) for every follower in party list `list`; stops at the first true and
+// returns it.
+template <class Fn>
+bool walk_list(uint64_t list, Fn&& fn) {
+    const uint64_t pg = guest::deref(base() + layout::kPartyManager);
+    const uint64_t at = pg + layout::kPartyLists + list * layout::kPartyListSize;
+    if (!pg || !guest::ok(at, layout::kPartyListSize)) return false;
+    const uint64_t ids = guest::rd<uint64_t>(at + kListIds);
+    const uint64_t count = guest::rd<uint64_t>(at + kListCount);
+    if (count > kListMost || !guest::ok(ids, count * 2)) return false;
+    for (uint64_t i = 0; i < count; ++i)
+        if (follower_id(guest::rd<uint16_t>(ids + i * 2)) && fn(ids + i * 2)) return true;
+    return false;
+}
+
 // Calls fn(guest address of a follower's u16 actor id, the list is this player's own) for every follower this process knows, own
 // list first; stops at the first true and returns it.
 template <class Fn>
 bool any_follower(Fn&& fn) {
-    const uint64_t pg = guest::deref(base() + layout::kPartyManager);
-    if (!pg) return false;
-    const auto walk = [&](uint64_t list, bool own) {
-        const uint64_t at = pg + layout::kPartyLists + list * layout::kPartyListSize;
-        if (!guest::ok(at, layout::kPartyListSize)) return false;
-        const uint64_t ids = guest::rd<uint64_t>(at + kListIds);
-        const uint64_t count = guest::rd<uint64_t>(at + kListCount);
-        if (count > kListMost || !guest::ok(ids, count * 2)) return false;
-        for (uint64_t i = 0; i < count; ++i)
-            if (follower_id(guest::rd<uint16_t>(ids + i * 2)) && fn(ids + i * 2, own)) return true;
-        return false;
-    };
-    if (walk(layout::kPartyOwnList, true)) return true;
+    if (walk_list(layout::kPartyOwnList, [&](uint64_t id) { return fn(id, true); })) return true;
     for (uint64_t slot = 0; slot < layout::kPartySlotLists; ++slot)
-        if (walk(slot, false)) return true;
+        if (walk_list(slot, [&](uint64_t id) { return fn(id, false); })) return true;
     return false;
 }
 
@@ -86,6 +89,16 @@ size_t invited(uint16_t* ids, size_t most) {
         if (!own && n < most) ids[n++] = guest::rd<uint16_t>(id);
         return false;
     });
+    return n;
+}
+
+size_t followers_of(uint8_t slot, uint16_t* ids, size_t most) {
+    size_t n = 0;
+    if (slot < layout::kPartySlotLists)
+        walk_list(slot, [&](uint64_t id) {
+            if (n < most) ids[n++] = guest::rd<uint16_t>(id);
+            return false;
+        });
     return n;
 }
 

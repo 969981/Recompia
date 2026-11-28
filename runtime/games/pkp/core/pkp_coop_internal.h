@@ -747,6 +747,8 @@ bool owns(::Ctx* c, uint64_t comp);
 // The actor ids of the creatures the session's players invited to follow them (every slot's list), at most `most`; the count.
 constexpr size_t kInvitedMost = 20;   // 4 lists of 5
 size_t invited(uint16_t* ids, size_t most);
+// The actor ids of the creatures the session player of `slot` invited to follow it (its list 0..3), at most `most`; the count.
+size_t followers_of(uint8_t slot, uint16_t* ids, size_t most);
 // The bags (pkp_coop_party_bags.cpp). The largest count of item `id` any other player of the session holds, as far as this
 // process knows (0: none; *node: that player's, written when the count is above 0); and whether one of them holds exactly
 // `exactly` of it (*node: that player's).
@@ -962,6 +964,12 @@ void on_member_change(int node, bool joined);
 // The authority, when the group's agreed move to another area is made (pkp_coop_travel.cpp): every player's invited followers
 // leave their leaders through the game's own leave; an escort stays in the record. Nothing on a member or outside a session.
 void release_for_move(::Ctx* c);
+// The invited follower (guest &u16 actor id at npc, in slot's list) is taken as the authority's party tick takes a yes from the
+// creature: the leader id is written and the slot's list is raised to the members. False when the invite did not turn its follow on.
+bool accept(::Ctx* c, uint64_t npc, uint16_t leader, uint8_t slot);
+// The actor id of the session player of `slot` here (0: none); the creature of data id `data` is in the escort record.
+uint16_t player_actor(uint8_t slot);
+bool is_escort(uint16_t data);
 // A member sends its asks and releases and marks the escorts of the record it received; the authority finds the saved record's
 // creatures, attaches the escorts that do not follow their leader and sends the record (once a frame, after the channel's
 // handlers).
@@ -977,6 +985,15 @@ bool marked(uint32_t index);
 bool put(uint32_t index, bool on, bool visiting);
 }  // namespace marks
 }  // namespace follow
+// ---- the followers who can come cross areas with the group (pkp_coop_carry.cpp) ----
+namespace carry {
+// The authority, right before the group's move releases its followers (follow::release_for_move): the record is taken now.
+void before_move(::Ctx* c);
+// The authority records every slot's invited followers who can come while the group walks in an area, and attaches them to their
+// leaders once the group walks in the next one (once a frame, after the follow module's tick). Nothing on a member.
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace carry
 // ---- the one shared save (pkp_coop_savecopy.cpp) ----
 namespace savecopy {
 // At the feature's install, before the game opens its save: a received copy left half moved is completed; this PC's copy is read.

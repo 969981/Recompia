@@ -20,6 +20,7 @@
 - Fixed a crash on the first boot on some Windows PCs that reported `HOST EXCEPTION 0x406D1388`: that code only names a thread for a debugger and is now ignored
 - Fixed a co-op member's start of a town building kit being lost: the start now counts like the host's own and is kept in the host's save
 - Fixed creatures the story asks to follow you in co-op following nobody, so story requests that need you to lead them somewhere could not be finished
+- Fixed a creature following you in co-op being sent home when you change areas, even when it was allowed to come along: it now arrives with you
 
 ## 0.18.0 (build V: Vaquita)
 

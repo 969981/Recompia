@@ -60,7 +60,8 @@
 //   A leader that leaves the session: its escorts become the authority's player's.
 //   The group's move to another area (pkp_coop_travel.cpp): every invited follower leaves through the game's own 0x2a1dc0 first, an
 //   escort too (the game clears the lists at the stage change, which is no leave: the follow mark in the save would stay), but an
-//   escort stays in the record and is attached again where its creature is next seen.
+//   escort stays in the record and is attached again where its creature is next seen. The other followers who can come are
+//   recorded right before (pkp_coop_carry.cpp) and follow their leaders again in the next area.
 // A member's party leave (RequestPartyNPC +0x38 = 0, sent by 0x659588 on a visitor) carries the creature (+0x36) and the leader
 // as the member sees it (+0x34), not who asks; the host's handler 0x5519bc detaches it from whoever leads it. The rule: a leave
 // only ever takes a creature from the player who asked.
@@ -406,6 +407,8 @@ bool make_room(::Ctx* c, uint8_t slot) {
     return true;
 }
 
+}  // namespace
+
 // The story's follow is not the creature's choice: the invited follower (u16 actor id at npc) is taken as the party tick's accept
 // takes it. The online authority's party tick 0x656200 asks 0x16570(&player, &creature, 0, &message, 1) of every invited follower
 // whose follow is on and whose leader id is not set yet; on a yes it writes the leader id and raises kind 4 for the slot, on a no it
@@ -427,6 +430,12 @@ bool accept(::Ctx* c, uint64_t npc, uint16_t leader, uint8_t slot) {
         guest::call(c, base() + kRaise, gm + kRaiseQueue, kRaiseParty, slot, 0);
     return true;
 }
+
+uint16_t player_actor(uint8_t slot) { return players(slot, 0).of_index; }
+
+bool is_escort(uint16_t data) { return escort_of(data) != nullptr; }
+
+namespace {
 
 // The escort follows its leader here, or is attached now. False when it should and does not.
 bool match(::Ctx* c, Escort& e) {
@@ -643,12 +652,13 @@ int on_party_request(::Ctx* c) {
 
 void release_for_move(::Ctx* c) {
     if (!link::in_session() || !link::is_authority()) return;
+    carry::before_move(c);
     uint16_t ids[party::kInvitedMost];
     const size_t n = party::invited(ids, party::kInvitedMost);
     if (!n) return;
     for (size_t i = 0; i < n; ++i) leave(c, ids[i]);
     NXLOG_I(kTag, "Co-op follow: the group moves to another area; its %zu invited followers were released first (%zu escorts stay in "
-            "the record and are attached again on arrival)", n, st().escorts.size());
+            "the record and are attached again on arrival, the others who can come follow again there)", n, st().escorts.size());
 }
 
 void on_ask_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {

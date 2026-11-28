@@ -692,6 +692,7 @@ void game_frame(::Ctx* c) {
     coop::takeout::tick(c);
     coop::deposit::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::follow::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::carry::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::savecopy::tick(c);
     coop::talkrec::tick();
     coop::stage::tick(s.in_game.load(std::memory_order_relaxed));
@@ -761,6 +762,7 @@ void remove() {   // the registry has removed the hooks
     coop::deposit::reset();
     coop::buildstart::reset();
     coop::follow::reset();
+    coop::carry::reset();
     coop::savecopy::reset();
     coop::talkrec::reset();
     coop::stage::reset();
