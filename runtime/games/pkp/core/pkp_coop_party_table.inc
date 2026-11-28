@@ -65,6 +65,17 @@ PKP_PARTY_FACT(0x127480, FollowerAbility, 0xd503237fu, "followers", "a story ste
 PKP_PARTY_OFF(0x7b0a14, 0x257e44, 0, 0x3607fd80u, "area gate", "pressing an area gate no longer releases the creatures following the player (the online rule)")
 PKP_PARTY_OFF(0x7b09d4, 0x4b1558, 1, 0x36000280u, "area gate", "a follower never stops the press at an area gate: the group is asked, and followers leave when the group moves")
 
+// ---- a departure and the followers of the player who leaves (script callbacks 0x4e 0x49a380 and 0x50 0x49b060) ----
+// Both walk the leaving player's invited followers (0x50: its slot's list, by the player's net slot vt+0x4a8) and stop at the
+// first one they pick: event 0xe59 ("a creature following you has unfinished business in this town"), whose end releases it,
+// instead of the departure (0x4e goes on to its trip, 0x50 offers event 0x107b). Online (0x207b0, unless the game state's leaving
+// bit +0x11 is set) they pick any town creature (index below 0x400 or outside 0x3ff..0x415, the +0x39f2 test); offline only one
+// that fails "can come" 0x4b1558. So in a session a follower the game itself lets come was refused at every departure. Off: the
+// offline test decides, and a follower who can come crosses with its leader (pkp_coop_carry.cpp). The pick of data id 0x2c
+// (before the online test) is left as it is.
+PKP_PARTY_OFF(0x49abd0, 0x207b0, 0, 0x36000480u, "departure", "a creature following a player that can come along is no longer refused when that player leaves the area (callback 0x4e)")
+PKP_PARTY_OFF(0x49b584, 0x207b0, 0, 0x360003e0u, "departure", "the same for the other departure callback (0x50)")
+
 // ---- moving to another area while a story follower is attached ----
 // The game refuses an area gate (0x7b0c50 results 2 / 3, scenes 0xa7f / 0xa80; the same test in the gate object 0x7cc180 and its
 // "can start" 0x7ccb50) and a move from the map page (0xfbacd0) while the story's follower list (party manager list 9) holds a

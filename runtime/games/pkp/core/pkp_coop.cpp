@@ -107,6 +107,7 @@ enum class Site : uintptr_t {
     RefusalReset,     // a member's bag reset to the host's copy when the host refused a request: the reset is skipped
     RefusalResetWait, // the same in kind 0xb's reply, whose skipped path also releases the request's wait (done by the hook)
     BagScreen,        // the bag / container screen's frame: while it runs, an apply of the record waits
+    StandTrade,       // the host's stand trade (kind 0x1e): a member's mirror is set to its bag before the trade (pkp_coop_bags.cpp)
     // ---- the shops ----
     ShopGrant,        // a purchase's give on the buyer's process (the shop's buy, or a visitor's buy the host answered): logged for the
                       // group, so every member gets it too (pkp_coop_purchases.cpp)
@@ -203,11 +204,14 @@ enum class Site : uintptr_t {
     // ---- a member's deposit into the story's materials drop (pkp_coop_deposit.cpp) ----
     DepositStore,     // the container slice: a member's drop slice is its own store, so its screen, check and our clear share one
     DepositConfirm,   // the drop's close after the screen's confirm: a member's deposit is stepped on the authority, not here
+    // ---- a member's building kit start (pkp_coop_buildstart.cpp) ----
+    BuildStart,       // the authority's apply of a member's kit start: run as the host's own start; its gates journalled
     // ---- a story follow on a member (pkp_coop_follow.cpp) ----
     StoryFollow,      // a story content's "follow this player" attach (0x2a1ed4, local only): on a member it does not run and the
                       // authority makes it for its own copy of the creature, so no member takes the host's follow away
     FollowerLeave,    // the leave every follower's leave ends in: a creature in the escort record does not leave
     StoryLeave,       // the story's own leave: the story releases an escort
+    StoryRelease,     // the scripted release before it: an escort that follows nobody is released too
     PartyRequest,     // the host's RequestPartyNPC handler: a member's leave of a creature another player leads is refused, so a
                       // teammate's leave only ever takes its own follower
     // ---- a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp) ----
@@ -290,9 +294,9 @@ constexpr CoopSite kSites[] = {
     {{0x228f38, 0xb4000620u, false}, Site::RefusalReset},     // the same, kind 0xf
     {{0x22a298, 0xb40002c0u, false}, Site::RefusalReset},     // kind 0x1a
     {{0x2267fc, 0xb4000660u, false}, Site::RefusalReset},     // kind 0x1d
-    {{0x226684, 0xb4001220u, false}, Site::RefusalReset},     // kind 0x1e
     {{0x226868, 0xb4000300u, false}, Site::RefusalReset},     // kind 0x1f
     {{0xfeee78, kPacibsp, true}, Site::BagScreen},
+    {{0x223760, kPacibsp, true}, Site::StandTrade},
     {{0xe889f8, kPacibsp, true}, Site::ShopGrant},
     {{0xe87260, kPacibsp, true}, Site::OfflineGoods},
     {{0xe8d428, kPacibsp, true}, Site::ShopTile},
@@ -391,9 +395,19 @@ constexpr CoopSite kSites[] = {
     // a member's deposit into the story's materials drop (pkp_coop_deposit.cpp)
     {{0x5b1c84, kPacibsp, true}, Site::DepositStore},
     {{0x7e693c, 0x36001ac0u, false}, Site::DepositConfirm},  // tbz w0, #0, 0x7e6c94 (w0 = 0xa94bbc's confirm flag, x19 the gimmick)
+    // a member's building kit start (pkp_coop_buildstart.cpp)
+    {{0x8603dc, 0x12001c28u, true}, Site::BuildStart},       // and w8, w1, #0xff (vt+0x4e0 of class 0x327cf68)
+    {{0x86bc20, kPacibsp, true}, Site::BuildStart},          // the requirement check
+    {{0x86322c, 0xd63f0100u, false}, Site::BuildStart},      // blr x8 (SetBuildState, x0 = the kit)
+    {{0x2227b0, 0x794002a0u, false}, Site::BuildStart},      // ldrh w0, [x21] (after the apply's vt+0x4e0)
+    {{0x222778, 0xb40001c0u, false}, Site::BuildStart},      // cbz x0, 0x2227b0 (x0 = 0x7716c0's object)
+    {{0x221d84, 0x36006120u, false}, Site::BuildStart},      // tbz w0, #0, 0x2229a8 (the owner check)
+    {{0x22292c, 0x360003e8u, false}, Site::BuildStart},      // tbz w8, #0, 0x2229a8 (the bag balance)
+    {{0x2229a8, 0xaa1f03e8u, false}, Site::BuildStart},      // mov x8, xzr (the refusal)
     // a story follow on a member (pkp_coop_follow.cpp)
     {{0x659588, kPacibsp, true}, Site::FollowerLeave},      // x3 = &the creature's actor id
     {{0x659bf8, kPacibsp, true}, Site::StoryLeave},         // x2 = &the creature's actor id
+    {{0x2a1f44, kPacibsp, true}, Site::StoryRelease},       // x0 = &the creature's actor id
     {{0x2a1ed4, 0xf0018f09u, true}, Site::StoryFollow},      // adrp x9, 0x3484000 (x0 = &the creature's actor id, w1 the flag)
     {{0x5519bc, kPacibsp, true}, Site::PartyRequest},        // x0 = the message, w21 = the sender's member index (0x547980)
     // a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp)
@@ -482,6 +496,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::RefusalReset: return coop::bag::on_refusal_reset(c, false);
         case Site::RefusalResetWait: return coop::bag::on_refusal_reset(c, true);
         case Site::BagScreen: return coop::bags::on_bag_screen(c);
+        case Site::StandTrade: return coop::bags::on_stand_trade(c);
         case Site::DexScene: return coop::discovery::on_dex_scene(c);
         case Site::HabitatScene: return coop::discovery::on_habitat_scene(c);
         case Site::VisitorSync: return coop::held::on_visitor_sync(c);
@@ -534,9 +549,11 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::TakeoutStore: return coop::takeout::on_remove_store(c);
         case Site::DepositStore: return coop::deposit::on_store(c);
         case Site::DepositConfirm: return coop::deposit::on_confirm(c);
+        case Site::BuildStart: return coop::buildstart::on_site(c, addr - st().base);
         case Site::StoryFollow: return coop::follow::on_story_follow(c);
         case Site::FollowerLeave: return coop::follow::on_leave(c);
         case Site::StoryLeave: return coop::follow::on_story_leave(c);
+        case Site::StoryRelease: return coop::follow::on_story_release(c);
         case Site::PartyRequest: return coop::follow::on_party_request(c);
         case Site::TalkRecArmed: return coop::talkrec::on_armed(c);
         case Site::TalkSwapParent: return coop::talk::on_swap_parent(c);
@@ -675,6 +692,7 @@ void game_frame(::Ctx* c) {
     coop::takeout::tick(c);
     coop::deposit::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::follow::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::carry::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::savecopy::tick(c);
     coop::talkrec::tick();
     coop::stage::tick(s.in_game.load(std::memory_order_relaxed));
@@ -742,7 +760,9 @@ void remove() {   // the registry has removed the hooks
     coop::title::reset();
     coop::takeout::reset();
     coop::deposit::reset();
+    coop::buildstart::reset();
     coop::follow::reset();
+    coop::carry::reset();
     coop::savecopy::reset();
     coop::talkrec::reset();
     coop::stage::reset();

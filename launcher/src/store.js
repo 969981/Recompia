@@ -111,6 +111,7 @@ export const store = {
     await Promise.all([
       on('game-status', (p) => set({ game: p }, 'game')),
       on('setup-status', onSetupEvent),
+      on('launcher-notice', (p) => toast(errText(p.message))),   // launch.rs: something the launcher fixed or found on the way to Play
       on('update-progress', (p) => set({ update: p }, 'update')),
       on('dlss-progress', (p) => store.state.dlss && set({ dlss: p }, 'task')),
       on('save-edit-data-progress', (p) => set({ saveEditData: p }, 'saveedit')),

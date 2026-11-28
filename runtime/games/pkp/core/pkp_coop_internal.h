@@ -110,6 +110,8 @@ void tick(::Ctx* c, bool in_game);
 void reset();
 // The player walks: in the world, no event running, no autosave in progress.
 bool can_walk(bool in_game);
+// Why can_walk is false (its first failing test, for a log line), or nullptr when it is true.
+const char* walk_block(bool in_game);
 // The stage the player is in (GM+0x18; 0 while the game state is not there).
 uint8_t area_stage();
 // The area's data is loaded and still: play ran in it (play mode's in_game), or its stage has held for a while and the stage-change
@@ -426,7 +428,8 @@ int on_stage_bag_clear(::Ctx* c);  // entry 0x5afee0: the stage load's clear of 
 int on_bag_to_storage(::Ctx* c);   // entry 0x5affe0 / 0x5b0d60 (holder): the move of the bag into the PC, skipped; the share bit cleared
 int on_host_bag_store(::Ctx* c);   // entry 0x5b0a60 / 0x5af6a0: the host's moves between its per-user table and a bag, skipped
 int on_refusal_reset(::Ctx* c, bool releases_wait);   // midhooks in 0x226280: a member's bag reset to the host's copy, skipped
-                                                      // (the record is written back instead, pkp_coop_bags.cpp; not in kind 0xb)
+                                                      // (the record is written back instead, pkp_coop_bags.cpp; not in kind 0xb;
+                                                      // kind 0x1e keeps the game's reset, bags::on_stand_trade)
 }  // namespace bag
 
 namespace bags {
@@ -455,6 +458,7 @@ size_t records(View* out, size_t most);
 // The hook sites (pkp_coop.cpp).
 int on_mirror_fill(::Ctx* c);   // entry 0x575644 (member index), the host at a join: the mirror fed from that member's record
 int on_bag_screen(::Ctx* c);    // entry 0xfeee78 (screen), the bag / container screen's frame: an apply waits while it is open
+int on_stand_trade(::Ctx* c);   // entry 0x223760 (sender, request), the host's stand trade: the mirror is the bag before the trade
 // The messages (pkp_coop_link.cpp).
 void on_record_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);    // the authority: a member's record
 void on_restore_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: the authority's copy of its record
@@ -743,6 +747,8 @@ bool owns(::Ctx* c, uint64_t comp);
 // The actor ids of the creatures the session's players invited to follow them (every slot's list), at most `most`; the count.
 constexpr size_t kInvitedMost = 20;   // 4 lists of 5
 size_t invited(uint16_t* ids, size_t most);
+// The actor ids of the creatures the session player of `slot` invited to follow it (its list 0..3), at most `most`; the count.
+size_t followers_of(uint8_t slot, uint16_t* ids, size_t most);
 // The bags (pkp_coop_party_bags.cpp). The largest count of item `id` any other player of the session holds, as far as this
 // process knows (0: none; *node: that player's, written when the count is above 0); and whether one of them holds exactly
 // `exactly` of it (*node: that player's).
@@ -922,6 +928,14 @@ void on_state_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);
 void tick(::Ctx* c, bool in_game);
 void reset();
 }  // namespace deposit
+// ---- a member's building kit start, applied on the authority (pkp_coop_buildstart.cpp) ----
+namespace buildstart {
+// The hook sites (pkp_coop.cpp; site: its main offset): entry 0x8603dc (the kit's apply of request kind 0x1a), entry 0x86bc20 (its
+// requirement check: passed over for a member's start, returns 1), midhooks 0x86322c (the commit), 0x2227b0 (the apply's end), and in
+// 0x221d00 0x222778, 0x221d84, 0x22292c, 0x2229a8 (the gates, journalled). Every other site returns 0.
+int on_site(::Ctx* c, uint64_t site);
+void reset();
+}  // namespace buildstart
 // ---- a story follow on a member (pkp_coop_follow.cpp) ----
 namespace follow {
 // The hook site (pkp_coop.cpp): entry 0x2a1ed4, the contents' "follow this player" attach (command 0xdac mode 3, through 0x117b18).
@@ -934,6 +948,9 @@ int on_leave(::Ctx* c);
 // The hook site (pkp_coop.cpp): entry 0x659bf8, the story's own leave (x2 = &the creature's actor id). In a session, for an escort:
 // on the authority it is released; on the member that leads it the release is sent to the authority. Returns 0.
 int on_story_leave(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0x2a1f44, the scripted release (x0 = &the creature's actor id), which reaches 0x659bf8 only
+// for a creature with a leader. In a session an escort that follows nobody here is released as on_story_leave does. Returns 0.
+int on_story_release(::Ctx* c);
 // The hook site (pkp_coop.cpp): entry 0x5519bc, the host's RequestPartyNPC handler. On the authority in the session a member's leave
 // of a creature another player leads is refused as handled (x0 = 0, returns 1); 0 elsewhere (the game's handler runs).
 int on_party_request(::Ctx* c);
@@ -947,6 +964,12 @@ void on_member_change(int node, bool joined);
 // The authority, when the group's agreed move to another area is made (pkp_coop_travel.cpp): every player's invited followers
 // leave their leaders through the game's own leave; an escort stays in the record. Nothing on a member or outside a session.
 void release_for_move(::Ctx* c);
+// The invited follower (guest &u16 actor id at npc, in slot's list) is taken as the authority's party tick takes a yes from the
+// creature: the leader id is written and the slot's list is raised to the members. False when the invite did not turn its follow on.
+bool accept(::Ctx* c, uint64_t npc, uint16_t leader, uint8_t slot);
+// The actor id of the session player of `slot` here (0: none); the creature of data id `data` is in the escort record.
+uint16_t player_actor(uint8_t slot);
+bool is_escort(uint16_t data);
 // A member sends its asks and releases and marks the escorts of the record it received; the authority finds the saved record's
 // creatures, attaches the escorts that do not follow their leader and sends the record (once a frame, after the channel's
 // handlers).
@@ -962,6 +985,15 @@ bool marked(uint32_t index);
 bool put(uint32_t index, bool on, bool visiting);
 }  // namespace marks
 }  // namespace follow
+// ---- the followers who can come cross areas with the group (pkp_coop_carry.cpp) ----
+namespace carry {
+// The authority, right before the group's move releases its followers (follow::release_for_move): the record is taken now.
+void before_move(::Ctx* c);
+// The authority records every slot's invited followers who can come while the group walks in an area, and attaches them to their
+// leaders once the group walks in the next one (once a frame, after the follow module's tick). Nothing on a member.
+void tick(::Ctx* c, bool in_game);
+void reset();
+}  // namespace carry
 // ---- the one shared save (pkp_coop_savecopy.cpp) ----
 namespace savecopy {
 // At the feature's install, before the game opens its save: a received copy left half moved is completed; this PC's copy is read.
