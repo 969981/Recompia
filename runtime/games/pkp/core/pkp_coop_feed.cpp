@@ -24,7 +24,9 @@
 //   runs with the authority's copy of that character: 0x28cc60(player manager, data id), the first live resident of that data id
 //   outside the special idx range (the same rule 0x286de4 applies), and its u16 actor id at actor +0x27fe (0x597820 passes that
 //   address to the triad notifier 0x136548 as &actor id). The scheduler keys on the data id alone, so which of two residents of one
-//   data id is found does not change the event. One a frame (a record may queue a scene); dropped after kDrop or on a stage change.
+//   data id is found does not change the event. One a frame (a record may queue a scene). It waits as long as the authority has no
+//   safe moment (its player in a menu or away for many minutes: a story step must not be lost to that) and is dropped only on a stage
+//   change or when the authority has no such character; a kind 14 notice alone also ages out after kUsedDrop (below).
 //
 // Kind 29, "fed": a field feed, the player holding food and using it on a creature. That is held-item command kind 9 (vtable
 // 0x325a5f8, bound by the command constructor 0x588d20), whose execute slot 3 0x597820(cmd, action component, &start params) the
@@ -79,8 +81,10 @@
 // argument): the member has then had what that record does to the acting player, and the authority's run of its copy leaves
 // those actions out (pkp_coop_behalf.cpp), so a member's press does not play its scene on the host's screen.
 //   0x1350c0 (entry hook), on a member, called from the notifier of the notice just queued: the event is marked taken.
-// The authority's queue: an event of kind 2 or 14 equal to one that waits is not queued twice (one post serves both; a held press
-// is often repeated), and an event that finds the queue full is lost with a log line.
+// The authority's queue: an event of kind 1, 2 or 14 equal to one that waits is not queued twice (one post serves both; a held press
+// or a talk pressed again is often repeated); feeds stay one each. Kind 14 comes two or three a press and most presses have no record
+// waiting on them, so it alone ages out (kUsedDrop) and a full queue gives up its oldest kind 14 for a talk, an end or a feed; an
+// event that finds the queue full of those is lost with a log line. A wait longer than kWaitLine is logged once with its reason.
 // The wire carries any creature event kind (wire::Type::CreatureEvent); a kind this build does not post is dropped by the authority.
 #include "core/pkp_coop_internal.h"
 #include "core/pkp_guest.h"
@@ -149,7 +153,8 @@ constexpr unsigned kModeShift = 12;          // the event's arg: a | mode << 12 
 constexpr double kRecent = 30.0;            // the authority: the same kind 2 posted there this recently makes a member's a repeat
 constexpr size_t kPostedMax = 32;
 constexpr double kSendWait = 30.0;          // a member's event is sent at the latest this long after the talk started
-constexpr double kDrop = 120.0;             // an event the authority found no safe moment for (its own talks can be long)
+constexpr double kUsedDrop = 120.0;         // a kind 14 notice the authority found no safe moment for (its own talks can be long)
+constexpr double kWaitLine = 60.0;          // the authority: a wait for a safe moment this long is logged once, with why
 constexpr size_t kQueue = 16;               // a member's events not sent yet
 constexpr size_t kWaiting = 64;             // the authority's received events not posted yet
 constexpr uint16_t kTakenFlag = 0x8000;     // kinds 2 and 14 on the wire: the sender's own record took the notice
@@ -183,6 +188,7 @@ struct State {
     uint32_t lost = 0;             // the authority's received events lost to a full queue since the last line
     bool noticing = false;         // a member, inside the notifier's call: the last outgoing event is this notice's
     double held_at = 0.0;          // the authority: since when events wait with no safe moment to post (0: not waiting)
+    bool wait_logged = false;      // the authority: this wait's kWaitLine line is written
 };
 State& st() {
     static State s;
@@ -308,7 +314,7 @@ void apply(::Ctx* c, bool in_game) {
     const double now = qpc::seconds();
     for (size_t i = 0; i < s.incoming.size();) {
         const Event& e = s.incoming[i];
-        if (e.stage != here || now - e.at >= kDrop) {
+        if (e.stage != here || (e.kind == kUsedKind && now - e.at >= kUsedDrop)) {
             const char* why = e.stage != here ? "another stage here" : "no safe moment";
             if (e.kind == kUsedKind)
                 journal::Rec(journal::Area::Interact, "object use relay")
@@ -324,16 +330,23 @@ void apply(::Ctx* c, bool in_game) {
     }
     if (s.incoming.empty()) {
         s.held_at = 0.0;
+        s.wait_logged = false;
         return;
     }
-    if (!session::can_walk(in_game) || talk::talking()) {
+    if (const char* why = talk::talking() ? "this player's own talk" : session::walk_block(in_game)) {
         if (s.held_at == 0.0) s.held_at = now;
+        if (!s.wait_logged && now - s.held_at >= kWaitLine) {
+            s.wait_logged = true;
+            NXLOG_I(kTag, "Co-op feed: no safe moment here for %.0f s (%s); %zu events wait for one", now - s.held_at, why,
+                    s.incoming.size());
+        }
         return;
     }
     if (s.held_at != 0.0 && now - s.held_at >= kHeldLine)
         NXLOG_I(kTag, "Co-op feed: posting again after %.1f s with no safe moment; %zu events waited, %u were lost to the full queue",
                 now - s.held_at, s.incoming.size(), s.lost);
     s.held_at = 0.0;
+    s.wait_logged = false;
     s.lost = 0;
     const Event e = s.incoming.front();
     s.incoming.erase(s.incoming.begin());
@@ -352,16 +365,26 @@ void lose(State& s, uint8_t origin, uint8_t kind) {
                 "after it until there is room", kWaiting, origin, kind);
 }
 
-// The authority takes a received event into its queue. An event's end or an object's use equal to one that waits is that one (a
-// record that took it there once counts for both); a talk or a feed is always its own.
+// The authority takes a received event into its queue. A talk, an event's end or an object's use equal to one that waits is that
+// one (a record that took it there once counts for both); a feed is always its own. A full queue makes room for any kind but 14 by
+// giving up its oldest kind 14.
 void wait(State& s, const Event& e) {
-    if (e.kind == kEndedKind || e.kind == kUsedKind)
+    if (e.kind != kFedKind)
         for (Event& w : s.incoming)
             if (w.kind == e.kind && w.stage == e.stage && w.data == e.data && w.arg == e.arg && w.origin == e.origin) {
                 w.taken = w.taken || e.taken;
                 return;
             }
-    if (s.incoming.size() >= kWaiting) return lose(s, e.origin, e.kind);
+    if (s.incoming.size() >= kWaiting) {
+        const auto used = e.kind == kUsedKind ? s.incoming.end()
+                                              : std::find_if(s.incoming.begin(), s.incoming.end(),
+                                                             [](const Event& w) { return w.kind == kUsedKind; });
+        if (used == s.incoming.end()) return lose(s, e.origin, e.kind);
+        journal::Rec(journal::Area::Interact, "object use relay")
+            .in("node=%u object=%u use=%u mode=%u stage=%u", used->origin, used->data, use_of(used->arg), mode_of(used->arg), used->stage)
+            .refused("dropped: the queue is full and a story event needs its place");
+        s.incoming.erase(used);
+    }
     s.incoming.push_back(e);
 }
 

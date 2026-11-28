@@ -10,6 +10,7 @@
 - Changed the Desktop PC quality preset to 60 fps instead of the display's refresh rate
 
 ### Fixed
+- Fixed co-op story steps and newly met creatures from a teammate's talk being lost when the host stood still or sat in a menu for two minutes: the host now keeps them until it can run them, so the step happens and the creature moves in
 - Fixed add-on content (extra areas, creatures and shop items) staying hidden after the game files moved: Play now re-checks the add-on folder in pkp.ini like the other game paths and points it at the add-ons in your chosen game files, with a notice when it was missing
 - Fixed a co-op travel poll closing with "Staying in ..." when a player did not answer: no answer now counts as yes, and a No still keeps everyone where they are
 - Fixed a black picture in play with the DLAA upscaler when the window is taller than the game's 1080p frame (1440p, ultrawide)
