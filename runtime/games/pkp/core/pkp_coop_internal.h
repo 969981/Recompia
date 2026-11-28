@@ -946,6 +946,9 @@ int on_leave(::Ctx* c);
 // The hook site (pkp_coop.cpp): entry 0x659bf8, the story's own leave (x2 = &the creature's actor id). In a session, for an escort:
 // on the authority it is released; on the member that leads it the release is sent to the authority. Returns 0.
 int on_story_leave(::Ctx* c);
+// The hook site (pkp_coop.cpp): entry 0x2a1f44, the scripted release (x0 = &the creature's actor id), which reaches 0x659bf8 only
+// for a creature with a leader. In a session an escort that follows nobody here is released as on_story_leave does. Returns 0.
+int on_story_release(::Ctx* c);
 // The hook site (pkp_coop.cpp): entry 0x5519bc, the host's RequestPartyNPC handler. On the authority in the session a member's leave
 // of a creature another player leads is refused as handled (x0 = 0, returns 1); 0 elsewhere (the game's handler runs).
 int on_party_request(::Ctx* c);
