@@ -466,6 +466,8 @@ midhook 0x7100126f58
 entryhook 0x71001273a0
 entryhook 0x7100127480
 entryhook 0x7100284ef4
+midhook 0x710049abd0
+midhook 0x710049b584
 midhook 0x71004dbcbc
 midhook 0x7100614028
 midhook 0x7100614560
@@ -823,6 +825,9 @@ entryhook 0x71005519bc
 #   Seamless co-op, the escorts (pkp_coop_follow.cpp): the story's own leave 0x7100659bf8 (mgr, &leader id, &creature id; callers
 #   0x71002a1f44 and the escort end 0x7100617d98) releases an escort; the leave 0x7100659588 (declared under journal roles) keeps one
 entryhook 0x7100659bf8
+#   ... and the scripted release 0x71002a1f44 (&creature id; reaches 0x7100659bf8 only for a creature with a leader): an escort that
+#   follows nobody is released there
+entryhook 0x71002a1f44
 #   Seamless co-op, a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp): in script callback slot 195
 #   0x71004ae68c, the `bl 0x77ecb0` after its store of the talk record's +0x10 outside Cloud Island (w23 = the chara)
 midhook 0x71004ae7e8

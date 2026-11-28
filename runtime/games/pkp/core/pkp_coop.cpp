@@ -211,6 +211,7 @@ enum class Site : uintptr_t {
                       // authority makes it for its own copy of the creature, so no member takes the host's follow away
     FollowerLeave,    // the leave every follower's leave ends in: a creature in the escort record does not leave
     StoryLeave,       // the story's own leave: the story releases an escort
+    StoryRelease,     // the scripted release before it: an escort that follows nobody is released too
     PartyRequest,     // the host's RequestPartyNPC handler: a member's leave of a creature another player leads is refused, so a
                       // teammate's leave only ever takes its own follower
     // ---- a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp) ----
@@ -406,6 +407,7 @@ constexpr CoopSite kSites[] = {
     // a story follow on a member (pkp_coop_follow.cpp)
     {{0x659588, kPacibsp, true}, Site::FollowerLeave},      // x3 = &the creature's actor id
     {{0x659bf8, kPacibsp, true}, Site::StoryLeave},         // x2 = &the creature's actor id
+    {{0x2a1f44, kPacibsp, true}, Site::StoryRelease},       // x0 = &the creature's actor id
     {{0x2a1ed4, 0xf0018f09u, true}, Site::StoryFollow},      // adrp x9, 0x3484000 (x0 = &the creature's actor id, w1 the flag)
     {{0x5519bc, kPacibsp, true}, Site::PartyRequest},        // x0 = the message, w21 = the sender's member index (0x547980)
     // a creature's talk record flag a member's talk arms (pkp_coop_talkrec.cpp)
@@ -551,6 +553,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::StoryFollow: return coop::follow::on_story_follow(c);
         case Site::FollowerLeave: return coop::follow::on_leave(c);
         case Site::StoryLeave: return coop::follow::on_story_leave(c);
+        case Site::StoryRelease: return coop::follow::on_story_release(c);
         case Site::PartyRequest: return coop::follow::on_party_request(c);
         case Site::TalkRecArmed: return coop::talkrec::on_armed(c);
         case Site::TalkSwapParent: return coop::talk::on_swap_parent(c);
@@ -689,6 +692,7 @@ void game_frame(::Ctx* c) {
     coop::takeout::tick(c);
     coop::deposit::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::follow::tick(c, s.in_game.load(std::memory_order_relaxed));
+    coop::carry::tick(c, s.in_game.load(std::memory_order_relaxed));
     coop::savecopy::tick(c);
     coop::talkrec::tick();
     coop::stage::tick(s.in_game.load(std::memory_order_relaxed));
@@ -758,6 +762,7 @@ void remove() {   // the registry has removed the hooks
     coop::deposit::reset();
     coop::buildstart::reset();
     coop::follow::reset();
+    coop::carry::reset();
     coop::savecopy::reset();
     coop::talkrec::reset();
     coop::stage::reset();

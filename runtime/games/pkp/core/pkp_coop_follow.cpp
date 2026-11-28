@@ -15,8 +15,11 @@
 //   escort whose creature is in this stage and does not follow its leader (after an ask, a group move, a rejoin, a hand-over, an
 //   attach that failed). The attach is the game's 0x657a20(party manager, &leader id, &creature id, 1, 0), after the game's own leave
 //   when another player leads the creature, and after one invited follower of the leader that is no escort has left when the
-//   leader's five places are taken (the game's story attach makes room the same way). Not while the group is on its way to
-//   another area (travel::moving): an escort released for the move is attached where it arrives, not before the stage changes.
+//   leader's five places are taken (the game's story attach makes room the same way). The attach is then accepted as the
+//   authority's party tick accepts an invite (accept()): the story's follow does not ask the creature, as the story's own attach
+//   does not, and the tick's ask (0x16570) says no to a creature the story holds. Every escort is matched at every look. Not
+//   while the group is on its way to another area (travel::moving): an escort released for the move is attached where it arrives,
+//   not before the stage changes.
 //   The record in the save (pkp_coop_escort_marks.cpp): the game's own story mark of a creature, in the row the running game
 //   reads: the authority's own save, and on a member the copy of the host's rows it reads while visiting (a member's own save is
 //   never written). The game's own "is it the story's follower" answers then hold for an escort on every process, and the record
@@ -44,6 +47,9 @@
 //   the escort end (0x617d98): the story releases the creature. On the authority it is taken out of the record and leaves; on the
 //   member that leads it, the release is sent to the authority (EscortRelease), which does the same. A release on a member that
 //   does not lead it changes nothing: a teammate who reaches a scene or a stage late does not end another player's escort.
+//   0x2a1f44 (entry hook), the scripted release: it calls 0x659bf8 only for a creature that names a valid leader. An escort that
+//   follows nobody at that moment (not attached yet in a stage just entered, its leader's places full) is released there instead,
+//   or the next look would attach a creature the story has just placed (a contents `dc3` puts a creature on its spot this way).
 //   The game clears the story mark there only for a creature in its story list (0x659d80), which an escort is not; so outside a
 //   session this hook clears it in a host's save, or a creature that was an escort when the session closed would come back as a
 //   story follower after the story released it.
@@ -54,7 +60,8 @@
 //   A leader that leaves the session: its escorts become the authority's player's.
 //   The group's move to another area (pkp_coop_travel.cpp): every invited follower leaves through the game's own 0x2a1dc0 first, an
 //   escort too (the game clears the lists at the stage change, which is no leave: the follow mark in the save would stay), but an
-//   escort stays in the record and is attached again where its creature is next seen.
+//   escort stays in the record and is attached again where its creature is next seen. The other followers who can come are
+//   recorded right before (pkp_coop_carry.cpp) and follow their leaders again in the next area.
 // A member's party leave (RequestPartyNPC +0x38 = 0, sent by 0x659588 on a visitor) carries the creature (+0x36) and the leader
 // as the member sees it (+0x34), not who asks; the host's handler 0x5519bc detaches it from whoever leads it. The rule: a leave
 // only ever takes a creature from the player who asked.
@@ -89,6 +96,12 @@ constexpr uint64_t kInParty = 0x1d8;        // actor vt + : bool, it is in a par
 constexpr uint64_t kLeaderOf = 0x410;       // actor vt + : its leader's object, or 0
 constexpr uint64_t kPartyBlock = 0x35e0;    // leader object + : its party block; +0xc u32 its save index, +0x10 u16 the leader's actor id
 constexpr uint64_t kPartyIndex = 0xc, kPartyLeaderId = 0x10;
+constexpr uint64_t kPartOf = 0x408;         // actor vt + : the object whose + kPartyBlock the invite and the party tick write (0x657a20)
+constexpr uint64_t kPartFollowing = 0x1e;   // party block + : u8, the invite turned the creature's follow on (0x3f0ef0 w1)
+constexpr uint64_t kRaise = 0x4b1d54;       // (game state + kRaiseQueue, kind, slot, 0): the host's game event raise
+constexpr uint64_t kRaiseQueue = 0x3bb620;
+constexpr uint32_t kRaiseParty = 4;         // kind 4: the slot's invited list is sent to the members
+constexpr uint64_t kStateLeaving = 0x11;    // game state + : u8, bit 0 set: the party tick raises nothing (0x6564e0)
 constexpr uint64_t kResidentLists = 0x4550;   // player manager + this + 8 * data id: the live residents of that data id (0x28cc60)
 constexpr size_t kEnded = 64;                 // the releases remembered
 constexpr uint64_t kStoryLeave = 0x659bf8;  // (party manager, &u16 leader id, &u16 npc id): out of the story's list, its mark cleared
@@ -394,6 +407,36 @@ bool make_room(::Ctx* c, uint8_t slot) {
     return true;
 }
 
+}  // namespace
+
+// The story's follow is not the creature's choice: the invited follower (u16 actor id at npc) is taken as the party tick's accept
+// takes it. The online authority's party tick 0x656200 asks 0x16570(&player, &creature, 0, &message, 1) of every invited follower
+// whose follow is on and whose leader id is not set yet; on a yes it writes the leader id and raises kind 4 for the slot, on a no it
+// turns the follow off and takes the creature out of the list (0x658560, not the leave 0x659588). The story's own attach
+// (0x659280) asks nothing, and 0x16570 says no to a creature the story holds: an escort was dropped after every attach and followed
+// nobody. Here the yes is written before the tick asks. False when the creature's follow is not on (the invite did not attach it).
+bool accept(::Ctx* c, uint64_t npc, uint16_t leader, uint8_t slot) {
+    const uint64_t pm = player_manager();
+    const uint64_t actor = pm ? guest::call(c, base() + kActorById, pm, npc) : 0;
+    if (!guest::ok(actor, 8)) return false;
+    const uint64_t vt = guest::rd<uint64_t>(actor);
+    if (!guest::ok(vt + kPartOf, 8) || !(guest::call(c, guest::rd<uint64_t>(vt + kInParty), actor) & 1)) return false;
+    const uint64_t obj = guest::call(c, guest::rd<uint64_t>(vt + kPartOf), actor);
+    const uint64_t part = obj ? obj + kPartyBlock : 0;
+    if (!part || !guest::ok(part + kPartFollowing, 1) || !guest::rd<uint8_t>(part + kPartFollowing)) return false;
+    guest::wr<uint16_t>(part + kPartyLeaderId, leader);
+    const uint64_t gm = guest::deref(base() + layout::kGameState);
+    if (gm && guest::ok(gm + kStateLeaving, 1) && !(guest::rd<uint8_t>(gm + kStateLeaving) & 1))
+        guest::call(c, base() + kRaise, gm + kRaiseQueue, kRaiseParty, slot, 0);
+    return true;
+}
+
+uint16_t player_actor(uint8_t slot) { return players(slot, 0).of_index; }
+
+bool is_escort(uint16_t data) { return escort_of(data) != nullptr; }
+
+namespace {
+
 // The escort follows its leader here, or is attached now. False when it should and does not.
 bool match(::Ctx* c, Escort& e) {
     const uint64_t pm = player_manager();
@@ -425,11 +468,15 @@ bool match(::Ctx* c, Escort& e) {
     const uint16_t id = guest::rd<uint16_t>(npc);
     const uint16_t now = leader_here(c, npc);
     if (now == leader && in_list(e.slot, id)) return true;
-    if (now && now != leader) leave(c, id);
-    const bool room = make_room(c, e.slot);
-    guest::wr<uint16_t>(sp + 0x10, leader);
-    guest::wr<uint16_t>(sp + 0x14, guest::rd<uint16_t>(npc));
-    if (pg) guest::call(c, base() + kInvite, pg, sp + 0x10, sp + 0x14, 1, 0, sp);
+    bool room = true;
+    if (!in_list(e.slot, id)) {   // in the list already: the invite would return at once (0x659f40), only the accept is missing
+        if (now && now != leader) leave(c, id);
+        room = make_room(c, e.slot);
+        guest::wr<uint16_t>(sp + 0x10, leader);
+        guest::wr<uint16_t>(sp + 0x14, guest::rd<uint16_t>(npc));
+        if (pg) guest::call(c, base() + kInvite, pg, sp + 0x10, sp + 0x14, 1, 0, sp);
+    }
+    if (in_list(e.slot, id)) accept(c, npc, leader, e.slot);
     const bool led = leader_here(c, npc) == leader && in_list(e.slot, id);
     if (led || !e.told)
         NXLOG_I(kTag, "Co-op follow: character %u (actor 0x%x), the escort of player %u: %s", e.data, guest::rd<uint16_t>(npc), e.slot,
@@ -509,20 +556,14 @@ int on_leave(::Ctx* c) {
     return 1;
 }
 
-int on_story_leave(::Ctx* c) {
+namespace {
+
+// The story released the creature of data id `data` in a session: an escort is released on the authority; on the member that
+// leads it the release is sent to the authority.
+void story_released(::Ctx* c, uint16_t data) {
     State& s = st();
-    if (s.own_call) return 0;
-    const uint64_t npc = c->x[kStoryLeaveNpc];
-    if (!guest::ok(npc, 2) || !valid_id(guest::rd<uint16_t>(npc))) return 0;
-    const uint16_t data = static_cast<uint16_t>(guest::call(c, base() + kDataIdOf, npc));
-    if (static_cast<uint16_t>(data - 1) >= kDataIdMax) return 0;
-    if (!link::in_session()) {
-        // The story released it: in a host's save no mark stays behind for a creature that is not in the story's list.
-        if (role() == CoopRole::Host) marks::put(save_index(c, npc), false, false);
-        return 0;
-    }
     const Escort* e = escort_of(data);
-    if (!e) return 0;
+    if (!e) return;
     if (link::is_authority()) {
         behalf::Run run;
         const bool in_record = behalf::running(&run);
@@ -532,7 +573,7 @@ int on_story_leave(::Ctx* c) {
         if (in_record && again && run.origin >= 0 && e->node != wire::kNobody && run.origin != e->node) {
             NXLOG_I(kTag, "Co-op follow: content entry %u record %u releases character %u again, for node %d's notice; node %u leads "
                     "it, it stays an escort", run.entry, run.id, data, run.origin, e->node);
-            return 0;
+            return;
         }
         if (in_record && !again && s.ended.size() < kEnded) s.ended.push_back(key);
         release(c, data, "this process's content");
@@ -541,7 +582,38 @@ int on_story_leave(::Ctx* c) {
         for (uint16_t d : s.released) queued = queued || d == data;
         if (!queued && s.released.size() < kQueue) s.released.push_back(data);
     }
+}
+
+// The u16 actor id at npc names a creature (1..kDataIdMax): its data id, else 0.
+uint16_t data_of(::Ctx* c, uint64_t npc) {
+    if (!guest::ok(npc, 2) || !valid_id(guest::rd<uint16_t>(npc))) return 0;
+    const uint16_t data = static_cast<uint16_t>(guest::call(c, base() + kDataIdOf, npc));
+    return static_cast<uint16_t>(data - 1) < kDataIdMax ? data : 0;
+}
+
+}  // namespace
+
+int on_story_leave(::Ctx* c) {
+    if (st().own_call) return 0;
+    const uint64_t npc = c->x[kStoryLeaveNpc];
+    const uint16_t data = data_of(c, npc);
+    if (!data) return 0;
+    if (!link::in_session()) {
+        // The story released it: in a host's save no mark stays behind for a creature that is not in the story's list.
+        if (role() == CoopRole::Host) marks::put(save_index(c, npc), false, false);
+        return 0;
+    }
+    story_released(c, data);
     return 0;   // the story's own leave runs on (its list holds no escort)
+}
+
+int on_story_release(::Ctx* c) {
+    if (st().own_call || !link::in_session()) return 0;
+    const uint64_t npc = c->x[0];
+    const uint16_t data = data_of(c, npc);
+    // A creature with a leader goes on to the story's own leave 0x659bf8, which answers for it (on_story_leave).
+    if (data && !leader_here(c, npc)) story_released(c, data);
+    return 0;
 }
 
 int on_party_request(::Ctx* c) {
@@ -580,12 +652,13 @@ int on_party_request(::Ctx* c) {
 
 void release_for_move(::Ctx* c) {
     if (!link::in_session() || !link::is_authority()) return;
+    carry::before_move(c);
     uint16_t ids[party::kInvitedMost];
     const size_t n = party::invited(ids, party::kInvitedMost);
     if (!n) return;
     for (size_t i = 0; i < n; ++i) leave(c, ids[i]);
     NXLOG_I(kTag, "Co-op follow: the group moves to another area; its %zu invited followers were released first (%zu escorts stay in "
-            "the record and are attached again on arrival)", n, st().escorts.size());
+            "the record and are attached again on arrival, the others who can come follow again there)", n, st().escorts.size());
 }
 
 void on_ask_message(::Ctx* c, int, uint8_t origin, wire::Reader& r) {
@@ -664,8 +737,8 @@ void tick(::Ctx* c, bool in_game) {
         s.looked_at = now;
         discover(c, s);   // before the take-out below, whose leave clears the mark
         empty_story_list(c, s);
-        for (Escort& e : s.escorts)
-            if (e.slot < kPlayerSlots && !match(c, e)) break;   // one attach a look
+        for (Escort& e : s.escorts)   // every escort at every look: one that cannot be attached does not hold up the others
+            if (e.slot < kPlayerSlots) match(c, e);
     }
     if (s.unmarked) save_marks(s);
     if (s.loaded && s.dirty && link::member_count() && now - s.sent_at >= kSendEvery) send_record(s);
