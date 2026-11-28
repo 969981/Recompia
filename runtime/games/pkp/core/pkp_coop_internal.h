@@ -110,6 +110,8 @@ void tick(::Ctx* c, bool in_game);
 void reset();
 // The player walks: in the world, no event running, no autosave in progress.
 bool can_walk(bool in_game);
+// Why can_walk is false (its first failing test, for a log line), or nullptr when it is true.
+const char* walk_block(bool in_game);
 // The stage the player is in (GM+0x18; 0 while the game state is not there).
 uint8_t area_stage();
 // The area's data is loaded and still: play ran in it (play mode's in_game), or its stage has held for a while and the stage-change
