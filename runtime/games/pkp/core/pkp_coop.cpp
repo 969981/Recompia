@@ -107,6 +107,7 @@ enum class Site : uintptr_t {
     RefusalReset,     // a member's bag reset to the host's copy when the host refused a request: the reset is skipped
     RefusalResetWait, // the same in kind 0xb's reply, whose skipped path also releases the request's wait (done by the hook)
     BagScreen,        // the bag / container screen's frame: while it runs, an apply of the record waits
+    StandTrade,       // the host's stand trade (kind 0x1e): a member's mirror is set to its bag before the trade (pkp_coop_bags.cpp)
     // ---- the shops ----
     ShopGrant,        // a purchase's give on the buyer's process (the shop's buy, or a visitor's buy the host answered): logged for the
                       // group, so every member gets it too (pkp_coop_purchases.cpp)
@@ -292,9 +293,9 @@ constexpr CoopSite kSites[] = {
     {{0x228f38, 0xb4000620u, false}, Site::RefusalReset},     // the same, kind 0xf
     {{0x22a298, 0xb40002c0u, false}, Site::RefusalReset},     // kind 0x1a
     {{0x2267fc, 0xb4000660u, false}, Site::RefusalReset},     // kind 0x1d
-    {{0x226684, 0xb4001220u, false}, Site::RefusalReset},     // kind 0x1e
     {{0x226868, 0xb4000300u, false}, Site::RefusalReset},     // kind 0x1f
     {{0xfeee78, kPacibsp, true}, Site::BagScreen},
+    {{0x223760, kPacibsp, true}, Site::StandTrade},
     {{0xe889f8, kPacibsp, true}, Site::ShopGrant},
     {{0xe87260, kPacibsp, true}, Site::OfflineGoods},
     {{0xe8d428, kPacibsp, true}, Site::ShopTile},
@@ -493,6 +494,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::RefusalReset: return coop::bag::on_refusal_reset(c, false);
         case Site::RefusalResetWait: return coop::bag::on_refusal_reset(c, true);
         case Site::BagScreen: return coop::bags::on_bag_screen(c);
+        case Site::StandTrade: return coop::bags::on_stand_trade(c);
         case Site::DexScene: return coop::discovery::on_dex_scene(c);
         case Site::HabitatScene: return coop::discovery::on_habitat_scene(c);
         case Site::VisitorSync: return coop::held::on_visitor_sync(c);

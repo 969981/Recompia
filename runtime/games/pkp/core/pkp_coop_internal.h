@@ -428,7 +428,8 @@ int on_stage_bag_clear(::Ctx* c);  // entry 0x5afee0: the stage load's clear of 
 int on_bag_to_storage(::Ctx* c);   // entry 0x5affe0 / 0x5b0d60 (holder): the move of the bag into the PC, skipped; the share bit cleared
 int on_host_bag_store(::Ctx* c);   // entry 0x5b0a60 / 0x5af6a0: the host's moves between its per-user table and a bag, skipped
 int on_refusal_reset(::Ctx* c, bool releases_wait);   // midhooks in 0x226280: a member's bag reset to the host's copy, skipped
-                                                      // (the record is written back instead, pkp_coop_bags.cpp; not in kind 0xb)
+                                                      // (the record is written back instead, pkp_coop_bags.cpp; not in kind 0xb;
+                                                      // kind 0x1e keeps the game's reset, bags::on_stand_trade)
 }  // namespace bag
 
 namespace bags {
@@ -457,6 +458,7 @@ size_t records(View* out, size_t most);
 // The hook sites (pkp_coop.cpp).
 int on_mirror_fill(::Ctx* c);   // entry 0x575644 (member index), the host at a join: the mirror fed from that member's record
 int on_bag_screen(::Ctx* c);    // entry 0xfeee78 (screen), the bag / container screen's frame: an apply waits while it is open
+int on_stand_trade(::Ctx* c);   // entry 0x223760 (sender, request), the host's stand trade: the mirror is the bag before the trade
 // The messages (pkp_coop_link.cpp).
 void on_record_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);    // the authority: a member's record
 void on_restore_message(::Ctx* c, int from, uint8_t origin, wire::Reader& r);   // a member: the authority's copy of its record
