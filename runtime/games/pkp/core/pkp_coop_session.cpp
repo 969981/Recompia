@@ -197,15 +197,19 @@ void place(::Ctx* c, State& s, bool in_game, double now) {
 
 }  // namespace
 
-bool can_walk(bool in_game) {
-    if (!in_game || !local_player()) return false;
+const char* walk_block(bool in_game) {
+    if (!in_game) return "not in play (a game menu over play, a load, or no input)";
+    if (!local_player()) return "no local player";
     const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);
-    if (!guest::ok(game, layout::kStateAutosave + 4)) return false;
+    if (!guest::ok(game, layout::kStateAutosave + 4)) return "no game state";
     const uint32_t autosave = guest::rd<uint32_t>(game + layout::kStateAutosave);
-    if (autosave - 1 < 5) return false;
+    if (autosave - 1 < 5) return "an autosave is running";
     const uint64_t event = guest::rd<uint64_t>(game + layout::kStateEvent);
-    return !(event && guest::ok(event, layout::kEventBusy + 1) && guest::rd<uint8_t>(event + layout::kEventBusy));
+    if (event && guest::ok(event, layout::kEventBusy + 1) && guest::rd<uint8_t>(event + layout::kEventBusy)) return "the event bus is busy";
+    return nullptr;
 }
+
+bool can_walk(bool in_game) { return walk_block(in_game) == nullptr; }
 
 uint8_t area_stage() {
     const uint64_t game = guest::rd<uint64_t>(base() + layout::kGameState);

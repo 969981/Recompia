@@ -908,3 +908,15 @@ midhook 0x71004a1adc
 #   the event start 0x710047bf80 the `and w24, w24, w0` after each character's IsMine (x20 = &actor id)
 midhook 0x71004774e8
 midhook 0x710047bfe4
+#   Seamless co-op, a member's building kit start (pkp_coop_buildstart.cpp): entry 0x71008603dc (vt+0x4e0 of class 0x327cf68, the
+#   apply of request kind 0x1a), entry 0x710086bc20 (the requirement check vt+0x7d8), in 0x7100862ee0 the `blr` to SetBuildState at
+#   0x710086322c, and in the authority's apply 0x7100221d00 the return from vt+0x4e0 0x71002227b0, the `cbz x0` after the object
+#   lookup 0x7100222778, the `tbz` after the owner check 0x7100221d84 and on the bag balance 0x710022292c, the refusal 0x71002229a8
+entryhook 0x71008603dc
+entryhook 0x710086bc20
+midhook 0x710086322c
+midhook 0x71002227b0
+midhook 0x7100222778
+midhook 0x7100221d84
+midhook 0x710022292c
+midhook 0x71002229a8

@@ -89,6 +89,7 @@ if(TARGET nxrt_gfx)
         "${_pkp}/core/pkp_coop_title.cpp"
         "${_pkp}/core/pkp_coop_takeout.cpp"
         "${_pkp}/core/pkp_coop_deposit.cpp"
+        "${_pkp}/core/pkp_coop_buildstart.cpp"
         "${_pkp}/core/pkp_coop_follow.cpp"
         "${_pkp}/core/pkp_coop_escort_marks.cpp"
         # the one shared save

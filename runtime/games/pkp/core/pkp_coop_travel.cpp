@@ -19,7 +19,11 @@
 //     for good.
 // The host's poll is opened for a stage the host has not been to yet, too: 0x580a98 refuses kind 1 when the target's bit in the
 // stages it may name (R + 0x98) is clear, and a gate's first trip leads to such an area. The bit is set for the call alone.
-// A No (or a player who does not answer) leaves everyone where they are: the move is cancelled.
+// A No leaves everyone where they are: the move is cancelled. A player who does not answer counts as yes (bug 7): the game keeps one
+// vote byte per player (status +0x19), 0 for a No and for no answer alike, and its result (0x582ae0, host) fails on any 0. So every
+// process votes yes for its own player through the game's setter (0x417bcc) once its vote phase begins (preset_yes); a No picked
+// in the poll's UI (0xf5f408) writes 0 over it. The vote phase ends on each player's countdown (0x2fbe78), never on the votes, so
+// the yes closes no poll early.
 // The host's own map travel is vanilla already (StartPoll(5), then the departure on a yes), and the Dream Island trips (0xbd5a0 from
 // 0x99ae98 / 0x99bea8) run as they are: neither reaches 0xbda20.
 // The group's followers are released when an agreed move is made (pkp_coop_follow.cpp), which is before the stage changes: at once
@@ -50,7 +54,8 @@ constexpr uint64_t kPollStages = 0x98;           // R (layout::kSaveRoot) + this
 constexpr uint64_t kTripRecord = 0x3bb600;       // game state: the trip record; +0 u32 its phase (a move is filed only at >= 5)
 constexpr uint64_t kPoll = 0x4d25b4;             // game state: the poll; +0 kind, +1 state, +2 requester, +3 target, +8 result
 constexpr uint8_t kKindArea = 1;                 // the poll kind of an area move
-constexpr uint8_t kStateResult = 3;              // +1: 1 ask, 2 vote, 3 result, 4 end
+constexpr uint8_t kStateVote = 2;                // +1: 1 ask, 2 vote, 3 result, 4 end
+constexpr uint8_t kStateResult = 3;
 constexpr uint8_t kMaxStage = 31;
 
 constexpr uint64_t kMoveByStage = 0xbd5a0;       // (rec, stage, w2, w3, w4, w5): the area move by stage
@@ -64,6 +69,18 @@ constexpr uint64_t kRoomFind = 0x724680;         // -> the gate's door (as 0x7b0
 constexpr uint64_t kTriggerKey = 0x18;
 constexpr uint64_t kDoorGate = 0x118;            // the door: s8, its gate id (0..31)
 constexpr uint64_t kGateIndex = 0x7cc01c;        // (gate id) -> the destination index (table slot 401 row +3; 0xff for none)
+
+// A player's poll status (its replicated block at chara +0x5218), as 0x581af4 finds this process's own.
+constexpr uint64_t kPlayerManager = 0x3561928;   // *(main+this) +kOwnPlayer: this process's player actor
+constexpr uint64_t kOwnPlayer = 0x30;
+constexpr uint64_t kActorId = 0x27fe;            // actor + : u16 its actor id
+constexpr uint64_t kStatusOf = 0x417c48;         // (&u16 actor id) -> its status block, or the dummy main+kStatusDummy
+constexpr uint64_t kStatusDummy = 0x3567ab0;
+constexpr uint64_t kStatusKind = 0x15;           // status +: u8 the poll kind it is in
+constexpr uint64_t kStatusRequester = 0x16;      // u8 that poll's requester
+constexpr uint64_t kStatusPhase = 0x17;          // u8 its phase (2 vote; 0x2fbe78 sets 3 when its countdown ends)
+constexpr uint64_t kSetVote = 0x417bcc;          // (status, yes): +0x19 = yes in phase 2 of the running poll, sent as kind 0x21
+constexpr uint8_t kPhaseVote = 2;
 
 constexpr uint8_t kStateEnd = 4;
 constexpr uint32_t kRecordReady = 5;             // the trip record's phase from which a filer files (below it refuses silently)
@@ -82,6 +99,7 @@ struct Seen {
     bool open = false;
     bool decided = false;
     bool yes = false;
+    bool preset = false;   // this player's yes was set for this poll (once: a later call would undo a No picked since)
     uint8_t state = 0;
     uint8_t requester = 0;
     uint8_t target = 0;
@@ -290,6 +308,26 @@ void make_move(::Ctx* c, State& s, uint64_t gm) {
             g.requester, g.what.stage, g.what.kind == Kind::Index ? "by index" : "by stage", guest::rd<uint32_t>(gm + kTripRecord));
 }
 
+// This player's yes for the area poll another player asked for, set once its own status is in the vote phase of that poll (0x581af4
+// writes the phase after the prompt 0xa891f8 opens, and 0x417bcc votes only in that phase): true once set. The game's setter
+// replicates it like a vote picked in the UI, so the host's result reads it as this player's answer unless a No replaces it. The
+// requester's own yes is the game's (0x582ae0 counts the requester as yes).
+bool preset_yes(::Ctx* c, uint8_t requester) {
+    const uint64_t pm = guest::rd<uint64_t>(base() + kPlayerManager);
+    if (!guest::ok(pm + kOwnPlayer, 8)) return false;
+    const uint64_t player = guest::rd<uint64_t>(pm + kOwnPlayer);
+    if (!guest::ok(player + kActorId, 2)) return false;
+    const uint64_t sp = scratch(c);
+    guest::wr<uint16_t>(sp + 0x10, guest::rd<uint16_t>(player + kActorId));
+    const uint64_t status = guest::call(c, base() + kStatusOf, sp + 0x10, 0, 0, 0, 0, sp);
+    if (status == base() + kStatusDummy || !guest::ok(status + kStatusPhase, 1)) return false;
+    if (guest::rd<uint8_t>(status + kStatusKind) != kKindArea || guest::rd<uint8_t>(status + kStatusRequester) != requester ||
+        guest::rd<uint8_t>(status + kStatusPhase) != kPhaseVote)
+        return false;
+    guest::call(c, base() + kSetVote, status, 1, 0, 0, 0, sp);
+    return true;
+}
+
 // A move this player wants to make that needs the group's poll first: false when one runs already (held, decided or open).
 bool busy(const State& s, uint64_t gm) { return s.held.on || s.go.on || poll_open(gm); }
 
@@ -400,6 +438,11 @@ void tick(::Ctx* c) {
         s.seen.requester = guest::rd<uint8_t>(gm + kPoll + 2);
         s.seen.target = guest::rd<uint8_t>(gm + kPoll + 3);
         if (s.held.on && s.seen.requester == own_slot() && s.seen.target == s.held.stage) s.held.opened = true;
+        if (state == kStateVote && !s.seen.preset && s.seen.requester != own_slot() && preset_yes(c, s.seen.requester)) {
+            s.seen.preset = true;
+            NXLOG_I(kTag, "Co-op travel: this player's vote on player %u's move to stage %u starts as yes (a No in the poll replaces it)",
+                    s.seen.requester, s.seen.target);
+        }
         if (state >= kStateResult && !s.seen.decided) {
             s.seen.decided = true;
             s.seen.yes = guest::rd<uint8_t>(gm + kPoll + 8) == 1 && s.seen.target && s.seen.target <= kMaxStage;
@@ -417,7 +460,7 @@ void tick(::Ctx* c) {
         // Ended (or replaced): a yes is carried out now; a poll whose result was not seen leaves a held move off.
         if (s.seen.decided && s.seen.yes) on_passed(c, s, s.seen);
         else if (!s.seen.decided && s.held.on && s.seen.requester == own_slot()) s.held = Held{};
-        s.seen = area ? Seen{true, true, false, state, s.seen.requester, s.seen.target} : Seen{};   // a lingering end is not re-run
+        s.seen = area ? Seen{true, true, false, true, state, s.seen.requester, s.seen.target} : Seen{};   // a lingering end is not re-run
     }
     if (s.held.on && !s.held.opened && qpc::seconds() - s.held.since > kOpenWait) {
         NXLOG_W(kTag, "Co-op travel: the poll for the host's %s to stage %u did not open; %s", s.held.kind == Kind::Gate ? "gate" : "move",

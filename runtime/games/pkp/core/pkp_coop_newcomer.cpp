@@ -28,10 +28,12 @@
 // Here, a member in the session outside Cloud Island (quests::member_rules()): at 0x48235c (midhook on the `bl 0x3b9674`, x0 = comp)
 // in a talk this player holds, for a creature its copy has no parents for, the creature (actor handle comp +0x8, chara comp +0xc, the
 // stage) is queued for the authority and sent once the talk has ended (or after kSendWait). The member's own call runs as before.
-// The authority, at a safe moment (same stage, can walk, no talk of its own), finds the creature (0x333f10 on the handle: its
-// component, or the stand-in when it is not loaded here: dropped; the chara must match) and, when it still has no parents (the
-// "once": another member's or the host's own talk got there first), makes the host's own end-step call 0x3b9674(comp, &its own user
-// id, 0, 1). The creature is then the host's resident, as when the host talks to it, and its parents reach every member by kind 0xb.
+// The authority, at a safe moment (same stage, can walk, no talk of its own; it waits for one as long as it takes and drops the ask
+// only on a stage change, since the member sends it once and that first talk does not come again), finds the creature (0x333f10
+// on the handle: its component, or the stand-in when it is not loaded here: dropped; the chara must match) and, when it still has
+// no parents (the "once": another member's or the host's own talk got there first), makes the host's own end-step call
+// 0x3b9674(comp, &its own user id, 0, 1). The creature is then the host's resident, as when the host talks to it, and its parents
+// reach every member by kind 0xb.
 // The game's own forward runs 0x3b9b40 on the host a second time (in either order); with w2 = 1 that run skips 0x1be640, and the
 // rest of it sets state and once-bits (0x5d1620 returns when the bit is set already).
 #include "core/pkp_coop_internal.h"
@@ -55,7 +57,7 @@ constexpr uint64_t kHasParents = 0x285100;    // (comp) -> bit 0: its record (as
 constexpr uint64_t kBefriend = 0x3b9674;      // (comp, &u8[16] user id, w2, w3): the talk end step's call
 constexpr uint64_t kCompHandle = 8, kCompChara = 0xc;
 constexpr double kSendWait = 30.0;   // a member's newcomer is sent at the latest this long after the talk's end step
-constexpr double kDrop = 120.0;      // the authority found no safe moment for it
+constexpr double kWaitLine = 60.0;   // the authority: a wait for a safe moment this long is logged once, with why
 constexpr size_t kQueue = 16;
 
 struct Newcomer {
@@ -69,6 +71,8 @@ struct Newcomer {
 struct State {
     std::vector<Newcomer> outgoing;   // a member's newcomers not sent yet
     std::vector<Newcomer> incoming;   // the authority's received newcomers not applied yet
+    double held_at = 0.0;             // the authority: since when they wait with no safe moment (0: not waiting)
+    bool wait_logged = false;         // the authority: this wait's kWaitLine line is written
     alignas(8) uint16_t handle_arg = 0;                     // 0x333f10's argument (guest addresses are host addresses)
     alignas(8) uint8_t uid_arg[layout::kUserIdSize] = {};   // 0x3b9674's user id
 };
@@ -119,20 +123,33 @@ bool settle(::Ctx* c, const Newcomer& n) {
 
 void apply(::Ctx* c, bool in_game) {
     State& s = st();
-    if (s.incoming.empty()) return;
     const uint8_t here = stage();
-    const double now = qpc::seconds();
     for (size_t i = 0; i < s.incoming.size();) {
         const Newcomer& n = s.incoming[i];
-        if (n.stage != here || now - n.at >= kDrop) {
-            NXLOG_I(kTag, "Co-op newcomer: node %u's first talk with chara %u dropped (%s)", n.origin, n.chara,
-                    n.stage != here ? "another stage here" : "no safe moment");
+        if (n.stage != here) {
+            NXLOG_I(kTag, "Co-op newcomer: node %u's first talk with chara %u dropped (another stage here)", n.origin, n.chara);
             s.incoming.erase(s.incoming.begin() + static_cast<std::ptrdiff_t>(i));
             continue;
         }
         ++i;
     }
-    if (s.incoming.empty() || !session::can_walk(in_game) || talk::talking()) return;
+    if (s.incoming.empty()) {
+        s.held_at = 0.0;
+        s.wait_logged = false;
+        return;
+    }
+    if (const char* why = talk::talking() ? "this player's own talk" : session::walk_block(in_game)) {
+        const double now = qpc::seconds();
+        if (s.held_at == 0.0) s.held_at = now;
+        if (!s.wait_logged && now - s.held_at >= kWaitLine) {
+            s.wait_logged = true;
+            NXLOG_I(kTag, "Co-op newcomer: no safe moment here for %.0f s (%s); %zu first talks wait for one", now - s.held_at, why,
+                    s.incoming.size());
+        }
+        return;
+    }
+    s.held_at = 0.0;
+    s.wait_logged = false;
     const Newcomer n = s.incoming.front();
     s.incoming.erase(s.incoming.begin());
     if (!settle(c, n))
