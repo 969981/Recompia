@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.18.1 (build V: Vaquita Hotfix a1)
+
+**Update:** press **Update** in the launcher, then **Set up again** once (new hook sites; saves and shaders are kept, no shader is rebuilt). On Android, the app updates from inside it. Everyone in a co-op session needs this version: an older build cannot join a newer one.
+
+### Highlights
+- Co-op story fixes: story escorts follow you, followers travel with the group, a teammate's building start and story talks are kept, and stand-shop trades work for every player
+- Co-op travel polls count no answer as yes
+- Add-on content shows again after the game files were moved
+
 ### Android
 - Added the PC launcher's Sunrise and Meadow looks to the phone app: Automatic (the default) picks Sunrise, Meadow or Dusk by the time of day, or choose one in Settings > Look > Colours
 
