@@ -156,8 +156,10 @@ pub fn portable(dir: &Path, p: &str) -> String {
 
 /// `romfs_base`: the base game's romfs to layer under `romfs` ([fs] romfs_base; empty: none). It follows the launcher's choice while
 /// [fs] romfs is the launcher's own value; a romfs the user pointed elsewhere keeps the romfs_base the user set with it.
-/// `aoc_dir`: the dump's add-on content folder ([fs] aoc_dir; empty: the dump has none). Written once; a value the user set is kept.
-pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str, romfs_base: &str, aoc_dir: &str) -> Result<(), String> {
+/// `aoc_dir`: the dump's add-on content folder ([fs] aoc_dir; empty: the dump has none). Written once; a value the user set is kept
+/// while it names an existing folder, else it is reset (see `recheck_aoc_dir`).
+/// Returns a notice for the player when the add-on folder was missing, else None.
+pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str, romfs_base: &str, aoc_dir: &str) -> Result<Option<String>, String> {
     let path = dir.join(PKP_INI);
     let mut ini = load(&path).unwrap_or_else(Ini::empty);
     let mut changed = !path.exists();
@@ -201,6 +203,8 @@ pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str, romfs_base: &str,
         ini.set("fs", "aoc_dir", &portable(dir, aoc_dir));
         changed = true;
     }
+    let notice = recheck_aoc_dir(dir, &mut ini, aoc_dir);
+    changed |= notice.is_some();
     let cur_save = ini.get("fs", "save_dir").unwrap_or_default();
     if cur_save.trim().is_empty() {
         let _ = fs::create_dir_all(dir.join("save"));
@@ -210,7 +214,29 @@ pub fn ensure_play_paths(dir: &Path, exefs: &str, romfs: &str, romfs_base: &str,
     if changed {
         write_atomic(&path, &ini.to_text())?;
     }
-    Ok(())
+    Ok(notice)
+}
+
+/// Re-checks `[fs] aoc_dir` the way exefs and romfs are: a value that names a folder that is gone (the dump was moved or deleted
+/// after Set up) is reset to this dump's add-on folder (`aoc_dir`, kept relative) when it has one, else to empty (none). An existing
+/// folder and an empty value stay as they are. Returns the notice for the player when it reset the value.
+fn recheck_aoc_dir(dir: &Path, ini: &mut Ini, aoc_dir: &str) -> Option<String> {
+    let cur = ini.get("fs", "aoc_dir").unwrap_or_default();
+    let cur = cur.trim();
+    if cur.is_empty() {
+        return None;
+    }
+    let cur_path = Path::new(cur);
+    if (if cur_path.is_absolute() { cur_path.to_path_buf() } else { dir.join(cur_path) }).is_dir() {
+        return None;
+    }
+    let (now, notice) = if aoc_dir.is_empty() {
+        (String::new(), "The add-on content folder was not found, so add-on areas, creatures and shop items stay locked. Choose game files that include the add-ons on the Set up page.")
+    } else {
+        (portable(dir, aoc_dir), "The add-on content folder was not found, so it now points at the add-ons in your chosen game files.")
+    };
+    ini.set("fs", "aoc_dir", &now);
+    Some(notice.to_string())
 }
 
 /// The folder add-ons (DLC) are unpacked into: the one `[fs] aoc_dir` names, else `<dir>/aoc`, which is then written to pkp.ini.
@@ -344,6 +370,35 @@ mod aoc_tests {
         // a key the user (or the dump) set is followed, relative to the game folder
         fs::write(dir.join(PKP_INI), "[fs]\naoc_dir = dump/aoc\n").unwrap();
         assert_eq!(aoc_target(&dir).unwrap(), dir.join("dump/aoc"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod aoc_recheck_tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_add_on_folder_is_reset_to_the_dump_or_to_none() {
+        let dir = std::env::temp_dir().join(format!("pkp-aoc-recheck-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("dump/aoc")).unwrap();
+        let mut ini = Ini::parse("[fs]
+aoc_dir = D:/gone/aoc
+");
+        let dump = crate::dump::fwd(&dir.join("dump/aoc"));
+        // the dump has add-ons: the stale value follows it, relative to the game folder
+        assert!(recheck_aoc_dir(&dir, &mut ini, &dump).is_some());
+        assert_eq!(ini.get("fs", "aoc_dir").as_deref(), Some("dump/aoc"));
+        // an existing folder is kept
+        assert!(recheck_aoc_dir(&dir, &mut ini, "").is_none());
+        // no add-ons in the dump: reset to empty; an empty value is then left alone
+        let mut ini = Ini::parse("[fs]
+aoc_dir = D:/gone/aoc
+");
+        assert!(recheck_aoc_dir(&dir, &mut ini, "").is_some());
+        assert_eq!(ini.get("fs", "aoc_dir").as_deref(), Some(""));
+        assert!(recheck_aoc_dir(&dir, &mut ini, "").is_none());
         let _ = fs::remove_dir_all(&dir);
     }
 }
