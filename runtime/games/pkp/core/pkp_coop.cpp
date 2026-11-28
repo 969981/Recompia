@@ -203,6 +203,8 @@ enum class Site : uintptr_t {
     // ---- a member's deposit into the story's materials drop (pkp_coop_deposit.cpp) ----
     DepositStore,     // the container slice: a member's drop slice is its own store, so its screen, check and our clear share one
     DepositConfirm,   // the drop's close after the screen's confirm: a member's deposit is stepped on the authority, not here
+    // ---- a member's building kit start (pkp_coop_buildstart.cpp) ----
+    BuildStart,       // the authority's apply of a member's kit start: run as the host's own start; its gates journalled
     // ---- a story follow on a member (pkp_coop_follow.cpp) ----
     StoryFollow,      // a story content's "follow this player" attach (0x2a1ed4, local only): on a member it does not run and the
                       // authority makes it for its own copy of the creature, so no member takes the host's follow away
@@ -391,6 +393,15 @@ constexpr CoopSite kSites[] = {
     // a member's deposit into the story's materials drop (pkp_coop_deposit.cpp)
     {{0x5b1c84, kPacibsp, true}, Site::DepositStore},
     {{0x7e693c, 0x36001ac0u, false}, Site::DepositConfirm},  // tbz w0, #0, 0x7e6c94 (w0 = 0xa94bbc's confirm flag, x19 the gimmick)
+    // a member's building kit start (pkp_coop_buildstart.cpp)
+    {{0x8603dc, 0x12001c28u, true}, Site::BuildStart},       // and w8, w1, #0xff (vt+0x4e0 of class 0x327cf68)
+    {{0x86bc20, kPacibsp, true}, Site::BuildStart},          // the requirement check
+    {{0x86322c, 0xd63f0100u, false}, Site::BuildStart},      // blr x8 (SetBuildState, x0 = the kit)
+    {{0x2227b0, 0x794002a0u, false}, Site::BuildStart},      // ldrh w0, [x21] (after the apply's vt+0x4e0)
+    {{0x222778, 0xb40001c0u, false}, Site::BuildStart},      // cbz x0, 0x2227b0 (x0 = 0x7716c0's object)
+    {{0x221d84, 0x36006120u, false}, Site::BuildStart},      // tbz w0, #0, 0x2229a8 (the owner check)
+    {{0x22292c, 0x360003e8u, false}, Site::BuildStart},      // tbz w8, #0, 0x2229a8 (the bag balance)
+    {{0x2229a8, 0xaa1f03e8u, false}, Site::BuildStart},      // mov x8, xzr (the refusal)
     // a story follow on a member (pkp_coop_follow.cpp)
     {{0x659588, kPacibsp, true}, Site::FollowerLeave},      // x3 = &the creature's actor id
     {{0x659bf8, kPacibsp, true}, Site::StoryLeave},         // x2 = &the creature's actor id
@@ -534,6 +545,7 @@ int hook(::Ctx* c, uint64_t addr, void* user) {
         case Site::TakeoutStore: return coop::takeout::on_remove_store(c);
         case Site::DepositStore: return coop::deposit::on_store(c);
         case Site::DepositConfirm: return coop::deposit::on_confirm(c);
+        case Site::BuildStart: return coop::buildstart::on_site(c, addr - st().base);
         case Site::StoryFollow: return coop::follow::on_story_follow(c);
         case Site::FollowerLeave: return coop::follow::on_leave(c);
         case Site::StoryLeave: return coop::follow::on_story_leave(c);
@@ -742,6 +754,7 @@ void remove() {   // the registry has removed the hooks
     coop::title::reset();
     coop::takeout::reset();
     coop::deposit::reset();
+    coop::buildstart::reset();
     coop::follow::reset();
     coop::savecopy::reset();
     coop::talkrec::reset();
