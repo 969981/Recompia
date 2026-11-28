@@ -47,6 +47,9 @@ inline UpscaleMode upscale_mode_enabled(UpscaleMode m) {
 bool upscale_mode_available(UpscaleMode m);
 // A phone on the low-memory profile (the app sets [gfx] present_scale below 100 there): SGSR 2 is not offered and a stored sgsr2 runs as Off.
 bool low_memory_phone();
+// [gfx] small_targets (default on): on that profile the swapchain stays at the screen's size, so the 2D ([gfx] ui_native) is sharp while
+// the 3D targets keep the profile's smaller size ([gfx] present_scale caps them).
+bool small_targets();
 // Temporal quality preset: the input scale per side (native 1, quality 1/1.5, balanced 1/1.7, performance 1/2, ultra performance 1/3); Custom
 // keeps scene_scale. The scale only takes effect where the game renders the scene below its output (scene_scale); otherwise the temporal
 // upscalers run at the input size (native anti-aliasing).

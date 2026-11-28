@@ -15,6 +15,7 @@
 #include <thread>
 
 #include "nxrt/config.h"
+#include "nxrt/extras.h"
 #include "nxrt/frame_limiter.h"
 #include "nxrt/ftrace.h"
 #include "nxrt/gfx.h"
@@ -601,7 +602,9 @@ struct Renderer::Impl {
         // below its own (minImageExtent < currentExtent: Android, whose compositor scales the buffer to the window in hardware), so the
         // output passes and the overlay draw fewer pixels; the game's render scale is separate. Surfaces whose extent is fixed (desktop
         // window systems report min = max = current) keep their size. Overlay mouse positions follow (overlay.cpp handle_event).
-        static const uint32_t present_pct = static_cast<uint32_t>(std::clamp<int64_t>(config_get_int("gfx", "present_scale", 100), 25, 100));
+        // With [gfx] small_targets (extras::small_targets) the low-memory profile's smaller size is for the 3D targets only.
+        static const uint32_t present_pct = extras::small_targets() ? 100u
+            : static_cast<uint32_t>(std::clamp<int64_t>(config_get_int("gfx", "present_scale", 100), 25, 100));
         // Not on a taller-than-wide surface of a landscape-only window (the activity turning at start): images of another size than the
         // surface then kept the Android window portrait until the next rotation; the full size is used and the next swapchain,
         // once the surface is landscape, is scaled.

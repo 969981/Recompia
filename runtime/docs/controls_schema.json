@@ -2,7 +2,7 @@
   "file": "controls.ini",
   "sections": [
     {"name": "meta", "keys": [
-        {"key": "defaults_rev", "type": "int", "default": "6", "min": 0, "max": 1000, "doc": "The factory-defaults revision the file was written with (the game writes it; a file without it counts as 0). An older file gets the newer factory bindings and values at the next start."},
+        {"key": "defaults_rev", "type": "int", "default": "7", "min": 0, "max": 1000, "doc": "The factory-defaults revision the file was written with (the game writes it; a file without it counts as 0). An older file gets the newer factory bindings and values at the next start."},
         {"key": "display_rev", "type": "int", "default": "0", "min": 0, "max": 1000, "doc": "The display-defaults revision the file was written with (the game writes it; a file without it counts as 0). macOS turns vsync on for an older file."}
     ]},
     {"name": "mouse", "keys": [
@@ -44,7 +44,7 @@
         {"key": "render_mode", "type": "choice", "default": "console", "choices": ["console", "window"], "doc": "What an unset internal resolution follows: console renders 1920x1080 docked (1280x720 handheld) and the window upscales, window renders at the window's size. render_scale and a fixed size override it. Next start."},
         {"key": "window_mode", "type": "choice", "default": "windowed", "choices": ["windowed", "borderless", "exclusive"], "doc": "Exclusive falls back to borderless when the display refuses it. Alt+Enter and the F1 page switch modes while playing."},
         {"key": "vsync", "type": "bool", "default": "0", "doc": "0: no forced vsync (immediate or mailbox presents, VRR friendly) with the frame limit."},
-        {"key": "fps_limit", "type": "int", "default": "auto", "min": 0, "max": 1000, "auto": "auto", "aliases": ["fps_cap"], "doc": "Frame limit: 0 = unlimited, auto = the display's refresh rate. With vsync on, a limit applies only below the refresh rate."},
+        {"key": "fps_limit", "type": "int", "default": "60", "min": 0, "max": 1000, "auto": "auto", "aliases": ["fps_cap"], "doc": "Frame limit: 0 = unlimited, auto = the display's refresh rate. The game's factory value is 60, its console rate. With vsync on, a limit applies only below the refresh rate."},
         {"key": "fps_snap", "type": "choice", "default": "auto", "choices": ["auto", "true", "false"], "overridden_by": {"ini": "display.fps_snap", "env": "NXRT_DISPLAY_FPS_SNAP"}, "doc": "With vsync on, a frame limit below the refresh rate snaps to a divisor of it. auto: on a detected Steam Deck only."},
         {"key": "width", "type": "int", "default": "1280", "min": 320, "max": 16384, "doc": "Windowed client width, remembered."},
         {"key": "height", "type": "int", "default": "720", "min": 320, "max": 16384, "doc": "Windowed client height, remembered."},

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Android
+- Added the PC launcher's Sunrise and Meadow looks to the phone app: Automatic (the default) picks Sunrise, Meadow or Dusk by the time of day, or choose one in Settings > Look > Colours
+
+### Changed
+- Changed the frame rate limit to 60 fps by default on every PC and handheld, the rate the game runs at on the console: many bugs only show above 60. Players on the old default (Match Display) move to 60 once; a limit you picked yourself stays. To play above 60, pick Match Display, a higher rate or Unlimited in Settings > Display > Frame Rate Limit
+- Changed the Desktop PC quality preset to 60 fps instead of the display's refresh rate
+
+### Fixed
+- Fixed a black picture in play with the DLAA upscaler when the window is taller than the game's 1080p frame (1440p, ultrawide)
+- Fixed judder and long frame stalls on NVIDIA cards with `[gfx] gpu_keepalive` on: the keep-alive runs in 0.5 ms slices instead of 2 ms, so a frame's GPU work waits less behind it
+- Fixed the log's pool copy figures counting pages a GPU write left unchanged as copied after a landing
+- Fixed a crash on the first boot on some Windows PCs that reported `HOST EXCEPTION 0x406D1388`: that code only names a thread for a debugger and is now ignored
+
 ## 0.18.0 (build V: Vaquita)
 
 **Update:** press **Update** in the launcher, then **Set up again** once (the game code is lifted again and there are new hook sites; saves and shaders are kept, no shader is rebuilt). On Android, the app updates from inside it. Everyone in a co-op session needs this version: an older build cannot join a newer one.
@@ -29,7 +44,7 @@
 ### Graphics
 - Added the **Far Shadows** row to Settings > Graphics (Every Frame / Every Other Frame (Faster), next start): every other frame keeps the far shadow cascade from the frame before while its casters and the camera stand still, about 3 % fewer GPU cycles on a Snapdragon 8 Gen 3. On by default on phones, off on PC. A far caster that moves can be one frame late. Still not bit-exact with Every Frame
 - Fixed characters turning into glowing white shapes, a checkered player and the frame rate halving on PC after the camera went under water or into a waterfall, with a window larger than the game's 1080p frame (1440p, 4K)
-- Added `[gfx] small_targets` (off by default) for phones with the low-memory profile: the 3D keeps the low-memory size while the 2D stays at the screen's resolution
+- Phones on the low-memory profile draw the menus, HUD, text and touch controls at the screen's resolution: the 3D keeps the low-memory size (`[gfx] small_targets`, on by default)
 - Added the shaders of the work the GPU had not finished to the log when the graphics device is lost (every GPU vendor), so a GPU hang names the shader behind it
 - Fixed a "graphics device lost" crash on NVIDIA GPUs (and on Linux) when a compute pass read a bad item count: its loop now stops after 16384 items, as it already did on other GPUs
 - Fixed the in-game menu's minimap on screens that are not 16:9 (near-square phones, ultrawide): its creature, chest and house icons were stretched and spread along the screen's longer side, and could show outside the map

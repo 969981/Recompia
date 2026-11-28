@@ -51,6 +51,11 @@ UpscaleMode upscale_mode_here(UpscaleMode m) {
 
 bool low_memory_phone() { return host_is_phone() && config_get_int("gfx", "present_scale", 100) < 100; }
 
+bool small_targets() {
+    static const bool on = low_memory_phone() && config_get_bool("gfx", "small_targets", true);
+    return on;
+}
+
 const char* output_kind_name(OutputKind k) {
     switch (k) {
         case OutputKind::Sdr8: return "sdr8";

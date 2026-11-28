@@ -192,6 +192,8 @@ uint64_t land_one(PoolGpu* pool, const PoolChunk* c, uint64_t off, uint64_t size
 // GPU's bytes needs no copy, no protection change of the write tracker (it stays armed and current) and no write-watch write; the result
 // in guest memory is the same bytes. A CPU write racing the landing wins or loses exactly as with the copy (the compare reads first, as
 // the copy did). The compare runs per page under one fault guard; a page that cannot be read, or a fault, lands as before.
+// The pages it leaves alone go in `kept` like the runs a copy kept current: no copy follows them, so the bind that next copies one of them
+// (for another reason) does not count it as copied after a landing, and the tracker counts them as left current.
 bool land_diff() {
     static const bool on = config_get_bool("nvn", "pool_land_diff", true);
     return on;
@@ -213,9 +215,14 @@ uint64_t land_diff_one(PoolGpu* pool, const PoolChunk* c, uint64_t off, uint64_t
     });   // a fault leaves the pages after it marked as differing
     uint64_t bad = 0;
     for (uint64_t i = 0; i < np;) {
-        if (!differs[static_cast<size_t>(i)]) { ++i; continue; }
         uint64_t j = i + 1;
-        while (j < np && differs[static_cast<size_t>(j)]) ++j;
+        while (j < np && differs[static_cast<size_t>(j)] == differs[static_cast<size_t>(i)]) ++j;
+        if (!differs[static_cast<size_t>(i)]) {
+            kept.push_back(KeptRun{pool, off / kPage + i, j - i});
+            ptrack_land_same(pool->track, j - i);
+            i = j;
+            continue;
+        }
         const uint64_t a = i ? (off / kPage + i) * kPage : off, e = std::min(end, (off / kPage + j) * kPage);
         bad += land_one(pool, c, a, e - a, kept, ring ? ring + (a - off) : nullptr);
         i = j;
